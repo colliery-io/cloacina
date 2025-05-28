@@ -9,20 +9,16 @@ env:
 jobs:
   integration_tests:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        crate: [cloacina]
-      fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: 3.x
 
       - name: Install angreal
         run: |
@@ -30,10 +26,14 @@ jobs:
           pip install angreal
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
 
       - name: Cache build
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
           path: target
           key: ${{ runner.os }}-rust-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
@@ -41,7 +41,7 @@ jobs:
             ${{ runner.os }}-rust-build-
 
       - name: Docker Compose Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
           path: ~/.docker
           key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
@@ -52,4 +52,4 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run integration tests
-        run: angreal tests integration ${{ matrix.crate }} --skip-docker
+        run: angreal tests integration

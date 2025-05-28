@@ -19,6 +19,10 @@ jobs:
     uses: ./.github/workflows/integration_tests.yml
     if: github.event_name == 'pull_request' || github.event_name == 'push'
 
+  macro_tests:
+    needs: setup
+    uses: ./.github/workflows/macro_tests.yml
+
   tutorials:
     needs: setup
     uses: ./.github/workflows/tutorials.yml
