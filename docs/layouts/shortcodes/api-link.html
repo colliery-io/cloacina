@@ -1,0 +1,51 @@
+{{- $path := .Get "path" -}}
+{{- if not $path -}}
+    {{- errorf "api-link shortcode requires a 'path' parameter" -}}
+{{- end -}}
+
+{{- /* Convert Rust path to URL format */ -}}
+{{- $url := $path | replaceRE "::" "/" -}}
+
+{{- /* Handle different item types */ -}}
+{{- $type := .Get "type" | default "struct" -}}
+{{- if eq $type "module" -}}
+    {{- $url = printf "/api/%s/index.html" $url -}}
+{{- else -}}
+    {{- $url = printf "/api/%s/%s.%s.html" (path.Dir $url) $type (path.Base $url) -}}
+{{- end -}}
+
+{{- $display := .Get "display" | default $path -}}
+
+<a href="{{ $url }}" target="_blank" rel="noopener" class="api-link">
+    {{ $display }}
+    <svg class="api-link-icon" viewBox="0 0 24 24" width="12" height="12">
+        <path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+    </svg>
+</a>
+
+<style>
+.api-link {
+    color: #0366d6;
+    text-decoration: none;
+    font-family: monospace;
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    background-color: #f6f8fa;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.api-link:hover {
+    text-decoration: underline;
+}
+
+.api-link-icon {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.api-link:hover .api-link-icon {
+    opacity: 1;
+}
+</style>

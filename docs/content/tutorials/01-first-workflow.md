@@ -1,0 +1,282 @@
+---
+title: "01 - Your First Workflow"
+description: "Create your first Cloacina workflow"
+weight: 11
+reviewer: "dstorey"
+review_date: "2024-03-19"
+---
+
+
+Welcome to your first Cloacina tutorial! In this guide, you'll learn how to create and execute a simple workflow using Cloacina's macro system. By the end of this tutorial, you'll understand the basic concepts of tasks, workflows, context, and execution in Cloacina.
+
+## Prerequisites
+
+- Basic knowledge of Rust
+- Rust toolchain installed (rustc, cargo)
+- A code editor of your choice
+- PostgreSQL database (for workflow execution)
+
+## Time Estimate
+15-20 minutes
+
+## Setting Up Your Project
+
+Let's start by creating a new Rust project. We'll create it in a directory that's a sibling to the Cloacina repository:
+
+```bash
+# Assuming you're in the parent directory of the Cloacina repository
+mkdir -p my-cloacina-projects
+cd my-cloacina-projects
+cargo new first-workflow
+cd first-workflow
+```
+
+Your directory structure should look like this:
+```
+.
+├── cloacina/              # The Cloacina repository
+└── my-cloacina-projects/  # Your projects directory
+    └── first-workflow/    # Your new project
+        ├── Cargo.toml
+        └── src/
+            └── main.rs
+```
+
+Now, add Cloacina and its dependencies to your `Cargo.toml`. Note that we're using a relative path to the Cloacina repository:
+
+```toml
+[dependencies]
+cloacina = { path = "../../cloacina", features = ["macros"] }
+tokio = { version = "1.0", features = ["full"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+ctor = "0.2"
+chrono = "0.4"
+```
+
+{{< hint type=warning title=Important >}}
+Normally you'd use `cloacina = "0.1.0"` in Cargo.toml. For these tutorials, we're using path dependencies to vendor code locally.
+
+The path must be relative to your project. Examples:
+- Next to Cloacina: `path = "../cloacina"`
+- In subdirectory: `path = "../../../cloacina"`
+
+Note: Use `version = "0.1.0"` when available on crates.io.
+{{< /hint >}}
+
+### Understanding the Dependencies
+
+Each dependency serves a specific purpose in the Cloacina macro system:
+
+- `async-trait`: Required for async functions in traits (macro expansion)
+- `ctor`: Enables static initialization before `main()`
+- `chrono`: Timestamp handling for execution metadata
+- `serde_json`: Context serialization
+
+These dependencies must be explicit because macro expansion happens at compile time, where transitive dependencies aren't available.
+
+## Creating Your First Workflow
+
+Let's create a simple workflow with a single task that prints a greeting message. Create a new file `src/main.rs` with the following content:
+
+```rust
+//! Simple Cloacina Example
+//!
+//! This example demonstrates the most basic usage of Cloacina with a single task.
+
+use cloacina::{task, workflow, Context, TaskError};
+use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use serde_json::json;
+use tracing::info;
+
+/// A simple task that just logs a message
+#[task(
+    id = "hello_world",
+    dependencies = []
+)]
+async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+    info!("Hello from Cloacina!");
+
+    // Add some data to context for demonstration
+    context.insert("message", json!("Hello World!"))?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter("simple_example=debug,cloacina=debug")
+        .init();
+
+    info!("Starting Simple Cloacina Example");
+
+    // Initialize executor with database (migrations run automatically)
+    let executor = UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+
+    // Create a simple workflow (automatically registers in global registry)
+    let _workflow = workflow! {
+        name: "simple_workflow",
+        description: "A simple workflow with one task",
+        tasks: [
+            hello_world
+        ]
+    };
+
+    // Create input context
+    let input_context = Context::new();
+
+    info!("Executing workflow");
+
+    // Execute the workflow (scheduler and executor managed automatically)
+    let result = executor.execute("simple_workflow", input_context).await?;
+
+    info!("Workflow completed with status: {:?}", result.status);
+    info!("Final context: {:?}", result.final_context);
+
+    // Shutdown the executor
+    executor.shutdown().await?;
+
+    info!("Simple example completed!");
+
+    Ok(())
+}
+```
+
+## Understanding the Code
+
+Let's walk through the code in execution order and understand why each component needs to be set up in this specific sequence:
+
+1. **Imports and Dependencies**: First, we import all necessary components from Cloacina:
+   ```rust
+   use cloacina::{task, workflow, Context, TaskError};
+   use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+   ```
+   These imports are needed because they define the core types and traits we'll use throughout the program. The `PipelineExecutor` trait is particularly important as it defines the interface that `UnifiedExecutor` implements.
+
+2. **Task Definition**: We define our task:
+   ```rust
+   #[task(id = "hello_world", dependencies = [])]
+   async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>
+   ```
+   The task definition includes its ID and dependencies, which are used by the workflow system to build the execution graph.
+
+3. **Main Function Setup**: The main function follows a specific sequence:
+   ```rust
+   // 1. Initialize logging first - needed for all subsequent operations
+   tracing_subscriber::fmt()
+       .with_env_filter("simple_example=debug,cloacina=debug")
+       .init();
+
+   // 2. Create the executor - this must happen before any workflow definition
+   // because the workflow! macro registers workflows in a global registry
+   // that the executor needs to access
+   let executor = UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+
+   // 3. Define the workflow - the workflow! macro will automatically register
+   // it in the global registry that the executor uses
+   let _workflow = workflow! {
+       name: "simple_workflow",
+       description: "A simple workflow with one task",
+       tasks: [hello_world]
+   };
+   ```
+   This sequence is important because:
+   - Logging must be initialized first to capture all subsequent operations
+   - The executor must be created before workflows because it manages the workflow registry
+   - The workflow! macro automatically registers workflows in the global registry that the executor uses
+
+4. **Workflow Execution**: Only after all components are set up can we execute the workflow:
+   ```rust
+   // Create and execute with input context
+   let input_context = Context::new();
+   let result = executor.execute("simple_workflow", input_context).await?;
+   ```
+   The execution requires:
+   - A properly initialized executor
+   - A registered workflow
+   - An input context
+
+5. **Cleanup**: Finally, we properly shut down the executor:
+   ```rust
+   executor.shutdown().await?;
+   ```
+   This ensures all resources are properly released and the database connection is closed gracefully.
+
+This ordered approach ensures that each component has its dependencies available when needed, and resources are properly managed throughout the workflow's lifecycle.
+
+{{< hint type=info  title="Workflow Power" >}}
+While this example shows a single task, Cloacina's workflows are designed to handle complex business processes through:
+
+- **Task Dependencies**: Define clear relationships between tasks, ensuring they run in the correct order
+- **Data Management**: Share and transform data between tasks using the Context system
+- **Error Handling**: Consistent error handling and recovery across all tasks
+- **Parallel Execution**: Automatically run independent tasks in parallel
+- **Retry Management**: Configure and manage task retries with:
+  - Custom retry policies
+  - Automatic retry scheduling
+  - State preservation between attempts
+
+In the next tutorials, you'll learn how to build these features into your workflows.
+{{< /hint >}}
+
+## Running Your Workflow
+
+You can run this tutorial in two ways:
+
+### Option 1: Using Angreal (Recommended)
+
+If you're following along with the Cloacina repository, you can use angreal to run the tutorial:
+
+```bash
+# From the Cloacina repository root
+angreal tutorial 01
+```
+
+This will:
+1. Set up the required PostgreSQL database
+2. Run the tutorial code
+3. Clean up resources when done
+
+### Option 2: Manual Setup
+
+If you're building the project manually, ensure you have:
+1. PostgreSQL installed and running
+2. A database named "cloacina" created
+3. A user "cloacina" with password "cloacina" with access to the database
+
+Then run your workflow with:
+
+```bash
+cargo run
+```
+
+You should see output similar to:
+
+```
+INFO  simple_example > Starting Simple Cloacina Example
+INFO  simple_example > Executing workflow
+INFO  simple_example > Hello from Cloacina!
+INFO  simple_example > Workflow completed with status: Success
+INFO  simple_example > Final context: {"message": "Hello World!"}
+INFO  simple_example > Simple example completed!
+```
+
+## What's Next?
+
+Congratulations! You've created and executed your first Cloacina workflow. In the next tutorial, we'll explore:
+- Adding dependencies between tasks
+- Working with different types of context data
+- Error handling and recovery
+
+## Related Resources
+
+- [API Documentation](/api)
+- [Task Reference](/reference/tasks)
+- [Context Reference](/reference/context)
+
+## Download the Example
+
+You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorial-01).

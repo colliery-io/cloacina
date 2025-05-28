@@ -1,0 +1,13 @@
+[workspace]
+members = ["cloacina", "cloacina-macros"]
+exclude = ["examples/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0-alpha.1"
+
+[workspace.dependencies]
+async-trait = { version = "0.1" }
+ctor = { version = "0.2" }
+once_cell = { version = "1.19.0" }
+serde_json = { version = "1.0" }

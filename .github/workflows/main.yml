@@ -1,0 +1,32 @@
+---
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  setup:
+    uses: ./.github/workflows/setup.yml
+
+  unit_tests:
+    needs: setup
+    uses: ./.github/workflows/unit_tests.yml
+
+  integration_tests:
+    needs: setup
+    uses: ./.github/workflows/integration_tests.yml
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+
+  tutorials:
+    needs: setup
+    uses: ./.github/workflows/tutorials.yml
+
+  docs:
+    needs: setup
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

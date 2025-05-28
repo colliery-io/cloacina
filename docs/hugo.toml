@@ -1,0 +1,53 @@
+baseURL = "https://colliery-io.github.io/cloacina"
+title = "Cloacina Documentation"
+theme = "hugo-geekdoc"
+draft = false  # Set to true to mark all content as draft by default
+
+pluralizeListTitles = false
+
+# Geekdoc required configuration
+pygmentsUseClasses = true
+pygmentsCodeFences = true
+disablePathToLower = true
+
+# Required if you want to render robots.txt template
+enableRobotsTXT = true
+
+# Needed for mermaid shortcodes
+[markup]
+  [markup.goldmark.renderer]
+    # Needed for mermaid shortcode or when nesting shortcodes (e.g. img within
+    # columns or tabs)
+    unsafe = true
+  [markup.tableOfContents]
+    startLevel = 1
+    endLevel = 9
+
+[taxonomies]
+   tag = "tags"
+
+[menu]
+  [[menu.main]]
+    name = "Quick Start"
+    url = "/quick-start/"
+    weight = 10
+  [[menu.main]]
+    name = "Tutorials"
+    url = "/tutorials/"
+    weight = 20
+  [[menu.main]]
+    name = "How-to Guides"
+    url = "/how-to-guides/"
+    weight = 30
+  [[menu.main]]
+    name = "Reference"
+    url = "/reference/"
+    weight = 40
+  [[menu.main]]
+    name = "Explanation"
+    url = "/explanation/"
+    weight = 50
+  [[menu.main]]
+    name = "Contributing"
+    url = "/contributing/"
+    weight = 60
