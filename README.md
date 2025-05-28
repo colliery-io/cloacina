@@ -2,10 +2,11 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Crates.io](https://img.shields.io/crates/v/cloacina.svg)](https://crates.io/crates/cloacina)
-[![Documentation](https://docs.rs/cloacina/badge.svg)](https://docs.rs/cloacina)
+[![Documentation](https://img.shields.io/docsrs/cloacina)](https://docs.rs/cloacina)
+
 
 <div align="center">
-  <img src="https://github.com/colliery-io/cloacina/blob/main/docs/static/images/image.png" alt="Cloacina Logo" width="400">
+  <img src="https://github.com/colliery-io/cloacina/raw/main/docs/static/images/image.png" alt="Cloacina Logo" width="400">
 </div>
 
 Cloacina is a Rust library for building resilient task pipelines directly within your Rust applications. Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with automatic retry, state persistence, and dependency resolution.
