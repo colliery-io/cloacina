@@ -2,14 +2,15 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Crates.io](https://img.shields.io/crates/v/cloacina.svg)](https://crates.io/crates/cloacina)
-[![Documentation](https://img.shields.io/docsrs/cloacina)](https://docs.rs/cloacina)
 
 
 <div align="center">
   <img src="https://github.com/colliery-io/cloacina/raw/main/docs/static/images/image.png" alt="Cloacina Logo" width="400">
 </div>
 
-Cloacina is a Rust library for building resilient task pipelines directly within your Rust applications. Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with automatic retry, state persistence, and dependency resolution.
+Cloacina is a Rust library for building resilient task pipelines directly within your Rust applications, built by [Colliery Software](https://colliery.io). Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with automatic retry, state persistence, and dependency resolution.
+
+> **Why "Cloacina"?** Named after the Roman goddess of sewers and drainage systems, Cloacina reflects the library's purpose: efficiently moving data through processing pipelines, just as ancient Roman infrastructure managed the flow of sewage out of the city. (Don't read too much into it, apparently there aren't any deities of "plumbing"!)
 
 ## Features
 
@@ -67,9 +68,11 @@ let result = executor.execute("my_workflow", Context::new()).await?;
 
 ## Documentation
 
-- [User Guide](https://colliery-io.github.io/cloacina/)
-- [API Reference](https://docs.rs/cloacina)
-- [Examples](https://github.com/collier-io/cloacina/tree/main/examples)
+**[Complete Documentation & User Guide](https://colliery-io.github.io/cloacina/)**
+
+Additional resources:
+- [API Reference](https://docs.rs/cloacina) (Rust docs)
+- [Examples](https://github.com/colliery-io/cloacina/tree/main/examples)
 
 ## Contributing
 
