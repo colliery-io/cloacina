@@ -28,3 +28,9 @@ Cargo.lock
 /docs/public/
 /docs/.hugo_build.lock
 /docs/static/api/
+
+# Add .pyc files to gitignore
+*.pyc
+
+# Add __pycache__ directory to gitignore
+__pycache__/
