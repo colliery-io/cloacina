@@ -2,6 +2,15 @@
 name = "cloacina"
 version.workspace = true
 edition = "2021"
+description = "A Rust library for managing database migrations and schema evolution"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = ["macros"]

@@ -7,28 +7,23 @@ on:
     branches: [main, develop]
 
 jobs:
-  setup:
-    uses: ./.github/workflows/setup.yml
+  smoke_tests:
+    uses: ./.github/workflows/smoke_tests.yml
 
   unit_tests:
-    needs: setup
     uses: ./.github/workflows/unit_tests.yml
 
   integration_tests:
-    needs: setup
     uses: ./.github/workflows/integration_tests.yml
     if: github.event_name == 'pull_request' || github.event_name == 'push'
 
   macro_tests:
-    needs: setup
     uses: ./.github/workflows/macro_tests.yml
 
   tutorials:
-    needs: setup
     uses: ./.github/workflows/tutorials.yml
 
   docs:
-    needs: setup
     uses: ./.github/workflows/docs.yml
     permissions:
       contents: read

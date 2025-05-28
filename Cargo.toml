@@ -5,6 +5,14 @@ resolver = "2"
 
 [workspace.package]
 version = "0.0.0-alpha.1"
+authors = ["Dylan Storey <dylan.storey@gmail.com>"]
+license = "Apache-2.0"
+repository = "https://github.com/colliery-io/cloacina"
+homepage = "https://github.com/colliery-io/cloacina"
+documentation = "https://colliery-io.github.io/cloacina/"
+readme = "README.md"
+keywords = []
+categories = []
 
 [workspace.dependencies]
 async-trait = { version = "0.1" }
