@@ -2,7 +2,7 @@
 name = "cloacina-macros"
 version.workspace = true
 edition = "2021"
-description = "Procedural macros for the cloacina database migration library"
+description = "Procedural macros for the cloacina workflow orchestration library."
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
