@@ -2,7 +2,7 @@
 name = "cloacina"
 version.workspace = true
 edition = "2021"
-description = "A Rust library for managing database migrations and schema evolution"
+description = "A Rust library for resilient task execution and orchestration."
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
