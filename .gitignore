@@ -34,3 +34,4 @@ Cargo.lock
 
 # Add __pycache__ directory to gitignore
 __pycache__/
+.cursorignore
