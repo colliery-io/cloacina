@@ -24,7 +24,7 @@ once_cell.workspace = true
 serde_json.workspace = true
 
 # Local dependencies
-cloacina-macros = { path = "../cloacina-macros", optional = true }
+cloacina-macros = { workspace = true, optional = true }
 
 # External dependencies
 aquamarine = { version = "0.6.0" }
