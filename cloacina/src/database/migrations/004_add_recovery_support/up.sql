@@ -15,7 +15,7 @@ CREATE TABLE recovery_events (
     task_execution_id UUID REFERENCES task_executions(id),
     recovery_type VARCHAR NOT NULL, -- 'task_reset', 'task_abandoned', 'pipeline_failed'
     recovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    details JSONB,
+    details TEXT CHECK (details IS NULL OR details::json IS NOT NULL),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );

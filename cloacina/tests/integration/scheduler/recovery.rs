@@ -56,8 +56,8 @@ async fn test_orphaned_task_recovery() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -134,8 +134,8 @@ async fn test_task_abandonment_after_max_retries() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -215,8 +215,8 @@ async fn test_no_recovery_needed() {
             status: "Completed".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -228,8 +228,8 @@ async fn test_no_recovery_needed() {
             status: "Ready".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -241,8 +241,8 @@ async fn test_no_recovery_needed() {
             status: "NotStarted".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -296,8 +296,8 @@ async fn test_multiple_orphaned_tasks_recovery() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -309,8 +309,8 @@ async fn test_multiple_orphaned_tasks_recovery() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -323,8 +323,8 @@ async fn test_multiple_orphaned_tasks_recovery() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -419,8 +419,8 @@ async fn test_recovery_event_details() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -443,7 +443,8 @@ async fn test_recovery_event_details() {
     assert_eq!(event.task_execution_id, Some(orphaned_task.id));
 
     // Verify event details JSON for workflow unavailable
-    let details = event.details.as_ref().unwrap();
+    let details_str = event.details.as_ref().unwrap();
+    let details: serde_json::Value = serde_json::from_str(details_str).unwrap();
     assert_eq!(details["task_name"], "detail-test-task");
     assert_eq!(details["workflow_name"], "event-details-test");
     assert_eq!(details["reason"], "Workflow not in current registry");
@@ -484,8 +485,8 @@ async fn test_graceful_recovery_for_unknown_workflow() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -497,8 +498,8 @@ async fn test_graceful_recovery_for_unknown_workflow() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -563,7 +564,8 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     assert_eq!(task_event.recovery_type, "workflow_unavailable");
     assert_eq!(task_event.pipeline_execution_id, pipeline_execution.id);
 
-    let details = task_event.details.as_ref().unwrap();
+    let details_str = task_event.details.as_ref().unwrap();
+    let details: serde_json::Value = serde_json::from_str(details_str).unwrap();
     assert_eq!(details["workflow_name"], "unknown-workflow");
     assert_eq!(details["reason"], "Workflow not in current registry");
     assert_eq!(details["action"], "abandoned");
@@ -602,8 +604,8 @@ async fn test_recovery_event_details_multiple_tasks() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -615,8 +617,8 @@ async fn test_recovery_event_details_multiple_tasks() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -656,7 +658,8 @@ async fn test_recovery_event_details_multiple_tasks() {
     assert_eq!(event1.recovery_type, "workflow_unavailable");
     assert_eq!(event1.pipeline_execution_id, pipeline_execution.id);
 
-    let details1 = event1.details.as_ref().unwrap();
+    let details1_str = event1.details.as_ref().unwrap();
+    let details1: serde_json::Value = serde_json::from_str(details1_str).unwrap();
     assert_eq!(details1["task_name"], "detail-test-task-1");
     assert_eq!(
         details1["workflow_name"],
@@ -673,7 +676,8 @@ async fn test_recovery_event_details_multiple_tasks() {
     assert_eq!(event2.recovery_type, "workflow_unavailable");
     assert_eq!(event2.pipeline_execution_id, pipeline_execution.id);
 
-    let details2 = event2.details.as_ref().unwrap();
+    let details2_str = event2.details.as_ref().unwrap();
+    let details2: serde_json::Value = serde_json::from_str(details2_str).unwrap();
     assert_eq!(details2["task_name"], "detail-test-task-2");
     assert_eq!(
         details2["workflow_name"],
@@ -688,7 +692,8 @@ async fn test_recovery_event_details_multiple_tasks() {
     assert_eq!(pipeline_event.pipeline_execution_id, pipeline_execution.id);
     assert_eq!(pipeline_event.task_execution_id, None);
 
-    let pipeline_details = pipeline_event.details.as_ref().unwrap();
+    let pipeline_details_str = pipeline_event.details.as_ref().unwrap();
+    let pipeline_details: serde_json::Value = serde_json::from_str(pipeline_details_str).unwrap();
     assert_eq!(
         pipeline_details["workflow_name"],
         "event-details-multiple-tasks-test"
@@ -734,8 +739,8 @@ async fn test_recovery_event_details_unknown_workflow() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -747,8 +752,8 @@ async fn test_recovery_event_details_unknown_workflow() {
             status: "Running".to_string(),
             attempt: 1,
             max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}),
-            task_configuration: json!({}),
+            trigger_rules: json!({"type": "Always"}).to_string(),
+            task_configuration: json!({}).to_string(),
         })
         .unwrap();
 
@@ -813,7 +818,8 @@ async fn test_recovery_event_details_unknown_workflow() {
     assert_eq!(task_event.recovery_type, "workflow_unavailable");
     assert_eq!(task_event.pipeline_execution_id, pipeline_execution.id);
 
-    let details = task_event.details.as_ref().unwrap();
+    let details_str = task_event.details.as_ref().unwrap();
+    let details: serde_json::Value = serde_json::from_str(details_str).unwrap();
     assert_eq!(details["workflow_name"], "unknown-workflow-test");
     assert_eq!(details["reason"], "Workflow not in current registry");
     assert_eq!(details["action"], "abandoned");

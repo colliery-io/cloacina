@@ -25,8 +25,8 @@ CREATE TABLE task_executions (
     attempt INTEGER DEFAULT 1,
     max_attempts INTEGER DEFAULT 1,
     error_details TEXT,
-    trigger_rules JSONB DEFAULT '{"type": "Always"}',
-    task_configuration JSONB DEFAULT '{}',
+    trigger_rules TEXT DEFAULT '{"type": "Always"}' CHECK (trigger_rules IS NULL OR trigger_rules::json IS NOT NULL),
+    task_configuration TEXT DEFAULT '{}' CHECK (task_configuration IS NULL OR task_configuration::json IS NOT NULL),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );

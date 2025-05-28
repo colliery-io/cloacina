@@ -48,8 +48,8 @@ pub struct RecoveryEvent {
     pub recovery_type: String,
     /// Timestamp when the recovery was executed
     pub recovered_at: NaiveDateTime,
-    /// Additional JSON details about the recovery event
-    pub details: Option<serde_json::Value>,
+    /// Additional JSON string details about the recovery event
+    pub details: Option<String>,
     /// Timestamp when the record was created
     pub created_at: NaiveDateTime,
     /// Timestamp when the record was last updated
@@ -69,8 +69,8 @@ pub struct NewRecoveryEvent {
     pub task_execution_id: Option<Uuid>,
     /// Type of recovery action performed
     pub recovery_type: String,
-    /// Additional JSON details about the recovery event
-    pub details: Option<serde_json::Value>,
+    /// Additional JSON string details about the recovery event
+    pub details: Option<String>,
 }
 
 /// Enumeration of possible recovery types in the system.

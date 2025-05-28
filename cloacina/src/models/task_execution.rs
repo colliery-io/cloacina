@@ -51,10 +51,10 @@ pub struct TaskExecution {
     pub max_attempts: i32,
     /// Detailed error information if the task failed
     pub error_details: Option<String>,
-    /// JSON object containing rules that determine when this task should be triggered
-    pub trigger_rules: serde_json::Value,
-    /// JSON object containing the task's configuration parameters
-    pub task_configuration: serde_json::Value,
+    /// JSON string containing rules that determine when this task should be triggered
+    pub trigger_rules: String,
+    /// JSON string containing the task's configuration parameters
+    pub task_configuration: String,
     /// Timestamp when the task should be retried (if applicable)
     pub retry_at: Option<NaiveDateTime>,
     /// Most recent error message encountered
@@ -86,8 +86,8 @@ pub struct NewTaskExecution {
     pub attempt: i32,
     /// Maximum number of attempts allowed for this task
     pub max_attempts: i32,
-    /// JSON object containing rules that determine when this task should be triggered
-    pub trigger_rules: serde_json::Value,
-    /// JSON object containing the task's configuration parameters
-    pub task_configuration: serde_json::Value,
+    /// JSON string containing rules that determine when this task should be triggered
+    pub trigger_rules: String,
+    /// JSON string containing the task's configuration parameters
+    pub task_configuration: String,
 }

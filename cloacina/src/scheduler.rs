@@ -521,8 +521,8 @@ impl TaskScheduler {
                 status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts,
-                trigger_rules,
-                task_configuration: task_config,
+                trigger_rules: trigger_rules.to_string(),
+                task_configuration: task_config.to_string(),
             };
 
             self.dal.task_execution().create(new_task)?;
@@ -592,13 +592,16 @@ impl TaskScheduler {
                 pipeline_execution_id: pipeline.id,
                 task_execution_id: Some(task.id),
                 recovery_type: RecoveryType::WorkflowUnavailable.into(),
-                details: Some(serde_json::json!({
-                    "task_name": task.task_name,
-                    "workflow_name": pipeline.pipeline_name,
-                    "reason": "Workflow not in current registry",
-                    "action": "abandoned",
-                    "available_workflows": available_workflows
-                })),
+                details: Some(
+                    serde_json::json!({
+                        "task_name": task.task_name,
+                        "workflow_name": pipeline.pipeline_name,
+                        "reason": "Workflow not in current registry",
+                        "action": "abandoned",
+                        "available_workflows": available_workflows
+                    })
+                    .to_string(),
+                ),
             })?;
         }
 
@@ -616,13 +619,16 @@ impl TaskScheduler {
             pipeline_execution_id: pipeline.id,
             task_execution_id: None,
             recovery_type: RecoveryType::WorkflowUnavailable.into(),
-            details: Some(serde_json::json!({
-                "workflow_name": pipeline.pipeline_name,
-                "reason": "Workflow not in current registry",
-                "action": "pipeline_failed",
-                "abandoned_tasks": tasks.len(),
-                "available_workflows": available_workflows
-            })),
+            details: Some(
+                serde_json::json!({
+                    "workflow_name": pipeline.pipeline_name,
+                    "reason": "Workflow not in current registry",
+                    "action": "pipeline_failed",
+                    "abandoned_tasks": tasks.len(),
+                    "available_workflows": available_workflows
+                })
+                .to_string(),
+            ),
         })?;
 
         info!(
@@ -831,9 +837,8 @@ impl TaskScheduler {
         &self,
         task_execution: &TaskExecution,
     ) -> Result<bool, ValidationError> {
-        let trigger_rule: TriggerRule =
-            serde_json::from_value(task_execution.trigger_rules.clone())
-                .map_err(|e| ValidationError::InvalidTriggerRule(e.to_string()))?;
+        let trigger_rule: TriggerRule = serde_json::from_str(&task_execution.trigger_rules)
+            .map_err(|e| ValidationError::InvalidTriggerRule(e.to_string()))?;
 
         let result = match &trigger_rule {
             TriggerRule::Always => {
@@ -1324,12 +1329,15 @@ impl TaskScheduler {
             pipeline_execution_id: task.pipeline_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskReset.into(),
-            details: Some(serde_json::json!({
-                "task_name": task.task_name,
-                "previous_status": "Running",
-                "new_status": "Ready",
-                "recovery_attempt": task.recovery_attempts + 1
-            })),
+            details: Some(
+                serde_json::json!({
+                    "task_name": task.task_name,
+                    "previous_status": "Running",
+                    "new_status": "Ready",
+                    "recovery_attempt": task.recovery_attempts + 1
+                })
+                .to_string(),
+            ),
         })?;
 
         info!(
@@ -1366,11 +1374,14 @@ impl TaskScheduler {
             pipeline_execution_id: task.pipeline_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskAbandoned.into(),
-            details: Some(serde_json::json!({
-                "task_name": task.task_name,
-                "recovery_attempts": task.recovery_attempts,
-                "reason": "Exceeded maximum recovery attempts"
-            })),
+            details: Some(
+                serde_json::json!({
+                    "task_name": task.task_name,
+                    "recovery_attempts": task.recovery_attempts,
+                    "reason": "Exceeded maximum recovery attempts"
+                })
+                .to_string(),
+            ),
         })?;
 
         error!(
