@@ -7,25 +7,46 @@ on:
     branches: [main, develop]
 
 jobs:
-  # smoke_tests:
-  #   uses: ./.github/workflows/smoke_tests.yml
+  # Fail-fast entry point
+  smoke_tests:
+    uses: ./.github/workflows/smoke_tests.yml
 
-  unit_tests:
-    uses: ./.github/workflows/unit_tests.yml
-
-  integration_tests:
-    uses: ./.github/workflows/integration_tests.yml
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-
-  macro_tests:
-    uses: ./.github/workflows/macro_tests.yml
-
-  tutorials:
-    uses: ./.github/workflows/tutorials.yml
-
+  # Backend-agnostic tests
   docs:
+    needs: smoke_tests
     uses: ./.github/workflows/docs.yml
     permissions:
       contents: read
       pages: write
       id-token: write
+
+  # PostgreSQL-specific tests
+  postgres_unit_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/postgres_unit_tests.yml
+
+  postgres_integration_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/postgres_integration_tests.yml
+
+  postgres_macro_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/postgres_macro_tests.yml
+
+  # SQLite-specific tests
+  sqlite_unit_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/sqlite_unit_tests.yml
+
+  sqlite_integration_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/sqlite_integration_tests.yml
+
+  sqlite_macro_tests:
+    needs: smoke_tests
+    uses: ./.github/workflows/sqlite_macro_tests.yml
+
+  # Single backend tests
+  tutorials:
+    needs: smoke_tests
+    uses: ./.github/workflows/tutorials.yml
