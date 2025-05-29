@@ -185,47 +185,83 @@ def integration(filter=None, skip_docker=False, backend=None):
 
 @tests()
 @angreal.command(name="macros", about="run tests for macro validation system")
-def macro():
-    """Run tests for macro validation system."""
-    print("Running macro tests...")
+@angreal.argument(
+    name="backend",
+    long="backend",
+    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    required=False
+)
+def macro(backend=None):
+    """Run tests for macro validation system for PostgreSQL and/or SQLite."""
+
+    # Define backend test configurations
+    all_backends = [
+        ("PostgreSQL", ["cargo", "check", "--no-default-features", "--features", "postgres,macros"]),
+        ("SQLite", ["cargo", "check", "--no-default-features", "--features", "sqlite,macros"])
+    ]
+
+    # Filter backends based on selection
+    if backend == "postgres":
+        backends = [all_backends[0]]  # PostgreSQL only
+    elif backend == "sqlite":
+        backends = [all_backends[1]]  # SQLite only
+    elif backend is None:
+        backends = all_backends  # Both (default)
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+        return 1
 
     # Test that invalid examples fail to compile as expected
-    print("\nTesting macro validation failure examples...")
-
     failure_examples = [
         "missing_dependency",
         "circular_dependency",
         "duplicate_task_ids"
     ]
 
-    for example in failure_examples:
-        print(f"\n   Testing {example} (should fail to compile)...")
-        try:
-            result = subprocess.run(
-                ["cargo", "check", "--bin", example, "--features", "postgres"],
-                cwd=str(PROJECT_ROOT / "examples/validation_failures"),
-                capture_output=True,
-                text=True
-            )
+    for backend_name, cmd_base in backends:
+        print(f"\n{'='*50}")
+        print(f"Running macro tests for {backend_name}")
+        print(f"{'='*50}")
+        print("\nTesting macro validation failure examples...")
 
-            if result.returncode == 0:
-                print(f"ERROR: {example} compiled when it should have failed!")
-                return 1
-            else:
-                print(f"SUCCESS: {example} failed to compile as expected")
-                # Show brief indication of what was detected
-                if "depends on undefined task" in result.stderr:
-                    print("   → Missing dependency error message generated")
-                elif "Circular dependency detected" in result.stderr:
-                    print("   → Circular dependency error message generated")
-                elif "Duplicate task ID" in result.stderr:
-                    print("   → Duplicate task ID error message generated")
+        all_passed = True
+        for example in failure_examples:
+            print(f"\n   Testing {example} (should fail to compile)...")
+            try:
+                cmd = cmd_base + ["--bin", example]
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(PROJECT_ROOT / "examples/validation_failures"),
+                    capture_output=True,
+                    text=True
+                )
 
-        except subprocess.CalledProcessError as e:
-            print(f"Error testing {example}: {e}")
-            return e.returncode
+                if result.returncode == 0:
+                    print(f"ERROR: {example} compiled when it should have failed!")
+                    all_passed = False
+                else:
+                    print(f"SUCCESS: {example} failed to compile as expected")
+                    # Show brief indication of what was detected
+                    if "depends on undefined task" in result.stderr:
+                        print("   → Missing dependency error message generated")
+                    elif "Circular dependency detected" in result.stderr:
+                        print("   → Circular dependency error message generated")
+                    elif "Duplicate task ID" in result.stderr:
+                        print("   → Duplicate task ID error message generated")
 
-    print("\nAll macro tests passed!")
+            except subprocess.CalledProcessError as e:
+                print(f"Error testing {example}: {e}")
+                all_passed = False
+
+        if not all_passed:
+            print(f"\n{backend_name} macro tests failed!")
+            return 1
+        else:
+            print(f"\n{backend_name} macro tests passed")
+
+    print(f"\n{'='*50}")
+    print("All macro tests passed for both backends!")
+    print(f"{'='*50}")
     return 0
 
 
