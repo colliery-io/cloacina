@@ -19,22 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit_tests:
-    uses: ./.github/workflows/unit_tests.yml
-
-  integration_tests:
-    uses: ./.github/workflows/integration_tests.yml
-
-  macro_tests:
-    uses: ./.github/workflows/macro_tests.yml
-
-  tutorials:
-    uses: ./.github/workflows/tutorials.yml
-
+  # Since main is always tested before merge, we can skip tests in release
   build-check:
     name: Build Check
     runs-on: ubuntu-latest
-    needs: [unit_tests, integration_tests, macro_tests, tutorials]
     permissions:
       contents: read
     steps:
