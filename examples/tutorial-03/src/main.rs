@@ -539,7 +539,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize executor with database
     let executor =
-        UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+        UnifiedExecutor::new("tutorial-03.db").await?;
 
     // Create the parallel processing workflow
     let _workflow = workflow! {

@@ -29,10 +29,10 @@
 
 use super::DAL;
 use crate::database::schema::task_execution_metadata;
+use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
 use diesel::prelude::*;
-use uuid::Uuid;
 
 /// Data Access Layer for Task Execution Metadata
 ///
@@ -57,9 +57,27 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        let metadata: TaskExecutionMetadata = diesel::insert_into(task_execution_metadata::table)
-            .values(&new_metadata)
-            .get_result(&mut conn)?;
+        // For SQLite, we need to manually generate the UUID and timestamps
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp();
+
+        // Insert with explicit values for SQLite
+        diesel::insert_into(task_execution_metadata::table)
+            .values((
+                task_execution_metadata::id.eq(&id),
+                task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
+                task_execution_metadata::pipeline_execution_id.eq(&new_metadata.pipeline_execution_id),
+                task_execution_metadata::task_name.eq(&new_metadata.task_name),
+                task_execution_metadata::context_id.eq(&new_metadata.context_id),
+                task_execution_metadata::created_at.eq(&now),
+                task_execution_metadata::updated_at.eq(&now),
+            ))
+            .execute(&mut conn)?;
+
+        // Retrieve the inserted record
+        let metadata = task_execution_metadata::table
+            .find(id)
+            .first(&mut conn)?;
 
         Ok(metadata)
     }
@@ -74,7 +92,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
     pub fn get_by_pipeline_and_task(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         task_name: &str,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
@@ -96,7 +114,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
     pub fn get_by_task_execution(
         &self,
-        task_execution_id: Uuid,
+        task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -117,8 +135,8 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub fn update_context_id(
         &self,
-        task_execution_id: Uuid,
-        context_id: Option<Uuid>,
+        task_execution_id: UniversalUuid,
+        context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -126,7 +144,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
             .set((
                 task_execution_metadata::context_id.eq(context_id),
-                task_execution_metadata::updated_at.eq(diesel::dsl::now),
+                task_execution_metadata::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -149,17 +167,52 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        let metadata: TaskExecutionMetadata = diesel::insert_into(task_execution_metadata::table)
-            .values(&new_metadata)
-            .on_conflict(task_execution_metadata::task_execution_id)
-            .do_update()
-            .set((
-                task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                task_execution_metadata::updated_at.eq(diesel::dsl::now),
-            ))
-            .get_result(&mut conn)?;
+        // SQLite doesn't support ON CONFLICT DO UPDATE with RETURNING
+        // So we need to check if the record exists first
+        let existing = task_execution_metadata::table
+            .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
+            .first::<TaskExecutionMetadata>(&mut conn)
+            .optional()?;
 
-        Ok(metadata)
+        match existing {
+            Some(_) => {
+                // Update existing record
+                diesel::update(task_execution_metadata::table)
+                    .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
+                    .set((
+                        task_execution_metadata::context_id.eq(&new_metadata.context_id),
+                        task_execution_metadata::updated_at.eq(current_timestamp()),
+                    ))
+                    .execute(&mut conn)?;
+
+                // Retrieve the updated record
+                Ok(task_execution_metadata::table
+                    .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
+                    .first(&mut conn)?)
+            }
+            None => {
+                // Create new record
+                let id = UniversalUuid::new_v4();
+                let now = current_timestamp();
+
+                diesel::insert_into(task_execution_metadata::table)
+                    .values((
+                        task_execution_metadata::id.eq(&id),
+                        task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
+                        task_execution_metadata::pipeline_execution_id.eq(&new_metadata.pipeline_execution_id),
+                        task_execution_metadata::task_name.eq(&new_metadata.task_name),
+                        task_execution_metadata::context_id.eq(&new_metadata.context_id),
+                        task_execution_metadata::created_at.eq(&now),
+                        task_execution_metadata::updated_at.eq(&now),
+                    ))
+                    .execute(&mut conn)?;
+
+                // Retrieve the inserted record
+                Ok(task_execution_metadata::table
+                    .find(id)
+                    .first(&mut conn)?)
+            }
+        }
     }
 
     /// Retrieves metadata for multiple dependency tasks within a pipeline
@@ -172,7 +225,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<Vec<TaskExecutionMetadata>, ValidationError>` - Vector of metadata records or an error
     pub fn get_dependency_metadata(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
@@ -201,7 +254,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// This method replaces N+1 queries (1 for metadata + N for contexts) with a single JOIN query.
     pub fn get_dependency_metadata_with_contexts(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         use crate::database::schema::contexts;

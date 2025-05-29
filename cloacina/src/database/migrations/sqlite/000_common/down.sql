@@ -1,0 +1,1 @@
+-- Nothing to drop for SQLite

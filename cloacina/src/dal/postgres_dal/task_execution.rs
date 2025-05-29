@@ -31,7 +31,7 @@
 
 use super::DAL;
 use crate::database::schema::task_executions;
-use crate::database::universal_types::UniversalUuid;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use chrono::NaiveDateTime;
@@ -460,7 +460,7 @@ impl<'a> TaskExecutionDAL<'a> {
     pub fn schedule_retry(
         &self,
         task_id: UniversalUuid,
-        retry_at: NaiveDateTime,
+        retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
@@ -469,7 +469,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .set((
                 task_executions::status.eq("Ready"),
                 task_executions::attempt.eq(new_attempt),
-                task_executions::retry_at.eq(Some(retry_at)),
+                task_executions::retry_at.eq(Some(retry_at.as_datetime().naive_utc())),
                 task_executions::started_at.eq(None::<NaiveDateTime>),
                 task_executions::completed_at.eq(None::<NaiveDateTime>),
                 task_executions::updated_at.eq(diesel::dsl::now),
@@ -657,10 +657,10 @@ impl<'a> TaskExecutionDAL<'a> {
 pub struct ClaimResult {
     /// Unique identifier of the claimed task
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// ID of the pipeline execution this task belongs to
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task that was claimed
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub task_name: String,

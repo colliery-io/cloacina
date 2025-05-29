@@ -25,13 +25,17 @@
 //! It includes basic functionality to set up test contexts for testing,
 //! similar to brokkr's ergonomic testing framework.
 
-use cloacina::database::connection::Database;
+use cloacina::database::connection::{Database, DbConnection};
 use diesel::deserialize::QueryableByName;
-use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, Once};
 use tracing::info;
+
+#[cfg(feature = "postgres")]
+use diesel::pg::PgConnection;
+#[cfg(feature = "sqlite")]
+use diesel::sqlite::SqliteConnection;
 
 static INIT: Once = Once::new();
 static FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
@@ -46,13 +50,20 @@ static FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
     FIXTURE
         .get_or_init(|| {
-            let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-
-            let conn =
-                PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
-                    .expect("Failed to connect to database");
-
-            Arc::new(Mutex::new(TestFixture::new(db, conn)))
+            #[cfg(feature = "postgres")]
+            {
+                let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+                let conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+                    .expect("Failed to connect to PostgreSQL database");
+                Arc::new(Mutex::new(TestFixture::new(db, conn)))
+            }
+            #[cfg(feature = "sqlite")]
+            {
+                let db = Database::new(":memory:", "", 5);
+                let conn = SqliteConnection::establish(":memory:")
+                    .expect("Failed to connect to SQLite database");
+                Arc::new(Mutex::new(TestFixture::new(db, conn)))
+            }
         })
         .clone()
 }
@@ -65,12 +76,12 @@ pub struct TestFixture {
     /// Database connection pool
     db: Database,
     /// Direct database connection for migrations
-    conn: PgConnection,
+    conn: DbConnection,
 }
 
 impl TestFixture {
     /// Creates a new TestFixture instance.
-    pub fn new(db: Database, conn: PgConnection) -> Self {
+    pub fn new(db: Database, conn: DbConnection) -> Self {
         INIT.call_once(|| {
             // Initialize logging
             cloacina::init_logging(None);
@@ -86,7 +97,7 @@ impl TestFixture {
     }
 
     /// Get a mutable reference to the database connection
-    pub fn get_connection(&mut self) -> &mut PgConnection {
+    pub fn get_connection(&mut self) -> &mut DbConnection {
         &mut self.conn
     }
 
@@ -118,21 +129,30 @@ impl Drop for TestFixture {
     fn drop(&mut self) {
         info!("Cleaning up test fixture");
 
-        // Drop and recreate the database
-        diesel::sql_query(
-            "
-            SELECT pg_terminate_backend(pid)
-            FROM pg_stat_activity
-            WHERE datname = 'cloacina' AND pid <> pg_backend_pid();
+        #[cfg(feature = "postgres")]
+        {
+            // Drop and recreate the database
+            diesel::sql_query(
+                "
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = 'cloacina' AND pid <> pg_backend_pid();
 
-            DROP DATABASE IF EXISTS cloacina;
-            CREATE DATABASE cloacina;
-        ",
-        )
-        .execute(&mut self.conn)
-        .expect("Failed to reset database");
+                DROP DATABASE IF EXISTS cloacina;
+                CREATE DATABASE cloacina;
+            ",
+            )
+            .execute(&mut self.conn)
+            .expect("Failed to reset database");
+        }
 
-        // The PgConnection will be automatically dropped
+        #[cfg(feature = "sqlite")]
+        {
+            // SQLite cleanup is automatic - in-memory database is dropped
+            // No explicit cleanup needed
+        }
+
+        // The database connection will be automatically dropped
     }
 }
 
@@ -149,7 +169,8 @@ pub mod fixtures {
 
     #[tokio::test]
     #[serial]
-    async fn test_migration_function() {
+    #[cfg(feature = "postgres")]
+    async fn test_migration_function_postgres() {
         let mut conn =
             PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
                 .expect("Failed to connect to database");
@@ -175,6 +196,37 @@ pub mod fixtures {
         assert!(
             table_count.unwrap().count > 0,
             "Contexts table should be found in information_schema"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    #[cfg(feature = "sqlite")]
+    async fn test_migration_function_sqlite() {
+        let mut conn = SqliteConnection::establish(":memory:")
+            .expect("Failed to connect to database");
+
+        // Test that our migration function works
+        let result = cloacina::database::run_migrations(&mut conn);
+        assert!(
+            result.is_ok(),
+            "Migration function should succeed: {:?}",
+            result
+        );
+
+        // Verify the contexts table was created
+        let table_count: Result<TableCount, diesel::result::Error> = diesel::sql_query(
+            "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='contexts'",
+        )
+        .get_result(&mut conn);
+
+        assert!(
+            table_count.is_ok(),
+            "Contexts table should exist after migrations"
+        );
+        assert!(
+            table_count.unwrap().count > 0,
+            "Contexts table should be found in sqlite_master"
         );
     }
 }

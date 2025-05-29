@@ -14,12 +14,12 @@
  *  limitations under the License.
  */
 
-use crate::dal::DAL;
+use super::DAL;
 use crate::database::schema::recovery_events;
+use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
-use uuid::Uuid;
 
 /// Data access layer for recovery event operations.
 ///
@@ -111,12 +111,32 @@ impl<'a> RecoveryEventDAL<'a> {
                 message: format!("Failed to get connection: {}", e),
             })?;
 
-        let result = diesel::insert_into(recovery_events::table)
-            .values(&new_event)
-            .returning(RecoveryEvent::as_returning())
-            .get_result(&mut conn)
+        // For SQLite, we need to manually generate the UUID and timestamps
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp();
+
+        // Insert with explicit values for SQLite
+        diesel::insert_into(recovery_events::table)
+            .values((
+                recovery_events::id.eq(&id),
+                recovery_events::pipeline_execution_id.eq(&new_event.pipeline_execution_id),
+                recovery_events::task_execution_id.eq(&new_event.task_execution_id),
+                recovery_events::recovery_type.eq(&new_event.recovery_type),
+                recovery_events::recovered_at.eq(&now),
+                recovery_events::details.eq(&new_event.details),
+                recovery_events::created_at.eq(&now),
+            ))
+            .execute(&mut conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to create recovery event: {}", e),
+            })?;
+
+        // Retrieve the inserted record
+        let result = recovery_events::table
+            .find(id)
+            .first(&mut conn)
+            .map_err(|e| ValidationError::DatabaseQuery {
+                message: format!("Failed to retrieve created recovery event: {}", e),
             })?;
 
         Ok(result)
@@ -142,7 +162,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// # Example
     ///
     /// ```rust
-    /// let pipeline_id = Uuid::new_v4();
+    /// let pipeline_id = UniversalUuid::new_v4();
     /// let events = recovery_dal.get_by_pipeline(pipeline_id)?;
     /// for event in events {
     ///     println!("Recovery at {}: {:?}", event.recovered_at, event.recovery_type);
@@ -150,7 +170,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// ```
     pub fn get_by_pipeline(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal
@@ -191,7 +211,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// # Example
     ///
     /// ```rust
-    /// let task_id = Uuid::new_v4();
+    /// let task_id = UniversalUuid::new_v4();
     /// let events = recovery_dal.get_by_task(task_id)?;
     /// for event in events {
     ///     println!("Task recovery at {}: {:?}", event.recovered_at, event.recovery_type);
@@ -199,7 +219,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// ```
     pub fn get_by_task(
         &self,
-        task_execution_id: Uuid,
+        task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal

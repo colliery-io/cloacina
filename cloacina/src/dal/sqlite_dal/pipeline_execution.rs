@@ -16,10 +16,10 @@
 
 use super::DAL;
 use crate::database::schema::pipeline_executions;
+use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
-use uuid::Uuid;
 
 /// Data Access Layer for managing pipeline executions in the database.
 ///
@@ -45,9 +45,29 @@ impl<'a> PipelineExecutionDAL<'a> {
     ) -> Result<PipelineExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        let execution: PipelineExecution = diesel::insert_into(pipeline_executions::table)
-            .values(&new_execution)
-            .get_result(&mut conn)?;
+        // For SQLite, we need to manually generate the UUID and timestamps
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp();
+
+        // Insert with explicit values for SQLite
+        diesel::insert_into(pipeline_executions::table)
+            .values((
+                pipeline_executions::id.eq(&id),
+                pipeline_executions::pipeline_name.eq(&new_execution.pipeline_name),
+                pipeline_executions::pipeline_version.eq(&new_execution.pipeline_version),
+                pipeline_executions::status.eq(&new_execution.status),
+                pipeline_executions::context_id.eq(&new_execution.context_id),
+                pipeline_executions::started_at.eq(&now),
+                pipeline_executions::recovery_attempts.eq(0),
+                pipeline_executions::created_at.eq(&now),
+                pipeline_executions::updated_at.eq(&now),
+            ))
+            .execute(&mut conn)?;
+
+        // Retrieve the inserted record
+        let execution = pipeline_executions::table
+            .find(id)
+            .first(&mut conn)?;
 
         Ok(execution)
     }
@@ -59,7 +79,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<PipelineExecution, ValidationError>` - The pipeline execution or an error if not found
-    pub fn get_by_id(&self, id: Uuid) -> Result<PipelineExecution, ValidationError> {
+    pub fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let execution = pipeline_executions::table.find(id).first(&mut conn)?;
@@ -89,7 +109,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn update_status(&self, id: Uuid, status: &str) -> Result<(), ValidationError> {
+    pub fn update_status(&self, id: UniversalUuid, status: &str) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(pipeline_executions::table.find(id))
@@ -106,13 +126,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_completed(&self, id: Uuid) -> Result<(), ValidationError> {
+    pub fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
+        let now = current_timestamp();
         diesel::update(pipeline_executions::table.find(id))
             .set((
                 pipeline_executions::status.eq("Completed"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
+                pipeline_executions::completed_at.eq(Some(now)),
             ))
             .execute(&mut conn)?;
 
@@ -147,15 +168,16 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_failed(&self, id: Uuid, reason: &str) -> Result<(), ValidationError> {
+    pub fn mark_failed(&self, id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
+        let now = current_timestamp();
         diesel::update(pipeline_executions::table.find(id))
             .set((
                 pipeline_executions::status.eq("Failed"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
+                pipeline_executions::completed_at.eq(Some(now)),
                 pipeline_executions::error_details.eq(reason),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
+                pipeline_executions::updated_at.eq(now),
             ))
             .execute(&mut conn)?;
 
@@ -170,15 +192,16 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn increment_recovery_attempts(&self, id: Uuid) -> Result<(), ValidationError> {
+    pub fn increment_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
+        let now = current_timestamp();
         diesel::update(pipeline_executions::table.find(id))
             .set((
                 pipeline_executions::recovery_attempts
                     .eq(pipeline_executions::recovery_attempts + 1),
-                pipeline_executions::last_recovery_at.eq(diesel::dsl::now),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
+                pipeline_executions::last_recovery_at.eq(Some(now)),
+                pipeline_executions::updated_at.eq(now),
             ))
             .execute(&mut conn)?;
 
@@ -192,14 +215,15 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn cancel(&self, id: Uuid) -> Result<(), ValidationError> {
+    pub fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
+        let now = current_timestamp();
         diesel::update(pipeline_executions::table.find(id))
             .set((
                 pipeline_executions::status.eq("Cancelled"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
+                pipeline_executions::completed_at.eq(Some(now)),
+                pipeline_executions::updated_at.eq(now),
             ))
             .execute(&mut conn)?;
 

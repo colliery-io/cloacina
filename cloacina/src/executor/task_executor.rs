@@ -32,7 +32,6 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::time;
 use tracing::{debug, error, info, warn};
-use uuid::Uuid;
 
 use super::types::{ClaimedTask, DependencyLoader, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
@@ -59,7 +58,7 @@ pub struct TaskExecutor {
     /// Registry of available task implementations
     task_registry: Arc<TaskRegistry>,
     /// Unique identifier for this executor instance
-    instance_id: Uuid,
+    instance_id: UniversalUuid,
     /// Configuration parameters for executor behavior
     config: ExecutorConfig,
 }
@@ -85,7 +84,7 @@ impl TaskExecutor {
             database,
             dal,
             task_registry,
-            instance_id: Uuid::new_v4(),
+            instance_id: UniversalUuid::new_v4(),
             config,
         }
     }
@@ -196,153 +195,115 @@ impl TaskExecutor {
     async fn claim_task_with_context(
         &self,
     ) -> Result<Option<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
-        // Use DAL transaction to atomically claim task and load context
-        let result = self.dal.transaction(|conn| {
-            use crate::database::schema::task_executions;
-            use diesel::prelude::*;
+        // Use DAL's atomic claim method
+        if let Some(claim_result) = self.dal.task_execution().claim_ready_task()? {
+            let claimed_task = ClaimedTask {
+                task_execution_id: claim_result.id,
+                pipeline_execution_id: claim_result.pipeline_execution_id,
+                task_name: claim_result.task_name.clone(),
+                attempt: claim_result.attempt,
+            };
 
-            // 1. First find a ready task
-            let ready_task: Option<crate::models::task_execution::TaskExecution> =
-                task_executions::table
-                    .filter(task_executions::status.eq("Ready"))
-                    .first(conn)
-                    .optional()?;
+            // Get task from registry to determine dependencies
+            let task = self
+                .task_registry
+                .get_task(&claimed_task.task_name)
+                .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
+            let dependencies = task.dependencies().to_vec();
 
-            // 2. If found, claim it atomically
-            let claimed_execution: Option<crate::models::task_execution::TaskExecution> =
-                if let Some(task) = ready_task {
-                    diesel::update(task_executions::table)
-                        .filter(task_executions::id.eq(task.id))
-                        .filter(task_executions::status.eq("Ready")) // Double-check status hasn't changed
-                        .set((
-                            task_executions::status.eq("Running"),
-                            task_executions::started_at.eq(Some(chrono::Utc::now().naive_utc())),
-                        ))
-                        .returning(task_executions::all_columns)
-                        .get_result(conn)
-                        .optional()?
-                } else {
-                    None
-                };
+            // Build context using DAL methods
+            let context = self.build_task_context(&claimed_task, &dependencies).await?;
 
-            if let Some(task_execution) = claimed_execution {
-                let claimed_task = ClaimedTask {
-                    task_execution_id: task_execution.id.into(),
-                    pipeline_execution_id: task_execution.pipeline_execution_id.into(),
-                    task_name: task_execution.task_name.clone(),
-                    attempt: task_execution.attempt,
-                };
+            info!(
+                "Task state change: Ready -> Running (task: {}, pipeline: {}, attempt: {})",
+                claimed_task.task_name,
+                claimed_task.pipeline_execution_id,
+                claimed_task.attempt
+            );
 
-                // 2. Get task from registry to determine dependencies
-                let task = self
-                    .task_registry
-                    .get_task(&claimed_task.task_name)
-                    .ok_or_else(|| crate::error::ValidationError::InvalidGraph {
-                        message: format!("Task not found in registry: {}", claimed_task.task_name),
-                    })?;
-                let dependencies = task.dependencies().to_vec();
-
-                // 3. Build context within the same transaction
-                let context =
-                    self.build_task_context_in_transaction(conn, &claimed_task, &dependencies)?;
-
-                info!(
-                    "Task state change: Ready -> Running (task: {}, pipeline: {}, attempt: {})",
-                    claimed_task.task_name,
-                    claimed_task.pipeline_execution_id,
-                    claimed_task.attempt
-                );
-
-                Ok(Some((claimed_task, context)))
-            } else {
-                Ok(None)
-            }
-        })?;
-
-        Ok(result)
+            Ok(Some((claimed_task, context)))
+        } else {
+            Ok(None)
+        }
     }
 
-    /// Builds task context within an existing database transaction.
+    /// Builds the execution context for a task by loading its dependencies.
     ///
     /// # Arguments
-    /// * `conn` - Database connection within a transaction
-    /// * `claimed_task` - The claimed task
+    /// * `claimed_task` - The task to build context for
     /// * `dependencies` - Task dependencies
     ///
     /// # Returns
-    /// Result containing the built context
-    fn build_task_context_in_transaction(
+    /// Result containing the task's execution context
+    async fn build_task_context(
         &self,
-        conn: &mut diesel::r2d2::PooledConnection<
-            diesel::r2d2::ConnectionManager<diesel::pg::PgConnection>,
-        >,
         claimed_task: &ClaimedTask,
         dependencies: &[String],
-    ) -> Result<Context<serde_json::Value>, crate::error::ValidationError> {
-        use crate::database::schema::{contexts, pipeline_executions, task_execution_metadata};
-        use diesel::prelude::*;
-
-        let execution_scope = super::types::ExecutionScope {
+    ) -> Result<Context<serde_json::Value>, ExecutorError> {
+        let execution_scope = ExecutionScope {
             pipeline_execution_id: claimed_task.pipeline_execution_id,
             task_execution_id: Some(claimed_task.task_execution_id),
             task_name: Some(claimed_task.task_name.clone()),
         };
 
-        let dependency_loader = super::types::DependencyLoader::new(
+        // Create dependency loader for automatic context merging
+        let dependency_loader = DependencyLoader::new(
             self.database.clone(),
             claimed_task.pipeline_execution_id,
             dependencies.to_vec(),
         );
 
+        // Create context with execution scope and dependency loader
         let mut context = Context::new();
         context.set_execution_scope(execution_scope);
         context.set_dependency_loader(dependency_loader);
 
         // Load initial pipeline context if task has no dependencies
         if dependencies.is_empty() {
-            let pipeline_context_id: Option<uuid::Uuid> = pipeline_executions::table
-                .filter(pipeline_executions::id.eq(claimed_task.pipeline_execution_id))
-                .select(pipeline_executions::context_id)
-                .first(conn)
-                .optional()?
-                .flatten();
-
-            if let Some(context_id) = pipeline_context_id {
-                let initial_context_json: String = contexts::table
-                    .filter(contexts::id.eq(context_id))
-                    .select(contexts::value)
-                    .first(conn)?;
-
-                if let Ok(initial_context) =
-                    Context::<serde_json::Value>::from_json(initial_context_json)
-                {
-                    for (key, value) in initial_context.data() {
-                        let _ = context.insert(key, value.clone());
+            if let Ok(pipeline_execution) = self
+                .dal
+                .pipeline_execution()
+                .get_by_id(claimed_task.pipeline_execution_id)
+            {
+                if let Some(context_id) = pipeline_execution.context_id {
+                    if let Ok(initial_context) =
+                        self.dal.context().read::<serde_json::Value>(context_id)
+                    {
+                        // Merge initial context data
+                        for (key, value) in initial_context.data() {
+                            let _ = context.insert(key, value.clone());
+                        }
+                        debug!(
+                            "Loaded initial pipeline context with {} keys",
+                            initial_context.data().len()
+                        );
                     }
                 }
             }
         }
 
-        // Batch load dependency contexts if there are any
+        // Batch load dependency contexts in a single query (eager loading strategy)
+        // This provides better performance for tasks that access many dependency values
         if !dependencies.is_empty() {
-            let dep_contexts: Vec<(String, String)> = task_execution_metadata::table
-                .inner_join(
-                    contexts::table
-                        .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
+            if let Ok(dep_metadata_with_contexts) = self
+                .dal
+                .task_execution_metadata()
+                .get_dependency_metadata_with_contexts(
+                    claimed_task.pipeline_execution_id,
+                    dependencies,
                 )
-                .filter(
-                    task_execution_metadata::pipeline_execution_id
-                        .eq(claimed_task.pipeline_execution_id),
-                )
-                .filter(task_execution_metadata::task_name.eq_any(dependencies))
-                .select((task_execution_metadata::task_name, contexts::value))
-                .load(conn)?;
-
-            for (_task_name, context_json) in dep_contexts {
-                if let Ok(dep_context) = Context::<serde_json::Value>::from_json(context_json) {
-                    for (key, value) in dep_context.data() {
-                        if context.get(key).is_none() {
-                            let _ = context.insert(key, value.clone());
+            {
+                for (_task_metadata, context_json) in dep_metadata_with_contexts {
+                    if let Some(json_str) = context_json {
+                        // Parse the JSON context data
+                        if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
+                            // Merge context data (simple overwrite strategy)
+                            for (key, value) in dep_context.data() {
+                                // Insert only if key doesn't exist (first dependency wins for pre-loaded data)
+                                if context.get(key).is_none() {
+                                    let _ = context.insert(key, value.clone());
+                                }
+                            }
                         }
                     }
                 }
@@ -381,97 +342,6 @@ impl TaskExecutor {
         Ok(())
     }
 
-    /// Builds the execution context for a task by loading its dependencies.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task to build context for
-    ///
-    /// # Returns
-    /// Result containing the task's execution context
-    #[allow(dead_code)]
-    async fn build_task_context(
-        &self,
-        claimed_task: &ClaimedTask,
-    ) -> Result<Context<serde_json::Value>, ExecutorError> {
-        let execution_scope = ExecutionScope {
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
-            task_execution_id: Some(claimed_task.task_execution_id),
-            task_name: Some(claimed_task.task_name.clone()),
-        };
-
-        // Get task dependencies for lazy loading
-        let task = self
-            .task_registry
-            .get_task(&claimed_task.task_name)
-            .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-        let dependencies = task.dependencies().to_vec();
-
-        // Create dependency loader for automatic context merging
-        let dependency_loader = DependencyLoader::new(
-            self.database.clone(),
-            claimed_task.pipeline_execution_id,
-            dependencies.clone(),
-        );
-
-        // Create context with execution scope and dependency loader
-        let mut context = Context::new();
-        context.set_execution_scope(execution_scope);
-        context.set_dependency_loader(dependency_loader);
-
-        // Load initial pipeline context if task has no dependencies
-        if dependencies.is_empty() {
-            if let Ok(pipeline_execution) = self
-                .dal
-                .pipeline_execution()
-                .get_by_id(UniversalUuid(claimed_task.pipeline_execution_id))
-            {
-                if let Some(context_id) = pipeline_execution.context_id {
-                    if let Ok(initial_context) =
-                        self.dal.context().read::<serde_json::Value>(context_id)
-                    {
-                        // Merge initial context data
-                        for (key, value) in initial_context.data() {
-                            let _ = context.insert(key, value.clone());
-                        }
-                        debug!(
-                            "Loaded initial pipeline context with {} keys",
-                            initial_context.data().len()
-                        );
-                    }
-                }
-            }
-        }
-
-        // Batch load dependency contexts in a single query (eager loading strategy)
-        // This provides better performance for tasks that access many dependency values
-        if !dependencies.is_empty() {
-            if let Ok(dep_metadata_with_contexts) = self
-                .dal
-                .task_execution_metadata()
-                .get_dependency_metadata_with_contexts(
-                    UniversalUuid(claimed_task.pipeline_execution_id),
-                    &dependencies,
-                )
-            {
-                for (_task_metadata, context_json) in dep_metadata_with_contexts {
-                    if let Some(json_str) = context_json {
-                        // Parse the JSON context data
-                        if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                            // Merge context data (simple overwrite strategy)
-                            for (key, value) in dep_context.data() {
-                                // Insert only if key doesn't exist (first dependency wins for pre-loaded data)
-                                if context.get(key).is_none() {
-                                    let _ = context.insert(key, value.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(context)
-    }
 
     /// Executes a task with timeout protection.
     ///
@@ -561,7 +431,6 @@ impl TaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the save operation
-    #[allow(dead_code)]
     async fn save_task_context(
         &self,
         claimed_task: &ClaimedTask,
@@ -574,8 +443,8 @@ impl TaskExecutor {
 
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
-            task_execution_id: UniversalUuid(claimed_task.task_execution_id),
-            pipeline_execution_id: UniversalUuid(claimed_task.pipeline_execution_id),
+            task_execution_id: claimed_task.task_execution_id,
+            pipeline_execution_id: claimed_task.pipeline_execution_id,
             task_name: claimed_task.task_name.clone(),
             context_id,
         };
@@ -600,16 +469,14 @@ impl TaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    #[allow(dead_code)]
-    async fn mark_task_completed(&self, task_execution_id: Uuid) -> Result<(), ExecutorError> {
+    async fn mark_task_completed(&self, task_execution_id: UniversalUuid) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let dal = DAL::new(self.dal.pool.clone());
-        let task = dal
+        let task = self.dal
             .task_execution()
-            .get_by_id(UniversalUuid(task_execution_id))?;
+            .get_by_id(task_execution_id)?;
 
-        dal.task_execution()
-            .mark_completed(UniversalUuid(task_execution_id))?;
+        self.dal.task_execution()
+            .mark_completed(task_execution_id)?;
 
         info!(
             "Task state change: {} -> Completed (task: {}, pipeline: {})",
@@ -634,63 +501,11 @@ impl TaskExecutor {
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        use crate::database::schema::{contexts, task_execution_metadata, task_executions};
-        use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
-        use diesel::prelude::*;
-
-        let task_name = claimed_task.task_name.clone();
-        let pipeline_id = claimed_task.pipeline_execution_id;
-        let task_execution_id = claimed_task.task_execution_id;
-
-        // Execute all operations in a single transaction
-        self.dal.transaction(|conn| {
-            // 1. Save context data to the contexts table
-            let new_context = context.to_new_db_record().map_err(|e| {
-                crate::error::ValidationError::InvalidGraph {
-                    message: format!("Context conversion failed: {}", e),
-                }
-            })?;
-
-            let context_record = diesel::insert_into(contexts::table)
-                .values(&new_context)
-                .get_result::<crate::models::context::DbContext>(conn)?;
-
-            // 2. Create/update task execution metadata with context reference
-            let task_metadata_record = NewTaskExecutionMetadata {
-                task_execution_id: UniversalUuid(task_execution_id),
-                pipeline_execution_id: UniversalUuid(pipeline_id),
-                task_name: task_name.clone(),
-                context_id: Some(context_record.id),
-            };
-
-            diesel::insert_into(task_execution_metadata::table)
-                .values(&task_metadata_record)
-                .on_conflict(task_execution_metadata::task_execution_id)
-                .do_update()
-                .set((
-                    task_execution_metadata::context_id.eq(Some(context_record.id)),
-                    task_execution_metadata::updated_at.eq(chrono::Utc::now().naive_utc()),
-                ))
-                .execute(conn)?;
-
-            // 3. Mark task as completed
-            diesel::update(task_executions::table)
-                .filter(task_executions::id.eq(task_execution_id))
-                .set((
-                    task_executions::status.eq("Completed"),
-                    task_executions::completed_at.eq(Some(chrono::Utc::now().naive_utc())),
-                ))
-                .execute(conn)?;
-
-            Ok(())
-        })?;
-
-        let key_count = context.data().len();
-        let keys: Vec<_> = context.data().keys().collect();
-        info!(
-            "Task completed in transaction: {} (pipeline: {}, {} keys: {:?})",
-            task_name, pipeline_id, key_count, keys
-        );
+        // Save context and update metadata
+        self.save_task_context(claimed_task, context).await?;
+        
+        // Mark task as completed
+        self.mark_task_completed(claimed_task.task_execution_id).await?;
 
         Ok(())
     }
@@ -705,17 +520,16 @@ impl TaskExecutor {
     /// Result indicating success or failure of the operation
     async fn mark_task_failed(
         &self,
-        task_execution_id: Uuid,
+        task_execution_id: UniversalUuid,
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let dal = DAL::new(self.dal.pool.clone());
-        let task = dal
+        let task = self.dal
             .task_execution()
-            .get_by_id(UniversalUuid(task_execution_id))?;
+            .get_by_id(task_execution_id)?;
 
-        dal.task_execution()
-            .mark_failed(UniversalUuid(task_execution_id), &error.to_string())?;
+        self.dal.task_execution()
+            .mark_failed(task_execution_id, &error.to_string())?;
 
         error!(
             "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
@@ -822,10 +636,9 @@ impl TaskExecutor {
         let retry_at = Utc::now() + retry_delay;
 
         // Use DAL to schedule retry
-        let dal = DAL::new(self.dal.pool.clone());
-        dal.task_execution().schedule_retry(
-            UniversalUuid(claimed_task.task_execution_id),
-            retry_at.naive_utc(),
+        self.dal.task_execution().schedule_retry(
+            claimed_task.task_execution_id,
+            crate::database::UniversalTimestamp(retry_at),
             claimed_task.attempt + 1,
         )?;
 

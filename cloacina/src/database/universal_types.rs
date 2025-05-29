@@ -194,16 +194,6 @@ impl ToSql<Text, Sqlite> for UniversalTimestamp {
     }
 }
 
-#[cfg(feature = "sqlite")]
-impl UniversalTimestamp {
-    pub fn now() -> Self {
-        Self(Utc::now())
-    }
-
-    pub fn as_datetime(&self) -> &DateTime<Utc> {
-        &self.0
-    }
-}
 
 #[cfg(feature = "sqlite")]
 impl fmt::Display for UniversalTimestamp {

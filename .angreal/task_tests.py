@@ -25,19 +25,52 @@ tests = angreal.command_group(name="tests", about="commands for test suites")
     required=False,
     help="Filter tests by name"
 )
-def unit(filter=None):
-    """Run unit tests (tests embedded in src/ modules only)."""
-    # Run lib tests (unit tests within src/ modules)
-    cmd_lib = ["cargo", "test", "--lib", "--features", "postgres,macros"]
-    if filter:
-        cmd_lib.append(filter)
+@angreal.argument(
+    name="backend",
+    long="backend",
+    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    required=False
+)
+def unit(filter=None, backend=None):
+    """Run unit tests (tests embedded in src/ modules only) for PostgreSQL and/or SQLite."""
 
-    try:
-        result = subprocess.run(cmd_lib, check=True)
-        return result.returncode
-    except subprocess.CalledProcessError as e:
-        print(f"Lib tests failed with error: {e}", file=sys.stderr)
-        return e.returncode
+    # Define backend test configurations
+    all_backends = [
+        ("PostgreSQL", ["cargo", "test", "--lib", "--no-default-features", "--features", "postgres,macros"]),
+        ("SQLite", ["cargo", "test", "--lib", "--no-default-features", "--features", "sqlite,macros"])
+    ]
+
+    # Filter backends based on selection
+    if backend == "postgres":
+        backends = [all_backends[0]]  # PostgreSQL only
+    elif backend == "sqlite":
+        backends = [all_backends[1]]  # SQLite only
+    elif backend is None:
+        backends = all_backends  # Both (default)
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+        return 1
+
+    for backend_name, cmd_base in backends:
+        print(f"\n{'='*50}")
+        print(f"Running unit tests for {backend_name}")
+        print(f"{'='*50}")
+
+        cmd = cmd_base.copy()
+        if filter:
+            cmd.append(filter)
+
+        try:
+            subprocess.run(cmd, check=True)
+            print(f"{backend_name} unit tests passed")
+        except subprocess.CalledProcessError as e:
+            print(f"{backend_name} unit tests failed with error: {e}", file=sys.stderr)
+            return e.returncode
+
+    print(f"\n{'='*50}")
+    print("All unit tests passed for both backends!")
+    print(f"{'='*50}")
+    return 0
 
 
 @tests()
@@ -54,38 +87,100 @@ def unit(filter=None):
     takes_value=False,
     is_flag=True
 )
-def integration(filter=None, skip_docker=False):
-    """Run integration tests with backing services."""
+@angreal.argument(
+    name="backend",
+    long="backend",
+    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    required=False
+)
+def integration(filter=None, skip_docker=False, backend=None):
+    """Run integration tests with backing services for PostgreSQL and/or SQLite."""
 
-    if not skip_docker:
-        # Start Docker services
-        docker_down()
-        docker_clean()
-        exit_code = docker_up()
-        if exit_code != 0:
-            return exit_code
+    # Validate backend selection
+    if backend and backend not in ["postgres", "sqlite"]:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+        return 1
 
-        # Wait for services to be ready
-        print("Waiting for services to be ready...")
-        time.sleep(30)
+    # Determine which backends to run
+    run_postgres = backend is None or backend == "postgres"
+    run_sqlite = backend is None or backend == "sqlite"
 
-    try:
-        cmd = ["cargo", "test", "--test", "integration", "--features", "postgres,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
-        if filter:
-            cmd.append(filter)
+    postgresql_success = True
+    sqlite_success = True
 
-        result = subprocess.run(cmd, check=True)
-        return_code = result.returncode
-    except subprocess.CalledProcessError as e:
-        print(f"Integration tests failed with error: {e}", file=sys.stderr)
-        return_code = e.returncode
-    finally:
+    # Run PostgreSQL integration tests
+    if run_postgres:
+        print(f"\n{'='*50}")
+        print("Running integration tests for PostgreSQL")
+        print(f"{'='*50}")
+
         if not skip_docker:
-            # Stop Docker services
+            # Start Docker services for PostgreSQL
             docker_down()
             docker_clean()
+            exit_code = docker_up()
+            if exit_code != 0:
+                print("PostgreSQL Docker setup failed")
+                postgresql_success = False
+            else:
+                # Wait for services to be ready
+                print("Waiting for PostgreSQL to be ready...")
+                time.sleep(30)
 
-    return return_code
+        if postgresql_success:
+            try:
+                cmd = ["cargo", "test", "--test", "integration", "--no-default-features", "--features", "postgres,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
+                if filter:
+                    cmd.append(filter)
+
+                subprocess.run(cmd, check=True)
+                print("PostgreSQL integration tests passed")
+            except subprocess.CalledProcessError as e:
+                print(f"PostgreSQL integration tests failed with error: {e}", file=sys.stderr)
+                postgresql_success = False
+            finally:
+                if not skip_docker:
+                    # Stop Docker services
+                    docker_down()
+                    docker_clean()
+
+    # Run SQLite integration tests (no Docker needed)
+    if run_sqlite:
+        print(f"\n{'='*50}")
+        print("Running integration tests for SQLite")
+        print(f"{'='*50}")
+
+        try:
+            cmd = ["cargo", "test", "--test", "integration", "--no-default-features", "--features", "sqlite,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
+            if filter:
+                cmd.append(filter)
+
+            subprocess.run(cmd, check=True)
+            print("SQLite integration tests passed")
+        except subprocess.CalledProcessError as e:
+            print(f"SQLite integration tests failed with error: {e}", file=sys.stderr)
+            sqlite_success = False
+
+    # Summary
+    if (not run_postgres or postgresql_success) and (not run_sqlite or sqlite_success):
+        print(f"\n{'='*50}")
+        backends_run = []
+        if run_postgres:
+            backends_run.append("PostgreSQL")
+        if run_sqlite:
+            backends_run.append("SQLite")
+        backends_str = " and ".join(backends_run)
+        print(f"All integration tests passed for {backends_str}!")
+        print(f"{'='*50}")
+        return 0
+    else:
+        print(f"\n{'='*50}")
+        if run_postgres and not postgresql_success:
+            print("PostgreSQL integration tests failed")
+        if run_sqlite and not sqlite_success:
+            print("SQLite integration tests failed")
+        print(f"{'='*50}")
+        return 1
 
 
 @tests()

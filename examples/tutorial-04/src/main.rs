@@ -288,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize executor with database
     let executor =
-        UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+        UnifiedExecutor::new("tutorial-04.db").await?;
 
     // Create a workflow with our tasks
     let _workflow = workflow! {

@@ -22,12 +22,11 @@
 //! and configure the behavior of the execution engine.
 
 use crate::dal::DAL;
+use crate::database::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::Database;
-use crate::UniversalUuid;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use uuid::Uuid;
 
 /// Execution scope information for a context
 ///
@@ -37,9 +36,9 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct ExecutionScope {
     /// Unique identifier for the pipeline execution
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Optional unique identifier for the specific task execution
-    pub task_execution_id: Option<Uuid>,
+    pub task_execution_id: Option<UniversalUuid>,
     /// Optional name of the task being executed
     pub task_name: Option<String>,
 }
@@ -54,7 +53,7 @@ pub struct DependencyLoader {
     /// Database connection for loading dependency data
     database: Database,
     /// ID of the pipeline execution being processed
-    pipeline_execution_id: Uuid,
+    pipeline_execution_id: UniversalUuid,
     /// List of task names that this loader depends on
     dependency_tasks: Vec<String>,
     /// Thread-safe cache of loaded dependency contexts
@@ -70,7 +69,7 @@ impl DependencyLoader {
     /// * `dependency_tasks` - List of task names that this loader depends on
     pub fn new(
         database: Database,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
         dependency_tasks: Vec<String>,
     ) -> Self {
         Self {
@@ -141,7 +140,7 @@ impl DependencyLoader {
         let dal = DAL::new(self.database.pool());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(UniversalUuid(self.pipeline_execution_id), task_name)?;
+            .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)?;
 
         if let Some(context_id) = task_metadata.context_id {
             let context = dal.context().read::<serde_json::Value>(context_id)?;
@@ -205,9 +204,9 @@ pub enum EngineMode {
 #[derive(Debug)]
 pub struct ClaimedTask {
     /// Unique identifier for this task execution
-    pub task_execution_id: Uuid,
+    pub task_execution_id: UniversalUuid,
     /// ID of the pipeline this task belongs to
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task being executed
     pub task_name: String,
     /// Current attempt number for this task execution

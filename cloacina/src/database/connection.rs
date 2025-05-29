@@ -14,47 +14,67 @@
  *  limitations under the License.
  */
 
-//! Database connection management module for PostgreSQL using Diesel ORM.
+//! Database connection management module supporting both PostgreSQL and SQLite.
 //!
 //! This module provides a connection pool implementation using `r2d2` for managing
-//! PostgreSQL database connections efficiently. It handles connection pooling,
-//! connection lifecycle, and provides a thread-safe way to access database connections.
+//! database connections efficiently. It handles connection pooling, connection lifecycle,
+//! and provides a thread-safe way to access database connections.
 //!
 //! # Features
 //!
 //! - Connection pooling with configurable pool size
 //! - Thread-safe connection management
 //! - Automatic connection cleanup
-//! - URL-based configuration
+//! - URL-based configuration for PostgreSQL
+//! - File path or `:memory:` configuration for SQLite
 //!
 //! # Example
 //!
 //! ```rust
 //! use cloacina::database::connection::Database;
 //!
+//! // PostgreSQL
+//! #[cfg(feature = "postgres")]
 //! let db = Database::new(
 //!     "postgres://username:password@localhost:5432",
 //!     "my_database",
 //!     10
 //! );
 //!
-//! // Get a connection from the pool
-//! let pool = db.get_connection();
+//! // SQLite
+//! #[cfg(feature = "sqlite")]
+//! let db = Database::new(
+//!     "path/to/database.db",
+//!     "", // Not used for SQLite
+//!     10
+//! );
 //! ```
-//!
-//! # Error Handling
-//!
-//! The module uses panic-based error handling for connection pool creation
-//! as this is typically a fatal error that should be handled at application startup.
-//! Connection acquisition from the pool is handled through the `r2d2` pool's
-//! error handling mechanisms.
 
 use diesel::r2d2::{ConnectionManager, Pool};
-use diesel::PgConnection;
 use tracing::info;
+
+#[cfg(feature = "postgres")]
+use diesel::PgConnection;
+#[cfg(feature = "postgres")]
 use url::Url;
 
-/// Represents a pool of PostgreSQL database connections.
+#[cfg(feature = "sqlite")]
+use diesel::SqliteConnection;
+
+/// Type alias for the connection type based on the selected backend
+#[cfg(feature = "postgres")]
+pub type DbConnection = PgConnection;
+
+#[cfg(feature = "sqlite")]
+pub type DbConnection = SqliteConnection;
+
+/// Type alias for the connection manager based on the selected backend
+pub type DbConnectionManager = ConnectionManager<DbConnection>;
+
+/// Type alias for the connection pool
+pub type DbPool = Pool<DbConnectionManager>;
+
+/// Represents a pool of database connections.
 ///
 /// This struct provides a thread-safe wrapper around a connection pool,
 /// allowing multiple parts of the application to share database connections
@@ -67,7 +87,7 @@ use url::Url;
 #[derive(Clone, Debug)]
 pub struct Database {
     /// The actual connection pool.
-    pool: Pool<ConnectionManager<PgConnection>>,
+    pool: DbPool,
 }
 
 impl Database {
@@ -75,8 +95,14 @@ impl Database {
     ///
     /// # Arguments
     ///
-    /// * `base_url` - The base URL of the database server (e.g., "postgres://username:password@localhost:5432")
+    /// For PostgreSQL:
+    /// * `connection_string` - The base URL of the database server (e.g., "postgres://username:password@localhost:5432")
     /// * `database_name` - The name of the database to connect to
+    /// * `max_size` - The maximum number of connections the pool should maintain
+    ///
+    /// For SQLite:
+    /// * `connection_string` - The path to the database file or ":memory:" for in-memory database
+    /// * `database_name` - Ignored for SQLite (pass empty string)
     /// * `max_size` - The maximum number of connections the pool should maintain
     ///
     /// # Returns
@@ -86,29 +112,15 @@ impl Database {
     /// # Panics
     ///
     /// This function will panic if:
-    /// * The base URL is invalid
+    /// * The connection string is invalid
     /// * The connection pool creation fails
-    /// * The database server is unreachable
-    /// * The credentials are invalid
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use cloacina::database::connection::Database;
-    ///
-    /// let db = Database::new(
-    ///     "postgres://postgres:postgres@localhost:5432",
-    ///     "my_database",
-    ///     10
-    /// );
-    /// ```
-    pub fn new(base_url: &str, database_name: &str, max_size: u32) -> Self {
-        // Parse the base URL and set the database name
-        let mut url = Url::parse(base_url).expect("Invalid base URL");
-        url.set_path(database_name);
-
+    /// * The database server is unreachable (PostgreSQL)
+    /// * The database file cannot be created or accessed (SQLite)
+    pub fn new(connection_string: &str, database_name: &str, max_size: u32) -> Self {
+        let connection_url = Self::build_connection_url(connection_string, database_name);
+        
         // Create a connection manager
-        let manager = ConnectionManager::<PgConnection>::new(url.as_str());
+        let manager = ConnectionManager::<DbConnection>::new(connection_url);
 
         // Build the connection pool
         let pool = Pool::builder()
@@ -121,6 +133,22 @@ impl Database {
         Self { pool }
     }
 
+    /// Builds the connection URL based on the backend
+    #[cfg(feature = "postgres")]
+    fn build_connection_url(base_url: &str, database_name: &str) -> String {
+        // Parse the base URL and set the database name
+        let mut url = Url::parse(base_url).expect("Invalid PostgreSQL URL");
+        url.set_path(database_name);
+        url.to_string()
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn build_connection_url(connection_string: &str, _database_name: &str) -> String {
+        // For SQLite, just return the connection string as-is
+        // It can be a file path or ":memory:"
+        connection_string.to_string()
+    }
+
     /// Gets a connection from the pool.
     ///
     /// This method returns a clone of the connection pool, which can be used
@@ -129,16 +157,7 @@ impl Database {
     /// # Returns
     ///
     /// Returns a pooled connection from the pool.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use diesel::RunQueryDsl;
-    ///
-    /// let pool = db.get_connection();
-    /// let conn = pool.get().expect("Failed to get connection");
-    /// ```
-    pub fn get_connection(&self) -> Pool<ConnectionManager<PgConnection>> {
+    pub fn get_connection(&self) -> DbPool {
         self.pool.clone()
     }
 
@@ -150,13 +169,7 @@ impl Database {
     /// # Returns
     ///
     /// Returns a reference to the connection pool.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// let pool = db.pool();
-    /// ```
-    pub fn pool(&self) -> Pool<ConnectionManager<PgConnection>> {
+    pub fn pool(&self) -> DbPool {
         self.pool.clone()
     }
 }
@@ -166,7 +179,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_url_parsing_scenarios() {
+    #[cfg(feature = "postgres")]
+    fn test_postgres_url_parsing_scenarios() {
         // Test complete URL with credentials and port
         let mut url = Url::parse("postgres://postgres:postgres@localhost:5432").unwrap();
         url.set_path("test_db");
@@ -190,5 +204,21 @@ mod tests {
 
         // Test invalid URL
         assert!(Url::parse("not-a-url").is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "sqlite")]
+    fn test_sqlite_connection_strings() {
+        // Test file path
+        let url = Database::build_connection_url("/path/to/database.db", "");
+        assert_eq!(url, "/path/to/database.db");
+
+        // Test in-memory database
+        let url = Database::build_connection_url(":memory:", "");
+        assert_eq!(url, ":memory:");
+
+        // Test relative path
+        let url = Database::build_connection_url("./database.db", "");
+        assert_eq!(url, "./database.db");
     }
 }
