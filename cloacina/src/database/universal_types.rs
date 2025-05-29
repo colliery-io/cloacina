@@ -194,7 +194,6 @@ impl ToSql<Text, Sqlite> for UniversalTimestamp {
     }
 }
 
-
 #[cfg(feature = "sqlite")]
 impl fmt::Display for UniversalTimestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

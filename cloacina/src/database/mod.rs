@@ -29,7 +29,7 @@
 //! Supports both PostgreSQL and SQLite through compile-time feature flags:
 //! - PostgreSQL: Full-featured with native UUID and timestamp types
 //! - SQLite: File-based or in-memory with type conversions
-//! 
+//!
 //! The database layer handles:
 //! - Context persistence and retrieval
 //! - Task execution state tracking

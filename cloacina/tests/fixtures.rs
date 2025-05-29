@@ -52,9 +52,11 @@ pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
         .get_or_init(|| {
             #[cfg(feature = "postgres")]
             {
-                let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-                let conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
-                    .expect("Failed to connect to PostgreSQL database");
+                let db =
+                    Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+                let conn =
+                    PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+                        .expect("Failed to connect to PostgreSQL database");
                 Arc::new(Mutex::new(TestFixture::new(db, conn)))
             }
             #[cfg(feature = "sqlite")]
@@ -203,8 +205,8 @@ pub mod fixtures {
     #[serial]
     #[cfg(feature = "sqlite")]
     async fn test_migration_function_sqlite() {
-        let mut conn = SqliteConnection::establish(":memory:")
-            .expect("Failed to connect to database");
+        let mut conn =
+            SqliteConnection::establish(":memory:").expect("Failed to connect to database");
 
         // Test that our migration function works
         let result = cloacina::database::run_migrations(&mut conn);

@@ -46,8 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Simple Cloacina Example");
 
     // Initialize executor with database (migrations run automatically)
-    let executor =
-        UnifiedExecutor::new("tutorial-01.db").await?;
+    let executor = UnifiedExecutor::new("tutorial-01.db").await?;
 
     // Create a simple workflow (automatically registers in global registry)
     let _workflow = workflow! {

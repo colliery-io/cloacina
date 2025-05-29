@@ -287,8 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize executor with database
-    let executor =
-        UnifiedExecutor::new("tutorial-04.db").await?;
+    let executor = UnifiedExecutor::new("tutorial-04.db").await?;
 
     // Create a workflow with our tasks
     let _workflow = workflow! {

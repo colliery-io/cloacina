@@ -118,7 +118,7 @@ impl Database {
     /// * The database file cannot be created or accessed (SQLite)
     pub fn new(connection_string: &str, database_name: &str, max_size: u32) -> Self {
         let connection_url = Self::build_connection_url(connection_string, database_name);
-        
+
         // Create a connection manager
         let manager = ConnectionManager::<DbConnection>::new(connection_url);
 

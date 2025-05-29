@@ -66,7 +66,8 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .values((
                 task_execution_metadata::id.eq(&id),
                 task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
-                task_execution_metadata::pipeline_execution_id.eq(&new_metadata.pipeline_execution_id),
+                task_execution_metadata::pipeline_execution_id
+                    .eq(&new_metadata.pipeline_execution_id),
                 task_execution_metadata::task_name.eq(&new_metadata.task_name),
                 task_execution_metadata::context_id.eq(&new_metadata.context_id),
                 task_execution_metadata::created_at.eq(&now),
@@ -75,9 +76,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .execute(&mut conn)?;
 
         // Retrieve the inserted record
-        let metadata = task_execution_metadata::table
-            .find(id)
-            .first(&mut conn)?;
+        let metadata = task_execution_metadata::table.find(id).first(&mut conn)?;
 
         Ok(metadata)
     }
@@ -178,7 +177,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             Some(_) => {
                 // Update existing record
                 diesel::update(task_execution_metadata::table)
-                    .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
+                    .filter(
+                        task_execution_metadata::task_execution_id
+                            .eq(&new_metadata.task_execution_id),
+                    )
                     .set((
                         task_execution_metadata::context_id.eq(&new_metadata.context_id),
                         task_execution_metadata::updated_at.eq(current_timestamp()),
@@ -187,7 +189,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
                 // Retrieve the updated record
                 Ok(task_execution_metadata::table
-                    .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
+                    .filter(
+                        task_execution_metadata::task_execution_id
+                            .eq(&new_metadata.task_execution_id),
+                    )
                     .first(&mut conn)?)
             }
             None => {
@@ -198,8 +203,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 diesel::insert_into(task_execution_metadata::table)
                     .values((
                         task_execution_metadata::id.eq(&id),
-                        task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
-                        task_execution_metadata::pipeline_execution_id.eq(&new_metadata.pipeline_execution_id),
+                        task_execution_metadata::task_execution_id
+                            .eq(&new_metadata.task_execution_id),
+                        task_execution_metadata::pipeline_execution_id
+                            .eq(&new_metadata.pipeline_execution_id),
                         task_execution_metadata::task_name.eq(&new_metadata.task_name),
                         task_execution_metadata::context_id.eq(&new_metadata.context_id),
                         task_execution_metadata::created_at.eq(&now),
@@ -208,9 +215,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                     .execute(&mut conn)?;
 
                 // Retrieve the inserted record
-                Ok(task_execution_metadata::table
-                    .find(id)
-                    .first(&mut conn)?)
+                Ok(task_execution_metadata::table.find(id).first(&mut conn)?)
             }
         }
     }

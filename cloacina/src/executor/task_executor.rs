@@ -212,13 +212,13 @@ impl TaskExecutor {
             let dependencies = task.dependencies().to_vec();
 
             // Build context using DAL methods
-            let context = self.build_task_context(&claimed_task, &dependencies).await?;
+            let context = self
+                .build_task_context(&claimed_task, &dependencies)
+                .await?;
 
             info!(
                 "Task state change: Ready -> Running (task: {}, pipeline: {}, attempt: {})",
-                claimed_task.task_name,
-                claimed_task.pipeline_execution_id,
-                claimed_task.attempt
+                claimed_task.task_name, claimed_task.pipeline_execution_id, claimed_task.attempt
             );
 
             Ok(Some((claimed_task, context)))
@@ -341,7 +341,6 @@ impl TaskExecutor {
 
         Ok(())
     }
-
 
     /// Executes a task with timeout protection.
     ///
@@ -469,13 +468,15 @@ impl TaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
-    async fn mark_task_completed(&self, task_execution_id: UniversalUuid) -> Result<(), ExecutorError> {
+    async fn mark_task_completed(
+        &self,
+        task_execution_id: UniversalUuid,
+    ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal
-            .task_execution()
-            .get_by_id(task_execution_id)?;
+        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
 
-        self.dal.task_execution()
+        self.dal
+            .task_execution()
             .mark_completed(task_execution_id)?;
 
         info!(
@@ -503,9 +504,10 @@ impl TaskExecutor {
     ) -> Result<(), ExecutorError> {
         // Save context and update metadata
         self.save_task_context(claimed_task, context).await?;
-        
+
         // Mark task as completed
-        self.mark_task_completed(claimed_task.task_execution_id).await?;
+        self.mark_task_completed(claimed_task.task_execution_id)
+            .await?;
 
         Ok(())
     }
@@ -524,11 +526,10 @@ impl TaskExecutor {
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal
-            .task_execution()
-            .get_by_id(task_execution_id)?;
+        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
 
-        self.dal.task_execution()
+        self.dal
+            .task_execution()
             .mark_failed(task_execution_id, &error.to_string())?;
 
         error!(

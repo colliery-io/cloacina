@@ -538,8 +538,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Parallel Processing Example");
 
     // Initialize executor with database
-    let executor =
-        UnifiedExecutor::new("tutorial-03.db").await?;
+    let executor = UnifiedExecutor::new("tutorial-03.db").await?;
 
     // Create the parallel processing workflow
     let _workflow = workflow! {

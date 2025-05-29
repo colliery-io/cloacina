@@ -103,7 +103,7 @@ impl<'a> ContextDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID
         let id = UniversalUuid::new_v4();
-        
+
         // Create new database record
         let new_context = NewDbContext { value };
 

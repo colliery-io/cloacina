@@ -116,7 +116,7 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
     """
     # Check if this is a tutorial (SQLite-based) or other example (potentially PostgreSQL-based)
     is_tutorial = "tutorial" in example_dir
-    
+
     if not is_tutorial:
         # For non-tutorial examples, check if Docker services are running
         try:

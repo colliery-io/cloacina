@@ -94,9 +94,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .execute(&mut conn)?;
 
         // Retrieve the inserted record
-        let task = task_executions::table
-            .find(id)
-            .first(&mut conn)?;
+        let task = task_executions::table.find(id).first(&mut conn)?;
 
         Ok(task)
     }
@@ -163,7 +161,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_skipped(&self, task_id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
+    pub fn mark_skipped(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         // Get task info for logging before updating
@@ -383,7 +385,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_abandoned(&self, task_id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
+    pub fn mark_abandoned(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
@@ -605,7 +611,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_failed(&self, task_id: UniversalUuid, error_message: &str) -> Result<(), ValidationError> {
+    pub fn mark_failed(
+        &self,
+        task_id: UniversalUuid,
+        error_message: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))

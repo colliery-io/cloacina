@@ -65,9 +65,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .execute(&mut conn)?;
 
         // Retrieve the inserted record
-        let execution = pipeline_executions::table
-            .find(id)
-            .first(&mut conn)?;
+        let execution = pipeline_executions::table.find(id).first(&mut conn)?;
 
         Ok(execution)
     }
