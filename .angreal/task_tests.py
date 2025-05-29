@@ -28,7 +28,7 @@ tests = angreal.command_group(name="tests", about="commands for test suites")
 def unit(filter=None):
     """Run unit tests (tests embedded in src/ modules only)."""
     # Run lib tests (unit tests within src/ modules)
-    cmd_lib = ["cargo", "test", "--lib"]
+    cmd_lib = ["cargo", "test", "--lib", "--features", "postgres,macros"]
     if filter:
         cmd_lib.append(filter)
 
@@ -70,7 +70,7 @@ def integration(filter=None, skip_docker=False):
         time.sleep(30)
 
     try:
-        cmd = ["cargo", "test", "--test", "integration", "--verbose", "--", "--test-threads=1", "--nocapture"]
+        cmd = ["cargo", "test", "--test", "integration", "--features", "postgres,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
         if filter:
             cmd.append(filter)
 
@@ -107,7 +107,7 @@ def macro():
         print(f"\n   Testing {example} (should fail to compile)...")
         try:
             result = subprocess.run(
-                ["cargo", "check", "--bin", example],
+                ["cargo", "check", "--bin", example, "--features", "postgres"],
                 cwd=str(PROJECT_ROOT / "examples/validation_failures"),
                 capture_output=True,
                 text=True
