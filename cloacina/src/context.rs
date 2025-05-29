@@ -164,7 +164,7 @@
 use crate::error::ContextError;
 use crate::models::context::{DbContext, NewDbContext};
 #[allow(unused_imports)]
-use chrono::Utc;
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -174,6 +174,7 @@ use uuid::Uuid;
 // Executor-related types for enhanced context functionality
 use crate::error::ExecutorError;
 use crate::executor::types::{DependencyLoader, ExecutionScope};
+use crate::{UniversalTimestamp, UniversalUuid};
 
 /// A context that holds data for pipeline execution.
 ///
@@ -720,12 +721,12 @@ where
     pub fn to_db_record(&self, id: Uuid) -> Result<DbContext, ContextError> {
         debug!("Converting context to full database record");
         let json = self.to_json()?;
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Utc::now();
         Ok(DbContext {
-            id,
+            id: UniversalUuid(id),
             value: json,
-            created_at: now,
-            updated_at: now,
+            created_at: UniversalTimestamp(now),
+            updated_at: UniversalTimestamp(now),
         })
     }
 }
@@ -788,10 +789,10 @@ mod tests {
         let now = Utc::now().naive_utc();
         let id = Uuid::new_v4();
         let db_context = DbContext {
-            id,
+            id: UniversalUuid(id),
             value: json,
-            created_at: now,
-            updated_at: now,
+            created_at: UniversalTimestamp(Utc.from_utc_datetime(&now)),
+            updated_at: UniversalTimestamp(Utc.from_utc_datetime(&now)),
         };
 
         // Test conversion from DB record
@@ -804,7 +805,7 @@ mod tests {
 
         // Test conversion to full DB record
         let full_record = context.to_db_record(id).unwrap();
-        assert_eq!(full_record.id, id);
+        assert_eq!(full_record.id, UniversalUuid(id));
         assert!(!full_record.value.is_empty());
 
         // Verify roundtrip conversion

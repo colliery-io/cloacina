@@ -19,9 +19,9 @@
 //! This module defines the data structures for managing task execution metadata within the pipeline system.
 //! Task execution metadata stores metadata and execution data for individual task executions within a pipeline execution.
 
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a task execution metadata record in the database.
 ///

@@ -21,9 +21,9 @@
 //! parts of the application. The data is stored as a string in the database and can be
 //! deserialized into appropriate structures when needed.
 
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a context record in the database.
 ///

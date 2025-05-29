@@ -20,9 +20,9 @@
 //! Pipeline executions represent individual runs of data processing pipelines, including
 //! their status, timing information, and any error details.
 
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a completed or in-progress pipeline execution in the system.
 ///

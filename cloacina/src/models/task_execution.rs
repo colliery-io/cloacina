@@ -19,9 +19,9 @@
 //! This module defines the data structures for tracking task executions within pipeline runs.
 //! It provides models for both querying existing task executions and creating new ones.
 
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a task execution record in the database.
 ///

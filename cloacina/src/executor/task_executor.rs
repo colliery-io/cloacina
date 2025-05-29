@@ -36,6 +36,7 @@ use uuid::Uuid;
 
 use super::types::{ClaimedTask, DependencyLoader, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
 use crate::{Context, Database, Task, TaskRegistry};
@@ -226,8 +227,8 @@ impl TaskExecutor {
 
             if let Some(task_execution) = claimed_execution {
                 let claimed_task = ClaimedTask {
-                    task_execution_id: task_execution.id,
-                    pipeline_execution_id: task_execution.pipeline_execution_id,
+                    task_execution_id: task_execution.id.into(),
+                    pipeline_execution_id: task_execution.pipeline_execution_id.into(),
                     task_name: task_execution.task_name.clone(),
                     attempt: task_execution.attempt,
                 };
@@ -422,7 +423,7 @@ impl TaskExecutor {
             if let Ok(pipeline_execution) = self
                 .dal
                 .pipeline_execution()
-                .get_by_id(claimed_task.pipeline_execution_id)
+                .get_by_id(UniversalUuid(claimed_task.pipeline_execution_id))
             {
                 if let Some(context_id) = pipeline_execution.context_id {
                     if let Ok(initial_context) =
@@ -448,7 +449,7 @@ impl TaskExecutor {
                 .dal
                 .task_execution_metadata()
                 .get_dependency_metadata_with_contexts(
-                    claimed_task.pipeline_execution_id,
+                    UniversalUuid(claimed_task.pipeline_execution_id),
                     &dependencies,
                 )
             {
@@ -573,8 +574,8 @@ impl TaskExecutor {
 
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
-            task_execution_id: claimed_task.task_execution_id,
-            pipeline_execution_id: claimed_task.pipeline_execution_id,
+            task_execution_id: UniversalUuid(claimed_task.task_execution_id),
+            pipeline_execution_id: UniversalUuid(claimed_task.pipeline_execution_id),
             task_name: claimed_task.task_name.clone(),
             context_id,
         };
@@ -603,9 +604,12 @@ impl TaskExecutor {
     async fn mark_task_completed(&self, task_execution_id: Uuid) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
         let dal = DAL::new(self.dal.pool.clone());
-        let task = dal.task_execution().get_by_id(task_execution_id)?;
+        let task = dal
+            .task_execution()
+            .get_by_id(UniversalUuid(task_execution_id))?;
 
-        dal.task_execution().mark_completed(task_execution_id)?;
+        dal.task_execution()
+            .mark_completed(UniversalUuid(task_execution_id))?;
 
         info!(
             "Task state change: {} -> Completed (task: {}, pipeline: {})",
@@ -653,8 +657,8 @@ impl TaskExecutor {
 
             // 2. Create/update task execution metadata with context reference
             let task_metadata_record = NewTaskExecutionMetadata {
-                task_execution_id,
-                pipeline_execution_id: pipeline_id,
+                task_execution_id: UniversalUuid(task_execution_id),
+                pipeline_execution_id: UniversalUuid(pipeline_id),
                 task_name: task_name.clone(),
                 context_id: Some(context_record.id),
             };
@@ -706,10 +710,12 @@ impl TaskExecutor {
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
         let dal = DAL::new(self.dal.pool.clone());
-        let task = dal.task_execution().get_by_id(task_execution_id)?;
+        let task = dal
+            .task_execution()
+            .get_by_id(UniversalUuid(task_execution_id))?;
 
         dal.task_execution()
-            .mark_failed(task_execution_id, &error.to_string())?;
+            .mark_failed(UniversalUuid(task_execution_id), &error.to_string())?;
 
         error!(
             "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
@@ -818,7 +824,7 @@ impl TaskExecutor {
         // Use DAL to schedule retry
         let dal = DAL::new(self.dal.pool.clone());
         dal.task_execution().schedule_retry(
-            claimed_task.task_execution_id,
+            UniversalUuid(claimed_task.task_execution_id),
             retry_at.naive_utc(),
             claimed_task.attempt + 1,
         )?;

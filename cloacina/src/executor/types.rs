@@ -24,6 +24,7 @@
 use crate::dal::DAL;
 use crate::error::ExecutorError;
 use crate::Database;
+use crate::UniversalUuid;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use uuid::Uuid;
@@ -140,7 +141,7 @@ impl DependencyLoader {
         let dal = DAL::new(self.database.pool());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)?;
+            .get_by_pipeline_and_task(UniversalUuid(self.pipeline_execution_id), task_name)?;
 
         if let Some(context_id) = task_metadata.context_id {
             let context = dal.context().read::<serde_json::Value>(context_id)?;

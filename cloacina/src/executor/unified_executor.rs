@@ -15,7 +15,6 @@
  */
 
 use async_trait::async_trait;
-use chrono::DateTime;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
@@ -25,6 +24,7 @@ use super::pipeline_executor::*;
 use crate::dal::DAL;
 use crate::executor::types::ExecutorConfig;
 use crate::task::TaskState;
+use crate::UniversalUuid;
 use crate::{Context, Database, TaskExecutor, TaskScheduler};
 
 /// Configuration for the unified pipeline executor
@@ -333,14 +333,14 @@ impl UnifiedExecutor {
 
         let pipeline_execution = dal
             .pipeline_execution()
-            .get_by_id(execution_id)
+            .get_by_id(UniversalUuid(execution_id))
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get pipeline execution: {}", e),
             })?;
 
         let task_executions = dal
             .task_execution()
-            .get_all_tasks_for_pipeline(execution_id)
+            .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get task executions: {}", e),
             })?;
@@ -365,17 +365,13 @@ impl UnifiedExecutor {
                     "Running" => TaskState::Running {
                         start_time: task_exec
                             .started_at
-                            .map(|dt| {
-                                DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                            })
+                            .map(|ts| ts.0)
                             .unwrap_or_else(chrono::Utc::now),
                     },
                     "Completed" => TaskState::Completed {
                         completion_time: task_exec
                             .completed_at
-                            .map(|dt| {
-                                DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                            })
+                            .map(|ts| ts.0)
                             .unwrap_or_else(chrono::Utc::now),
                     },
                     "Failed" => TaskState::Failed {
@@ -385,9 +381,7 @@ impl UnifiedExecutor {
                             .unwrap_or_else(|| "Unknown error".to_string()),
                         failure_time: task_exec
                             .completed_at
-                            .map(|dt| {
-                                DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                            })
+                            .map(|ts| ts.0)
                             .unwrap_or_else(chrono::Utc::now),
                     },
                     "Skipped" => TaskState::Skipped {
@@ -397,9 +391,7 @@ impl UnifiedExecutor {
                             .unwrap_or_else(|| "Trigger rules not satisfied".to_string()),
                         skip_time: task_exec
                             .completed_at
-                            .map(|dt| {
-                                DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                            })
+                            .map(|ts| ts.0)
                             .unwrap_or_else(chrono::Utc::now),
                     },
                     _ => TaskState::Failed {
@@ -413,26 +405,16 @@ impl UnifiedExecutor {
                         .completed_at
                         .zip(task_exec.started_at)
                         .map(|(end, start)| {
-                            let end_utc = DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                                end,
-                                chrono::Utc,
-                            );
-                            let start_utc = DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                                start,
-                                chrono::Utc,
-                            );
+                            let end_utc = end.0;
+                            let start_utc = start.0;
                             (end_utc - start_utc).to_std().unwrap_or(Duration::ZERO)
                         });
 
                 TaskResult {
                     task_name: task_exec.task_name,
                     status,
-                    start_time: task_exec.started_at.map(|dt| {
-                        DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                    }),
-                    end_time: task_exec.completed_at.map(|dt| {
-                        DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                    }),
+                    start_time: task_exec.started_at.map(|ts| ts.0),
+                    end_time: task_exec.completed_at.map(|ts| ts.0),
                     duration,
                     attempt_count: task_exec.attempt,
                     error_message: task_exec.error_details,
@@ -450,11 +432,8 @@ impl UnifiedExecutor {
         };
 
         let duration = pipeline_execution.completed_at.map(|end| {
-            let end_utc = DateTime::<chrono::Utc>::from_naive_utc_and_offset(end, chrono::Utc);
-            let start_utc = DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                pipeline_execution.started_at,
-                chrono::Utc,
-            );
+            let end_utc = end.0;
+            let start_utc = pipeline_execution.started_at.0;
             (end_utc - start_utc).to_std().unwrap_or(Duration::ZERO)
         });
 
@@ -462,14 +441,9 @@ impl UnifiedExecutor {
             execution_id,
             workflow_name: pipeline_execution.pipeline_name,
             status,
-            start_time: DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                pipeline_execution.started_at,
-                chrono::Utc,
-            ),
-            end_time: pipeline_execution
-                .completed_at
-                .map(|dt| DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)),
-            duration,
+            start_time: pipeline_execution.started_at.0,
+            end_time: pipeline_execution.completed_at.map(|ts| ts.0),
+            duration: duration,
             final_context,
             task_results,
             error_message: pipeline_execution.error_details,
@@ -527,7 +501,7 @@ impl PipelineExecutor for UnifiedExecutor {
             // Check status
             let pipeline = dal
                 .pipeline_execution()
-                .get_by_id(execution_id)
+                .get_by_id(UniversalUuid(execution_id))
                 .map_err(|e| PipelineError::ExecutionFailed {
                     message: format!("Failed to check execution status: {}", e),
                 })?;
@@ -631,7 +605,7 @@ impl PipelineExecutor for UnifiedExecutor {
         let dal = DAL::new(self.database.pool());
         let pipeline = dal
             .pipeline_execution()
-            .get_by_id(execution_id)
+            .get_by_id(UniversalUuid(execution_id))
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get execution status: {}", e),
             })?;
@@ -673,11 +647,11 @@ impl PipelineExecutor for UnifiedExecutor {
         // and notify scheduler/executor to stop processing
         let dal = DAL::new(self.database.pool());
 
-        dal.pipeline_execution().cancel(execution_id).map_err(|e| {
-            PipelineError::ExecutionFailed {
+        dal.pipeline_execution()
+            .cancel(execution_id.into())
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to cancel execution: {}", e),
-            }
-        })?;
+            })?;
 
         Ok(())
     }
@@ -699,7 +673,7 @@ impl PipelineExecutor for UnifiedExecutor {
 
         let mut results = Vec::new();
         for execution in executions {
-            if let Ok(result) = self.build_pipeline_result(execution.id).await {
+            if let Ok(result) = self.build_pipeline_result(execution.id.into()).await {
                 results.push(result);
             }
         }

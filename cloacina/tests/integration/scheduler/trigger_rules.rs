@@ -78,14 +78,14 @@ async fn test_always_trigger_rule() {
     let dal = fixture.get_dal();
     let _tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(execution_id)
+        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
         .expect("Failed to get tasks");
 
     // Since we have an empty workflow, there should be no tasks
     // But the pipeline should be created successfully
     let pipeline = dal
         .pipeline_execution()
-        .get_by_id(execution_id)
+        .get_by_id(UniversalUuid(execution_id))
         .expect("Failed to get pipeline");
 
     assert_eq!(pipeline.status, "Pending");

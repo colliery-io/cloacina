@@ -40,7 +40,7 @@ use diesel::pg::Pg;
 #[cfg(feature = "sqlite")]
 use diesel::sql_types::Text;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 
 /// Universal UUID wrapper that works with both PostgreSQL and SQLite
 #[derive(Debug, Clone, Copy, FromSqlRow, Hash, Eq, PartialEq, Serialize, Deserialize)]
@@ -121,13 +121,55 @@ impl ToSql<diesel::sql_types::Uuid, Pg> for UniversalUuid {
 
 /// Universal timestamp wrapper that works with both PostgreSQL and SQLite
 #[cfg(feature = "sqlite")]
-#[derive(Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
+)]
 #[diesel(sql_type = Text)]
 pub struct UniversalTimestamp(pub DateTime<Utc>);
 
 #[cfg(feature = "postgres")]
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[diesel(sql_type = diesel::sql_types::Timestamp)]
 pub struct UniversalTimestamp(pub DateTime<Utc>);
+
+#[cfg(feature = "postgres")]
+impl FromSql<diesel::sql_types::Timestamp, Pg> for UniversalTimestamp {
+    fn from_sql(
+        bytes: <Pg as diesel::backend::Backend>::RawValue<'_>,
+    ) -> deserialize::Result<Self> {
+        let naive =
+            <chrono::NaiveDateTime as FromSql<diesel::sql_types::Timestamp, Pg>>::from_sql(bytes)?;
+        Ok(UniversalTimestamp(Utc.from_utc_datetime(&naive)))
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl ToSql<diesel::sql_types::Timestamp, Pg> for UniversalTimestamp {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Pg>) -> serialize::Result {
+        // This is a workaround for the lifetime issue
+        // We know the value is used immediately within this call
+        let naive = self.0.naive_utc();
+        let naive_ref: &NaiveDateTime =
+            unsafe { std::mem::transmute(&naive as *const NaiveDateTime) };
+        <NaiveDateTime as ToSql<diesel::sql_types::Timestamp, Pg>>::to_sql(naive_ref, out)
+    }
+}
+
+impl UniversalTimestamp {
+    pub fn now() -> Self {
+        Self(Utc::now())
+    }
+
+    pub fn as_datetime(&self) -> &DateTime<Utc> {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> DateTime<Utc> {
+        self.0
+    }
+}
 
 // SQLite Text storage implementation
 #[cfg(feature = "sqlite")]
@@ -185,7 +227,7 @@ impl From<UniversalTimestamp> for DateTime<Utc> {
 }
 
 // Helper function for current timestamp
-#[allow(dead_code)]
+
 pub fn current_timestamp() -> UniversalTimestamp {
     UniversalTimestamp::now()
 }
@@ -235,9 +277,9 @@ mod tests {
     #[test]
     fn test_universal_timestamp_postgres() {
         // For PostgreSQL, UniversalTimestamp is just a type alias
-        let now: UniversalTimestamp = Utc::now();
+        let now: UniversalTimestamp = crate::UniversalTimestamp(Utc::now());
         // Should compile and work normally
-        assert!(now.timestamp() > 0);
+        assert!(now.0.timestamp() > 0);
     }
 
     #[cfg(feature = "sqlite")]
@@ -252,6 +294,6 @@ mod tests {
     fn test_current_timestamp() {
         let ts = current_timestamp();
         // Should be a recent timestamp
-        assert!(ts.timestamp() > 0);
+        assert!(ts.0.timestamp() > 0);
     }
 }

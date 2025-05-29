@@ -81,7 +81,7 @@ async fn test_schedule_workflow_execution() {
     let dal = fixture.get_dal();
     let pipeline = dal
         .pipeline_execution()
-        .get_by_id(execution_id)
+        .get_by_id(UniversalUuid(execution_id))
         .expect("Failed to get pipeline execution");
 
     assert_eq!(pipeline.pipeline_name, "test-workflow");
@@ -148,7 +148,7 @@ async fn test_workflow_version_tracking() {
     let dal = fixture.get_dal();
     let pipeline = dal
         .pipeline_execution()
-        .get_by_id(execution_id)
+        .get_by_id(UniversalUuid(execution_id))
         .expect("Failed to get pipeline execution");
 
     // Since we're using auto-versioning, just verify a version was set

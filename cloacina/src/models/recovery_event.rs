@@ -24,9 +24,9 @@
 //! creating new ones, along with an enum defining the different types of recovery
 //! actions that can be performed.
 
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a recovery event record in the database.
 ///

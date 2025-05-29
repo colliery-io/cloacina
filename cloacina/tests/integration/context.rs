@@ -59,7 +59,7 @@ async fn test_context_db_operations() {
     updated_context.update("test_key", 43).unwrap();
 
     // Convert to full DB record and update
-    let updated_db_record = updated_context.to_db_record(db_context.id).unwrap();
+    let updated_db_record = updated_context.to_db_record(db_context.id.into()).unwrap();
     debug!("Updated record: {:?}", updated_db_record);
 
     let updated_db_context: DbContext = diesel::update(contexts)
