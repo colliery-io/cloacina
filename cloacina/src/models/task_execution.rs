@@ -19,10 +19,9 @@
 //! This module defines the data structures for tracking task executions within pipeline runs.
 //! It provides models for both querying existing task executions and creating new ones.
 
-use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a task execution record in the database.
 ///
@@ -31,20 +30,21 @@ use uuid::Uuid;
 /// and configuration details.
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::database::schema::task_executions)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
 pub struct TaskExecution {
     /// Unique identifier for the task execution
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// Reference to the parent pipeline execution
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task being executed
     pub task_name: String,
     /// Current status of the task execution (e.g., "pending", "running", "completed", "failed")
     pub status: String,
     /// Timestamp when the task execution started
-    pub started_at: Option<NaiveDateTime>,
+    pub started_at: Option<UniversalTimestamp>,
     /// Timestamp when the task execution completed
-    pub completed_at: Option<NaiveDateTime>,
+    pub completed_at: Option<UniversalTimestamp>,
     /// Current attempt number for this task execution
     pub attempt: i32,
     /// Maximum number of attempts allowed for this task
@@ -56,17 +56,17 @@ pub struct TaskExecution {
     /// JSON string containing the task's configuration parameters
     pub task_configuration: String,
     /// Timestamp when the task should be retried (if applicable)
-    pub retry_at: Option<NaiveDateTime>,
+    pub retry_at: Option<UniversalTimestamp>,
     /// Most recent error message encountered
     pub last_error: Option<String>,
     /// Number of recovery attempts made for this task
     pub recovery_attempts: i32,
     /// Timestamp of the last recovery attempt
-    pub last_recovery_at: Option<NaiveDateTime>,
+    pub last_recovery_at: Option<UniversalTimestamp>,
     /// Timestamp when the task execution record was created
-    pub created_at: NaiveDateTime,
+    pub created_at: UniversalTimestamp,
     /// Timestamp when the task execution record was last updated
-    pub updated_at: NaiveDateTime,
+    pub updated_at: UniversalTimestamp,
 }
 
 /// Represents a new task execution to be inserted into the database.
@@ -77,7 +77,7 @@ pub struct TaskExecution {
 #[diesel(table_name = crate::database::schema::task_executions)]
 pub struct NewTaskExecution {
     /// Reference to the parent pipeline execution
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task being executed
     pub task_name: String,
     /// Initial status of the task execution

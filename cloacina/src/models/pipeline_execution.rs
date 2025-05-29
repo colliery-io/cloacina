@@ -20,10 +20,9 @@
 //! Pipeline executions represent individual runs of data processing pipelines, including
 //! their status, timing information, and any error details.
 
-use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::database::universal_types::{UniversalUuid, UniversalTimestamp};
 
 /// Represents a completed or in-progress pipeline execution in the system.
 ///
@@ -32,10 +31,11 @@ use uuid::Uuid;
 /// status updates, and error handling.
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::database::schema::pipeline_executions)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
 pub struct PipelineExecution {
     /// Unique identifier for the pipeline execution
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// Name of the pipeline that was executed
     pub pipeline_name: String,
     /// Version of the pipeline that was executed
@@ -43,21 +43,21 @@ pub struct PipelineExecution {
     /// Current status of the pipeline execution (e.g., "running", "completed", "failed")
     pub status: String,
     /// Optional context identifier for grouping related pipeline executions
-    pub context_id: Option<Uuid>,
+    pub context_id: Option<UniversalUuid>,
     /// Timestamp when the pipeline execution started
-    pub started_at: NaiveDateTime,
+    pub started_at: UniversalTimestamp,
     /// Timestamp when the pipeline execution completed (if applicable)
-    pub completed_at: Option<NaiveDateTime>,
+    pub completed_at: Option<UniversalTimestamp>,
     /// Detailed error information if the pipeline execution failed
     pub error_details: Option<String>,
     /// Number of recovery attempts made for this pipeline execution
     pub recovery_attempts: i32,
     /// Timestamp of the last recovery attempt (if any)
-    pub last_recovery_at: Option<NaiveDateTime>,
+    pub last_recovery_at: Option<UniversalTimestamp>,
     /// Timestamp when this record was created
-    pub created_at: NaiveDateTime,
+    pub created_at: UniversalTimestamp,
     /// Timestamp when this record was last updated
-    pub updated_at: NaiveDateTime,
+    pub updated_at: UniversalTimestamp,
 }
 
 /// Represents a new pipeline execution to be inserted into the database.
@@ -74,5 +74,5 @@ pub struct NewPipelineExecution {
     /// Initial status of the pipeline execution
     pub status: String,
     /// Optional context identifier for grouping related pipeline executions
-    pub context_id: Option<Uuid>,
+    pub context_id: Option<UniversalUuid>,
 }

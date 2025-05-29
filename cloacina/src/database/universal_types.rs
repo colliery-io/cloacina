@@ -121,12 +121,13 @@ impl ToSql<diesel::sql_types::Uuid, Pg> for UniversalUuid {
 
 /// Universal timestamp wrapper that works with both PostgreSQL and SQLite
 #[cfg(feature = "sqlite")]
-#[derive(Debug, Clone, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize)]
 #[diesel(sql_type = Text)]
 pub struct UniversalTimestamp(pub DateTime<Utc>);
 
 #[cfg(feature = "postgres")]
-pub type UniversalTimestamp = DateTime<Utc>;
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+pub struct UniversalTimestamp(pub DateTime<Utc>);
 
 // SQLite Text storage implementation
 #[cfg(feature = "sqlite")]
@@ -186,15 +187,7 @@ impl From<UniversalTimestamp> for DateTime<Utc> {
 // Helper function for current timestamp
 #[allow(dead_code)]
 pub fn current_timestamp() -> UniversalTimestamp {
-    #[cfg(feature = "sqlite")]
-    {
-        UniversalTimestamp::now()
-    }
-
-    #[cfg(feature = "postgres")]
-    {
-        Utc::now()
-    }
+    UniversalTimestamp::now()
 }
 
 #[cfg(test)]
