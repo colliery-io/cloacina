@@ -416,6 +416,7 @@ pub use database::connection::Database;
 
 // Re-export key types for convenience
 pub use context::Context;
+pub use database::{UniversalTimestamp, UniversalUuid};
 pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,
     ValidationError, WorkflowError,

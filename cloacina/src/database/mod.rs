@@ -94,6 +94,7 @@
 
 pub mod connection;
 pub mod schema;
+pub mod universal_types;
 
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
@@ -108,6 +109,9 @@ pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 ///
 /// Standardizes error handling across database operations.
 pub type Result<T> = std::result::Result<T, diesel::result::Error>;
+
+// Re-export universal types for convenience
+pub use universal_types::{UniversalTimestamp, UniversalUuid};
 
 /// Embedded migrations for automatic schema management.
 ///
