@@ -125,6 +125,7 @@ impl<'a> RecoveryEventDAL<'a> {
                 recovery_events::recovered_at.eq(&now),
                 recovery_events::details.eq(&new_event.details),
                 recovery_events::created_at.eq(&now),
+                recovery_events::updated_at.eq(&now),
             ))
             .execute(&mut conn)
             .map_err(|e| ValidationError::DatabaseQuery {

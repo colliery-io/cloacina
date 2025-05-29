@@ -52,7 +52,7 @@ async fn test_task_dependency_initialization() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create tasks with dependencies: task2 depends on task1
     let task1 = MockTask {
@@ -111,7 +111,7 @@ async fn test_dependency_satisfaction_check() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create simple dependency chain
     let task1 = MockTask {

@@ -42,10 +42,32 @@ async fn test_context_db_operations() {
     let new_record = context.to_new_db_record().unwrap();
     debug!("New record to insert: {:?}", new_record);
 
+    #[cfg(feature = "postgres")]
     let db_context: DbContext = diesel::insert_into(contexts)
         .values(&new_record)
         .get_result(conn)
         .unwrap();
+
+    #[cfg(feature = "sqlite")]
+    let db_context: DbContext = {
+        use cloacina::database::schema::contexts::dsl::*;
+        use cloacina::database::universal_types::{current_timestamp, UniversalUuid};
+
+        let context_id = UniversalUuid::new_v4();
+        let now = current_timestamp();
+
+        diesel::insert_into(contexts)
+            .values((
+                id.eq(&context_id),
+                &new_record,
+                created_at.eq(&now),
+                updated_at.eq(&now),
+            ))
+            .execute(conn)
+            .unwrap();
+
+        contexts.find(context_id).first(conn).unwrap()
+    };
 
     // Load from database
     let loaded_context = Context::<i32>::from_db_record(&db_context).unwrap();

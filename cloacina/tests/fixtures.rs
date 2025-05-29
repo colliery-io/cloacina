@@ -61,8 +61,11 @@ pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
             }
             #[cfg(feature = "sqlite")]
             {
-                let db = Database::new(":memory:", "", 5);
-                let conn = SqliteConnection::establish(":memory:")
+                // Use file:memdb1?mode=memory&cache=shared for shared in-memory database
+                // This ensures all connections share the same database
+                let db_url = "file:memdb1?mode=memory&cache=shared";
+                let db = Database::new(db_url, "", 5);
+                let conn = SqliteConnection::establish(db_url)
                     .expect("Failed to connect to SQLite database");
                 Arc::new(Mutex::new(TestFixture::new(db, conn)))
             }
@@ -205,8 +208,8 @@ pub mod fixtures {
     #[serial]
     #[cfg(feature = "sqlite")]
     async fn test_migration_function_sqlite() {
-        let mut conn =
-            SqliteConnection::establish(":memory:").expect("Failed to connect to database");
+        let mut conn = SqliteConnection::establish("file:test_memdb?mode=memory&cache=shared")
+            .expect("Failed to connect to database");
 
         // Test that our migration function works
         let result = cloacina::database::run_migrations(&mut conn);

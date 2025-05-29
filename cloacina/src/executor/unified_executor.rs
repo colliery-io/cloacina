@@ -71,6 +71,9 @@ impl Default for UnifiedExecutorConfig {
             scheduler_poll_interval: Duration::from_millis(100), // 100ms for responsive scheduling
             task_timeout: Duration::from_secs(300),             // 5 minutes
             pipeline_timeout: Some(Duration::from_secs(3600)),  // 1 hour
+            #[cfg(feature = "sqlite")]
+            db_pool_size: 1, // SQLite works best with single connection
+            #[cfg(feature = "postgres")]
             db_pool_size: 10,
             enable_recovery: true,
         }

@@ -57,8 +57,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting ETL Example");
 
-    // Initialize executor with database
-    let executor = UnifiedExecutor::new("tutorial-02.db").await?;
+    // Initialize executor with SQLite database using WAL mode for better concurrency
+    let executor = UnifiedExecutor::new(
+        "tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    )
+    .await?;
 
     // Create the ETL workflow
     let _pipeline = create_etl_workflow()?;

@@ -51,7 +51,7 @@ async fn test_always_trigger_rule() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     let simple_task = SimpleTask {
         id: "trigger-task".to_string(),

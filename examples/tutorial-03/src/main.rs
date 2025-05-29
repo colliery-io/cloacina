@@ -537,8 +537,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Parallel Processing Example");
 
-    // Initialize executor with database
-    let executor = UnifiedExecutor::new("tutorial-03.db").await?;
+    // Initialize executor with SQLite database using WAL mode for better concurrency
+    let executor = UnifiedExecutor::new(
+        "tutorial-03.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    )
+    .await?;
 
     // Create the parallel processing workflow
     let _workflow = workflow! {

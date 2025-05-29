@@ -51,7 +51,7 @@ async fn test_schedule_workflow_execution() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create a simple workflow with a task
     let simple_task = SimpleTask {
@@ -94,7 +94,7 @@ async fn test_schedule_nonexistent_workflow() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     let scheduler = TaskScheduler::new(database, vec![]);
 
@@ -120,7 +120,7 @@ async fn test_workflow_version_tracking() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create workflow with auto-versioning
     let simple_task = SimpleTask {

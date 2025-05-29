@@ -101,15 +101,21 @@ impl<'a> ContextDAL<'a> {
 
         let conn = &mut self.dal.pool.get()?;
 
-        // For SQLite, we need to manually generate the UUID
+        // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
+        let now = crate::database::universal_types::current_timestamp();
 
         // Create new database record
         let new_context = NewDbContext { value };
 
-        // Insert with explicit ID for SQLite
+        // Insert with explicit ID and timestamps for SQLite
         diesel::insert_into(contexts::table)
-            .values((contexts::id.eq(&id), &new_context))
+            .values((
+                contexts::id.eq(&id),
+                &new_context,
+                contexts::created_at.eq(&now),
+                contexts::updated_at.eq(&now),
+            ))
             .execute(conn)?;
 
         Ok(Some(id))
@@ -168,9 +174,10 @@ impl<'a> ContextDAL<'a> {
         // Serialize the context data
         let value = context.to_json()?;
 
-        // Update the database record
+        // Update the database record with new timestamp
+        let now = crate::database::universal_types::current_timestamp();
         diesel::update(contexts::table.find(id))
-            .set(contexts::value.eq(value))
+            .set((contexts::value.eq(value), contexts::updated_at.eq(&now)))
             .execute(conn)?;
 
         Ok(())
