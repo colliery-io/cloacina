@@ -19,10 +19,9 @@
 //! This module defines the data structures for managing task execution metadata within the pipeline system.
 //! Task execution metadata stores metadata and execution data for individual task executions within a pipeline execution.
 
-use chrono::NaiveDateTime;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Represents a task execution metadata record in the database.
 ///
@@ -31,22 +30,23 @@ use uuid::Uuid;
 /// when the metadata was created and last updated.
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::database::schema::task_execution_metadata)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
 pub struct TaskExecutionMetadata {
     /// Unique identifier for the task execution metadata
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// Reference to the associated task execution
-    pub task_execution_id: Uuid,
+    pub task_execution_id: UniversalUuid,
     /// Reference to the parent pipeline execution
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task this metadata belongs to
     pub task_name: String,
     /// Reference to the context record containing the task's output data
-    pub context_id: Option<Uuid>,
+    pub context_id: Option<UniversalUuid>,
     /// Timestamp when this metadata was created
-    pub created_at: NaiveDateTime,
+    pub created_at: UniversalTimestamp,
     /// Timestamp when this metadata was last updated
-    pub updated_at: NaiveDateTime,
+    pub updated_at: UniversalTimestamp,
 }
 
 /// Represents a new task execution metadata to be inserted into the database.
@@ -57,11 +57,11 @@ pub struct TaskExecutionMetadata {
 #[diesel(table_name = crate::database::schema::task_execution_metadata)]
 pub struct NewTaskExecutionMetadata {
     /// Reference to the associated task execution
-    pub task_execution_id: Uuid,
+    pub task_execution_id: UniversalUuid,
     /// Reference to the parent pipeline execution
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task this metadata belongs to
     pub task_name: String,
     /// Reference to the context record containing the task's output data
-    pub context_id: Option<Uuid>,
+    pub context_id: Option<UniversalUuid>,
 }

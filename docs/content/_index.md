@@ -19,4 +19,3 @@ Cloacina is a Rust library that helps you build resilient task pipelines directl
 - Content versioning
 
 Whether you're building data processing applications, background job systems, or complex integration workflows, Cloacina provides the tools you need to make your task pipelines reliable, maintainable, and scalable - all within your Rust application.
-

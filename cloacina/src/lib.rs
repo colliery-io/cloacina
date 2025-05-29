@@ -383,6 +383,13 @@
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
 
+// Ensure exactly one backend is selected at compile time
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("You must enable either the 'postgres' or 'sqlite' feature flag");
+
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+compile_error!("You cannot enable both 'postgres' and 'sqlite' features at the same time");
+
 pub mod context;
 pub mod dal;
 pub mod database;
@@ -409,6 +416,7 @@ pub use database::connection::Database;
 
 // Re-export key types for convenience
 pub use context::Context;
+pub use database::{UniversalTimestamp, UniversalUuid};
 pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,
     ValidationError, WorkflowError,

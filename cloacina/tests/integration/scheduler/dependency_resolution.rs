@@ -52,7 +52,7 @@ async fn test_task_dependency_initialization() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create tasks with dependencies: task2 depends on task1
     let task1 = MockTask {
@@ -89,7 +89,7 @@ async fn test_task_dependency_initialization() {
     let dal = fixture.get_dal();
     let tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(execution_id)
+        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
         .expect("Failed to get tasks for pipeline");
 
     assert_eq!(tasks.len(), 2);
@@ -111,7 +111,7 @@ async fn test_dependency_satisfaction_check() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap();
     fixture.initialize().await;
-    let database = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+    let database = fixture.get_database();
 
     // Create simple dependency chain
     let task1 = MockTask {
@@ -149,7 +149,7 @@ async fn test_dependency_satisfaction_check() {
     // Initially, no tasks should be ready since we haven't marked any as complete
     let pending_tasks = dal
         .task_execution()
-        .get_pending_tasks(execution_id)
+        .get_pending_tasks(UniversalUuid(execution_id))
         .expect("Failed to get pending tasks");
 
     assert_eq!(pending_tasks.len(), 2);
@@ -176,7 +176,7 @@ async fn test_dependency_satisfaction_check() {
 
     let updated_tasks = dal
         .task_execution()
-        .get_all_tasks_for_pipeline(execution_id)
+        .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
         .expect("Failed to get all tasks");
 
     let independent_status = updated_tasks

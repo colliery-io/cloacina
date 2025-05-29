@@ -15,10 +15,9 @@ In this tutorial, you'll learn how to build sophisticated workflows that can han
 - Basic understanding of Rust
 - Rust toolchain installed (rustc, cargo)
 - A code editor of your choice
-- PostgreSQL database (for workflow execution)
 
 ## Time Estimate
-35-40 minutes
+25-30 minutes
 
 ## Setting Up Your Project
 
@@ -47,7 +46,7 @@ Now, add Cloacina and its dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = { path = "../../cloacina", features = ["macros"] }
+cloacina = { path = "../../cloacina", default-features = false, features = ["macros", "sqlite"] }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -429,7 +428,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize executor with database
-    let executor = UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+    let executor = UnifiedExecutor::new("error_handling.db").await?;
 
     // Create the workflow
     let _workflow = workflow! {
@@ -597,18 +596,14 @@ If you're following along with the Cloacina repository, you can use angreal to r
 
 ```bash
 # From the Cloacina repository root
-angreal tutorial 04
+angreal tutorials 04
 ```
 
-This will:
-1. Set up the required PostgreSQL database
-2. Run the tutorial code
-3. Clean up resources when done
+This will run the tutorial code with all necessary dependencies.
 
 ### Option 2: Manual Setup
 
-If you're building the project manually, ensure you have:
-1. PostgreSQL installed and running
+If you're building the project manually, simply run your workflow with:
 2. A database named "cloacina" created
 3. A user "cloacina" with password "cloacina" with access to the database
 

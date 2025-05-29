@@ -13,7 +13,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["macros"]
+default = ["macros", "postgres"]
+postgres = ["diesel/postgres", "diesel/uuid"]
+sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35"]
 macros = ["cloacina-macros"]
 
 [dependencies]
@@ -29,7 +31,7 @@ cloacina-macros = { workspace = true, optional = true }
 # External dependencies
 aquamarine = { version = "0.6.0" }
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "2.1.0", features = ["postgres", "r2d2", "chrono", "uuid", "serde_json"] }
+diesel = { version = "2.1.0", features = ["r2d2", "chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 dotenvy = { version = "0.15" }
 petgraph = { version = "0.6" }

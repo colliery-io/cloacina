@@ -31,11 +31,10 @@
 
 use super::DAL;
 use crate::database::schema::task_executions;
+use crate::database::universal_types::{current_timestamp, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
-use chrono::NaiveDateTime;
 use diesel::prelude::*;
-use uuid::Uuid;
 
 /// Statistics about retry behavior for a pipeline execution.
 ///
@@ -73,9 +72,29 @@ impl<'a> TaskExecutionDAL<'a> {
     pub fn create(&self, new_task: NewTaskExecution) -> Result<TaskExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        let task: TaskExecution = diesel::insert_into(task_executions::table)
-            .values(&new_task)
-            .get_result(&mut conn)?;
+        // For SQLite, we need to manually generate the UUID and timestamps
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp();
+
+        // Insert with explicit values for SQLite
+        diesel::insert_into(task_executions::table)
+            .values((
+                task_executions::id.eq(&id),
+                task_executions::pipeline_execution_id.eq(&new_task.pipeline_execution_id),
+                task_executions::task_name.eq(&new_task.task_name),
+                task_executions::status.eq(&new_task.status),
+                task_executions::attempt.eq(&new_task.attempt),
+                task_executions::max_attempts.eq(&new_task.max_attempts),
+                task_executions::trigger_rules.eq(&new_task.trigger_rules),
+                task_executions::task_configuration.eq(&new_task.task_configuration),
+                task_executions::recovery_attempts.eq(0),
+                task_executions::created_at.eq(&now),
+                task_executions::updated_at.eq(&now),
+            ))
+            .execute(&mut conn)?;
+
+        // Retrieve the inserted record
+        let task = task_executions::table.find(id).first(&mut conn)?;
 
         Ok(task)
     }
@@ -89,7 +108,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of pending tasks
     pub fn get_pending_tasks(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -110,7 +129,7 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_ready(&self, task_id: Uuid) -> Result<(), ValidationError> {
+    pub fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         // Get task info for logging before updating
@@ -121,7 +140,7 @@ impl<'a> TaskExecutionDAL<'a> {
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::status.eq("Ready"),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -142,7 +161,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_skipped(&self, task_id: Uuid, reason: &str) -> Result<(), ValidationError> {
+    pub fn mark_skipped(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         // Get task info for logging before updating
@@ -154,7 +177,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .set((
                 task_executions::status.eq("Skipped"),
                 task_executions::error_details.eq(reason),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -177,7 +200,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of all tasks
     pub fn get_all_tasks_for_pipeline(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -198,7 +221,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<String, ValidationError>` - Current status of the task
     pub fn get_task_status(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
         task_name: &str,
     ) -> Result<String, ValidationError> {
         let mut conn = self.dal.pool.get()?;
@@ -232,7 +255,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// ```
     pub fn get_task_statuses_batch(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
         task_names: Vec<String>,
     ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
         use std::collections::HashMap;
@@ -268,7 +291,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// This replaces N individual queries (one per pipeline) with a single batch query.
     pub fn get_pending_tasks_batch(
         &self,
-        pipeline_execution_ids: Vec<Uuid>,
+        pipeline_execution_ids: Vec<UniversalUuid>,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         if pipeline_execution_ids.is_empty() {
             return Ok(Vec::new());
@@ -298,7 +321,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<bool, ValidationError>` - True if pipeline is complete
     pub fn check_pipeline_completion(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -338,16 +361,16 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn reset_task_for_recovery(&self, task_id: Uuid) -> Result<(), ValidationError> {
+    pub fn reset_task_for_recovery(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::status.eq("Ready"),
-                task_executions::started_at.eq(None::<NaiveDateTime>),
+                task_executions::started_at.eq(None::<UniversalTimestamp>),
                 task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
-                task_executions::last_recovery_at.eq(diesel::dsl::now),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::last_recovery_at.eq(Some(current_timestamp())),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -362,15 +385,19 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_abandoned(&self, task_id: Uuid, reason: &str) -> Result<(), ValidationError> {
+    pub fn mark_abandoned(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::status.eq("Failed"),
-                task_executions::completed_at.eq(diesel::dsl::now),
+                task_executions::completed_at.eq(Some(current_timestamp())),
                 task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -386,7 +413,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<bool, ValidationError>` - True if pipeline should be marked as failed
     pub fn check_pipeline_failure(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -408,7 +435,7 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecution, ValidationError>` - The task execution record
-    pub fn get_by_id(&self, task_id: Uuid) -> Result<TaskExecution, ValidationError> {
+    pub fn get_by_id(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let task = task_executions::table.find(task_id).first(&mut conn)?;
@@ -428,7 +455,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(
                 task_executions::retry_at
                     .is_null()
-                    .or(task_executions::retry_at.le(diesel::dsl::now)),
+                    .or(task_executions::retry_at.le(current_timestamp())),
             )
             .load(&mut conn)?;
 
@@ -446,8 +473,8 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub fn schedule_retry(
         &self,
-        task_id: Uuid,
-        retry_at: NaiveDateTime,
+        task_id: UniversalUuid,
+        retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
@@ -457,9 +484,9 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::status.eq("Ready"),
                 task_executions::attempt.eq(new_attempt),
                 task_executions::retry_at.eq(Some(retry_at)),
-                task_executions::started_at.eq(None::<NaiveDateTime>),
-                task_executions::completed_at.eq(None::<NaiveDateTime>),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::started_at.eq(None::<UniversalTimestamp>),
+                task_executions::completed_at.eq(None::<UniversalTimestamp>),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -475,7 +502,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<RetryStats, ValidationError>` - Statistics about retry behavior
     pub fn get_retry_stats(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -512,7 +539,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of exhausted tasks
     pub fn get_exhausted_retry_tasks(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
@@ -537,18 +564,18 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn reset_retry_state(&self, task_id: Uuid) -> Result<(), ValidationError> {
+    pub fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::attempt.eq(1),
-                task_executions::retry_at.eq(None::<NaiveDateTime>),
-                task_executions::started_at.eq(None::<NaiveDateTime>),
-                task_executions::completed_at.eq(None::<NaiveDateTime>),
+                task_executions::retry_at.eq(None::<UniversalTimestamp>),
+                task_executions::started_at.eq(None::<UniversalTimestamp>),
+                task_executions::completed_at.eq(None::<UniversalTimestamp>),
                 task_executions::last_error.eq(None::<String>),
                 task_executions::status.eq("Ready"),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -562,14 +589,14 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_completed(&self, task_id: Uuid) -> Result<(), ValidationError> {
+    pub fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::status.eq("Completed"),
-                task_executions::completed_at.eq(diesel::dsl::now),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::completed_at.eq(Some(current_timestamp())),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
@@ -584,51 +611,67 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_failed(&self, task_id: Uuid, error_message: &str) -> Result<(), ValidationError> {
+    pub fn mark_failed(
+        &self,
+        task_id: UniversalUuid,
+        error_message: &str,
+    ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         diesel::update(task_executions::table.find(task_id))
             .set((
                 task_executions::status.eq("Failed"),
-                task_executions::completed_at.eq(diesel::dsl::now),
+                task_executions::completed_at.eq(Some(current_timestamp())),
                 task_executions::last_error.eq(error_message),
-                task_executions::updated_at.eq(diesel::dsl::now),
+                task_executions::updated_at.eq(current_timestamp()),
             ))
             .execute(&mut conn)?;
 
         Ok(())
     }
 
-    /// Atomically claims a ready task for execution using PostgreSQL's FOR UPDATE SKIP LOCKED.
+    /// Atomically claims a ready task for execution.
     ///
-    /// This method implements a distributed locking pattern that allows multiple
-    /// executors to safely claim tasks without conflicts.
+    /// For SQLite, this uses a transaction-based approach to safely claim tasks.
     ///
     /// # Returns
     /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
     pub fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        // Atomic claim using FOR UPDATE SKIP LOCKED
-        let result: Option<ClaimResult> = diesel::sql_query(
-            r#"
-            UPDATE task_executions
-            SET status = 'Running', started_at = NOW()
-            WHERE id = (
-                SELECT id FROM task_executions
-                WHERE status = 'Ready'
-                AND (retry_at IS NULL OR retry_at <= NOW())
-                ORDER BY id ASC
-                LIMIT 1
-                FOR UPDATE SKIP LOCKED
-            )
-            RETURNING id, pipeline_execution_id, task_name, attempt
-            "#,
-        )
-        .get_result(&mut conn)
-        .optional()?;
+        // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a transaction
+        conn.transaction(|conn| {
+            // Find a ready task
+            let task: Option<TaskExecution> = task_executions::table
+                .filter(task_executions::status.eq("Ready"))
+                .filter(
+                    task_executions::retry_at
+                        .is_null()
+                        .or(task_executions::retry_at.le(current_timestamp())),
+                )
+                .order(task_executions::id.asc())
+                .first(conn)
+                .optional()?;
 
-        Ok(result)
+            if let Some(task) = task {
+                // Update the task to Running
+                diesel::update(task_executions::table.find(&task.id))
+                    .set((
+                        task_executions::status.eq("Running"),
+                        task_executions::started_at.eq(Some(current_timestamp())),
+                    ))
+                    .execute(conn)?;
+
+                Ok(Some(ClaimResult {
+                    id: task.id,
+                    pipeline_execution_id: task.pipeline_execution_id,
+                    task_name: task.task_name,
+                    attempt: task.attempt,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
     }
 }
 
@@ -636,18 +679,14 @@ impl<'a> TaskExecutionDAL<'a> {
 ///
 /// This structure contains the essential information about a task that has been
 /// atomically claimed for execution.
-#[derive(Debug, QueryableByName)]
+#[derive(Debug)]
 pub struct ClaimResult {
     /// Unique identifier of the claimed task
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// ID of the pipeline execution this task belongs to
-    #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Name of the task that was claimed
-    #[diesel(sql_type = diesel::sql_types::Text)]
     pub task_name: String,
     /// Current attempt number for this task
-    #[diesel(sql_type = diesel::sql_types::Integer)]
     pub attempt: i32,
 }

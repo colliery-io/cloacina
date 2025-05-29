@@ -14,10 +14,9 @@ Welcome to your first Cloacina tutorial! In this guide, you'll learn how to crea
 - Basic knowledge of Rust
 - Rust toolchain installed (rustc, cargo)
 - A code editor of your choice
-- PostgreSQL database (for workflow execution)
 
 ## Time Estimate
-15-20 minutes
+10-15 minutes
 
 ## Setting Up Your Project
 
@@ -46,7 +45,7 @@ Now, add Cloacina and its dependencies to your `Cargo.toml`. Note that we're usi
 
 ```toml
 [dependencies]
-cloacina = { path = "../../cloacina", features = ["macros"] }
+cloacina = { path = "../../cloacina", default-features = false, features = ["macros", "sqlite"] }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -113,8 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Simple Cloacina Example");
 
-    // Initialize executor with database (migrations run automatically)
-    let executor = UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+    // Initialize executor with SQLite database (migrations run automatically)
+    let executor = UnifiedExecutor::new("simple_workflow.db").await?;
 
     // Create a simple workflow (automatically registers in global registry)
     let _workflow = workflow! {
@@ -173,7 +172,7 @@ Let's walk through the code in execution order and understand why each component
    // 2. Create the executor - this must happen before any workflow definition
    // because the workflow! macro registers workflows in a global registry
    // that the executor needs to access
-   let executor = UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+   let executor = UnifiedExecutor::new("simple_workflow.db").await?;
 
    // 3. Define the workflow - the workflow! macro will automatically register
    // it in the global registry that the executor uses
@@ -232,22 +231,14 @@ If you're following along with the Cloacina repository, you can use angreal to r
 
 ```bash
 # From the Cloacina repository root
-angreal tutorial 01
+angreal tutorials 01
 ```
 
-This will:
-1. Set up the required PostgreSQL database
-2. Run the tutorial code
-3. Clean up resources when done
+This will run the tutorial code with all necessary dependencies.
 
 ### Option 2: Manual Setup
 
-If you're building the project manually, ensure you have:
-1. PostgreSQL installed and running
-2. A database named "cloacina" created
-3. A user "cloacina" with password "cloacina" with access to the database
-
-Then run your workflow with:
+If you're building the project manually, simply run your workflow with:
 
 ```bash
 cargo run

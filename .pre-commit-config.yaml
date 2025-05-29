@@ -26,8 +26,23 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
-      - id: cargo-check
       # - id: clippy
+
+  - repo: local
+    hooks:
+      - id: cargo-check-postgres
+        name: Cargo check with PostgreSQL backend
+        entry: cargo check --no-default-features --features "postgres,macros" --all-targets
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check-sqlite
+        name: Cargo check with SQLite backend
+        entry: cargo check --no-default-features --features "sqlite,macros" --all-targets
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     # Ruff version.
     rev: v0.4.4

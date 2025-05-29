@@ -24,10 +24,9 @@
 //! creating new ones, along with an enum defining the different types of recovery
 //! actions that can be performed.
 
-use chrono::NaiveDateTime;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Represents a recovery event record in the database.
 ///
@@ -36,24 +35,25 @@ use uuid::Uuid;
 /// for API responses.
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::database::schema::recovery_events)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
 pub struct RecoveryEvent {
     /// Unique identifier for the recovery event
-    pub id: Uuid,
+    pub id: UniversalUuid,
     /// Reference to the pipeline execution that triggered the recovery
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Optional reference to a specific task execution if the recovery is task-specific
-    pub task_execution_id: Option<Uuid>,
+    pub task_execution_id: Option<UniversalUuid>,
     /// Type of recovery action performed
     pub recovery_type: String,
     /// Timestamp when the recovery was executed
-    pub recovered_at: NaiveDateTime,
-    /// Additional JSON details about the recovery event
-    pub details: Option<serde_json::Value>,
+    pub recovered_at: UniversalTimestamp,
+    /// Additional JSON string details about the recovery event
+    pub details: Option<String>,
     /// Timestamp when the record was created
-    pub created_at: NaiveDateTime,
+    pub created_at: UniversalTimestamp,
     /// Timestamp when the record was last updated
-    pub updated_at: NaiveDateTime,
+    pub updated_at: UniversalTimestamp,
 }
 
 /// Structure for creating new recovery event records.
@@ -64,13 +64,13 @@ pub struct RecoveryEvent {
 #[diesel(table_name = crate::database::schema::recovery_events)]
 pub struct NewRecoveryEvent {
     /// Reference to the pipeline execution that triggered the recovery
-    pub pipeline_execution_id: Uuid,
+    pub pipeline_execution_id: UniversalUuid,
     /// Optional reference to a specific task execution if the recovery is task-specific
-    pub task_execution_id: Option<Uuid>,
+    pub task_execution_id: Option<UniversalUuid>,
     /// Type of recovery action performed
     pub recovery_type: String,
-    /// Additional JSON details about the recovery event
-    pub details: Option<serde_json::Value>,
+    /// Additional JSON string details about the recovery event
+    pub details: Option<String>,
 }
 
 /// Enumeration of possible recovery types in the system.

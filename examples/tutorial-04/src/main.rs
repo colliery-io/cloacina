@@ -286,9 +286,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Tutorial 04: Error Handling and Retries");
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
-    // Initialize executor with database
-    let executor =
-        UnifiedExecutor::new("postgresql://cloacina:cloacina@localhost/cloacina").await?;
+    // Initialize executor with SQLite database using WAL mode for better concurrency
+    let executor = UnifiedExecutor::new(
+        "tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    )
+    .await?;
 
     // Create a workflow with our tasks
     let _workflow = workflow! {
