@@ -29,6 +29,7 @@
 
 use super::DAL;
 use crate::database::schema::task_execution_metadata;
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
 use diesel::prelude::*;
@@ -74,13 +75,13 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
     pub fn get_by_pipeline_and_task(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         task_name: &str,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let metadata = task_execution_metadata::table
-            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq(task_name))
             .first(&mut conn)?;
 
@@ -96,12 +97,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
     pub fn get_by_task_execution(
         &self,
-        task_execution_id: Uuid,
+        task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let metadata = task_execution_metadata::table
-            .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+            .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
             .first(&mut conn)?;
 
         Ok(metadata)
@@ -117,15 +118,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub fn update_context_id(
         &self,
-        task_execution_id: Uuid,
-        context_id: Option<Uuid>,
+        task_execution_id: UniversalUuid,
+        context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
+        let context_uuid: Option<Uuid> = context_id.map(|id| id.into());
         diesel::update(task_execution_metadata::table)
-            .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+            .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
             .set((
-                task_execution_metadata::context_id.eq(context_id),
+                task_execution_metadata::context_id.eq(context_uuid),
                 task_execution_metadata::updated_at.eq(diesel::dsl::now),
             ))
             .execute(&mut conn)?;
@@ -172,13 +174,13 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// * `Result<Vec<TaskExecutionMetadata>, ValidationError>` - Vector of metadata records or an error
     pub fn get_dependency_metadata(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let metadata = task_execution_metadata::table
-            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
             .load(&mut conn)?;
 
@@ -201,7 +203,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     /// This method replaces N+1 queries (1 for metadata + N for contexts) with a single JOIN query.
     pub fn get_dependency_metadata_with_contexts(
         &self,
-        pipeline_id: Uuid,
+        pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         use crate::database::schema::contexts;
@@ -216,7 +218,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .left_join(
                 contexts::table.on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
             )
-            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+            .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
             .select((
                 task_execution_metadata::all_columns,

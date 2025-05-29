@@ -121,6 +121,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::dal::DAL;
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
@@ -420,11 +421,11 @@ impl TaskScheduler {
         let pipeline_execution = self.dal.pipeline_execution().create(new_execution)?;
 
         // Initialize task executions
-        self.initialize_task_executions(pipeline_execution.id, workflow)
+        self.initialize_task_executions(pipeline_execution.id.into(), workflow)
             .await?;
 
         info!("Workflow execution scheduled: {}", pipeline_execution.id);
-        Ok(pipeline_execution.id)
+        Ok(pipeline_execution.id.into())
     }
 
     /// Runs the main scheduling loop that continuously processes active pipeline executions.
@@ -516,13 +517,13 @@ impl TaskScheduler {
             };
 
             let new_task = NewTaskExecution {
-                pipeline_execution_id,
+                pipeline_execution_id: UniversalUuid(pipeline_execution_id),
                 task_name: task_id,
                 status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts,
-                trigger_rules,
-                task_configuration: task_config,
+                trigger_rules: trigger_rules.to_string(),
+                task_configuration: task_config.to_string(),
             };
 
             self.dal.task_execution().create(new_task)?;
@@ -592,13 +593,16 @@ impl TaskScheduler {
                 pipeline_execution_id: pipeline.id,
                 task_execution_id: Some(task.id),
                 recovery_type: RecoveryType::WorkflowUnavailable.into(),
-                details: Some(serde_json::json!({
-                    "task_name": task.task_name,
-                    "workflow_name": pipeline.pipeline_name,
-                    "reason": "Workflow not in current registry",
-                    "action": "abandoned",
-                    "available_workflows": available_workflows
-                })),
+                details: Some(
+                    serde_json::json!({
+                        "task_name": task.task_name,
+                        "workflow_name": pipeline.pipeline_name,
+                        "reason": "Workflow not in current registry",
+                        "action": "abandoned",
+                        "available_workflows": available_workflows
+                    })
+                    .to_string(),
+                ),
             })?;
         }
 
@@ -616,13 +620,16 @@ impl TaskScheduler {
             pipeline_execution_id: pipeline.id,
             task_execution_id: None,
             recovery_type: RecoveryType::WorkflowUnavailable.into(),
-            details: Some(serde_json::json!({
-                "workflow_name": pipeline.pipeline_name,
-                "reason": "Workflow not in current registry",
-                "action": "pipeline_failed",
-                "abandoned_tasks": tasks.len(),
-                "available_workflows": available_workflows
-            })),
+            details: Some(
+                serde_json::json!({
+                    "workflow_name": pipeline.pipeline_name,
+                    "reason": "Workflow not in current registry",
+                    "action": "pipeline_failed",
+                    "abandoned_tasks": tasks.len(),
+                    "available_workflows": available_workflows
+                })
+                .to_string(),
+            ),
         })?;
 
         info!(
@@ -664,7 +671,8 @@ impl TaskScheduler {
     ) -> Result<(), ValidationError> {
         use std::collections::HashMap;
 
-        let pipeline_ids: Vec<Uuid> = active_executions.iter().map(|e| e.id).collect();
+        let pipeline_ids: Vec<crate::database::universal_types::UniversalUuid> =
+            active_executions.iter().map(|e| e.id).collect();
 
         // Batch load all pending tasks across all active pipelines
         let all_pending_tasks = self
@@ -673,7 +681,10 @@ impl TaskScheduler {
             .get_pending_tasks_batch(pipeline_ids)?;
 
         // Group tasks by pipeline ID for processing
-        let mut tasks_by_pipeline: HashMap<Uuid, Vec<_>> = HashMap::new();
+        let mut tasks_by_pipeline: HashMap<
+            crate::database::universal_types::UniversalUuid,
+            Vec<_>,
+        > = HashMap::new();
         for task in all_pending_tasks {
             tasks_by_pipeline
                 .entry(task.pipeline_execution_id)
@@ -685,7 +696,7 @@ impl TaskScheduler {
         for execution in &active_executions {
             if let Some(pipeline_tasks) = tasks_by_pipeline.get(&execution.id) {
                 if let Err(e) = self
-                    .update_pipeline_task_readiness(execution.id, pipeline_tasks)
+                    .update_pipeline_task_readiness(execution.id.into(), pipeline_tasks)
                     .await
                 {
                     error!(
@@ -736,7 +747,7 @@ impl TaskScheduler {
     /// * `Result<(), ValidationError>` - Success or error status
     async fn update_pipeline_task_readiness(
         &self,
-        pipeline_execution_id: Uuid,
+        pipeline_execution_id: UniversalUuid,
         pending_tasks: &[crate::models::task_execution::TaskExecution],
     ) -> Result<(), ValidationError> {
         for task_execution in pending_tasks {
@@ -831,9 +842,8 @@ impl TaskScheduler {
         &self,
         task_execution: &TaskExecution,
     ) -> Result<bool, ValidationError> {
-        let trigger_rule: TriggerRule =
-            serde_json::from_value(task_execution.trigger_rules.clone())
-                .map_err(|e| ValidationError::InvalidTriggerRule(e.to_string()))?;
+        let trigger_rule: TriggerRule = serde_json::from_str(&task_execution.trigger_rules)
+            .map_err(|e| ValidationError::InvalidTriggerRule(e.to_string()))?;
 
         let result = match &trigger_rule {
             TriggerRule::Always => {
@@ -1219,7 +1229,7 @@ impl TaskScheduler {
 
         // Group tasks by pipeline to handle workflow availability
         let mut tasks_by_pipeline: std::collections::HashMap<
-            Uuid,
+            crate::database::universal_types::UniversalUuid,
             (PipelineExecution, Vec<TaskExecution>),
         > = std::collections::HashMap::new();
 
@@ -1324,12 +1334,15 @@ impl TaskScheduler {
             pipeline_execution_id: task.pipeline_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskReset.into(),
-            details: Some(serde_json::json!({
-                "task_name": task.task_name,
-                "previous_status": "Running",
-                "new_status": "Ready",
-                "recovery_attempt": task.recovery_attempts + 1
-            })),
+            details: Some(
+                serde_json::json!({
+                    "task_name": task.task_name,
+                    "previous_status": "Running",
+                    "new_status": "Ready",
+                    "recovery_attempt": task.recovery_attempts + 1
+                })
+                .to_string(),
+            ),
         })?;
 
         info!(
@@ -1366,11 +1379,14 @@ impl TaskScheduler {
             pipeline_execution_id: task.pipeline_execution_id,
             task_execution_id: Some(task.id),
             recovery_type: RecoveryType::TaskAbandoned.into(),
-            details: Some(serde_json::json!({
-                "task_name": task.task_name,
-                "recovery_attempts": task.recovery_attempts,
-                "reason": "Exceeded maximum recovery attempts"
-            })),
+            details: Some(
+                serde_json::json!({
+                    "task_name": task.task_name,
+                    "recovery_attempts": task.recovery_attempts,
+                    "reason": "Exceeded maximum recovery attempts"
+                })
+                .to_string(),
+            ),
         })?;
 
         error!(

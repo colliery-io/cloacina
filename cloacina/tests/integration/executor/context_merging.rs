@@ -277,7 +277,7 @@ async fn test_context_merging_latest_wins() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let merger_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "merger")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger")
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =
@@ -399,7 +399,7 @@ async fn test_execution_scope_context_setup() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "scope_inspector")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector")
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =

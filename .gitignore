@@ -35,3 +35,9 @@ Cargo.lock
 # Add __pycache__ directory to gitignore
 __pycache__/
 .cursorignore
+
+# SQLite database files created by tests and tutorials
+*.db
+*.db-shm
+*.db-wal
+*.db\?*

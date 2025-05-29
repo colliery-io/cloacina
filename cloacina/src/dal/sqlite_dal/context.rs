@@ -44,11 +44,11 @@
 use super::DAL;
 use crate::context::Context;
 use crate::database::schema::contexts;
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ContextError;
 use crate::models::context::{DbContext, NewDbContext};
 use diesel::prelude::*;
 use tracing::warn;
-use uuid::Uuid;
 
 /// The Data Access Layer implementation for Context entities.
 ///
@@ -76,13 +76,13 @@ impl<'a> ContextDAL<'a> {
     ///
     /// # Returns
     ///
-    /// * `Result<Option<Uuid>, ContextError>` - The UUID of the created context if successful,
+    /// * `Result<Option<UniversalUuid>, ContextError>` - The UUID of the created context if successful,
     ///   or None if the context was empty and skipped
     ///
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn create<T>(&self, context: &Context<T>) -> Result<Option<Uuid>, ContextError>
+    pub fn create<T>(&self, context: &Context<T>) -> Result<Option<UniversalUuid>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
@@ -101,15 +101,24 @@ impl<'a> ContextDAL<'a> {
 
         let conn = &mut self.dal.pool.get()?;
 
+        // For SQLite, we need to manually generate the UUID and timestamps
+        let id = UniversalUuid::new_v4();
+        let now = crate::database::universal_types::current_timestamp();
+
         // Create new database record
         let new_context = NewDbContext { value };
 
-        // Insert and get the ID
-        let db_context: DbContext = diesel::insert_into(contexts::table)
-            .values(&new_context)
-            .get_result(conn)?;
+        // Insert with explicit ID and timestamps for SQLite
+        diesel::insert_into(contexts::table)
+            .values((
+                contexts::id.eq(&id),
+                &new_context,
+                contexts::created_at.eq(&now),
+                contexts::updated_at.eq(&now),
+            ))
+            .execute(conn)?;
 
-        Ok(Some(db_context.id))
+        Ok(Some(id))
     }
 
     /// Read a context from the database.
@@ -127,7 +136,7 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn read<T>(&self, id: Uuid) -> Result<Context<T>, ContextError>
+    pub fn read<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
@@ -156,7 +165,7 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn update<T>(&self, id: Uuid, context: &Context<T>) -> Result<(), ContextError>
+    pub fn update<T>(&self, id: UniversalUuid, context: &Context<T>) -> Result<(), ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
@@ -165,9 +174,10 @@ impl<'a> ContextDAL<'a> {
         // Serialize the context data
         let value = context.to_json()?;
 
-        // Update the database record
+        // Update the database record with new timestamp
+        let now = crate::database::universal_types::current_timestamp();
         diesel::update(contexts::table.find(id))
-            .set(contexts::value.eq(value))
+            .set((contexts::value.eq(value), contexts::updated_at.eq(&now)))
             .execute(conn)?;
 
         Ok(())
@@ -184,7 +194,7 @@ impl<'a> ContextDAL<'a> {
     /// # Returns
     ///
     /// * `Result<(), ContextError>` - Success or error
-    pub fn delete(&self, id: Uuid) -> Result<(), ContextError> {
+    pub fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
         let conn = &mut self.dal.pool.get()?;
         diesel::delete(contexts::table.find(id)).execute(conn)?;
         Ok(())

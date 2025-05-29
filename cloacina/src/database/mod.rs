@@ -26,7 +26,10 @@
 //!
 //! ## Database Support
 //!
-//! Currently supports PostgreSQL with connection pooling via r2d2.
+//! Supports both PostgreSQL and SQLite through compile-time feature flags:
+//! - PostgreSQL: Full-featured with native UUID and timestamp types
+//! - SQLite: File-based or in-memory with type conversions
+//!
 //! The database layer handles:
 //! - Context persistence and retrieval
 //! - Task execution state tracking
@@ -94,25 +97,29 @@
 
 pub mod connection;
 pub mod schema;
+pub mod universal_types;
 
-use diesel::pg::PgConnection;
-use diesel::r2d2::{self, ConnectionManager};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
-/// Type alias for the database connection pool.
-///
-/// Uses r2d2 for connection pooling with PostgreSQL connections.
-pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
+// Re-export connection types from the connection module
+pub use connection::{Database, DbConnection, DbConnectionManager, DbPool};
 
 /// Type alias for database operation results.
 ///
 /// Standardizes error handling across database operations.
 pub type Result<T> = std::result::Result<T, diesel::result::Error>;
 
+// Re-export universal types for convenience
+pub use universal_types::{UniversalTimestamp, UniversalUuid};
+
 /// Embedded migrations for automatic schema management.
 ///
 /// Contains all SQL migration files for setting up the database schema.
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations");
+#[cfg(feature = "postgres")]
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/postgres");
+
+#[cfg(feature = "sqlite")]
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/sqlite");
 
 /// Runs pending database migrations.
 ///
@@ -121,7 +128,7 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migra
 ///
 /// # Arguments
 ///
-/// * `conn` - Mutable reference to a PostgreSQL connection
+/// * `conn` - Mutable reference to a database connection (PostgreSQL or SQLite)
 ///
 /// # Returns
 ///
@@ -131,15 +138,14 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migra
 /// # Examples
 ///
 /// ```rust
-/// use cloacina::database::run_migrations;
-/// use diesel::PgConnection;
+/// use cloacina::database::{run_migrations, DbConnection};
 ///
-/// # fn example(mut conn: PgConnection) -> Result<(), diesel::result::Error> {
+/// # fn example(mut conn: DbConnection) -> Result<(), diesel::result::Error> {
 /// run_migrations(&mut conn)?;
 /// # Ok(())
 /// # }
 /// ```
-pub fn run_migrations(conn: &mut PgConnection) -> Result<()> {
+pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
     conn.run_pending_migrations(MIGRATIONS)
         .expect("Failed to run migrations");
     Ok(())

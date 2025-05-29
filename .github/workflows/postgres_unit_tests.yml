@@ -1,10 +1,10 @@
 ---
-name: Macro Tests
+name: Unit Tests
 on:
   workflow_call:
 
 jobs:
-  macro_tests:
+  unit_tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,5 +33,5 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-build-
 
-      - name: Run macro tests
-        run: angreal tests macros
+      - name: Run unit tests
+        run: angreal tests unit --backend postgres

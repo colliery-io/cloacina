@@ -21,10 +21,9 @@
 //! parts of the application. The data is stored as a string in the database and can be
 //! deserialized into appropriate structures when needed.
 
-use chrono::NaiveDateTime;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Represents a context record in the database.
 ///
@@ -38,12 +37,13 @@ use uuid::Uuid;
 /// * `updated_at` - Timestamp when the context was last updated
 #[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::database::schema::contexts)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
+#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
 pub struct DbContext {
-    pub id: Uuid,
+    pub id: UniversalUuid,
     pub value: String, // Serialized JSON of the context data
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
 }
 
 /// Structure for creating new context records in the database.
@@ -63,13 +63,13 @@ pub struct NewDbContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use crate::database::universal_types::current_timestamp;
 
     #[test]
     fn test_db_context_creation() {
-        let now = Utc::now().naive_utc();
+        let now = current_timestamp();
         let context = DbContext {
-            id: Uuid::new_v4(),
+            id: UniversalUuid::new_v4(),
             value: "{\"test\":42}".to_string(),
             created_at: now,
             updated_at: now,

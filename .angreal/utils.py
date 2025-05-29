@@ -114,43 +114,50 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
     Returns:
         The return code from the command
     """
-    # Check if Docker services are running
-    try:
-        # Try docker compose first (newer), then fall back to docker-compose
+    # Check if this is a tutorial (SQLite-based) or other example (potentially PostgreSQL-based)
+    is_tutorial = "tutorial" in example_dir
+
+    if not is_tutorial:
+        # For non-tutorial examples, check if Docker services are running
         try:
-            result = subprocess.run(
-                ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "ps", "--services", "--filter", "status=running"],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            result = subprocess.run(
-                ["docker-compose", "-f", str(DOCKER_COMPOSE_FILE), "ps", "--services", "--filter", "status=running"],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-        # If we get here, the command succeeded, but we need to check if any services are actually running
-        services_running = bool(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        services_running = False
+            # Try docker compose first (newer), then fall back to docker-compose
+            try:
+                result = subprocess.run(
+                    ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), "ps", "--services", "--filter", "status=running"],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                result = subprocess.run(
+                    ["docker-compose", "-f", str(DOCKER_COMPOSE_FILE), "ps", "--services", "--filter", "status=running"],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+            # If we get here, the command succeeded, but we need to check if any services are actually running
+            services_running = bool(result.stdout.strip())
+        except subprocess.CalledProcessError:
+            services_running = False
 
-    # Only restart Docker if services aren't running
-    if not services_running:
-        # Clean restart
-        exit_code = docker_down(True)
-        if exit_code != 0:
-            return exit_code
+        # Only restart Docker if services aren't running
+        if not services_running:
+            # Clean restart
+            exit_code = docker_down(True)
+            if exit_code != 0:
+                return exit_code
 
-        # Start Docker services
-        exit_code = docker_up()
-        if exit_code != 0:
-            return exit_code
+            # Start Docker services
+            exit_code = docker_up()
+            if exit_code != 0:
+                return exit_code
 
-        # Wait for services to be ready
-        print("Waiting for services to be ready...")
-        time.sleep(10)
+            # Wait for services to be ready
+            print("Waiting for services to be ready...")
+            time.sleep(10)
+    else:
+        # For tutorials, SQLite is used - no Docker setup needed
+        print(f"Running {name} (SQLite-based, no database setup required)")
 
     # Run the example/tutorial
     if is_test:

@@ -219,7 +219,10 @@ async fn test_task_executor_basic_execution() {
 
     // Check that task was executed
     let dal = cloacina::dal::DAL::new(database.pool());
-    let task_executions = dal.task_execution().get_pending_tasks(pipeline_id).unwrap();
+    let task_executions = dal
+        .task_execution()
+        .get_pending_tasks(UniversalUuid(pipeline_id))
+        .unwrap();
 
     // Should be no pending tasks (task should be completed)
     assert_eq!(task_executions.len(), 0, "Task should have been completed");
@@ -290,7 +293,7 @@ async fn test_task_executor_dependency_loading() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "consumer")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
         .unwrap();
 
     // Verify the consumer processed the dependency data
@@ -408,7 +411,7 @@ async fn test_task_executor_timeout_handling() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_status = dal
         .task_execution()
-        .get_task_status(pipeline_id, "timeout_task")
+        .get_task_status(UniversalUuid(pipeline_id), "timeout_task")
         .unwrap();
 
     assert_eq!(
@@ -487,7 +490,7 @@ async fn test_pipeline_engine_unified_mode() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "unified_task");
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task");
 
     // If the task was executed, metadata should exist
     match task_metadata {
@@ -508,7 +511,7 @@ async fn test_pipeline_engine_unified_mode() {
             // Task might still be in progress or failed - check execution status
             let task_status = dal
                 .task_execution()
-                .get_task_status(pipeline_id, "unified_task")
+                .get_task_status(UniversalUuid(pipeline_id), "unified_task")
                 .unwrap();
             assert_ne!(task_status, "Pending", "Task should have been processed");
         }
@@ -611,7 +614,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_status = dal
         .task_execution()
-        .get_task_status(pipeline_id, "initial_context_task")
+        .get_task_status(UniversalUuid(pipeline_id), "initial_context_task")
         .unwrap();
     assert_eq!(
         task_status, "Completed",
@@ -621,7 +624,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     // Check the output context contains processed data
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "initial_context_task")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "initial_context_task")
         .unwrap();
 
     if let Some(context_id) = task_metadata.context_id {
@@ -799,11 +802,11 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let producer_status = dal
         .task_execution()
-        .get_task_status(pipeline_id, "producer")
+        .get_task_status(UniversalUuid(pipeline_id), "producer")
         .unwrap();
     let consumer_status = dal
         .task_execution()
-        .get_task_status(pipeline_id, "consumer")
+        .get_task_status(UniversalUuid(pipeline_id), "consumer")
         .unwrap();
 
     assert_eq!(
@@ -818,7 +821,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     // Check the consumer's output context
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(pipeline_id, "consumer")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
         .unwrap();
 
     if let Some(context_id) = consumer_metadata.context_id {
