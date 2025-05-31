@@ -35,7 +35,7 @@ Example:
     ```
 """
 
-from ._cloacina import (
+from ._cloacina_postgres import (
     __version__,
     task,
     Workflow,

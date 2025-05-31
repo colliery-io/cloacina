@@ -27,7 +27,7 @@ use task::{task_decorator, PyTaskDecorator};
 use workflow::PyWorkflow;
 
 #[pymodule]
-fn _cloacina(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _cloacina_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     // Core classes - thin wrappers around existing Rust types

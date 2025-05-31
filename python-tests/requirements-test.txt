@@ -1,0 +1,14 @@
+# Testing dependencies
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.10.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0  # For parallel test execution
+
+# For testing different scenarios
+psycopg2-binary>=2.9.0  # PostgreSQL testing
+aiosqlite>=0.19.0      # SQLite async testing
+
+# Utilities
+freezegun>=1.2.0       # Time mocking
+responses>=0.23.0      # HTTP mocking

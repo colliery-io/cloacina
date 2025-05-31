@@ -1,0 +1,6 @@
+
+[postgres]
+cloacina-postgres==0.1.0
+
+[sqlite]
+cloacina-sqlite==0.1.0

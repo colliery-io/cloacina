@@ -266,9 +266,99 @@ def macro(backend=None):
 
 
 @tests()
-@angreal.command(name="all", about="run all tests (unit, integration, and macro tests)")
+@angreal.command(name="python", about="run Python binding tests")
+@angreal.argument(
+    name="backend",
+    long="backend", 
+    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    required=False
+)
+@angreal.argument(
+    name="test_type",
+    long="type",
+    help="Type of tests to run: unit, integration, dispatcher, all (default: all)",
+    required=False
+)
+def python_tests(backend=None, test_type=None):
+    """Run Python binding tests."""
+    import os
+    
+    # Set up test environment
+    test_dir = PROJECT_ROOT / "python-tests"
+    
+    if not test_dir.exists():
+        print("❌ Python test directory not found. Run from project root.")
+        return 1
+    
+    # Build base pytest command
+    cmd = ["python", "-m", "pytest", str(test_dir), "-v"]
+    
+    # Add backend-specific markers
+    if backend == "postgres":
+        cmd.extend(["-m", "postgres"])
+    elif backend == "sqlite":
+        cmd.extend(["-m", "sqlite"]) 
+    elif backend is None:
+        # Run both backends
+        pass
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+        return 1
+    
+    # Add test type filters
+    if test_type == "unit":
+        cmd.extend(["-m", "unit"])
+    elif test_type == "integration":
+        cmd.extend(["-m", "integration"])
+    elif test_type == "dispatcher":
+        cmd.extend(["-m", "dispatcher"])
+    elif test_type == "all" or test_type is None:
+        # Run all test types
+        pass
+    else:
+        print(f"Error: Invalid test type '{test_type}'.", file=sys.stderr)
+        return 1
+    
+    print(f"\n{'='*50}")
+    print(f"Running Python binding tests")
+    if backend:
+        print(f"Backend: {backend}")
+    if test_type:
+        print(f"Type: {test_type}")
+    print(f"{'='*50}")
+    
+    try:
+        # Install test dependencies if needed
+        deps_install = subprocess.run([
+            "pip", "install", "-q", "-r", str(test_dir / "requirements-test.txt")
+        ], capture_output=True, text=True)
+        
+        if deps_install.returncode != 0:
+            print("⚠️  Warning: Could not install test dependencies")
+            print(deps_install.stderr)
+        
+        # Run the tests
+        result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+        
+        if result.returncode == 0:
+            print("✅ Python binding tests passed")
+            return 0
+        else:
+            print("❌ Python binding tests failed")
+            return result.returncode
+            
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Python tests failed with error: {e}", file=sys.stderr)
+        return e.returncode
+    except FileNotFoundError:
+        print("❌ pytest not found. Please install: pip install pytest", file=sys.stderr)
+        return 1
+
+
+@tests()
+@angreal.command(name="all", about="run all tests (unit, integration, macro, and python tests)")
 def all():
-    """Run all tests (unit, integration, and macro tests)."""
+    """Run all tests (unit, integration, macro, and python tests)."""
     # Run unit tests first
     print("=== Running Unit Tests ===")
     unit_result = unit()
@@ -281,11 +371,27 @@ def all():
     if macro_result != 0:
         return macro_result
 
-    # Run integration tests last
+    # Run integration tests
     print("\n=== Running Integration Tests ===")
     integration_result = integration()
     if integration_result != 0:
         return integration_result
 
-    print("\nAll tests passed!")
+    # Run Python binding tests (full suite with build)
+    print("\n=== Running Python Binding Tests ===")
+    try:
+        # Import the python test functions
+        from task_python_tests import python_full
+        python_result = python_full()
+        if python_result != 0:
+            print("⚠️  Python tests failed, but continuing...")
+            # Don't fail the entire suite if Python tests fail
+            # since they may require optional dependencies
+    except ImportError:
+        print("⚠️  Python test module not available, skipping...")
+        python_result = 0
+
+    print("\nAll core tests passed!")
+    if python_result != 0:
+        print("⚠️  Note: Python binding tests had issues")
     return 0

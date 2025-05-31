@@ -1,5 +1,5 @@
 [package]
-name = "cloacina-python"
+name = "cloacina-postgres"
 version = "0.1.0"
 edition = "2021"
 authors = ["Cloacina Team"]
@@ -10,11 +10,16 @@ keywords = ["workflow", "orchestration", "python", "task", "pipeline"]
 categories = ["api-bindings", "asynchronous"]
 
 [lib]
-name = "_cloacina"
+name = "_cloacina_postgres"
 crate-type = ["cdylib"]
 
+[features]
+default = ["postgres"]
+postgres = ["cloacina/postgres"]
+sqlite = ["cloacina/sqlite"]
+
 [dependencies]
-cloacina = { path = "../cloacina" }
+cloacina = { path = "../cloacina", default-features = false, features = ["macros"] }
 pyo3 = { version = "0.21", features = ["extension-module", "abi3-py39"] }
 pyo3-asyncio-0-21 = { version = "0.21", features = ["tokio-runtime"] }
 tokio = { version = "1", features = ["full"] }

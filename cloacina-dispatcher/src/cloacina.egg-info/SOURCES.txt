@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+src/cloacina/__init__.py
+src/cloacina.egg-info/PKG-INFO
+src/cloacina.egg-info/SOURCES.txt
+src/cloacina.egg-info/dependency_links.txt
+src/cloacina.egg-info/requires.txt
+src/cloacina.egg-info/top_level.txt

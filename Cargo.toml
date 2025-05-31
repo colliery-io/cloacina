@@ -1,5 +1,5 @@
 [workspace]
-members = ["cloacina", "cloacina-macros", "cloacina-python"]
+members = ["cloacina", "cloacina-macros", "cloacina-postgres", "cloacina-sqlite"]
 exclude = ["examples/*"]
 resolver = "2"
 

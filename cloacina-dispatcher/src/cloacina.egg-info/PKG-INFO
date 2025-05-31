@@ -1,0 +1,76 @@
+Metadata-Version: 2.4
+Name: cloacina
+Version: 0.1.0
+Summary: Python bindings for Cloacina workflow orchestration
+Author-email: Cloacina Team <team@cloacina.dev>
+License: MIT OR Apache-2.0
+Project-URL: Homepage, https://github.com/colliery-io/cloacina
+Project-URL: Repository, https://github.com/colliery-io/cloacina
+Project-URL: Documentation, https://colliery-io.github.io/cloacina/
+Keywords: workflow,orchestration,task,pipeline,etl
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: System :: Distributed Computing
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Provides-Extra: postgres
+Requires-Dist: cloacina-postgres==0.1.0; extra == "postgres"
+Provides-Extra: sqlite
+Requires-Dist: cloacina-sqlite==0.1.0; extra == "sqlite"
+
+# Cloacina
+
+Python bindings for the Cloacina workflow orchestration framework.
+
+## Installation
+
+Choose your database backend:
+
+```bash
+# PostgreSQL backend (recommended)
+pip install cloacina[postgres]
+
+# SQLite backend
+pip install cloacina[sqlite]
+```
+
+## Quick Start
+
+```python
+from cloacina import task, Workflow, UnifiedExecutor
+
+@task(id="extract_data", dependencies=[])
+def extract_data(context):
+    context["raw_data"] = {"users": [1, 2, 3]}
+    return context
+
+@task(id="transform_data", dependencies=["extract_data"])
+def transform_data(context):
+    raw = context.get("raw_data", {})
+    context["transformed_data"] = {"processed": raw}
+    return context
+
+# Create and run workflow
+workflow = Workflow("my_etl_pipeline")
+
+async def main():
+    executor = UnifiedExecutor()
+    await executor.initialize()
+    await executor.execute(workflow)
+    await executor.shutdown()
+
+import asyncio
+asyncio.run(main())
+```
+
+## Documentation
+
+For full documentation, visit: https://colliery-io.github.io/cloacina/

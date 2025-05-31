@@ -1,6 +1,6 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "cloacina"
@@ -23,7 +23,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
 ]
@@ -33,6 +32,10 @@ Homepage = "https://github.com/colliery-io/cloacina"
 Repository = "https://github.com/colliery-io/cloacina"
 Documentation = "https://colliery-io.github.io/cloacina/"
 
-[tool.maturin]
-python-source = "python"
-module-name = "cloacina._cloacina"
+[project.optional-dependencies]
+postgres = ["cloacina-postgres==0.1.0"]
+sqlite = ["cloacina-sqlite==0.1.0"]
+
+[tool.setuptools]
+packages = ["cloacina"]
+package-dir = {"" = "src"}
