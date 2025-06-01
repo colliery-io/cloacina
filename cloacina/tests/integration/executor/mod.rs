@@ -15,4 +15,5 @@
  */
 
 pub mod context_merging;
+pub mod multi_tenant;
 pub mod task_execution;

@@ -1,5 +1,4 @@
 -- Complete execution system tables with all fields
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Pipeline execution tracking
 CREATE TABLE pipeline_executions (

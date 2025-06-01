@@ -17,7 +17,8 @@ Cloacina is a Rust library for building resilient task pipelines directly within
 - **Embedded Framework**: Integrates directly into your Rust applications
 - **Resilient Execution**: Automatic retries, failure recovery, and state persistence
 - **Type-Safe Workflows**: Compile-time validation of task dependencies and data flow
-- **Database-Backed**: Uses PostgreSQL for reliable state management
+- **Database-Backed**: Uses PostgreSQL or SQLite for reliable state management
+- **Multi-Tenant Ready**: PostgreSQL schema-based isolation for complete tenant separation
 - **Async-First**: Built on tokio for high-performance concurrent execution
 - **Content-Versioned**: Automatic workflow versioning based on task code and structure
 
@@ -27,7 +28,12 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = "0.1.0"
+# PostgreSQL backend (default)
+cloacina = { version = "0.1.0", features = ["postgres"] }
+
+# Or SQLite backend
+# cloacina = { version = "0.1.0", features = ["sqlite"] }
+
 async-trait = "0.1"    # Required for async task definitions
 ctor = "0.2"          # Required for task registration
 serde_json = "1.0"    # Required for context data serialization
@@ -65,6 +71,46 @@ let executor = UnifiedExecutor::new("postgresql://user:pass@localhost/dbname").a
 // Execute the workflow
 let result = executor.execute("my_workflow", Context::new()).await?;
 ```
+
+## Multi-Tenancy
+
+Cloacina supports multi-tenant deployments with complete data isolation:
+
+### PostgreSQL Schema-Based Isolation
+
+```rust
+// Each tenant gets their own PostgreSQL schema
+let tenant_a = UnifiedExecutor::with_schema(
+    "postgresql://user:pass@localhost/cloacina",
+    "tenant_a"
+).await?;
+
+let tenant_b = UnifiedExecutor::with_schema(
+    "postgresql://user:pass@localhost/cloacina",
+    "tenant_b"
+).await?;
+
+// Or using the builder pattern
+let executor = UnifiedExecutor::builder()
+    .database_url("postgresql://user:pass@localhost/cloacina")
+    .schema("my_tenant")
+    .build()
+    .await?;
+```
+
+### SQLite File-Based Isolation
+
+```rust
+// Each tenant gets their own database file
+let tenant_a = UnifiedExecutor::new("sqlite://./tenant_a.db").await?;
+let tenant_b = UnifiedExecutor::new("sqlite://./tenant_b.db").await?;
+```
+
+Benefits:
+- **Zero collision risk** - Impossible for tenants to access each other's data
+- **No query changes** - All existing DAL code works unchanged
+- **Performance** - No overhead from filtering every query
+- **Clean separation** - Each tenant can even have different schema versions
 
 ## Documentation
 

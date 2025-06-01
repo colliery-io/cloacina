@@ -54,6 +54,8 @@ use diesel::r2d2::{ConnectionManager, Pool};
 use tracing::info;
 
 #[cfg(feature = "postgres")]
+use diesel::r2d2::{CustomizeConnection, Error as R2D2Error};
+#[cfg(feature = "postgres")]
 use diesel::PgConnection;
 #[cfg(feature = "postgres")]
 use url::Url;
@@ -74,6 +76,32 @@ pub type DbConnectionManager = ConnectionManager<DbConnection>;
 /// Type alias for the connection pool
 pub type DbPool = Pool<DbConnectionManager>;
 
+#[cfg(feature = "postgres")]
+/// Connection customizer that sets the PostgreSQL search_path for schema isolation
+///
+/// This customizer is applied to each connection when it's acquired from the pool,
+/// ensuring that all database operations occur within the specified schema.
+#[derive(Debug, Clone)]
+struct SchemaCustomizer {
+    schema: Option<String>,
+}
+
+#[cfg(feature = "postgres")]
+impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
+    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), R2D2Error> {
+        use diesel::prelude::*;
+
+        if let Some(ref schema) = self.schema {
+            // Set search_path to the specified schema, with public as fallback for extensions
+            let sql = format!("SET search_path TO {}, public", schema);
+            diesel::sql_query(&sql)
+                .execute(conn)
+                .map_err(R2D2Error::QueryError)?;
+        }
+        Ok(())
+    }
+}
+
 /// Represents a pool of database connections.
 ///
 /// This struct provides a thread-safe wrapper around a connection pool,
@@ -88,6 +116,9 @@ pub type DbPool = Pool<DbConnectionManager>;
 pub struct Database {
     /// The actual connection pool.
     pool: DbPool,
+    /// The PostgreSQL schema name (PostgreSQL only)
+    #[cfg(feature = "postgres")]
+    schema: Option<String>,
 }
 
 impl Database {
@@ -117,20 +148,106 @@ impl Database {
     /// * The database server is unreachable (PostgreSQL)
     /// * The database file cannot be created or accessed (SQLite)
     pub fn new(connection_string: &str, database_name: &str, max_size: u32) -> Self {
-        let connection_url = Self::build_connection_url(connection_string, database_name);
+        #[cfg(feature = "postgres")]
+        {
+            return Self::new_with_schema(connection_string, database_name, max_size, None);
+        }
+        #[cfg(feature = "sqlite")]
+        {
+            let connection_url = Self::build_connection_url(connection_string, database_name);
+            let manager = ConnectionManager::<DbConnection>::new(connection_url);
+            let pool = Pool::builder()
+                .max_size(max_size)
+                .build(manager)
+                .expect("Failed to create connection pool");
 
-        // Create a connection manager
+            info!("Database connection pool initialized");
+            return Self { pool };
+        }
+    }
+
+    /// Creates a new database connection pool with PostgreSQL schema support
+    ///
+    /// # Arguments
+    /// * `connection_string` - The base URL of the database server
+    /// * `database_name` - The name of the database to connect to
+    /// * `max_size` - The maximum number of connections the pool should maintain
+    /// * `schema` - Optional schema name for multi-tenant isolation
+    ///
+    /// # Returns
+    /// Returns a `Database` instance with schema support
+    ///
+    /// # Note
+    /// This method is only available with the "postgres" feature enabled.
+    #[cfg(feature = "postgres")]
+    pub fn new_with_schema(
+        connection_string: &str,
+        database_name: &str,
+        max_size: u32,
+        schema: Option<&str>,
+    ) -> Self {
+        let connection_url = Self::build_connection_url(connection_string, database_name);
         let manager = ConnectionManager::<DbConnection>::new(connection_url);
 
-        // Build the connection pool
+        // Build the connection pool with schema customizer
         let pool = Pool::builder()
             .max_size(max_size)
+            .connection_customizer(Box::new(SchemaCustomizer {
+                schema: schema.map(String::from),
+            }))
             .build(manager)
             .expect("Failed to create connection pool");
 
-        info!("Database connection pool initialized");
+        info!(
+            "Database connection pool initialized{}",
+            schema.map_or(String::new(), |s| format!(" with schema '{}'", s))
+        );
 
-        Self { pool }
+        Self {
+            pool,
+            schema: schema.map(String::from),
+        }
+    }
+
+    /// Sets up the PostgreSQL schema for multi-tenant isolation
+    ///
+    /// This method creates the schema if it doesn't exist and runs migrations within it.
+    ///
+    /// # Arguments
+    /// * `schema` - The schema name to set up
+    ///
+    /// # Returns
+    /// * `Result<(), String>` - Success or error message
+    #[cfg(feature = "postgres")]
+    pub fn setup_schema(&self, schema: &str) -> Result<(), String> {
+        use diesel::prelude::*;
+
+        let mut conn = self.pool.get().map_err(|e| e.to_string())?;
+
+        // Create schema if it doesn't exist
+        let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema);
+        diesel::sql_query(&create_schema_sql)
+            .execute(&mut conn)
+            .map_err(|e| format!("Failed to create schema: {}", e))?;
+
+        // Set search path for migrations
+        let set_search_path_sql = format!("SET search_path TO {}, public", schema);
+        diesel::sql_query(&set_search_path_sql)
+            .execute(&mut conn)
+            .map_err(|e| format!("Failed to set search path: {}", e))?;
+
+        // Run migrations in the schema
+        crate::database::run_migrations(&mut conn)
+            .map_err(|e| format!("Failed to run migrations in schema: {}", e))?;
+
+        info!("Schema '{}' set up successfully", schema);
+        Ok(())
+    }
+
+    /// Gets the current schema name (PostgreSQL only)
+    #[cfg(feature = "postgres")]
+    pub fn schema(&self) -> Option<&str> {
+        self.schema.as_deref()
     }
 
     /// Builds the connection URL based on the backend
