@@ -26,7 +26,8 @@
 //! - **Embedded Framework**: Integrates directly into your Rust applications
 //! - **Resilient Execution**: Automatic retries, failure recovery, and state persistence
 //! - **Type-Safe Workflows**: Compile-time validation of task dependencies and data flow
-//! - **Database-Backed**: Uses PostgreSQL for reliable state management
+//! - **Database-Backed**: Uses PostgreSQL or SQLite for reliable state management
+//! - **Multi-Tenant Ready**: PostgreSQL schema-based isolation for complete tenant separation
 //! - **Async-First**: Built on tokio for high-performance concurrent execution
 //! - **Content-Versioned**: Automatic workflow versioning based on task code and structure
 //!
@@ -122,6 +123,48 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Multi-Tenant Support
+//!
+//! Cloacina provides complete tenant isolation with zero collision risk:
+//!
+//! ### PostgreSQL Schema-Based Multi-Tenancy
+//!
+//! ```rust
+//! use cloacina::executor::unified_executor::UnifiedExecutor;
+//!
+//! // Each tenant gets their own PostgreSQL schema
+//! let tenant_a = UnifiedExecutor::with_schema(
+//!     "postgresql://user:pass@localhost/cloacina",
+//!     "tenant_a"
+//! ).await?;
+//!
+//! let tenant_b = UnifiedExecutor::with_schema(
+//!     "postgresql://user:pass@localhost/cloacina",
+//!     "tenant_b"
+//! ).await?;
+//!
+//! // Or using the builder pattern
+//! let executor = UnifiedExecutor::builder()
+//!     .database_url("postgresql://user:pass@localhost/cloacina")
+//!     .schema("my_tenant")
+//!     .build()
+//!     .await?;
+//! ```
+//!
+//! ### SQLite File-Based Multi-Tenancy
+//!
+//! ```rust
+//! // Each tenant gets their own database file
+//! let tenant_a = UnifiedExecutor::new("sqlite://./tenant_a.db").await?;
+//! let tenant_b = UnifiedExecutor::new("sqlite://./tenant_b.db").await?;
+//! ```
+//!
+//! Benefits:
+//! - **Zero collision risk** - Impossible for tenants to access each other's data
+//! - **No query changes** - All existing DAL code works unchanged
+//! - **Performance** - No overhead from filtering every query
+//! - **Clean separation** - Each tenant can even have different schema versions
 //!
 //! ## Core Concepts
 //!

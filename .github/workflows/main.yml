@@ -50,3 +50,7 @@ jobs:
   tutorials:
     needs: smoke_tests
     uses: ./.github/workflows/tutorials.yml
+
+  examples:
+    needs: smoke_tests
+    uses: ./.github/workflows/examples.yml

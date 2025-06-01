@@ -71,10 +71,16 @@ impl Default for UnifiedExecutorConfig {
             scheduler_poll_interval: Duration::from_millis(100), // 100ms for responsive scheduling
             task_timeout: Duration::from_secs(300),             // 5 minutes
             pipeline_timeout: Some(Duration::from_secs(3600)),  // 1 hour
-            #[cfg(feature = "sqlite")]
-            db_pool_size: 1, // SQLite works best with single connection
-            #[cfg(feature = "postgres")]
-            db_pool_size: 10,
+            db_pool_size: {
+                #[cfg(feature = "sqlite")]
+                {
+                    1
+                } // SQLite works best with single connection
+                #[cfg(feature = "postgres")]
+                {
+                    10
+                }
+            },
             enable_recovery: true,
         }
     }
@@ -117,6 +123,191 @@ struct RuntimeHandles {
     shutdown_sender: Option<broadcast::Sender<()>>,
 }
 
+#[cfg(feature = "postgres")]
+/// Builder for creating a UnifiedExecutor with PostgreSQL schema-based multi-tenancy
+///
+/// This builder supports PostgreSQL schema-based multi-tenancy for complete tenant isolation.
+/// Each schema provides complete data isolation with zero collision risk.
+///
+/// # Example
+/// ```rust
+/// // Single-tenant PostgreSQL (uses public schema)
+/// let executor = UnifiedExecutorBuilder::new()
+///     .database_url("postgresql://user:pass@localhost/cloacina")
+///     .build()
+///     .await?;
+///
+/// // Multi-tenant PostgreSQL with schema isolation
+/// let tenant_a = UnifiedExecutorBuilder::new()
+///     .database_url("postgresql://user:pass@localhost/cloacina")
+///     .schema("tenant_a")
+///     .build()
+///     .await?;
+///
+/// let tenant_b = UnifiedExecutorBuilder::new()
+///     .database_url("postgresql://user:pass@localhost/cloacina")
+///     .schema("tenant_b")
+///     .build()
+///     .await?;
+/// ```
+pub struct UnifiedExecutorBuilder {
+    database_url: Option<String>,
+    schema: Option<String>,
+    config: UnifiedExecutorConfig,
+}
+
+#[cfg(feature = "postgres")]
+impl Default for UnifiedExecutorBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl UnifiedExecutorBuilder {
+    /// Creates a new builder with default configuration
+    pub fn new() -> Self {
+        Self {
+            database_url: None,
+            schema: None,
+            config: UnifiedExecutorConfig::default(),
+        }
+    }
+
+    /// Sets the database URL
+    pub fn database_url(mut self, url: &str) -> Self {
+        self.database_url = Some(url.to_string());
+        self
+    }
+
+    /// Sets the PostgreSQL schema for multi-tenant isolation
+    ///
+    /// # Arguments
+    /// * `schema` - The schema name (must be alphanumeric with underscores only)
+    pub fn schema(mut self, schema: &str) -> Self {
+        self.schema = Some(schema.to_string());
+        self
+    }
+
+    /// Sets the full configuration
+    pub fn with_config(mut self, config: UnifiedExecutorConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Validates the schema name contains only alphanumeric characters and underscores
+    fn validate_schema_name(schema: &str) -> Result<(), PipelineError> {
+        if !schema.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(PipelineError::Configuration {
+                message: "Schema name must contain only alphanumeric characters and underscores"
+                    .to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Builds the UnifiedExecutor
+    pub async fn build(self) -> Result<UnifiedExecutor, PipelineError> {
+        let database_url = self
+            .database_url
+            .ok_or_else(|| PipelineError::Configuration {
+                message: "Database URL is required".to_string(),
+            })?;
+
+        if let Some(ref schema) = self.schema {
+            Self::validate_schema_name(schema)?;
+
+            // Validate schema is only used with PostgreSQL
+            if !database_url.starts_with("postgresql://")
+                && !database_url.starts_with("postgres://")
+            {
+                return Err(PipelineError::Configuration {
+                    message: "Schema isolation is only supported with PostgreSQL. \
+                             For SQLite multi-tenancy, use separate database files instead."
+                        .to_string(),
+                });
+            }
+        }
+
+        // Create the database with schema support
+        let database = Database::new_with_schema(
+            &database_url,
+            "cloacina",
+            self.config.db_pool_size,
+            self.schema.as_deref(),
+        );
+
+        // Set up schema if specified
+        if let Some(ref schema) = self.schema {
+            database
+                .setup_schema(schema)
+                .map_err(|e| PipelineError::Configuration {
+                    message: format!("Failed to set up schema '{}': {}", schema, e),
+                })?;
+        } else {
+            // Run migrations in public schema
+            let mut conn =
+                database
+                    .pool()
+                    .get()
+                    .map_err(|e| PipelineError::DatabaseConnection {
+                        message: e.to_string(),
+                    })?;
+            crate::database::run_migrations(&mut conn).map_err(|e| {
+                PipelineError::DatabaseConnection {
+                    message: e.to_string(),
+                }
+            })?;
+        }
+
+        // Create scheduler with recovery if enabled
+        let scheduler = if self.config.enable_recovery {
+            TaskScheduler::with_global_workflows_and_recovery_and_poll_interval(
+                database.clone(),
+                self.config.scheduler_poll_interval,
+            )
+            .await
+        } else {
+            let workflows = crate::workflow::get_all_workflows();
+            Ok(TaskScheduler::with_poll_interval(
+                database.clone(),
+                workflows,
+                self.config.scheduler_poll_interval,
+            ))
+        }
+        .map_err(|e| PipelineError::Executor(e.into()))?;
+
+        // Create task executor
+        let executor_config = ExecutorConfig {
+            max_concurrent_tasks: self.config.max_concurrent_tasks,
+            poll_interval: self.config.executor_poll_interval,
+            task_timeout: self.config.task_timeout,
+        };
+
+        let executor = TaskExecutor::with_global_registry(database.clone(), executor_config)
+            .map_err(|e| PipelineError::Configuration {
+                message: e.to_string(),
+            })?;
+
+        let unified_executor = UnifiedExecutor {
+            database,
+            config: self.config,
+            scheduler: Arc::new(scheduler),
+            executor: Arc::new(executor),
+            runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
+                scheduler_handle: None,
+                executor_handle: None,
+                shutdown_sender: None,
+            })),
+        };
+
+        // Start the background services immediately
+        unified_executor.start_background_services().await?;
+
+        Ok(unified_executor)
+    }
+}
+
 impl UnifiedExecutor {
     /// Creates a new unified executor with default configuration
     ///
@@ -132,6 +323,48 @@ impl UnifiedExecutor {
     /// ```
     pub async fn new(database_url: &str) -> Result<Self, PipelineError> {
         Self::with_config(database_url, UnifiedExecutorConfig::default()).await
+    }
+
+    /// Creates a builder for configuring the executor
+    ///
+    /// # Returns
+    /// * `UnifiedExecutorBuilder` - Builder for configuring the executor
+    ///
+    /// # Example
+    /// ```rust
+    /// let executor = UnifiedExecutor::builder()
+    ///     .database_url("postgres://localhost/db")
+    ///     .build()
+    ///     .await?;
+    /// ```
+    #[cfg(feature = "postgres")]
+    pub fn builder() -> UnifiedExecutorBuilder {
+        UnifiedExecutorBuilder::new()
+    }
+
+    /// Creates a new executor with PostgreSQL schema-based multi-tenancy
+    ///
+    /// # Arguments
+    /// * `database_url` - PostgreSQL connection string
+    /// * `schema` - Schema name for tenant isolation
+    ///
+    /// # Returns
+    /// * `Result<Self, PipelineError>` - The initialized executor or an error
+    ///
+    /// # Example
+    /// ```rust
+    /// let executor = UnifiedExecutor::with_schema(
+    ///     "postgresql://user:pass@localhost/cloacina",
+    ///     "tenant_123"
+    /// ).await?;
+    /// ```
+    #[cfg(feature = "postgres")]
+    pub async fn with_schema(database_url: &str, schema: &str) -> Result<Self, PipelineError> {
+        Self::builder()
+            .database_url(database_url)
+            .schema(schema)
+            .build()
+            .await
     }
 
     /// Creates a new unified executor with custom configuration
