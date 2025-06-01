@@ -95,6 +95,7 @@
 //! Migrations are automatically applied when using `UnifiedExecutor`. For lower-level
 //! database access, migrations can be run manually using `run_migrations()`.
 
+pub mod admin;
 pub mod connection;
 pub mod schema;
 pub mod universal_types;
@@ -103,6 +104,9 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 // Re-export connection types from the connection module
 pub use connection::{Database, DbConnection, DbConnectionManager, DbPool};
+
+// Re-export admin types for tenant management
+pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 
 /// Type alias for database operation results.
 ///

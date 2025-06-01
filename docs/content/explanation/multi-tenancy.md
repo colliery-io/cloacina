@@ -155,6 +155,25 @@ UnifiedExecutor::with_schema(db_url, "tenant'; DROP TABLE --").await?;
 SELECT * FROM tenant_xyz.contexts; -- Error: schema "tenant_xyz" does not exist
 ```
 
+**Per-Tenant Database Credentials** (PostgreSQL only): Enhanced security with database-level user isolation
+```rust
+// Using DatabaseAdmin to create isolated tenant users
+use cloacina::database::{DatabaseAdmin, TenantConfig};
+
+let admin = DatabaseAdmin::new(admin_database);
+let creds = admin.create_tenant(TenantConfig {
+    schema_name: "tenant_acme".to_string(),
+    username: "acme_user".to_string(),
+    password: "".to_string(), // Auto-generates secure 32-char password
+})?;
+
+// Each tenant uses their own database credentials
+let executor = UnifiedExecutor::with_schema(
+    &creds.connection_string,  // postgresql://acme_user:***@host/db
+    &creds.schema_name
+).await?;
+```
+
 ## Trust Model
 
 Cloacina's multi-tenancy assumes:
@@ -170,6 +189,135 @@ It does NOT protect against:
 2. **Privilege Escalation**: Code that bypasses application auth
 3. **Resource Attacks**: One tenant consuming all resources
 4. **Side-Channel Attacks**: Timing attacks or cache analysis
+
+## Enhanced Security: Per-Tenant Database Credentials
+
+While the default multi-tenancy implementation uses shared database credentials with schema isolation, Cloacina also supports **per-tenant database credentials** for enhanced security in PostgreSQL deployments.
+
+### Benefits of Per-Tenant Credentials
+
+1. **Database-Level Access Control**: Each tenant has their own PostgreSQL user
+2. **Audit Trail**: PostgreSQL logs show exactly which tenant performed operations
+3. **Defense in Depth**: Database permissions as an additional security layer
+4. **Credential Rotation**: Independent password rotation per tenant
+5. **Compliance**: Meet regulations requiring database-level user separation
+
+### Using DatabaseAdmin for Tenant Provisioning
+
+```rust
+use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
+
+// Admin connection with privileges to create users/schemas
+let admin_db = Database::new(
+    "postgresql://admin:admin_pass@localhost/cloacina",
+    "cloacina",
+    10
+);
+let admin = DatabaseAdmin::new(admin_db);
+
+// Create a tenant with auto-generated secure password
+let tenant_creds = admin.create_tenant(TenantConfig {
+    schema_name: "tenant_acme".to_string(),
+    username: "acme_user".to_string(),
+    password: "".to_string(), // Empty = auto-generate 32-char password
+})?;
+
+// Returns ready-to-use credentials
+println!("Username: {}", tenant_creds.username);
+println!("Password: {}", tenant_creds.password); // Secure 32-char password
+println!("Schema: {}", tenant_creds.schema_name);
+println!("Connection: {}", tenant_creds.connection_string);
+```
+
+### Password Security
+
+- **Auto-Generation**: Empty password string triggers generation of 32-character secure password
+- **Character Set**: 94 characters including uppercase, lowercase, digits, and symbols
+- **Entropy**: ~202 bits of entropy for auto-generated passwords
+- **PostgreSQL Hashing**: All passwords are hashed with SCRAM-SHA-256 by PostgreSQL
+- **No Storage**: Cloacina never stores passwords - they're passed to PostgreSQL and returned to admin
+
+### Complete Tenant Lifecycle
+
+```rust
+// 1. Create tenant with all database objects
+let creds = admin.create_tenant(TenantConfig {
+    schema_name: "tenant_xyz".to_string(),
+    username: "xyz_user".to_string(),
+    password: "custom_password".to_string(), // Or "" for auto-generation
+})?;
+
+// 2. Distribute credentials to tenant (via secure channel)
+send_credentials_to_tenant(&creds);
+
+// 3. Tenant application uses their specific credentials
+let executor = UnifiedExecutor::with_schema(
+    &creds.connection_string,
+    &creds.schema_name
+).await?;
+
+// 4. Later: Remove tenant when needed
+admin.remove_tenant("tenant_xyz", "xyz_user")?;
+```
+
+### What DatabaseAdmin Does
+
+The `create_tenant` method performs these operations in a transaction:
+
+1. **Creates PostgreSQL Schema**: `CREATE SCHEMA IF NOT EXISTS tenant_xyz`
+2. **Creates Database User**: `CREATE USER xyz_user WITH PASSWORD '...'`
+3. **Grants Permissions**:
+   - `GRANT USAGE ON SCHEMA tenant_xyz TO xyz_user`
+   - `GRANT CREATE ON SCHEMA tenant_xyz TO xyz_user`
+   - `GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA tenant_xyz TO xyz_user`
+   - Sets default privileges for future tables
+4. **Runs Migrations**: Executes all migrations in the tenant schema
+
+### Zero API Changes
+
+The same `UnifiedExecutor::with_schema()` API works for both approaches:
+
+```rust
+// Shared credentials (original approach)
+let executor = UnifiedExecutor::with_schema(
+    "postgresql://shared_user:shared_pw@host/db",
+    "tenant_acme"
+).await?;
+
+// Per-tenant credentials (enhanced security)
+let executor = UnifiedExecutor::with_schema(
+    "postgresql://acme_user:tenant_pw@host/db",
+    "tenant_acme"
+).await?;
+```
+
+### Migration Path
+
+You can migrate from shared to per-tenant credentials progressively:
+
+```rust
+// Phase 1: Some tenants still use shared credentials
+let legacy = UnifiedExecutor::with_schema(shared_url, "old_tenant").await?;
+
+// Phase 2: New tenants get their own credentials
+let new_creds = admin.create_tenant(TenantConfig { /* ... */ })?;
+let new_tenant = UnifiedExecutor::with_schema(
+    &new_creds.connection_string,
+    "new_tenant"
+).await?;
+
+// Phase 3: Gradually migrate existing tenants
+// Create new credentials, update connection strings, remove shared access
+```
+
+### Requirements and Limitations
+
+- **PostgreSQL Only**: Not available for SQLite deployments
+- **Admin Privileges**: Requires database user with `CREATEDB` and `CREATEROLE`
+- **Connection Pools**: Each tenant gets their own connection pool
+- **Not a Complete Solution**: Still requires application-level auth/authz
+
+See the [per-tenant credentials example](https://github.com/your-repo/cloacina/tree/main/examples/per_tenant_credentials) for a complete working demonstration.
 
 ## PostgreSQL Schema-Based Multi-Tenancy
 

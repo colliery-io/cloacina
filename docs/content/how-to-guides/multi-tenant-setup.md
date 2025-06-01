@@ -123,6 +123,129 @@ async fn create_tenant_executor() -> Result<UnifiedExecutor, Box<dyn std::error:
 }
 ```
 
+## Enhanced Security: Per-Tenant Database Credentials
+
+For PostgreSQL deployments requiring database-level user isolation, Cloacina provides the `DatabaseAdmin` utility for creating tenants with their own database users.
+
+### Setting Up Per-Tenant Credentials
+
+```rust
+use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Step 1: Create admin connection
+    let admin_db = Database::new(
+        "postgresql://admin:admin_pass@localhost/cloacina",
+        "cloacina",
+        10
+    );
+    let admin = DatabaseAdmin::new(admin_db);
+
+    // Step 2: Create tenant with auto-generated password
+    let tenant_creds = admin.create_tenant(TenantConfig {
+        schema_name: "tenant_secure".to_string(),
+        username: "secure_user".to_string(),
+        password: "".to_string(), // Empty = secure auto-generation
+    })?;
+
+    println!("Tenant created:");
+    println!("  Username: {}", tenant_creds.username);
+    println!("  Password: {}", tenant_creds.password);
+    println!("  Connection: {}", tenant_creds.connection_string);
+
+    // Step 3: Save credentials securely (e.g., secrets manager)
+    store_in_secrets_manager(&tenant_creds)?;
+
+    // Step 4: Tenant application uses their credentials
+    let executor = UnifiedExecutor::with_schema(
+        &tenant_creds.connection_string,
+        &tenant_creds.schema_name
+    ).await?;
+
+    Ok(())
+}
+```
+
+### Multi-Tenant Service with Per-Tenant Credentials
+
+```rust
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+pub struct SecureTenantManager {
+    admin: DatabaseAdmin,
+    // In production, load from secrets manager
+    credentials: Arc<RwLock<HashMap<String, TenantCredentials>>>,
+}
+
+impl SecureTenantManager {
+    pub async fn create_tenant(&self, tenant_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Generate secure schema and username
+        let schema_name = format!("tenant_{}", tenant_id);
+        let username = format!("user_{}", tenant_id);
+
+        // Create tenant with auto-generated password
+        let creds = self.admin.create_tenant(TenantConfig {
+            schema_name,
+            username,
+            password: "".to_string(),
+        })?;
+
+        // Store credentials securely
+        self.credentials.write().await.insert(tenant_id.to_string(), creds);
+
+        Ok(())
+    }
+
+    pub async fn get_executor(&self, tenant_id: &str) -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
+        let creds = self.credentials
+            .read()
+            .await
+            .get(tenant_id)
+            .ok_or("Tenant not found")?
+            .clone();
+
+        let executor = UnifiedExecutor::with_schema(
+            &creds.connection_string,
+            &creds.schema_name
+        ).await?;
+
+        Ok(executor)
+    }
+
+    pub async fn remove_tenant(&self, tenant_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let creds = self.credentials
+            .read()
+            .await
+            .get(tenant_id)
+            .ok_or("Tenant not found")?
+            .clone();
+
+        // Remove from database
+        self.admin.remove_tenant(&creds.schema_name, &creds.username)?;
+
+        // Remove from cache
+        self.credentials.write().await.remove(tenant_id);
+
+        Ok(())
+    }
+}
+```
+
+### Benefits of Per-Tenant Credentials
+
+- **Database-level isolation**: Each tenant can only access their schema
+- **Audit compliance**: PostgreSQL logs show which tenant performed operations
+- **Independent credential rotation**: Change passwords without affecting other tenants
+- **Defense in depth**: Additional security layer beyond application-level controls
+
+### Requirements
+
+- PostgreSQL database (not available for SQLite)
+- Admin user with `CREATEDB` and `CREATEROLE` privileges
+- Secure credential storage system (e.g., HashiCorp Vault, AWS Secrets Manager)
+
 ## Recovery
 
 For information about how recovery works in multi-tenant deployments, including automatic recovery and migration considerations, see the [Multi-Tenant Recovery Guide]({{< ref "multi-tenant-recovery" >}}).
