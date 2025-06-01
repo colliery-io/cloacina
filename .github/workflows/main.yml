@@ -50,3 +50,8 @@ jobs:
   tutorials:
     needs: smoke_tests
     uses: ./.github/workflows/tutorials.yml
+
+
+  postgres_examples:
+    needs: smoke_tests
+    uses: ./.github/workflows/examples.yml

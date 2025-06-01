@@ -13,11 +13,13 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 examples = angreal.command_group(name="examples", about="run Cloacina example projects")
 
 def get_example_directories():
-    """Get all directories in examples folder that are not tutorials."""
+    """Get all directories in examples folder that are not tutorials and are intended for execution."""
     examples_dir = PROJECT_ROOT / "examples"
+    # Exclude validation_failures as it has multiple binaries and is not meant to be executed directly
+    excluded_examples = {"validation_failures"}
     return [
         d.name for d in examples_dir.iterdir()
-        if d.is_dir() and not d.name.startswith("tutorial")
+        if d.is_dir() and not d.name.startswith("tutorial") and d.name not in excluded_examples
     ]
 
 def create_example_command(command_group, dir_name):
@@ -35,22 +37,3 @@ def create_example_command(command_group, dir_name):
 example_commands = {}
 for example_dir in get_example_directories():
     example_commands[example_dir] = create_example_command(examples, example_dir)
-
-@examples()
-@angreal.command(name="all", about="run all example projects")
-def all_examples():
-    """Run all example projects."""
-    examples_to_run = [
-        (name, cmd) for name, cmd in example_commands.items()
-    ]
-
-    for name, example_func in examples_to_run:
-        print(f"\n=== Running {name} example ===")
-        result = example_func()
-        if result != 0:
-            print(f"Example {name} failed with exit code {result}")
-            return result
-        print(f"Example {name} completed successfully!")
-
-    print("\nAll examples completed successfully!")
-    return 0
