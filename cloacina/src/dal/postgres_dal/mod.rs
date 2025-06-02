@@ -90,11 +90,13 @@ use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 
 pub mod context;
+pub mod cron_schedule;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
 use context::ContextDAL;
+use cron_schedule::CronScheduleDAL;
 use pipeline_execution::PipelineExecutionDAL;
 use recovery_event::RecoveryEventDAL;
 use task_execution::TaskExecutionDAL;
@@ -218,5 +220,9 @@ impl DAL {
 
     pub fn recovery_event(&self) -> RecoveryEventDAL {
         RecoveryEventDAL { dal: self }
+    }
+
+    pub fn cron_schedule(&self) -> CronScheduleDAL {
+        CronScheduleDAL { dal: self }
     }
 }

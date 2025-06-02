@@ -63,6 +63,7 @@
 //! - Keep model definitions in sync with database schema migrations
 
 pub mod context;
+pub mod cron_schedule;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;

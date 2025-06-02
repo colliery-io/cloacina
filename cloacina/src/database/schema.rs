@@ -92,6 +92,23 @@ mod postgres_schema {
         }
     }
 
+    diesel::table! {
+        cron_schedules (id) {
+            id -> Uuid,
+            workflow_name -> Varchar,
+            cron_expression -> Varchar,
+            timezone -> Varchar,
+            enabled -> Bool,
+            catchup_policy -> Varchar,
+            start_date -> Nullable<Timestamp>,
+            end_date -> Nullable<Timestamp>,
+            next_run_at -> Timestamp,
+            last_run_at -> Nullable<Timestamp>,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -102,6 +119,7 @@ mod postgres_schema {
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
+        cron_schedules,
         pipeline_executions,
         recovery_events,
         task_executions,
@@ -185,6 +203,23 @@ mod sqlite_schema {
         }
     }
 
+    diesel::table! {
+        cron_schedules (id) {
+            id -> Binary,
+            workflow_name -> Text,
+            cron_expression -> Text,
+            timezone -> Text,
+            enabled -> Integer,
+            catchup_policy -> Text,
+            start_date -> Nullable<Text>,
+            end_date -> Nullable<Text>,
+            next_run_at -> Text,
+            last_run_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -195,6 +230,7 @@ mod sqlite_schema {
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
+        cron_schedules,
         pipeline_executions,
         recovery_events,
         task_executions,

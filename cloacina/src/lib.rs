@@ -434,6 +434,7 @@ compile_error!("You must enable either the 'postgres' or 'sqlite' feature flag")
 compile_error!("You cannot enable both 'postgres' and 'sqlite' features at the same time");
 
 pub mod context;
+pub mod cron_evaluator;
 pub mod dal;
 pub mod database;
 pub mod error;
@@ -459,6 +460,7 @@ pub use database::connection::Database;
 
 // Re-export key types for convenience
 pub use context::Context;
+pub use cron_evaluator::{CronError, CronEvaluator};
 pub use database::{UniversalTimestamp, UniversalUuid};
 pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,

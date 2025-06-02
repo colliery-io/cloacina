@@ -9,12 +9,12 @@ CREATE TABLE cron_schedules (
     timezone VARCHAR NOT NULL DEFAULT 'UTC',        -- Timezone for cron interpretation (e.g., 'America/New_York')
     enabled BOOLEAN NOT NULL DEFAULT true,
     catchup_policy VARCHAR NOT NULL DEFAULT 'skip' CHECK (catchup_policy IN ('skip', 'run_once', 'run_all')),
-    start_date TIMESTAMP WITH TIME ZONE,            -- NULL = immediate start
-    end_date TIMESTAMP WITH TIME ZONE,              -- NULL = no end
-    next_run_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    last_run_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    start_date TIMESTAMP,                           -- NULL = immediate start
+    end_date TIMESTAMP,                             -- NULL = no end
+    next_run_at TIMESTAMP NOT NULL,
+    last_run_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- Index for efficient polling of due schedules
