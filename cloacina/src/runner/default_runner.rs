@@ -20,20 +20,20 @@ use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
-use super::pipeline_executor::*;
 use crate::dal::DAL;
+use crate::executor::pipeline_executor::*;
 use crate::executor::types::ExecutorConfig;
 use crate::task::TaskState;
 use crate::UniversalUuid;
 use crate::{Context, Database, TaskExecutor, TaskScheduler};
 
-/// Configuration for the unified pipeline executor
+/// Configuration for the default runner
 ///
 /// This struct defines the configuration parameters that control the behavior
-/// of the UnifiedExecutor. It includes settings for concurrency, timeouts,
+/// of the DefaultRunner. It includes settings for concurrency, timeouts,
 /// polling intervals, and database connection management.
 #[derive(Debug, Clone)]
-pub struct UnifiedExecutorConfig {
+pub struct DefaultRunnerConfig {
     /// Maximum number of concurrent task executions allowed at any given time.
     /// This controls the parallelism of task processing.
     pub max_concurrent_tasks: usize,
@@ -63,7 +63,7 @@ pub struct UnifiedExecutorConfig {
     pub enable_recovery: bool,
 }
 
-impl Default for UnifiedExecutorConfig {
+impl Default for DefaultRunnerConfig {
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
@@ -86,7 +86,7 @@ impl Default for UnifiedExecutorConfig {
     }
 }
 
-/// Unified executor that coordinates workflow scheduling and task execution
+/// Default runner that coordinates workflow scheduling and task execution
 ///
 /// This struct provides a unified interface for managing workflow executions,
 /// combining the functionality of the TaskScheduler and TaskExecutor. It handles:
@@ -95,13 +95,13 @@ impl Default for UnifiedExecutorConfig {
 /// - Background service management
 /// - Execution status tracking and reporting
 ///
-/// The executor maintains its own runtime state and manages the lifecycle of
+/// The runner maintains its own runtime state and manages the lifecycle of
 /// background services for scheduling and task execution.
-pub struct UnifiedExecutor {
+pub struct DefaultRunner {
     /// Database connection for persistence and state management
     database: Database,
-    /// Configuration parameters for the executor
-    config: UnifiedExecutorConfig,
+    /// Configuration parameters for the runner
+    config: DefaultRunnerConfig,
     /// Task scheduler for managing workflow execution scheduling
     scheduler: Arc<TaskScheduler>,
     /// Task executor for running individual tasks
@@ -124,7 +124,7 @@ struct RuntimeHandles {
 }
 
 #[cfg(feature = "postgres")]
-/// Builder for creating a UnifiedExecutor with PostgreSQL schema-based multi-tenancy
+/// Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
 ///
 /// This builder supports PostgreSQL schema-based multi-tenancy for complete tenant isolation.
 /// Each schema provides complete data isolation with zero collision risk.
@@ -132,45 +132,45 @@ struct RuntimeHandles {
 /// # Example
 /// ```rust
 /// // Single-tenant PostgreSQL (uses public schema)
-/// let executor = UnifiedExecutorBuilder::new()
+/// let runner = DefaultRunnerBuilder::new()
 ///     .database_url("postgresql://user:pass@localhost/cloacina")
 ///     .build()
 ///     .await?;
 ///
 /// // Multi-tenant PostgreSQL with schema isolation
-/// let tenant_a = UnifiedExecutorBuilder::new()
+/// let tenant_a = DefaultRunnerBuilder::new()
 ///     .database_url("postgresql://user:pass@localhost/cloacina")
 ///     .schema("tenant_a")
 ///     .build()
 ///     .await?;
 ///
-/// let tenant_b = UnifiedExecutorBuilder::new()
+/// let tenant_b = DefaultRunnerBuilder::new()
 ///     .database_url("postgresql://user:pass@localhost/cloacina")
 ///     .schema("tenant_b")
 ///     .build()
 ///     .await?;
 /// ```
-pub struct UnifiedExecutorBuilder {
+pub struct DefaultRunnerBuilder {
     database_url: Option<String>,
     schema: Option<String>,
-    config: UnifiedExecutorConfig,
+    config: DefaultRunnerConfig,
 }
 
 #[cfg(feature = "postgres")]
-impl Default for UnifiedExecutorBuilder {
+impl Default for DefaultRunnerBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[cfg(feature = "postgres")]
-impl UnifiedExecutorBuilder {
+impl DefaultRunnerBuilder {
     /// Creates a new builder with default configuration
     pub fn new() -> Self {
         Self {
             database_url: None,
             schema: None,
-            config: UnifiedExecutorConfig::default(),
+            config: DefaultRunnerConfig::default(),
         }
     }
 
@@ -190,7 +190,7 @@ impl UnifiedExecutorBuilder {
     }
 
     /// Sets the full configuration
-    pub fn with_config(mut self, config: UnifiedExecutorConfig) -> Self {
+    pub fn with_config(mut self, config: DefaultRunnerConfig) -> Self {
         self.config = config;
         self
     }
@@ -206,8 +206,8 @@ impl UnifiedExecutorBuilder {
         Ok(())
     }
 
-    /// Builds the UnifiedExecutor
-    pub async fn build(self) -> Result<UnifiedExecutor, PipelineError> {
+    /// Builds the DefaultRunner
+    pub async fn build(self) -> Result<DefaultRunner, PipelineError> {
         let database_url = self
             .database_url
             .ok_or_else(|| PipelineError::Configuration {
@@ -289,7 +289,7 @@ impl UnifiedExecutorBuilder {
                 message: e.to_string(),
             })?;
 
-        let unified_executor = UnifiedExecutor {
+        let default_runner = DefaultRunner {
             database,
             config: self.config,
             scheduler: Arc::new(scheduler),
@@ -302,14 +302,14 @@ impl UnifiedExecutorBuilder {
         };
 
         // Start the background services immediately
-        unified_executor.start_background_services().await?;
+        default_runner.start_background_services().await?;
 
-        Ok(unified_executor)
+        Ok(default_runner)
     }
 }
 
-impl UnifiedExecutor {
-    /// Creates a new unified executor with default configuration
+impl DefaultRunner {
+    /// Creates a new default runner with default configuration
     ///
     /// # Arguments
     /// * `database_url` - Connection string for the database
@@ -319,27 +319,27 @@ impl UnifiedExecutor {
     ///
     /// # Example
     /// ```rust
-    /// let executor = UnifiedExecutor::new("postgres://localhost/db").await?;
+    /// let runner = DefaultRunner::new("postgres://localhost/db").await?;
     /// ```
     pub async fn new(database_url: &str) -> Result<Self, PipelineError> {
-        Self::with_config(database_url, UnifiedExecutorConfig::default()).await
+        Self::with_config(database_url, DefaultRunnerConfig::default()).await
     }
 
     /// Creates a builder for configuring the executor
     ///
     /// # Returns
-    /// * `UnifiedExecutorBuilder` - Builder for configuring the executor
+    /// * `DefaultRunnerBuilder` - Builder for configuring the runner
     ///
     /// # Example
     /// ```rust
-    /// let executor = UnifiedExecutor::builder()
+    /// let runner = DefaultRunner::builder()
     ///     .database_url("postgres://localhost/db")
     ///     .build()
     ///     .await?;
     /// ```
     #[cfg(feature = "postgres")]
-    pub fn builder() -> UnifiedExecutorBuilder {
-        UnifiedExecutorBuilder::new()
+    pub fn builder() -> DefaultRunnerBuilder {
+        DefaultRunnerBuilder::new()
     }
 
     /// Creates a new executor with PostgreSQL schema-based multi-tenancy
@@ -353,7 +353,7 @@ impl UnifiedExecutor {
     ///
     /// # Example
     /// ```rust
-    /// let executor = UnifiedExecutor::with_schema(
+    /// let runner = DefaultRunner::with_schema(
     ///     "postgresql://user:pass@localhost/cloacina",
     ///     "tenant_123"
     /// ).await?;
@@ -384,7 +384,7 @@ impl UnifiedExecutor {
     /// 5. Starts background services
     pub async fn with_config(
         database_url: &str,
-        config: UnifiedExecutorConfig,
+        config: DefaultRunnerConfig,
     ) -> Result<Self, PipelineError> {
         // Initialize database
         let database = Database::new(database_url, "cloacina", config.db_pool_size);
@@ -434,7 +434,7 @@ impl UnifiedExecutor {
                 message: e.to_string(),
             })?;
 
-        let unified_executor = Self {
+        let default_runner = Self {
             database,
             config,
             scheduler: Arc::new(scheduler),
@@ -447,9 +447,9 @@ impl UnifiedExecutor {
         };
 
         // Start the background services immediately
-        unified_executor.start_background_services().await?;
+        default_runner.start_background_services().await?;
 
-        Ok(unified_executor)
+        Ok(default_runner)
     }
 
     /// Starts the background scheduler and executor services
@@ -687,7 +687,7 @@ impl UnifiedExecutor {
     }
 }
 
-/// Implementation of PipelineExecutor trait for UnifiedExecutor
+/// Implementation of PipelineExecutor trait for DefaultRunner
 ///
 /// This implementation provides the core workflow execution functionality:
 /// - Synchronous and asynchronous execution
@@ -695,7 +695,7 @@ impl UnifiedExecutor {
 /// - Execution cancellation
 /// - Execution listing and management
 #[async_trait]
-impl PipelineExecutor for UnifiedExecutor {
+impl PipelineExecutor for DefaultRunner {
     /// Executes a workflow synchronously and waits for completion
     ///
     /// # Arguments
@@ -801,7 +801,7 @@ impl PipelineExecutor for UnifiedExecutor {
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-        callback: Box<dyn super::pipeline_executor::StatusCallback>,
+        callback: Box<dyn crate::executor::pipeline_executor::StatusCallback>,
     ) -> Result<PipelineResult, PipelineError> {
         // Start async execution
         let execution = self.execute_async(workflow_name, context).await?;
@@ -922,12 +922,12 @@ impl PipelineExecutor for UnifiedExecutor {
     /// # Returns
     /// * `Result<(), PipelineError>` - Success or error status
     async fn shutdown(&self) -> Result<(), PipelineError> {
-        UnifiedExecutor::shutdown(self).await
+        DefaultRunner::shutdown(self).await
     }
 }
 
-// Implementation to make UnifiedExecutor cloneable (for async execution handles)
-impl Clone for UnifiedExecutor {
+// Implementation to make DefaultRunner cloneable (for async execution handles)
+impl Clone for DefaultRunner {
     fn clone(&self) -> Self {
         Self {
             database: self.database.clone(),
@@ -940,10 +940,10 @@ impl Clone for UnifiedExecutor {
 }
 
 // Implement Drop for graceful shutdown
-impl Drop for UnifiedExecutor {
+impl Drop for DefaultRunner {
     fn drop(&mut self) {
         // Note: Can't use async in Drop, but we can attempt shutdown
         // Users should call shutdown() explicitly for graceful shutdown
-        tracing::info!("UnifiedExecutor dropping - consider calling shutdown() explicitly");
+        tracing::info!("DefaultRunner dropping - consider calling shutdown() explicitly");
     }
 }

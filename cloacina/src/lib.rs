@@ -108,12 +108,12 @@
 //! ### Execution with Database Persistence
 //!
 //! ```rust
-//! use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+//! use cloacina::runner::{DefaultRunner, PipelineExecutor};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Initialize executor with database connection
-//!     let executor = UnifiedExecutor::new("postgresql://user:pass@localhost/mydb").await?;
+//!     let runner = DefaultRunner::new("postgresql://user:pass@localhost/mydb").await?;
 //!
 //!     // Execute workflow with automatic state persistence
 //!     let context = Context::new();
@@ -131,21 +131,21 @@
 //! ### PostgreSQL Schema-Based Multi-Tenancy
 //!
 //! ```rust
-//! use cloacina::executor::unified_executor::UnifiedExecutor;
+//! use cloacina::runner::DefaultRunner;
 //!
 //! // Each tenant gets their own PostgreSQL schema
-//! let tenant_a = UnifiedExecutor::with_schema(
+//! let tenant_a = DefaultRunner::with_schema(
 //!     "postgresql://user:pass@localhost/cloacina",
 //!     "tenant_a"
 //! ).await?;
 //!
-//! let tenant_b = UnifiedExecutor::with_schema(
+//! let tenant_b = DefaultRunner::with_schema(
 //!     "postgresql://user:pass@localhost/cloacina",
 //!     "tenant_b"
 //! ).await?;
 //!
 //! // Or using the builder pattern
-//! let executor = UnifiedExecutor::builder()
+//! let runner = DefaultRunner::builder()
 //!     .database_url("postgresql://user:pass@localhost/cloacina")
 //!     .schema("my_tenant")
 //!     .build()
@@ -156,8 +156,8 @@
 //!
 //! ```rust
 //! // Each tenant gets their own database file
-//! let tenant_a = UnifiedExecutor::new("sqlite://./tenant_a.db").await?;
-//! let tenant_b = UnifiedExecutor::new("sqlite://./tenant_b.db").await?;
+//! let tenant_a = DefaultRunner::new("sqlite://./tenant_a.db").await?;
+//! let tenant_b = DefaultRunner::new("sqlite://./tenant_b.db").await?;
 //! ```
 //!
 //! Benefits:
@@ -446,6 +446,7 @@ pub mod retry;
 pub mod task;
 pub mod task_scheduler;
 pub mod workflow;
+pub mod runner;
 
 pub use logging::init_logging;
 
@@ -470,10 +471,12 @@ pub use error::{
 };
 pub use executor::{
     EngineMode, ExecutionScope, ExecutorConfig, PipelineEngine, PipelineError, PipelineExecution,
-    PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutor, TaskResult, UnifiedExecutor,
-    UnifiedExecutorConfig,
+    PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutor, TaskResult,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
+pub use runner::{DefaultRunner, DefaultRunnerConfig};
+#[cfg(feature = "postgres")]
+pub use runner::DefaultRunnerBuilder;
 pub use task::{global_task_registry, register_task_constructor, Task, TaskRegistry, TaskState};
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{
