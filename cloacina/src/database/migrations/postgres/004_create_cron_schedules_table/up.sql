@@ -8,7 +8,7 @@ CREATE TABLE cron_schedules (
     cron_expression VARCHAR NOT NULL,
     timezone VARCHAR NOT NULL DEFAULT 'UTC',        -- Timezone for cron interpretation (e.g., 'America/New_York')
     enabled BOOLEAN NOT NULL DEFAULT true,
-    catchup_policy VARCHAR NOT NULL DEFAULT 'skip' CHECK (catchup_policy IN ('skip', 'run_once', 'run_all')),
+    catchup_policy VARCHAR NOT NULL DEFAULT 'skip' CHECK (catchup_policy IN ('skip', 'run_all')),
     start_date TIMESTAMP,                           -- NULL = immediate start
     end_date TIMESTAMP,                             -- NULL = no end
     next_run_at TIMESTAMP NOT NULL,

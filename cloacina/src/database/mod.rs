@@ -114,7 +114,7 @@ pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub type Result<T> = std::result::Result<T, diesel::result::Error>;
 
 // Re-export universal types for convenience
-pub use universal_types::{UniversalTimestamp, UniversalUuid};
+pub use universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 
 /// Embedded migrations for automatic schema management.
 ///

@@ -31,7 +31,7 @@
 
 use super::DAL;
 use crate::database::schema::cron_schedules;
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
 use chrono::{DateTime, Utc};
@@ -99,7 +99,7 @@ impl<'a> CronScheduleDAL<'a> {
         let now_ts = UniversalTimestamp(now);
 
         let schedules = cron_schedules::table
-            .filter(cron_schedules::enabled.eq(true))
+            .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
             .filter(cron_schedules::next_run_at.le(now_ts))
             .filter(
                 cron_schedules::start_date
@@ -163,7 +163,7 @@ impl<'a> CronScheduleDAL<'a> {
 
         diesel::update(cron_schedules::table.find(id))
             .set((
-                cron_schedules::enabled.eq(true),
+                cron_schedules::enabled.eq(UniversalBool::new(true)),
                 cron_schedules::updated_at.eq(now_ts),
             ))
             .execute(&mut conn)?;
@@ -184,7 +184,7 @@ impl<'a> CronScheduleDAL<'a> {
 
         diesel::update(cron_schedules::table.find(id))
             .set((
-                cron_schedules::enabled.eq(false),
+                cron_schedules::enabled.eq(UniversalBool::new(false)),
                 cron_schedules::updated_at.eq(now_ts),
             ))
             .execute(&mut conn)?;
@@ -226,7 +226,7 @@ impl<'a> CronScheduleDAL<'a> {
         let mut query = cron_schedules::table.into_boxed();
 
         if enabled_only {
-            query = query.filter(cron_schedules::enabled.eq(true));
+            query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
         }
 
         let schedules = query
@@ -285,6 +285,61 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    /// Atomically claims and updates a cron schedule's timing.
+    ///
+    /// This method implements the atomic claiming pattern by only updating the schedule
+    /// timing if the schedule is still due. This prevents duplicate executions across
+    /// multiple scheduler instances or during service interruptions.
+    ///
+    /// # Arguments
+    /// * `id` - UUID of the cron schedule
+    /// * `current_time` - Current timestamp to compare against next_run_at
+    /// * `last_run` - Timestamp when the schedule was executed
+    /// * `next_run` - Timestamp when the schedule should next execute
+    ///
+    /// # Returns
+    /// * `Result<bool, ValidationError>` - True if claim was successful, false if schedule was no longer due
+    ///
+    /// # Example
+    /// ```rust
+    /// let now = Utc::now();
+    /// let next_run = evaluator.next_execution(now)?;
+    /// 
+    /// if dal.cron_schedule().claim_and_update(schedule_id, now, now, next_run)? {
+    ///     // Successfully claimed the schedule, proceed with execution
+    ///     execute_workflow(&schedule).await?;
+    /// } else {
+    ///     // Schedule was already claimed by another instance, skip
+    /// }
+    /// ```
+    pub fn claim_and_update(
+        &self,
+        id: UniversalUuid,
+        current_time: DateTime<Utc>,
+        last_run: DateTime<Utc>,
+        next_run: DateTime<Utc>,
+    ) -> Result<bool, ValidationError> {
+        let mut conn = self.dal.pool.get()?;
+        let current_ts = UniversalTimestamp(current_time);
+        let last_run_ts = UniversalTimestamp(last_run);
+        let next_run_ts = UniversalTimestamp(next_run);
+        let now_ts = UniversalTimestamp::now();
+
+        // Atomic update: only update if schedule is still due and enabled
+        let updated_rows = diesel::update(cron_schedules::table.find(id))
+            .filter(cron_schedules::next_run_at.le(current_ts))
+            .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
+            .set((
+                cron_schedules::last_run_at.eq(Some(last_run_ts)),
+                cron_schedules::next_run_at.eq(next_run_ts),
+                cron_schedules::updated_at.eq(now_ts),
+            ))
+            .execute(&mut conn)?;
+
+        // Return true if exactly one row was updated (successful claim)
+        Ok(updated_rows == 1)
+    }
+
     /// Counts the total number of cron schedules.
     ///
     /// # Arguments
@@ -298,7 +353,7 @@ impl<'a> CronScheduleDAL<'a> {
         let mut query = cron_schedules::table.into_boxed();
 
         if enabled_only {
-            query = query.filter(cron_schedules::enabled.eq(true));
+            query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
         }
 
         let count = query.count().first(&mut conn)?;

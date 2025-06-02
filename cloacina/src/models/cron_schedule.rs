@@ -20,7 +20,7 @@
 //! Cron schedules allow workflows to be executed automatically at specified times
 //! using standard cron expressions with timezone support.
 
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ pub struct CronSchedule {
     pub workflow_name: String,
     pub cron_expression: String,
     pub timezone: String,
-    pub enabled: bool,
+    pub enabled: UniversalBool,
     pub catchup_policy: String,
     pub start_date: Option<UniversalTimestamp>,
     pub end_date: Option<UniversalTimestamp>,
@@ -83,7 +83,7 @@ pub struct NewCronSchedule {
     pub workflow_name: String,
     pub cron_expression: String,
     pub timezone: Option<String>,
-    pub enabled: Option<bool>,
+    pub enabled: Option<UniversalBool>,
     pub catchup_policy: Option<String>,
     pub start_date: Option<UniversalTimestamp>,
     pub end_date: Option<UniversalTimestamp>,
@@ -94,16 +94,19 @@ pub struct NewCronSchedule {
 ///
 /// When a cron schedule misses one or more executions (e.g., due to system downtime),
 /// the catchup policy determines how to handle these missed runs.
+///
+/// **Simplified to 2 policies based on saga-based execution model:**
+/// - Skip: Move forward, ignore missed executions
+/// - RunAll: Execute all missed schedules in parallel (let executor handle concurrency)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CatchupPolicy {
     /// Skip all missed executions and continue with the next scheduled time.
     /// This is the default and safest option for most use cases.
+    /// Use case: "I only care about staying on schedule going forward"
     Skip,
-    /// Run the workflow once with the most recent missed execution time.
-    /// Useful when you want to process the latest missed data.
-    RunOnce,
-    /// Run the workflow for all missed execution times in chronological order.
-    /// Use with caution as this can cause a large backlog of executions.
+    /// Run the workflow for all missed execution times in parallel.
+    /// The pipeline executor's concurrency controls handle load limiting.
+    /// Use case: "I need to process all the data I missed"
     RunAll,
 }
 
@@ -111,7 +114,6 @@ impl From<CatchupPolicy> for String {
     fn from(policy: CatchupPolicy) -> Self {
         match policy {
             CatchupPolicy::Skip => "skip".to_string(),
-            CatchupPolicy::RunOnce => "run_once".to_string(),
             CatchupPolicy::RunAll => "run_all".to_string(),
         }
     }
@@ -120,8 +122,9 @@ impl From<CatchupPolicy> for String {
 impl From<String> for CatchupPolicy {
     fn from(s: String) -> Self {
         match s.as_str() {
-            "run_once" => CatchupPolicy::RunOnce,
             "run_all" => CatchupPolicy::RunAll,
+            // Legacy support: map "run_once" to "skip" for backward compatibility
+            "run_once" => CatchupPolicy::Skip,
             _ => CatchupPolicy::Skip, // Default fallback
         }
     }
@@ -163,7 +166,7 @@ impl From<&str> for CatchupPolicy {
 ///     cron: "0 9 * * 1-5".to_string(),  // 9 AM weekdays
 ///     workflow: "report_workflow".to_string(),
 ///     timezone: "America/New_York".to_string(),
-///     catchup_policy: CatchupPolicy::RunOnce,
+///     catchup_policy: CatchupPolicy::RunAll,
 ///     start_date: Some(start),
 ///     end_date: Some(end),
 /// };
@@ -213,7 +216,7 @@ mod tests {
             workflow_name: "test_workflow".to_string(),
             cron_expression: "0 2 * * *".to_string(),
             timezone: "UTC".to_string(),
-            enabled: true,
+            enabled: UniversalBool::new(true),
             catchup_policy: "skip".to_string(),
             start_date: None,
             end_date: None,
@@ -226,7 +229,7 @@ mod tests {
         assert_eq!(schedule.workflow_name, "test_workflow");
         assert_eq!(schedule.cron_expression, "0 2 * * *");
         assert_eq!(schedule.timezone, "UTC");
-        assert!(schedule.enabled);
+        assert!(schedule.enabled.is_true());
         assert_eq!(schedule.catchup_policy, "skip");
     }
 
@@ -237,7 +240,7 @@ mod tests {
             workflow_name: "test_workflow".to_string(),
             cron_expression: "0 2 * * *".to_string(),
             timezone: Some("America/New_York".to_string()),
-            enabled: Some(true),
+            enabled: Some(UniversalBool::new(true)),
             catchup_policy: Some("run_once".to_string()),
             start_date: None,
             end_date: None,
@@ -247,7 +250,7 @@ mod tests {
         assert_eq!(new_schedule.workflow_name, "test_workflow");
         assert_eq!(new_schedule.cron_expression, "0 2 * * *");
         assert_eq!(new_schedule.timezone, Some("America/New_York".to_string()));
-        assert_eq!(new_schedule.enabled, Some(true));
+        assert_eq!(new_schedule.enabled, Some(UniversalBool::new(true)));
         assert_eq!(new_schedule.catchup_policy, Some("run_once".to_string()));
     }
 
@@ -255,13 +258,12 @@ mod tests {
     fn test_catchup_policy_conversions() {
         // String to CatchupPolicy
         assert_eq!(CatchupPolicy::from("skip"), CatchupPolicy::Skip);
-        assert_eq!(CatchupPolicy::from("run_once"), CatchupPolicy::RunOnce);
         assert_eq!(CatchupPolicy::from("run_all"), CatchupPolicy::RunAll);
+        assert_eq!(CatchupPolicy::from("run_once"), CatchupPolicy::Skip); // Legacy mapping
         assert_eq!(CatchupPolicy::from("invalid"), CatchupPolicy::Skip); // Fallback
 
         // CatchupPolicy to String
         assert_eq!(String::from(CatchupPolicy::Skip), "skip");
-        assert_eq!(String::from(CatchupPolicy::RunOnce), "run_once");
         assert_eq!(String::from(CatchupPolicy::RunAll), "run_all");
     }
 
@@ -281,7 +283,7 @@ mod tests {
             cron: "0 * * * *".to_string(),
             workflow: "sync_workflow".to_string(),
             timezone: "Europe/London".to_string(),
-            catchup_policy: CatchupPolicy::RunOnce,
+            catchup_policy: CatchupPolicy::RunAll,
             ..ScheduleConfig::default()
         };
 
@@ -289,7 +291,7 @@ mod tests {
         assert_eq!(config.cron, "0 * * * *");
         assert_eq!(config.workflow, "sync_workflow");
         assert_eq!(config.timezone, "Europe/London");
-        assert_eq!(config.catchup_policy, CatchupPolicy::RunOnce);
+        assert_eq!(config.catchup_policy, CatchupPolicy::RunAll);
         assert!(config.start_date.is_none());
         assert!(config.end_date.is_none());
     }

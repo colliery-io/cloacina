@@ -351,7 +351,7 @@ impl FromStr for CronEvaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Duration, TimeZone};
+    use chrono::{Datelike, TimeZone, Timelike};
 
     #[test]
     fn test_cron_evaluator_creation() {
