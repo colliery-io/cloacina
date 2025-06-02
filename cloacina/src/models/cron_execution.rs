@@ -74,17 +74,19 @@ pub struct CronExecution {
 #[diesel(table_name = crate::database::schema::cron_executions)]
 pub struct NewCronExecution {
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub pipeline_execution_id: Option<UniversalUuid>,
     pub scheduled_time: UniversalTimestamp,
     pub claimed_at: Option<UniversalTimestamp>,
 }
 
 impl NewCronExecution {
-    /// Creates a new cron execution record with the current time as claimed_at.
+    /// Creates a new cron execution audit record for guaranteed execution.
+    ///
+    /// This creates an execution intent record BEFORE handing off to the pipeline executor.
+    /// The pipeline_execution_id will be set later after successful handoff.
     ///
     /// # Arguments
     /// * `schedule_id` - ID of the cron schedule
-    /// * `pipeline_execution_id` - ID of the created pipeline execution
     /// * `scheduled_time` - The original scheduled execution time
     ///
     /// # Returns
@@ -97,19 +99,36 @@ impl NewCronExecution {
     /// use chrono::Utc;
     ///
     /// let schedule_id = UniversalUuid::new_v4();
-    /// let pipeline_id = UniversalUuid::new_v4();
     /// let scheduled_time = UniversalTimestamp(Utc::now());
     ///
-    /// let new_execution = NewCronExecution::new(schedule_id, pipeline_id, scheduled_time);
+    /// let new_execution = NewCronExecution::new(schedule_id, scheduled_time);
     /// ```
-    pub fn new(
+    pub fn new(schedule_id: UniversalUuid, scheduled_time: UniversalTimestamp) -> Self {
+        Self {
+            schedule_id,
+            pipeline_execution_id: None, // Will be set after successful handoff
+            scheduled_time,
+            claimed_at: Some(UniversalTimestamp::now()),
+        }
+    }
+
+    /// Creates a new cron execution record with pipeline execution ID (for legacy/direct usage).
+    ///
+    /// # Arguments
+    /// * `schedule_id` - ID of the cron schedule
+    /// * `pipeline_execution_id` - ID of the created pipeline execution
+    /// * `scheduled_time` - The original scheduled execution time
+    ///
+    /// # Returns
+    /// * `NewCronExecution` - Ready to insert into database
+    pub fn with_pipeline_execution(
         schedule_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
         scheduled_time: UniversalTimestamp,
     ) -> Self {
         Self {
             schedule_id,
-            pipeline_execution_id,
+            pipeline_execution_id: Some(pipeline_execution_id),
             scheduled_time,
             claimed_at: Some(UniversalTimestamp::now()),
         }
@@ -119,7 +138,7 @@ impl NewCronExecution {
     ///
     /// # Arguments
     /// * `schedule_id` - ID of the cron schedule
-    /// * `pipeline_execution_id` - ID of the created pipeline execution
+    /// * `pipeline_execution_id` - Optional ID of the created pipeline execution
     /// * `scheduled_time` - The original scheduled execution time
     /// * `claimed_at` - When the execution was claimed and handed off
     ///
@@ -127,7 +146,7 @@ impl NewCronExecution {
     /// * `NewCronExecution` - Ready to insert into database
     pub fn with_claimed_at(
         schedule_id: UniversalUuid,
-        pipeline_execution_id: UniversalUuid,
+        pipeline_execution_id: Option<UniversalUuid>,
         scheduled_time: UniversalTimestamp,
         claimed_at: DateTime<Utc>,
     ) -> Self {
@@ -201,13 +220,27 @@ mod tests {
     #[test]
     fn test_new_cron_execution() {
         let schedule_id = UniversalUuid::new_v4();
+        let scheduled_time = current_timestamp();
+
+        let new_execution = NewCronExecution::new(schedule_id, scheduled_time);
+
+        assert_eq!(new_execution.schedule_id, schedule_id);
+        assert_eq!(new_execution.pipeline_execution_id, None);
+        assert_eq!(new_execution.scheduled_time, scheduled_time);
+        assert!(new_execution.claimed_at.is_some());
+    }
+
+    #[test]
+    fn test_new_cron_execution_with_pipeline() {
+        let schedule_id = UniversalUuid::new_v4();
         let pipeline_id = UniversalUuid::new_v4();
         let scheduled_time = current_timestamp();
 
-        let new_execution = NewCronExecution::new(schedule_id, pipeline_id, scheduled_time);
+        let new_execution =
+            NewCronExecution::with_pipeline_execution(schedule_id, pipeline_id, scheduled_time);
 
         assert_eq!(new_execution.schedule_id, schedule_id);
-        assert_eq!(new_execution.pipeline_execution_id, pipeline_id);
+        assert_eq!(new_execution.pipeline_execution_id, Some(pipeline_id));
         assert_eq!(new_execution.scheduled_time, scheduled_time);
         assert!(new_execution.claimed_at.is_some());
     }
@@ -219,11 +252,15 @@ mod tests {
         let scheduled_time = current_timestamp();
         let claimed_at = Utc::now();
 
-        let new_execution =
-            NewCronExecution::with_claimed_at(schedule_id, pipeline_id, scheduled_time, claimed_at);
+        let new_execution = NewCronExecution::with_claimed_at(
+            schedule_id,
+            Some(pipeline_id),
+            scheduled_time,
+            claimed_at,
+        );
 
         assert_eq!(new_execution.schedule_id, schedule_id);
-        assert_eq!(new_execution.pipeline_execution_id, pipeline_id);
+        assert_eq!(new_execution.pipeline_execution_id, Some(pipeline_id));
         assert_eq!(new_execution.scheduled_time, scheduled_time);
         assert_eq!(new_execution.claimed_at.unwrap().0, claimed_at);
     }

@@ -302,29 +302,51 @@ impl CronScheduler {
             execution_times.len()
         );
 
-        // Hand off all executions to pipeline executor
+        // Execute all scheduled times using guaranteed execution pattern
         for scheduled_time in execution_times {
+            // Step 1: Create audit record BEFORE handoff (guaranteed execution)
+            let audit_record_id = match self.create_execution_audit(schedule.id, scheduled_time) {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(
+                        "Failed to create execution audit for schedule {} at {}: {}",
+                        schedule.id, scheduled_time, e
+                    );
+                    // Continue with other execution times - this one is lost
+                    continue;
+                }
+            };
+
+            // Step 2: Hand off to pipeline executor
             match self.execute_workflow(schedule, scheduled_time).await {
                 Ok(pipeline_execution_id) => {
-                    // Record successful handoff in audit trail
-                    if let Err(e) = self.record_execution_audit(
-                        schedule.id,
-                        pipeline_execution_id,
-                        scheduled_time,
-                    ) {
+                    // Step 3: Complete audit trail linking
+                    if let Err(e) =
+                        self.complete_execution_audit(audit_record_id, pipeline_execution_id)
+                    {
                         error!(
-                            "Failed to record audit trail for schedule {} execution: {}",
+                            "Failed to complete audit trail for schedule {} execution: {}",
                             schedule.id, e
                         );
-                        // Continue despite audit failure
+                        // Continue - the execution succeeded, just audit completion failed
                     }
+
+                    info!(
+                        "Successfully executed and audited workflow {} for schedule {} (scheduled: {})",
+                        schedule.workflow_name, schedule.id, scheduled_time
+                    );
                 }
                 Err(e) => {
                     error!(
-                        "Failed to execute workflow {} for schedule {}: {}",
-                        schedule.workflow_name, schedule.id, e
+                        "Failed to execute workflow {} for schedule {} (scheduled: {}): {}",
+                        schedule.workflow_name, schedule.id, scheduled_time, e
                     );
-                    // Continue with other execution times
+                    // Note: Audit record exists without pipeline_execution_id
+                    // Recovery service will detect this as a "lost" execution
+                    error!(
+                        "Execution lost: audit record {} exists but pipeline execution failed",
+                        audit_record_id
+                    );
                 }
             }
         }
@@ -484,32 +506,59 @@ impl CronScheduler {
         Ok(crate::database::UniversalUuid(pipeline_result.execution_id))
     }
 
-    /// Records an execution audit trail entry.
+    /// Creates audit record BEFORE workflow execution for guaranteed reliability.
     ///
-    /// This creates a record in the cron_executions table to track
-    /// the handoff from scheduler to executor for observability.
-    fn record_execution_audit(
+    /// This implements the guaranteed execution pattern by recording execution intent
+    /// before handing off to the pipeline executor. This enables recovery if the
+    /// handoff fails or the system crashes.
+    ///
+    /// # Arguments
+    /// * `schedule_id` - UUID of the cron schedule being executed
+    /// * `scheduled_time` - The original scheduled execution time
+    ///
+    /// # Returns
+    /// * `Result<crate::database::UniversalUuid, ValidationError>` - ID of the audit record
+    fn create_execution_audit(
         &self,
         schedule_id: crate::database::UniversalUuid,
-        pipeline_execution_id: crate::database::UniversalUuid,
         scheduled_time: DateTime<Utc>,
-    ) -> Result<(), ValidationError> {
-        // Note: For now, we'll skip the audit trail implementation
-        // as we haven't created the CronExecutionDAL yet.
-        // This will be implemented when we add the DAL for cron_executions.
+    ) -> Result<crate::database::UniversalUuid, ValidationError> {
+        use crate::database::universal_types::UniversalTimestamp;
+        use crate::models::cron_execution::NewCronExecution;
+
+        let new_execution = NewCronExecution::new(schedule_id, UniversalTimestamp(scheduled_time));
+
+        let audit_record = self.dal.cron_execution().create(new_execution)?;
 
         debug!(
-            "Audit trail: schedule {} -> pipeline {} (scheduled: {})",
-            schedule_id, pipeline_execution_id, scheduled_time
+            "Created execution audit record {} for schedule {} (scheduled: {})",
+            audit_record.id, schedule_id, scheduled_time
         );
 
-        // TODO: Implement when CronExecutionDAL is ready
-        // let new_execution = NewCronExecution::new(
-        //     schedule_id,
-        //     pipeline_execution_id,
-        //     UniversalTimestamp(scheduled_time),
-        // );
-        // self.dal.cron_execution().create(new_execution)?;
+        Ok(audit_record.id)
+    }
+
+    /// Updates audit record with pipeline execution ID after successful handoff.
+    ///
+    /// This completes the audit trail by linking the execution intent record
+    /// with the actual pipeline execution that was created.
+    ///
+    /// # Arguments
+    /// * `audit_record_id` - UUID of the audit record to update
+    /// * `pipeline_execution_id` - UUID of the created pipeline execution
+    fn complete_execution_audit(
+        &self,
+        audit_record_id: crate::database::UniversalUuid,
+        pipeline_execution_id: crate::database::UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        self.dal
+            .cron_execution()
+            .update_pipeline_execution_id(audit_record_id, pipeline_execution_id)?;
+
+        debug!(
+            "Completed execution audit record {} -> pipeline {}",
+            audit_record_id, pipeline_execution_id
+        );
 
         Ok(())
     }
