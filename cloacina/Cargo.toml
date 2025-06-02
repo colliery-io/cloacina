@@ -31,6 +31,8 @@ cloacina-macros = { workspace = true, optional = true }
 # External dependencies
 aquamarine = { version = "0.6.0" }
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10" }
+croner = { version = "2.0" }
 diesel = { version = "2.1.0", features = ["r2d2", "chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 dotenvy = { version = "0.15" }

@@ -16,7 +16,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
-use cloacina::scheduler::TaskScheduler;
+use cloacina::task_scheduler::TaskScheduler;
 use cloacina::*;
 use serial_test::serial;
 

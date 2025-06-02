@@ -1,3 +1,4 @@
+wip/
 /target/
 # Ignore all target directories (including in examples and subdirectories)
 **/target/

@@ -410,7 +410,7 @@
 //! - [Architecture Decisions](crate) - Why Cloacina works the way it does
 //! - [Execution Model](crate::executor) - How tasks are scheduled and run
 //! - [Versioning Strategy](crate::workflow) - Content-based workflow versioning
-//! - [Recovery Mechanisms](crate::scheduler) - Checkpoint and restart concepts
+//! - [Recovery Mechanisms](crate::task_scheduler) - Checkpoint and restart concepts
 //!
 //! ## Modules
 //!
@@ -421,7 +421,7 @@
 //! - [`error`]: Comprehensive error types
 //! - [`models`]: Database models and schemas
 //! - [`dal`]: Data access layer
-//! - [`scheduler`]: Task scheduler for persistent workflow execution
+//! - [`task_scheduler`]: Task scheduler for persistent workflow execution
 //! - [`executor`]: Unified execution engine
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
@@ -441,8 +441,8 @@ pub mod executor;
 pub mod logging;
 pub mod models;
 pub mod retry;
-pub mod scheduler;
 pub mod task;
+pub mod task_scheduler;
 pub mod workflow;
 
 pub use logging::init_logging;
@@ -470,8 +470,8 @@ pub use executor::{
     UnifiedExecutorConfig,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
-pub use scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use task::{global_task_registry, register_task_constructor, Task, TaskRegistry, TaskState};
+pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{
     get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
     Workflow, WorkflowBuilder, WorkflowMetadata,

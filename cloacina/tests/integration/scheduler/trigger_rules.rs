@@ -16,7 +16,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
-use cloacina::scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
+use cloacina::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 use cloacina::*;
 use serde_json::json;
 use serial_test::serial;
