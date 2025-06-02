@@ -53,7 +53,7 @@ use serde::{Deserialize, Serialize};
 pub struct CronExecution {
     pub id: UniversalUuid,
     pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: UniversalUuid,
+    pub pipeline_execution_id: Option<UniversalUuid>,
     pub scheduled_time: UniversalTimestamp,
     pub claimed_at: UniversalTimestamp,
     pub created_at: UniversalTimestamp,
@@ -73,10 +73,13 @@ pub struct CronExecution {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::database::schema::cron_executions)]
 pub struct NewCronExecution {
+    pub id: Option<UniversalUuid>,
     pub schedule_id: UniversalUuid,
     pub pipeline_execution_id: Option<UniversalUuid>,
     pub scheduled_time: UniversalTimestamp,
     pub claimed_at: Option<UniversalTimestamp>,
+    pub created_at: Option<UniversalTimestamp>,
+    pub updated_at: Option<UniversalTimestamp>,
 }
 
 impl NewCronExecution {
@@ -105,10 +108,13 @@ impl NewCronExecution {
     /// ```
     pub fn new(schedule_id: UniversalUuid, scheduled_time: UniversalTimestamp) -> Self {
         Self {
+            id: Some(UniversalUuid::new_v4()),
             schedule_id,
             pipeline_execution_id: None, // Will be set after successful handoff
             scheduled_time,
-            claimed_at: Some(UniversalTimestamp::now()),
+            claimed_at: None, // Will be set by DAL layer (database-specific)
+            created_at: None, // Will be set by DAL layer (database-specific)
+            updated_at: None, // Will be set by DAL layer (database-specific)
         }
     }
 
@@ -127,10 +133,13 @@ impl NewCronExecution {
         scheduled_time: UniversalTimestamp,
     ) -> Self {
         Self {
+            id: Some(UniversalUuid::new_v4()),
             schedule_id,
             pipeline_execution_id: Some(pipeline_execution_id),
             scheduled_time,
-            claimed_at: Some(UniversalTimestamp::now()),
+            claimed_at: None, // Will be set by DAL layer (database-specific)
+            created_at: None, // Will be set by DAL layer (database-specific)
+            updated_at: None, // Will be set by DAL layer (database-specific)
         }
     }
 
@@ -150,11 +159,15 @@ impl NewCronExecution {
         scheduled_time: UniversalTimestamp,
         claimed_at: DateTime<Utc>,
     ) -> Self {
+        let claimed_ts = UniversalTimestamp(claimed_at);
         Self {
+            id: Some(UniversalUuid::new_v4()),
             schedule_id,
             pipeline_execution_id,
             scheduled_time,
-            claimed_at: Some(UniversalTimestamp(claimed_at)),
+            claimed_at: Some(claimed_ts), // Explicitly provided timestamp
+            created_at: Some(claimed_ts), // Use same time for consistency
+            updated_at: Some(claimed_ts), // Use same time for consistency
         }
     }
 }
@@ -227,7 +240,7 @@ mod tests {
         assert_eq!(new_execution.schedule_id, schedule_id);
         assert_eq!(new_execution.pipeline_execution_id, None);
         assert_eq!(new_execution.scheduled_time, scheduled_time);
-        assert!(new_execution.claimed_at.is_some());
+        assert!(new_execution.claimed_at.is_none());
     }
 
     #[test]
@@ -242,7 +255,7 @@ mod tests {
         assert_eq!(new_execution.schedule_id, schedule_id);
         assert_eq!(new_execution.pipeline_execution_id, Some(pipeline_id));
         assert_eq!(new_execution.scheduled_time, scheduled_time);
-        assert!(new_execution.claimed_at.is_some());
+        assert!(new_execution.claimed_at.is_none());
     }
 
     #[test]
@@ -274,7 +287,7 @@ mod tests {
         let execution = CronExecution {
             id: UniversalUuid::new_v4(),
             schedule_id: UniversalUuid::new_v4(),
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            pipeline_execution_id: Some(UniversalUuid::new_v4()),
             scheduled_time,
             claimed_at,
             created_at: claimed_at,
@@ -298,7 +311,7 @@ mod tests {
         let execution = CronExecution {
             id: UniversalUuid::new_v4(),
             schedule_id: UniversalUuid::new_v4(),
-            pipeline_execution_id: UniversalUuid::new_v4(),
+            pipeline_execution_id: Some(UniversalUuid::new_v4()),
             scheduled_time,
             claimed_at,
             created_at: claimed_at,

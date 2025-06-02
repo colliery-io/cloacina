@@ -83,9 +83,15 @@ impl<'a> CronExecutionDAL<'a> {
     /// ```
     pub fn create(
         &self,
-        new_execution: NewCronExecution,
+        mut new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
+
+        // For PostgreSQL, use database defaults for timestamps by setting to None
+        // The database will automatically set CURRENT_TIMESTAMP
+        new_execution.claimed_at = None;
+        new_execution.created_at = None;
+        new_execution.updated_at = None;
 
         let execution: CronExecution = diesel::insert_into(cron_executions::table)
             .values(&new_execution)
@@ -169,7 +175,7 @@ impl<'a> CronExecutionDAL<'a> {
             .left_join(
                 crate::database::schema::pipeline_executions::table
                     .on(cron_executions::pipeline_execution_id
-                        .eq(crate::database::schema::pipeline_executions::id)),
+                        .eq(crate::database::schema::pipeline_executions::id.nullable())),
             )
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.lt(cutoff_time))
@@ -413,7 +419,7 @@ impl<'a> CronExecutionDAL<'a> {
             .left_join(
                 crate::database::schema::pipeline_executions::table
                     .on(cron_executions::pipeline_execution_id
-                        .eq(crate::database::schema::pipeline_executions::id)),
+                        .eq(crate::database::schema::pipeline_executions::id.nullable())),
             )
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.ge(since_ts))

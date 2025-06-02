@@ -57,10 +57,35 @@ impl<'a> CronScheduleDAL<'a> {
     pub fn create(&self, new_schedule: NewCronSchedule) -> Result<CronSchedule, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
-        let schedule: CronSchedule = diesel::insert_into(cron_schedules::table)
-            .values(&new_schedule)
-            .get_result(&mut conn)?;
+        // Generate ID and timestamps manually for SQLite
+        let id = UniversalUuid::new_v4();
+        let now = crate::database::universal_types::current_timestamp();
 
+        // Insert with explicit values
+        diesel::insert_into(cron_schedules::table)
+            .values((
+                cron_schedules::id.eq(&id),
+                cron_schedules::workflow_name.eq(&new_schedule.workflow_name),
+                cron_schedules::cron_expression.eq(&new_schedule.cron_expression),
+                cron_schedules::timezone
+                    .eq(&new_schedule.timezone.unwrap_or_else(|| "UTC".to_string())),
+                cron_schedules::enabled.eq(&new_schedule
+                    .enabled
+                    .unwrap_or_else(|| UniversalBool::from(true))),
+                cron_schedules::catchup_policy.eq(&new_schedule
+                    .catchup_policy
+                    .unwrap_or_else(|| "skip".to_string())),
+                cron_schedules::start_date.eq(&new_schedule.start_date),
+                cron_schedules::end_date.eq(&new_schedule.end_date),
+                cron_schedules::next_run_at.eq(&new_schedule.next_run_at),
+                cron_schedules::last_run_at.eq::<Option<UniversalTimestamp>>(None),
+                cron_schedules::created_at.eq(&now),
+                cron_schedules::updated_at.eq(&now),
+            ))
+            .execute(&mut conn)?;
+
+        // Retrieve the created record
+        let schedule = cron_schedules::table.find(&id).first(&mut conn)?;
         Ok(schedule)
     }
 

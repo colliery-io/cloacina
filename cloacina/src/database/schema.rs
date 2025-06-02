@@ -113,7 +113,7 @@ mod postgres_schema {
         cron_executions (id) {
             id -> Uuid,
             schedule_id -> Uuid,
-            pipeline_execution_id -> Uuid,
+            pipeline_execution_id -> Nullable<Uuid>,
             scheduled_time -> Timestamp,
             claimed_at -> Timestamp,
             created_at -> Timestamp,
@@ -239,7 +239,7 @@ mod sqlite_schema {
         cron_executions (id) {
             id -> Binary,
             schedule_id -> Binary,
-            pipeline_execution_id -> Binary,
+            pipeline_execution_id -> Nullable<Binary>,
             scheduled_time -> Text,
             claimed_at -> Text,
             created_at -> Text,

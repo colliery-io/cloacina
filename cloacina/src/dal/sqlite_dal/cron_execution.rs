@@ -62,9 +62,15 @@ impl<'a> CronExecutionDAL<'a> {
     /// * Returns database errors for connection or constraint violations
     pub fn create(
         &self,
-        new_execution: NewCronExecution,
+        mut new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
         let mut conn = self.dal.pool.get()?;
+
+        // For SQLite, explicitly set timestamps since no database defaults exist
+        let now = UniversalTimestamp::now();
+        new_execution.claimed_at = Some(now);
+        new_execution.created_at = Some(now);
+        new_execution.updated_at = Some(now);
 
         let execution: CronExecution = diesel::insert_into(cron_executions::table)
             .values(&new_execution)
@@ -133,7 +139,7 @@ impl<'a> CronExecutionDAL<'a> {
             .left_join(
                 crate::database::schema::pipeline_executions::table
                     .on(cron_executions::pipeline_execution_id
-                        .eq(crate::database::schema::pipeline_executions::id)),
+                        .eq(crate::database::schema::pipeline_executions::id.nullable())),
             )
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.lt(cutoff_time))
@@ -371,7 +377,7 @@ impl<'a> CronExecutionDAL<'a> {
             .left_join(
                 crate::database::schema::pipeline_executions::table
                     .on(cron_executions::pipeline_execution_id
-                        .eq(crate::database::schema::pipeline_executions::id)),
+                        .eq(crate::database::schema::pipeline_executions::id.nullable())),
             )
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.ge(since_ts))

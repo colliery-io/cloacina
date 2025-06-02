@@ -69,8 +69,23 @@ pub struct DefaultRunnerConfig {
     /// How often to poll for due cron schedules (when cron enabled)
     pub cron_poll_interval: Duration,
 
-    /// Maximum number of missed executions to run in catchup mode
+    /// Maximum number of missed executions to run in catchup mode (usize::MAX = unlimited)
     pub cron_max_catchup_executions: usize,
+
+    /// Whether to enable automatic recovery of lost cron executions
+    pub cron_enable_recovery: bool,
+
+    /// How often to check for lost cron executions
+    pub cron_recovery_interval: Duration,
+
+    /// Consider executions lost if claimed more than this many minutes ago
+    pub cron_lost_threshold_minutes: i32,
+
+    /// Maximum age of executions to recover (older ones are abandoned)
+    pub cron_max_recovery_age: Duration,
+
+    /// Maximum number of recovery attempts per execution
+    pub cron_max_recovery_attempts: usize,
 }
 
 impl Default for DefaultRunnerConfig {
@@ -94,7 +109,12 @@ impl Default for DefaultRunnerConfig {
             enable_recovery: true,
             enable_cron_scheduling: true, // Opt-out
             cron_poll_interval: Duration::from_secs(30),
-            cron_max_catchup_executions: 100,
+            cron_max_catchup_executions: usize::MAX, // No practical limit by default
+            cron_enable_recovery: true,
+            cron_recovery_interval: Duration::from_secs(300), // 5 minutes
+            cron_lost_threshold_minutes: 10,
+            cron_max_recovery_age: Duration::from_secs(86400), // 24 hours
+            cron_max_recovery_attempts: 3,
         }
     }
 }
@@ -123,6 +143,8 @@ pub struct DefaultRunner {
     runtime_handles: Arc<RwLock<RuntimeHandles>>,
     /// Optional cron scheduler for time-based workflow execution
     cron_scheduler: Arc<RwLock<Option<Arc<CronScheduler>>>>,
+    /// Optional cron recovery service for handling lost executions
+    cron_recovery: Arc<RwLock<Option<Arc<crate::CronRecoveryService>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -136,6 +158,8 @@ struct RuntimeHandles {
     executor_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the cron scheduler background task (if enabled)
     cron_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the cron recovery service background task (if enabled)
+    cron_recovery_handle: Option<tokio::task::JoinHandle<()>>,
     /// Channel sender for broadcasting shutdown signals
     shutdown_sender: Option<broadcast::Sender<()>>,
 }
@@ -315,9 +339,11 @@ impl DefaultRunnerBuilder {
                 scheduler_handle: None,
                 executor_handle: None,
                 cron_scheduler_handle: None,
+                cron_recovery_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
         };
 
         // Start the background services immediately
@@ -462,9 +488,11 @@ impl DefaultRunner {
                 scheduler_handle: None,
                 executor_handle: None,
                 cron_scheduler_handle: None,
+                cron_recovery_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
         };
 
         // Start the background services immediately
@@ -581,6 +609,56 @@ impl DefaultRunner {
             // Store cron scheduler and handle
             *self.cron_scheduler.write().await = Some(Arc::new(cron_scheduler));
             handles.cron_scheduler_handle = Some(cron_handle);
+
+            // Phase 3: Create and start CronRecoveryService if cron is enabled
+            if self.config.cron_enable_recovery {
+                tracing::info!("Starting cron recovery service");
+
+                // Create watch channel for recovery service shutdown
+                let (recovery_shutdown_tx, recovery_shutdown_rx) = watch::channel(false);
+
+                // Create recovery config
+                let recovery_config = crate::CronRecoveryConfig {
+                    check_interval: self.config.cron_recovery_interval,
+                    lost_threshold_minutes: self.config.cron_lost_threshold_minutes,
+                    max_recovery_age: self.config.cron_max_recovery_age,
+                    max_recovery_attempts: self.config.cron_max_recovery_attempts,
+                    recover_disabled_schedules: false,
+                };
+
+                // Create CronRecoveryService
+                let dal = DAL::new(self.database.pool());
+                let recovery_service = crate::CronRecoveryService::new(
+                    Arc::new(dal),
+                    Arc::new(self.clone()), // self implements PipelineExecutor!
+                    recovery_config,
+                    recovery_shutdown_rx,
+                );
+
+                // Start recovery background service
+                let mut recovery_service_clone = recovery_service.clone();
+                let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                let recovery_handle = tokio::spawn(async move {
+                    tokio::select! {
+                        result = recovery_service_clone.run_recovery_loop() => {
+                            if let Err(e) = result {
+                                tracing::error!("Cron recovery service failed: {}", e);
+                            } else {
+                                tracing::info!("Cron recovery service completed");
+                            }
+                        }
+                        _ = broadcast_shutdown_rx.recv() => {
+                            tracing::info!("Cron recovery service shutdown requested via broadcast");
+                            // Send shutdown signal to recovery service
+                            let _ = recovery_shutdown_tx.send(true);
+                        }
+                    }
+                });
+
+                // Store recovery service and handle
+                *self.cron_recovery.write().await = Some(Arc::new(recovery_service));
+                handles.cron_recovery_handle = Some(recovery_handle);
+            }
         }
 
         Ok(())
@@ -615,6 +693,11 @@ impl DefaultRunner {
 
         // Wait for cron scheduler to finish (if enabled)
         if let Some(handle) = handles.cron_scheduler_handle.take() {
+            let _ = handle.await;
+        }
+
+        // Wait for cron recovery service to finish (if enabled)
+        if let Some(handle) = handles.cron_recovery_handle.take() {
             let _ = handle.await;
         }
 
@@ -1166,6 +1249,157 @@ impl DefaultRunner {
                 message: format!("Failed to delete cron schedule: {}", e),
             })
     }
+
+    /// Get a specific cron schedule by ID
+    ///
+    /// # Arguments
+    /// * `schedule_id` - UUID of the schedule to retrieve
+    ///
+    /// # Returns
+    /// * `Result<CronSchedule, PipelineError>` - The cron schedule or an error
+    pub async fn get_cron_schedule(
+        &self,
+        schedule_id: UniversalUuid,
+    ) -> Result<crate::models::cron_schedule::CronSchedule, PipelineError> {
+        if !self.config.enable_cron_scheduling {
+            return Err(PipelineError::Configuration {
+                message: "Cron scheduling not enabled.".to_string(),
+            });
+        }
+
+        let dal = DAL::new(self.database.pool());
+        dal.cron_schedule()
+            .get_by_id(schedule_id)
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to get cron schedule: {}", e),
+            })
+    }
+
+    /// Update a cron schedule's expression and/or timezone
+    ///
+    /// # Arguments
+    /// * `schedule_id` - UUID of the schedule to update
+    /// * `cron_expression` - New cron expression (optional)
+    /// * `timezone` - New timezone (optional)
+    ///
+    /// # Returns
+    /// * `Result<(), PipelineError>` - Success or error
+    pub async fn update_cron_schedule(
+        &self,
+        schedule_id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+    ) -> Result<(), PipelineError> {
+        if !self.config.enable_cron_scheduling {
+            return Err(PipelineError::Configuration {
+                message: "Cron scheduling not enabled.".to_string(),
+            });
+        }
+
+        let dal = DAL::new(self.database.pool());
+
+        // Validate inputs if provided
+        if let (Some(expr), Some(tz)) = (cron_expression, timezone) {
+            use crate::CronEvaluator;
+            CronEvaluator::validate(expr, tz).map_err(|e| PipelineError::Configuration {
+                message: format!("Invalid cron expression or timezone: {}", e),
+            })?;
+        }
+
+        // Get current schedule
+        let mut schedule = dal.cron_schedule().get_by_id(schedule_id).map_err(|e| {
+            PipelineError::ExecutionFailed {
+                message: format!("Failed to get cron schedule: {}", e),
+            }
+        })?;
+
+        // Update fields if provided
+        if let Some(expr) = cron_expression {
+            schedule.cron_expression = expr.to_string();
+        }
+        if let Some(tz) = timezone {
+            schedule.timezone = tz.to_string();
+        }
+
+        // Calculate new next run time
+        use crate::CronEvaluator;
+        let evaluator =
+            CronEvaluator::new(&schedule.cron_expression, &schedule.timezone).map_err(|e| {
+                PipelineError::Configuration {
+                    message: format!("Failed to create cron evaluator: {}", e),
+                }
+            })?;
+
+        let now = chrono::Utc::now();
+        let next_run = evaluator
+            .next_execution(now)
+            .map_err(|e| PipelineError::Configuration {
+                message: format!("Failed to calculate next execution: {}", e),
+            })?;
+
+        // Update the schedule
+        dal.cron_schedule()
+            .update_next_run(schedule_id, next_run)
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to update cron schedule: {}", e),
+            })?;
+
+        Ok(())
+    }
+
+    /// Get execution history for a cron schedule
+    ///
+    /// # Arguments
+    /// * `schedule_id` - UUID of the schedule
+    /// * `limit` - Maximum number of executions to return
+    /// * `offset` - Number of executions to skip for pagination
+    ///
+    /// # Returns
+    /// * `Result<Vec<CronExecution>, PipelineError>` - List of cron executions
+    pub async fn get_cron_execution_history(
+        &self,
+        schedule_id: UniversalUuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<crate::models::cron_execution::CronExecution>, PipelineError> {
+        if !self.config.enable_cron_scheduling {
+            return Err(PipelineError::Configuration {
+                message: "Cron scheduling not enabled.".to_string(),
+            });
+        }
+
+        let dal = DAL::new(self.database.pool());
+        dal.cron_execution()
+            .get_by_schedule_id(schedule_id, limit, offset)
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to get cron execution history: {}", e),
+            })
+    }
+
+    /// Get cron execution statistics
+    ///
+    /// # Arguments
+    /// * `since` - Only include executions since this timestamp
+    ///
+    /// # Returns
+    /// * `Result<CronExecutionStats, PipelineError>` - Execution statistics
+    pub async fn get_cron_execution_stats(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<crate::dal::CronExecutionStats, PipelineError> {
+        if !self.config.enable_cron_scheduling {
+            return Err(PipelineError::Configuration {
+                message: "Cron scheduling not enabled.".to_string(),
+            });
+        }
+
+        let dal = DAL::new(self.database.pool());
+        dal.cron_execution()
+            .get_execution_stats(since)
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to get cron execution stats: {}", e),
+            })
+    }
 }
 
 impl Clone for DefaultRunner {
@@ -1177,6 +1411,7 @@ impl Clone for DefaultRunner {
             executor: self.executor.clone(),
             runtime_handles: self.runtime_handles.clone(),
             cron_scheduler: self.cron_scheduler.clone(),
+            cron_recovery: self.cron_recovery.clone(),
         }
     }
 }

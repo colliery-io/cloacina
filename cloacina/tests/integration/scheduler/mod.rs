@@ -15,6 +15,8 @@
  */
 
 mod basic_scheduling;
+mod cron_basic;
+// mod cron_scheduling; // Temporarily disabled - needs updating
 mod dependency_resolution;
 mod recovery;
 mod trigger_rules;

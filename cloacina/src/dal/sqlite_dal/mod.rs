@@ -37,6 +37,9 @@ use recovery_event::RecoveryEventDAL;
 use task_execution::TaskExecutionDAL;
 use task_execution_metadata::TaskExecutionMetadataDAL;
 
+// Re-export for public API
+pub use cron_execution::CronExecutionStats;
+
 /// The main Data Access Layer struct for SQLite.
 #[derive(Clone)]
 pub struct DAL {
