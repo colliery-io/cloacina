@@ -68,7 +68,7 @@ use crate::context::Context;
 use crate::cron_evaluator::CronEvaluator;
 use crate::dal::DAL;
 use crate::error::ValidationError;
-use crate::executor::{PipelineExecutor, PipelineError};
+use crate::executor::{PipelineError, PipelineExecutor};
 use crate::models::cron_schedule::{CatchupPolicy, CronSchedule};
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
@@ -124,6 +124,7 @@ impl Default for CronSchedulerConfig {
 ///
 /// This separation allows the pipeline executor's existing retry, recovery,
 /// and concurrency mechanisms to handle execution concerns.
+#[derive(Clone)]
 pub struct CronScheduler {
     dal: Arc<DAL>,
     executor: Arc<dyn PipelineExecutor>,
@@ -174,8 +175,11 @@ impl CronScheduler {
     /// # Returns
     /// * `Result<(), PipelineError>` - Success or error from the polling loop
     pub async fn run_polling_loop(&mut self) -> Result<(), PipelineError> {
-        info!("Starting cron scheduler polling loop (interval: {:?})", self.config.poll_interval);
-        
+        info!(
+            "Starting cron scheduler polling loop (interval: {:?})",
+            self.config.poll_interval
+        );
+
         let mut interval = tokio::time::interval(self.config.poll_interval);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -211,9 +215,13 @@ impl CronScheduler {
         debug!("Checking for due cron schedules at {}", now);
 
         // Get all schedules that are due for execution
-        let due_schedules = self.dal.cron_schedule()
+        let due_schedules = self
+            .dal
+            .cron_schedule()
             .get_due_schedules(now)
-            .map_err(|e| PipelineError::ExecutionFailed { message: e.to_string() })?;
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: e.to_string(),
+            })?;
 
         if due_schedules.is_empty() {
             debug!("No due schedules found");
@@ -247,11 +255,17 @@ impl CronScheduler {
         schedule: &CronSchedule,
         now: DateTime<Utc>,
     ) -> Result<(), PipelineError> {
-        debug!("Processing schedule: {} (workflow: {})", schedule.id, schedule.workflow_name);
+        debug!(
+            "Processing schedule: {} (workflow: {})",
+            schedule.id, schedule.workflow_name
+        );
 
         // Check if schedule is within its active time window
         if !self.is_schedule_active(schedule, now) {
-            debug!("Schedule {} is outside its active time window, skipping", schedule.id);
+            debug!(
+                "Schedule {} is outside its active time window, skipping",
+                schedule.id
+            );
             return Ok(());
         }
 
@@ -266,12 +280,19 @@ impl CronScheduler {
         let next_run = self.calculate_next_run(schedule, now)?;
 
         // Atomically claim the schedule
-        let claimed = self.dal.cron_schedule()
+        let claimed = self
+            .dal
+            .cron_schedule()
             .claim_and_update(schedule.id, now, now, next_run)
-            .map_err(|e| PipelineError::ExecutionFailed { message: e.to_string() })?;
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: e.to_string(),
+            })?;
 
         if !claimed {
-            debug!("Schedule {} was already claimed by another instance", schedule.id);
+            debug!(
+                "Schedule {} was already claimed by another instance",
+                schedule.id
+            );
             return Ok(());
         }
 
@@ -342,7 +363,7 @@ impl CronScheduler {
         now: DateTime<Utc>,
     ) -> Result<Vec<DateTime<Utc>>, PipelineError> {
         let policy = CatchupPolicy::from(schedule.catchup_policy.clone());
-        
+
         match policy {
             CatchupPolicy::Skip => {
                 // Just return the current scheduled time
@@ -352,25 +373,29 @@ impl CronScheduler {
                 // Calculate all missed executions since last run
                 let mut executions = Vec::new();
                 let evaluator = CronEvaluator::new(&schedule.cron_expression, &schedule.timezone)
-                    .map_err(|e| PipelineError::ExecutionFailed { message: format!("Cron evaluation error: {}", e) })?;
+                    .map_err(|e| PipelineError::ExecutionFailed {
+                    message: format!("Cron evaluation error: {}", e),
+                })?;
 
                 // Start from last run time, or creation time if never run
-                let start_time = schedule.last_run_at
+                let start_time = schedule
+                    .last_run_at
                     .map(|t| t.0)
                     .unwrap_or(schedule.created_at.0);
 
                 // Find all executions between start_time and now
                 let missed_executions = evaluator
                     .executions_between(start_time, now, self.config.max_catchup_executions)
-                    .map_err(|e| PipelineError::ExecutionFailed { message: format!("Cron evaluation error: {}", e) })?;
+                    .map_err(|e| PipelineError::ExecutionFailed {
+                        message: format!("Cron evaluation error: {}", e),
+                    })?;
 
                 executions.extend(missed_executions);
 
                 if executions.len() >= self.config.max_catchup_executions {
                     warn!(
                         "Limited catchup executions to {} for schedule {} (policy: RunAll)",
-                        self.config.max_catchup_executions,
-                        schedule.id
+                        self.config.max_catchup_executions, schedule.id
                     );
                 }
 
@@ -385,12 +410,18 @@ impl CronScheduler {
         schedule: &CronSchedule,
         after: DateTime<Utc>,
     ) -> Result<DateTime<Utc>, PipelineError> {
-        let evaluator = CronEvaluator::new(&schedule.cron_expression, &schedule.timezone)
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Cron evaluation error: {}", e) })?;
-        
+        let evaluator =
+            CronEvaluator::new(&schedule.cron_expression, &schedule.timezone).map_err(|e| {
+                PipelineError::ExecutionFailed {
+                    message: format!("Cron evaluation error: {}", e),
+                }
+            })?;
+
         evaluator
             .next_execution(after)
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Cron evaluation error: {}", e) })
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Cron evaluation error: {}", e),
+            })
     }
 
     /// Executes a workflow by handing it off to the pipeline executor.
@@ -405,33 +436,49 @@ impl CronScheduler {
     ) -> Result<crate::database::UniversalUuid, PipelineError> {
         // Create context with scheduled time
         let mut context = Context::new();
-        context.insert("scheduled_time", serde_json::json!(scheduled_time.to_rfc3339()))
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Context error: {}", e) })?;
+        context
+            .insert(
+                "scheduled_time",
+                serde_json::json!(scheduled_time.to_rfc3339()),
+            )
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Context error: {}", e),
+            })?;
 
         // Add schedule metadata to context
-        context.insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Context error: {}", e) })?;
-        context.insert("schedule_timezone", serde_json::json!(schedule.timezone))
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Context error: {}", e) })?;
-        context.insert("schedule_expression", serde_json::json!(schedule.cron_expression))
-            .map_err(|e| PipelineError::ExecutionFailed { message: format!("Context error: {}", e) })?;
+        context
+            .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Context error: {}", e),
+            })?;
+        context
+            .insert("schedule_timezone", serde_json::json!(schedule.timezone))
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Context error: {}", e),
+            })?;
+        context
+            .insert(
+                "schedule_expression",
+                serde_json::json!(schedule.cron_expression),
+            )
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Context error: {}", e),
+            })?;
 
         info!(
             "Executing workflow '{}' for schedule {} (scheduled time: {})",
-            schedule.workflow_name,
-            schedule.id,
-            scheduled_time
+            schedule.workflow_name, schedule.id, scheduled_time
         );
 
         // Hand off to pipeline executor (saga pattern - don't wait for completion)
-        let pipeline_result = self.executor
+        let pipeline_result = self
+            .executor
             .execute(&schedule.workflow_name, context)
             .await?;
 
         debug!(
             "Successfully handed off workflow '{}' to executor (execution_id: {})",
-            schedule.workflow_name,
-            pipeline_result.execution_id
+            schedule.workflow_name, pipeline_result.execution_id
         );
 
         Ok(crate::database::UniversalUuid(pipeline_result.execution_id))
@@ -450,12 +497,10 @@ impl CronScheduler {
         // Note: For now, we'll skip the audit trail implementation
         // as we haven't created the CronExecutionDAL yet.
         // This will be implemented when we add the DAL for cron_executions.
-        
+
         debug!(
             "Audit trail: schedule {} -> pipeline {} (scheduled: {})",
-            schedule_id,
-            pipeline_execution_id,
-            scheduled_time
+            schedule_id, pipeline_execution_id, scheduled_time
         );
 
         // TODO: Implement when CronExecutionDAL is ready
@@ -499,7 +544,10 @@ mod tests {
         let config = CronSchedulerConfig::default();
         assert_eq!(config.poll_interval, std::time::Duration::from_secs(30));
         assert_eq!(config.max_catchup_executions, 100);
-        assert_eq!(config.max_acceptable_delay, std::time::Duration::from_secs(300));
+        assert_eq!(
+            config.max_acceptable_delay,
+            std::time::Duration::from_secs(300)
+        );
     }
 
     #[test]
@@ -507,10 +555,10 @@ mod tests {
         let (_shutdown_tx, _shutdown_rx) = watch::channel(false);
         // Create a mock DAL and executor for testing
         // This is a simplified test - in practice you'd use test doubles
-        
+
         let _schedule = create_test_schedule("0 * * * *", "UTC");
         let _now = Utc::now();
-        
+
         // Test basic active schedule (no time window)
         // This test structure shows the pattern but would need proper mocking
         // for a complete implementation
@@ -520,7 +568,7 @@ mod tests {
     fn test_calculate_execution_times_skip_policy() {
         let _schedule = create_test_schedule("0 * * * *", "UTC");
         let _now = Utc::now();
-        
+
         // Test with Skip policy
         // This would need proper scheduler instance for full testing
     }
@@ -529,7 +577,7 @@ mod tests {
     fn test_calculate_execution_times_run_all_policy() {
         let mut _schedule = create_test_schedule("0 * * * *", "UTC");
         _schedule.catchup_policy = "run_all".to_string();
-        
+
         // Test with RunAll policy
         // This would need proper scheduler instance for full testing
     }

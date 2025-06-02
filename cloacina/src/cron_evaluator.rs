@@ -77,7 +77,7 @@ pub enum CronError {
 /// // Daily at 2 AM Eastern Time (handles EST/EDT automatically)
 /// let evaluator = CronEvaluator::new("0 2 * * *", "America/New_York")?;
 /// let next = evaluator.next_execution(Utc::now())?;
-/// 
+///
 /// // Hourly during business hours in London
 /// let evaluator = CronEvaluator::new("0 9-17 * * 1-5", "Europe/London")?;
 /// let next = evaluator.next_execution(Utc::now())?;
@@ -364,7 +364,10 @@ mod tests {
     fn test_invalid_cron_expression() {
         let result = CronEvaluator::new("invalid", "UTC");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), CronError::CronParsingError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            CronError::CronParsingError(_)
+        ));
     }
 
     #[test]

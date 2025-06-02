@@ -170,7 +170,7 @@ impl CronExecution {
     /// ```rust
     /// let execution = get_cron_execution_from_db();
     /// let delay = execution.execution_delay();
-    /// 
+    ///
     /// if delay.num_seconds() > 60 {
     ///     println!("Execution was {} seconds late", delay.num_seconds());
     /// }
@@ -219,12 +219,8 @@ mod tests {
         let scheduled_time = current_timestamp();
         let claimed_at = Utc::now();
 
-        let new_execution = NewCronExecution::with_claimed_at(
-            schedule_id,
-            pipeline_id,
-            scheduled_time,
-            claimed_at,
-        );
+        let new_execution =
+            NewCronExecution::with_claimed_at(schedule_id, pipeline_id, scheduled_time, claimed_at);
 
         assert_eq!(new_execution.schedule_id, schedule_id);
         assert_eq!(new_execution.pipeline_execution_id, pipeline_id);

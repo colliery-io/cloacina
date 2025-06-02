@@ -245,7 +245,10 @@ impl<'a> CronScheduleDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<CronSchedule>, ValidationError>` - List of matching schedules
-    pub fn find_by_workflow(&self, workflow_name: &str) -> Result<Vec<CronSchedule>, ValidationError> {
+    pub fn find_by_workflow(
+        &self,
+        workflow_name: &str,
+    ) -> Result<Vec<CronSchedule>, ValidationError> {
         let mut conn = self.dal.pool.get()?;
 
         let schedules = cron_schedules::table
@@ -304,7 +307,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// ```rust
     /// let now = Utc::now();
     /// let next_run = evaluator.next_execution(now)?;
-    /// 
+    ///
     /// if dal.cron_schedule().claim_and_update(schedule_id, now, now, next_run)? {
     ///     // Successfully claimed the schedule, proceed with execution
     ///     execute_workflow(&schedule).await?;

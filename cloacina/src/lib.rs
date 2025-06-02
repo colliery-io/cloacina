@@ -443,10 +443,10 @@ pub mod executor;
 pub mod logging;
 pub mod models;
 pub mod retry;
+pub mod runner;
 pub mod task;
 pub mod task_scheduler;
 pub mod workflow;
-pub mod runner;
 
 pub use logging::init_logging;
 
@@ -474,9 +474,9 @@ pub use executor::{
     PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutor, TaskResult,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
-pub use runner::{DefaultRunner, DefaultRunnerConfig};
 #[cfg(feature = "postgres")]
 pub use runner::DefaultRunnerBuilder;
+pub use runner::{DefaultRunner, DefaultRunnerConfig};
 pub use task::{global_task_registry, register_task_constructor, Task, TaskRegistry, TaskState};
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{
