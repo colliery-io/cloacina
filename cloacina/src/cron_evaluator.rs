@@ -234,7 +234,7 @@ impl CronEvaluator {
     /// ```rust
     /// use chrono::{Duration, Utc};
     ///
-    /// let evaluator = CronEvaluator::new("0 * * * *", "UTC").unwrap(); // Hourly
+    /// let evaluator = CronEvaluator::new("0 * * * *", "UTC")?; // Hourly
     /// let start = Utc::now() - Duration::hours(6);
     /// let end = Utc::now();
     /// let missed = evaluator.executions_between(start, end, 10)?;

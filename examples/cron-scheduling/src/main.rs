@@ -83,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run for a demo period (or until interrupted)
     let runtime_duration = Duration::from_secs(60); // 5 minutes demo
+
     info!(
         "Running cron scheduler for {} seconds...",
         runtime_duration.as_secs()
