@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [multi-tenant, per-tenant-credentials]
+        example: [multi-tenant, per-tenant-credentials, cron-scheduling]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4

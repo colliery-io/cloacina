@@ -188,7 +188,7 @@ pub struct PipelineExecution {
     pub execution_id: Uuid,
     /// Name of the workflow being executed
     pub workflow_name: String,
-    executor: crate::executor::UnifiedExecutor,
+    executor: crate::runner::DefaultRunner,
 }
 
 impl PipelineExecution {
@@ -202,7 +202,7 @@ impl PipelineExecution {
     pub fn new(
         execution_id: Uuid,
         workflow_name: String,
-        executor: crate::executor::UnifiedExecutor,
+        executor: crate::runner::DefaultRunner,
     ) -> Self {
         Self {
             execution_id,

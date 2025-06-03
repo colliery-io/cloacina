@@ -40,7 +40,9 @@ use diesel::pg::Pg;
 #[cfg(feature = "sqlite")]
 use diesel::sql_types::Text;
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
+#[cfg(feature = "postgres")]
+use chrono::{NaiveDateTime, TimeZone};
 
 /// Universal UUID wrapper that works with both PostgreSQL and SQLite
 #[derive(Debug, Clone, Copy, FromSqlRow, Hash, Eq, PartialEq, Serialize, Deserialize)]
@@ -221,6 +223,100 @@ pub fn current_timestamp() -> UniversalTimestamp {
     UniversalTimestamp::now()
 }
 
+// Universal Boolean Type
+// Handles bool for PostgreSQL and i32 (0/1) for SQLite
+
+#[cfg(feature = "postgres")]
+#[derive(
+    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[diesel(sql_type = diesel::sql_types::Bool)]
+pub struct UniversalBool(pub bool);
+
+#[cfg(feature = "sqlite")]
+#[derive(
+    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
+)]
+#[diesel(sql_type = diesel::sql_types::Integer)]
+pub struct UniversalBool(pub bool);
+
+impl UniversalBool {
+    pub fn new(value: bool) -> Self {
+        Self(value)
+    }
+
+    pub fn is_true(&self) -> bool {
+        self.0
+    }
+
+    pub fn is_false(&self) -> bool {
+        !self.0
+    }
+}
+
+impl From<bool> for UniversalBool {
+    fn from(value: bool) -> Self {
+        Self(value)
+    }
+}
+
+impl From<UniversalBool> for bool {
+    fn from(wrapper: UniversalBool) -> Self {
+        wrapper.0
+    }
+}
+
+impl fmt::Display for UniversalBool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// PostgreSQL implementations
+#[cfg(feature = "postgres")]
+impl ToSql<diesel::sql_types::Bool, diesel::pg::Pg> for UniversalBool {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+    ) -> diesel::serialize::Result {
+        <bool as ToSql<diesel::sql_types::Bool, diesel::pg::Pg>>::to_sql(&self.0, out)
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl FromSql<diesel::sql_types::Bool, diesel::pg::Pg> for UniversalBool {
+    fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
+        Ok(Self(<bool as FromSql<
+            diesel::sql_types::Bool,
+            diesel::pg::Pg,
+        >>::from_sql(bytes)?))
+    }
+}
+
+// SQLite implementations - store as integer (0/1)
+#[cfg(feature = "sqlite")]
+impl ToSql<diesel::sql_types::Integer, diesel::sqlite::Sqlite> for UniversalBool {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut diesel::serialize::Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
+        let int_value = if self.0 { 1i32 } else { 0i32 };
+        out.set_value(int_value);
+        Ok(IsNull::No)
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl FromSql<diesel::sql_types::Integer, diesel::sqlite::Sqlite> for UniversalBool {
+    fn from_sql(
+        value: <diesel::sqlite::Sqlite as diesel::backend::Backend>::RawValue<'_>,
+    ) -> diesel::deserialize::Result<Self> {
+        let int_value =
+            <i32 as FromSql<diesel::sql_types::Integer, diesel::sqlite::Sqlite>>::from_sql(value)?;
+        Ok(Self(int_value != 0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,5 +380,38 @@ mod tests {
         let ts = current_timestamp();
         // Should be a recent timestamp
         assert!(ts.0.timestamp() > 0);
+    }
+
+    #[test]
+    fn test_universal_bool_creation() {
+        let bool_true = UniversalBool::new(true);
+        let bool_false = UniversalBool::new(false);
+
+        assert!(bool_true.is_true());
+        assert!(!bool_true.is_false());
+        assert!(bool_false.is_false());
+        assert!(!bool_false.is_true());
+    }
+
+    #[test]
+    fn test_universal_bool_conversion() {
+        let rust_bool = true;
+        let universal = UniversalBool::from(rust_bool);
+        let back: bool = universal.into();
+        assert_eq!(rust_bool, back);
+
+        let rust_bool = false;
+        let universal = UniversalBool::from(rust_bool);
+        let back: bool = universal.into();
+        assert_eq!(rust_bool, back);
+    }
+
+    #[test]
+    fn test_universal_bool_display() {
+        let bool_true = UniversalBool::new(true);
+        let bool_false = UniversalBool::new(false);
+
+        assert_eq!(format!("{}", bool_true), "true");
+        assert_eq!(format!("{}", bool_false), "false");
     }
 }

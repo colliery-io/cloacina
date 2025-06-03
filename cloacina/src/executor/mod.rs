@@ -35,7 +35,6 @@
 //! - `TaskExecutor`: The core executor that handles individual task execution
 //! - `PipelineEngine`: Manages pipeline-based task execution workflows
 //! - `PipelineExecutor`: Handles the execution of task pipelines with dependency management
-//! - `UnifiedExecutor`: Combines task and pipeline execution capabilities
 //!
 //! ## Usage
 //!
@@ -86,7 +85,6 @@ pub mod pipeline_engine;
 pub mod pipeline_executor;
 pub mod task_executor;
 pub mod types;
-pub mod unified_executor;
 
 pub use pipeline_engine::PipelineEngine;
 pub use pipeline_executor::{
@@ -94,4 +92,3 @@ pub use pipeline_executor::{
 };
 pub use task_executor::TaskExecutor;
 pub use types::{ClaimedTask, DependencyLoader, EngineMode, ExecutionScope, ExecutorConfig};
-pub use unified_executor::{UnifiedExecutor, UnifiedExecutorConfig};

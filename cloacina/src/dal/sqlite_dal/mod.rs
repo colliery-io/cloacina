@@ -23,15 +23,22 @@ use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 
 pub mod context;
+pub mod cron_execution;
+pub mod cron_schedule;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
 use context::ContextDAL;
+use cron_execution::CronExecutionDAL;
+use cron_schedule::CronScheduleDAL;
 use pipeline_execution::PipelineExecutionDAL;
 use recovery_event::RecoveryEventDAL;
 use task_execution::TaskExecutionDAL;
 use task_execution_metadata::TaskExecutionMetadataDAL;
+
+// Re-export for public API
+pub use cron_execution::CronExecutionStats;
 
 /// The main Data Access Layer struct for SQLite.
 #[derive(Clone)]
@@ -78,5 +85,14 @@ impl DAL {
 
     pub fn recovery_event(&self) -> RecoveryEventDAL {
         RecoveryEventDAL { dal: self }
+    }
+
+    pub fn cron_schedule(&self) -> CronScheduleDAL {
+        CronScheduleDAL { dal: self }
+    }
+
+    /// Returns a CronExecutionDAL for cron execution audit operations
+    pub fn cron_execution(&self) -> CronExecutionDAL {
+        CronExecutionDAL { dal: self }
     }
 }

@@ -14,9 +14,15 @@
  *  limitations under the License.
  */
 
-mod basic_scheduling;
-mod cron_basic;
-// mod cron_scheduling; // Temporarily disabled - needs updating
-mod dependency_resolution;
-mod recovery;
-mod trigger_rules;
+//! Workflow runners for executing complete pipelines and workflows.
+//!
+//! This module provides high-level workflow execution components that coordinate
+//! scheduling and task execution. Runners handle the complete lifecycle of
+//! workflow execution from scheduling to completion.
+
+pub mod default_runner;
+
+pub use default_runner::{DefaultRunner, DefaultRunnerConfig};
+
+#[cfg(feature = "postgres")]
+pub use default_runner::DefaultRunnerBuilder;

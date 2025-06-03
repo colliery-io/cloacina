@@ -18,7 +18,7 @@
 
 #[cfg(feature = "postgres")]
 mod postgres_multi_tenant_tests {
-    use cloacina::executor::unified_executor::UnifiedExecutor;
+    use cloacina::runner::DefaultRunner;
     use cloacina::PipelineError;
     use std::env;
 
@@ -30,8 +30,8 @@ mod postgres_multi_tenant_tests {
         });
 
         // Create two executors with different schemas
-        let tenant_a = UnifiedExecutor::with_schema(&database_url, "tenant_a").await?;
-        let tenant_b = UnifiedExecutor::with_schema(&database_url, "tenant_b").await?;
+        let tenant_a = DefaultRunner::with_schema(&database_url, "tenant_a").await?;
+        let tenant_b = DefaultRunner::with_schema(&database_url, "tenant_b").await?;
 
         // TODO: Add workflow execution and verify isolation
         // This would require implementing a test workflow first
@@ -49,20 +49,20 @@ mod postgres_multi_tenant_tests {
         let database_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina";
 
         // Test schema name with hyphens (should fail)
-        let result = UnifiedExecutor::with_schema(database_url, "tenant-123").await;
+        let result = DefaultRunner::with_schema(database_url, "tenant-123").await;
         assert!(result.is_err());
 
         // Test schema name with spaces (should fail)
-        let result = UnifiedExecutor::with_schema(database_url, "tenant 123").await;
+        let result = DefaultRunner::with_schema(database_url, "tenant 123").await;
         assert!(result.is_err());
 
         // Test schema name with special characters (should fail)
-        let result = UnifiedExecutor::with_schema(database_url, "tenant@123").await;
+        let result = DefaultRunner::with_schema(database_url, "tenant@123").await;
         assert!(result.is_err());
 
         // Test valid schema name (should succeed)
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| database_url.to_string());
-        let result = UnifiedExecutor::with_schema(&database_url, "tenant_123").await;
+        let result = DefaultRunner::with_schema(&database_url, "tenant_123").await;
         if let Ok(executor) = result {
             let _ = executor.shutdown().await;
         }
@@ -71,7 +71,7 @@ mod postgres_multi_tenant_tests {
     /// Test that schema isolation is only supported for PostgreSQL
     #[tokio::test]
     async fn test_sqlite_schema_rejection() {
-        let result = UnifiedExecutor::builder()
+        let result = DefaultRunner::builder()
             .database_url("sqlite://test.db")
             .schema("tenant_123")
             .build()
@@ -87,7 +87,7 @@ mod postgres_multi_tenant_tests {
             "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
         });
 
-        let executor = UnifiedExecutor::builder()
+        let executor = DefaultRunner::builder()
             .database_url(&database_url)
             .schema("tenant_builder_test")
             .build()
@@ -100,14 +100,14 @@ mod postgres_multi_tenant_tests {
 
 #[cfg(feature = "sqlite")]
 mod sqlite_multi_tenant_tests {
-    use cloacina::executor::unified_executor::UnifiedExecutor;
+    use cloacina::runner::DefaultRunner;
 
     /// Test that SQLite multi-tenancy works with separate database files
     #[tokio::test]
     async fn test_sqlite_file_isolation() -> Result<(), Box<dyn std::error::Error>> {
         // Create two executors with different database files
-        let tenant_a = UnifiedExecutor::new("sqlite://tenant_a_test.db").await?;
-        let tenant_b = UnifiedExecutor::new("sqlite://tenant_b_test.db").await?;
+        let tenant_a = DefaultRunner::new("sqlite://tenant_a_test.db").await?;
+        let tenant_b = DefaultRunner::new("sqlite://tenant_b_test.db").await?;
 
         // TODO: Add workflow execution and verify isolation
         // This would require implementing a test workflow first
@@ -126,7 +126,7 @@ mod sqlite_multi_tenant_tests {
     /// Test that SQLite creates separate database files
     #[tokio::test]
     async fn test_sqlite_separate_files() -> Result<(), Box<dyn std::error::Error>> {
-        let executor = UnifiedExecutor::new("sqlite://multi_tenant_test.db").await?;
+        let executor = DefaultRunner::new("sqlite://multi_tenant_test.db").await?;
 
         // Verify the file was created
         assert!(std::path::Path::new("multi_tenant_test.db").exists());
