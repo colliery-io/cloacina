@@ -51,7 +51,7 @@ use tasks::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("cron_scheduling_example=info,cloacina=debug")
+        .with_env_filter("cron_scheduling_example=info,cloacina=info")
         .init();
 
     info!("Starting Cron Scheduling Example");
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Press Ctrl+C to shutdown gracefully");
 
     // Run for a demo period (or until interrupted)
-    let runtime_duration = Duration::from_secs(300); // 5 minutes demo
+    let runtime_duration = Duration::from_secs(60); // 5 minutes demo
     info!(
         "Running cron scheduler for {} seconds...",
         runtime_duration.as_secs()
@@ -162,7 +162,7 @@ async fn create_cron_schedules(runner: &DefaultRunner) -> Result<(), Box<dyn std
     let backup_schedule_id = runner
         .register_cron_workflow(
             "data_backup_workflow",
-            "* * * * *", // Every minute
+            "*/30 * * * * *", // Every 30 seconds
             "UTC",
         )
         .await?;
@@ -175,7 +175,7 @@ async fn create_cron_schedules(runner: &DefaultRunner) -> Result<(), Box<dyn std
     let health_schedule_id = runner
         .register_cron_workflow(
             "health_check_workflow",
-            "*/2 * * * *", // Every 2 minutes
+            "*/15 * * * * *", // Every 2 minutes
             "UTC",
         )
         .await?;
@@ -188,7 +188,7 @@ async fn create_cron_schedules(runner: &DefaultRunner) -> Result<(), Box<dyn std
     let report_schedule_id = runner
         .register_cron_workflow(
             "daily_report_workflow",
-            "*/3 * * * *", // Every 3 minutes
+            "*/10 * * * * *", // Every 3 minutes
             "UTC",
         )
         .await?;

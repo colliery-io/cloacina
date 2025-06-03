@@ -117,8 +117,8 @@ impl CronEvaluator {
     /// let evaluator = CronEvaluator::new("0 0 1 * *", "America/Los_Angeles")?;
     /// ```
     pub fn new(cron_expr: &str, timezone_str: &str) -> Result<Self, CronError> {
-        // Parse the cron expression
         let cron = Cron::new(cron_expr)
+            .with_seconds_optional() // Enable optional seconds support
             .parse()
             .map_err(|e| CronError::CronParsingError(e.to_string()))?;
 
@@ -188,7 +188,7 @@ impl CronEvaluator {
     /// ```rust
     /// use chrono::Utc;
     ///
-    /// let evaluator = CronEvaluator::new("0 */6 * * *", "UTC")?;
+    /// let evaluator = CronEvaluator::new("0 */6 * * *", "UTC").unwrap();
     /// let now = Utc::now();
     /// let next_executions = evaluator.next_executions(now, 5)?;
     ///
@@ -234,7 +234,7 @@ impl CronEvaluator {
     /// ```rust
     /// use chrono::{Duration, Utc};
     ///
-    /// let evaluator = CronEvaluator::new("0 * * * *", "UTC")?; // Hourly
+    /// let evaluator = CronEvaluator::new("0 * * * *", "UTC").unwrap(); // Hourly
     /// let start = Utc::now() - Duration::hours(6);
     /// let end = Utc::now();
     /// let missed = evaluator.executions_between(start, end, 10)?;
@@ -291,6 +291,7 @@ impl CronEvaluator {
     /// * `Result<(), CronError>` - Success or validation error
     pub fn validate_expression(cron_expr: &str) -> Result<(), CronError> {
         Cron::new(cron_expr)
+            .with_seconds_optional() // Enable optional seconds support
             .parse()
             .map_err(|e| CronError::CronParsingError(e.to_string()))?;
         Ok(())
