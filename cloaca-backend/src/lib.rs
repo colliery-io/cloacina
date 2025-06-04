@@ -17,7 +17,10 @@
 use pyo3::prelude::*;
 
 mod context;
+mod task;
+
 use context::{PyContext, PyDefaultRunnerConfig};
+use task::task as task_decorator;
 
 /// A simple hello world class for testing
 #[pyclass]
@@ -78,6 +81,9 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Configuration class
     m.add_class::<PyDefaultRunnerConfig>()?;
 
+    // Task decorator function
+    m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
+
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "postgres")?;
 
@@ -99,6 +105,9 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Configuration class
     m.add_class::<PyDefaultRunnerConfig>()?;
+
+    // Task decorator function
+    m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "sqlite")?;

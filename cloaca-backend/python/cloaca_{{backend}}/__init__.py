@@ -3,7 +3,7 @@
 """
 
 # Import from the extension module built by maturin
-from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, __backend__
+from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, __backend__
 
 # __version__ is automatically provided by maturin from Cargo.toml
 
@@ -13,5 +13,6 @@ __all__ = [
     "HelloClass",
     "Context",
     "DefaultRunnerConfig",
+    "task",
     "__backend__",
 ]

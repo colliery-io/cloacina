@@ -94,6 +94,8 @@ try:
         Context = _backend_module.Context
     if hasattr(_backend_module, "DefaultRunnerConfig"):
         DefaultRunnerConfig = _backend_module.DefaultRunnerConfig
+    if hasattr(_backend_module, "task"):
+        task = _backend_module.task
 
 except ImportError as import_error:
     # If no backend is available, provide helpful error message

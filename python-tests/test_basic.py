@@ -451,3 +451,115 @@ class TestBackendFunctionality:
         assert config.cron_lost_threshold_minutes == 15
         assert config.cron_max_recovery_age_seconds == 172800
         assert config.cron_max_recovery_attempts == 5
+
+    def test_task_decorator_basic(self):
+        """Test basic @task decorator functionality."""
+        import cloaca
+        
+        # Test that decorator is available
+        assert hasattr(cloaca, "task")
+        assert callable(cloaca.task)
+        
+        # Test basic decoration
+        @cloaca.task(id="test_task")
+        def test_task(context):
+            context.set("executed", True)
+            return context
+            
+        # Function should still be callable (decorator returns original function)
+        assert callable(test_task)
+        
+    def test_task_decorator_with_dependencies(self):
+        """Test @task decorator with dependencies."""
+        import cloaca
+        
+        @cloaca.task(
+            id="task_with_deps",
+            dependencies=["dep1", "dep2"]
+        )
+        def task_with_deps(context):
+            return context
+            
+        assert callable(task_with_deps)
+        
+    def test_task_decorator_with_retry_policy(self):
+        """Test @task decorator with retry policy configuration."""
+        import cloaca
+        
+        @cloaca.task(
+            id="task_with_retry",
+            retry_attempts=3,
+            retry_backoff="exponential",
+            retry_delay_ms=1000,
+            retry_max_delay_ms=30000,
+            retry_condition="transient",
+            retry_jitter=True
+        )
+        def task_with_retry(context):
+            return context
+            
+        assert callable(task_with_retry)
+        
+    def test_task_execution_with_context(self):
+        """Test that task functions work with context."""
+        import cloaca
+        
+        @cloaca.task(id="context_task")
+        def context_task(context):
+            # Get value from context
+            input_val = context.get("input", "default")
+            
+            # Process and set output
+            context.set("output", f"Processed: {input_val}")
+            context.set("task_run", True)
+            
+            return context
+        
+        # Create context and simulate execution
+        ctx = cloaca.Context({"input": "test_value"})
+        
+        # Call the function directly (simulating task execution)
+        result_ctx = context_task(ctx)
+        
+        # Verify the context was modified
+        assert result_ctx.get("output") == "Processed: test_value"
+        assert result_ctx.get("task_run") is True
+        
+    def test_task_function_return_none(self):
+        """Test that task functions can return None for success."""
+        import cloaca
+        
+        @cloaca.task(id="none_return_task")
+        def none_return_task(context):
+            context.set("executed", True)
+            # Return None means success
+            return None
+            
+        ctx = cloaca.Context()
+        result = none_return_task(ctx)
+        assert result is None
+        assert ctx.get("executed") is True
+        
+    def test_multiple_task_registration(self):
+        """Test registering multiple tasks."""
+        import cloaca
+        
+        @cloaca.task(id="task1")
+        def task1(context):
+            context.set("task1_run", True)
+            return context
+            
+        @cloaca.task(id="task2", dependencies=["task1"])
+        def task2(context):
+            context.set("task2_run", True)
+            return context
+            
+        @cloaca.task(id="task3", dependencies=["task1", "task2"])
+        def task3(context):
+            context.set("task3_run", True)
+            return context
+            
+        # All functions should be callable
+        assert callable(task1)
+        assert callable(task2)
+        assert callable(task3)

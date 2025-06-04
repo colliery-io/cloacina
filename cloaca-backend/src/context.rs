@@ -35,7 +35,7 @@ use pythonize::{pythonize, depythonize};
 #[pyclass(name = "Context")]
 #[derive(Debug)]
 pub struct PyContext {
-    inner: cloacina::Context<serde_json::Value>,
+    pub(crate) inner: cloacina::Context<serde_json::Value>,
 }
 
 #[pymethods]
@@ -70,17 +70,24 @@ impl PyContext {
     ///
     /// # Arguments
     /// * `key` - The key to look up
+    /// * `default` - Optional default value to return if key doesn't exist
     ///
     /// # Returns
-    /// The value if it exists, None otherwise
-    pub fn get(&self, key: &str) -> PyResult<Option<PyObject>> {
+    /// The value if it exists, default value if provided, None otherwise
+    #[pyo3(signature = (key, default = None))]
+    pub fn get(&self, key: &str, default: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
         match self.inner.get(key) {
             Some(value) => {
                 Python::with_gil(|py| {
-                    Ok(Some(pythonize(py, value)?.into()))
+                    Ok(pythonize(py, value)?.into())
                 })
             }
-            None => Ok(None)
+            None => {
+                match default {
+                    Some(default_value) => Ok(default_value.clone().into()),
+                    None => Python::with_gil(|py| Ok(py.None())),
+                }
+            }
         }
     }
 
@@ -232,12 +239,16 @@ impl PyContext {
 
     /// Dictionary-style item access
     pub fn __getitem__(&self, key: &str) -> PyResult<PyObject> {
-        match self.get(key)? {
-            Some(value) => Ok(value),
-            None => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
-                format!("Key not found: '{}'", key)
-            ))
-        }
+        let result = self.get(key, None)?;
+        Python::with_gil(|py| {
+            if result.is_none(py) {
+                Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
+                    format!("Key not found: '{}'", key)
+                ))
+            } else {
+                Ok(result)
+            }
+        })
     }
 
     /// Dictionary-style item assignment
@@ -253,6 +264,36 @@ impl PyContext {
                 format!("Key not found: '{}'", key)
             ))
         }
+    }
+}
+
+impl PyContext {
+    /// Create a PyContext from a Rust Context (for internal use)
+    pub(crate) fn from_rust_context(context: cloacina::Context<serde_json::Value>) -> Self {
+        PyContext { inner: context }
+    }
+    
+    /// Extract the inner Rust Context (for internal use)
+    pub(crate) fn into_inner(self) -> cloacina::Context<serde_json::Value> {
+        self.inner
+    }
+}
+
+/// Manual implementation of Clone since Context<T> doesn't implement Clone
+/// We recreate the context from its data
+impl Clone for PyContext {
+    fn clone(&self) -> Self {
+        // Get the data from the inner context
+        let data = self.inner.data();
+        
+        // Create a new context and populate it
+        let mut new_context = cloacina::Context::new();
+        for (key, value) in data.iter() {
+            // This should never fail since we're cloning existing valid data
+            new_context.insert(key.clone(), value.clone()).unwrap();
+        }
+        
+        PyContext { inner: new_context }
     }
 }
 
