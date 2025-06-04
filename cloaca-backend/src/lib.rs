@@ -16,6 +16,9 @@
 
 use pyo3::prelude::*;
 
+mod context;
+use context::{PyContext, PyDefaultRunnerConfig};
+
 /// A simple hello world class for testing
 #[pyclass]
 pub struct HelloClass {
@@ -66,6 +69,15 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(get_backend, m)?)?;
 
+    // Test class
+    m.add_class::<HelloClass>()?;
+
+    // Context class
+    m.add_class::<PyContext>()?;
+
+    // Configuration class
+    m.add_class::<PyDefaultRunnerConfig>()?;
+
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "postgres")?;
 
@@ -81,6 +93,12 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Test class
     m.add_class::<HelloClass>()?;
+
+    // Context class
+    m.add_class::<PyContext>()?;
+
+    // Configuration class
+    m.add_class::<PyDefaultRunnerConfig>()?;
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "sqlite")?;
