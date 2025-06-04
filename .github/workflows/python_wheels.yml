@@ -1,0 +1,232 @@
+---
+name: Python Wheels
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-wheels:
+    name: Build Python Wheels
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        backend: [postgres, sqlite]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-python-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-python-
+            ${{ runner.os }}-cargo-
+
+      - name: Install maturin and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin[patchelf] build twine
+
+      - name: Install angreal
+        run: pip install angreal
+
+      - name: Build wheel for ${{ matrix.backend }}
+        working-directory: cloaca-backend
+        run: |
+          # Copy the appropriate pyproject file
+          cp pyproject-${{ matrix.backend }}.toml pyproject.toml
+
+          # Build the wheel
+          maturin build --release --no-default-features --features ${{ matrix.backend }} --compatibility linux
+        shell: bash
+
+      - name: Test wheel installation and basic functionality
+        working-directory: cloaca-backend
+        run: |
+          # Find the built wheel
+          wheel_file=$(find target/wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
+          if [ -z "$wheel_file" ]; then
+            echo "No wheel found for cloaca_${{ matrix.backend }}"
+            exit 1
+          fi
+
+          echo "Testing wheel: $wheel_file"
+
+          # Install the wheel in a temporary venv
+          python -m venv test-venv
+          source test-venv/bin/activate || test-venv\\Scripts\\activate
+
+          # Install dispatcher and backend wheel
+          pip install ../cloaca-dispatcher
+          pip install "$wheel_file"
+
+          # Test basic functionality
+          python -c "
+          import os
+          os.environ['CLOACA_BACKEND'] = '${{ matrix.backend }}'
+          import cloaca
+          print(f'Backend: {cloaca.get_backend()}')
+          print(f'Hello: {cloaca.hello_world()}')
+          print('✓ Basic functionality test passed')
+          "
+        shell: bash
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: cloaca-backend/target/wheels/cloaca_${{ matrix.backend }}-*.whl
+          retention-days: 30
+
+  test-wheels:
+    name: Test Python Wheels
+    needs: build-wheels
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.12']  # Test oldest and newest supported versions
+        backend: [postgres, sqlite]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: wheels/
+
+      - name: Run Python integration tests
+        run: |
+          # Set up test environment with the built wheel
+          wheel_file=$(find wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
+          if [ -z "$wheel_file" ]; then
+            echo "No wheel found for cloaca_${{ matrix.backend }}"
+            exit 1
+          fi
+
+          # Create test environment
+          python -m venv test-env
+          source test-env/bin/activate || test-env\\Scripts\\activate
+
+          # Install packages
+          pip install cloaca-dispatcher/
+          pip install "$wheel_file"
+          pip install pytest pytest-asyncio
+
+          # Set backend environment variable
+          export CLOACA_BACKEND=${{ matrix.backend }}
+
+          # Run Python tests
+          pytest python-tests/tests/ -v --tb=short
+        shell: bash
+
+  # Build source distributions (sdist) for dispatcher package
+  build-sdist:
+    name: Build Source Distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build dispatcher sdist
+        working-directory: cloaca-dispatcher
+        run: python -m build --sdist
+
+      - name: Check sdist
+        working-directory: cloaca-dispatcher
+        run: twine check dist/*
+
+      - name: Upload sdist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist-dispatcher
+          path: cloaca-dispatcher/dist/*.tar.gz
+          retention-days: 30
+
+  # Comprehensive smoke test across all wheels
+  smoke-test-matrix:
+    name: Smoke Test Matrix
+    needs: build-wheels
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        backend: [postgres, sqlite]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py3.11
+          path: wheels/
+
+      - name: Run angreal smoke tests
+        run: |
+          # Install the wheel
+          wheel_file=$(find wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
+          python -m venv smoke-test
+          source smoke-test/bin/activate || smoke-test\\Scripts\\activate
+
+          pip install cloaca-dispatcher/
+          pip install "$wheel_file"
+
+          # Run angreal smoke test for this backend
+          angreal cloaca smoke --backend ${{ matrix.backend }}
+        shell: bash

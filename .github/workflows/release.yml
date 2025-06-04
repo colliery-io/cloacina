@@ -59,3 +59,11 @@ jobs:
           cargo publish -p cloacina
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-python:
+    name: Release Python Packages
+    needs: [build-check]
+    uses: ./.github/workflows/python_release.yml
+    permissions:
+      contents: read
+      id-token: write

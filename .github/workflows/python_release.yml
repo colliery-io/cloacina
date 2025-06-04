@@ -1,0 +1,229 @@
+---
+name: Python Release
+on:
+  release:
+    types: [published]
+  push:
+    branches:
+      - build**
+      - cicd-*
+      - cicd/**
+      - python-release/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build wheels for all platforms and Python versions
+  build-release-wheels:
+    name: Build Release Wheels
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        backend: [postgres, sqlite]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+
+      - name: Install maturin
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin[patchelf]
+
+      - name: Build release wheel
+        working-directory: cloaca-backend
+        run: |
+          cp pyproject-${{ matrix.backend }}.toml pyproject.toml
+          maturin build --release --no-default-features --features ${{ matrix.backend }}
+
+      - name: Upload release wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: cloaca-backend/target/wheels/cloaca_${{ matrix.backend }}-*.whl
+
+  # Build dispatcher source distribution
+  build-dispatcher-sdist:
+    name: Build Dispatcher Sdist
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build dispatcher sdist
+        working-directory: cloaca-dispatcher
+        run: python -m build --sdist
+
+      - name: Upload dispatcher sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatcher-sdist
+          path: cloaca-dispatcher/dist/*.tar.gz
+
+  # Verify all wheels work correctly
+  verify-release:
+    name: Verify Release
+    needs: [build-release-wheels, build-dispatcher-sdist]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        backend: [postgres, sqlite]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download dispatcher sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: dispatcher-sdist
+          path: dispatcher/
+
+      - name: Download backend wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: release-wheel-${{ matrix.backend }}-${{ matrix.os }}-py3.11
+          path: wheels/
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Verify release packages
+        run: |
+          # Create clean test environment
+          python -m venv verify-env
+          source verify-env/bin/activate || verify-env\\Scripts\\activate
+
+          # Install from built artifacts
+          pip install dispatcher/*.tar.gz
+          pip install wheels/cloaca_${{ matrix.backend }}-*.whl
+
+          # Run comprehensive verification
+          angreal cloaca smoke --backend ${{ matrix.backend }}
+
+          # Test import and basic functionality
+          python -c "
+          import cloaca
+          assert cloaca.get_backend() == '${{ matrix.backend }}'
+          assert cloaca.hello_world() == 'Hello from Cloaca backend!'
+          print('✓ Release verification passed for ${{ matrix.backend }}')
+          "
+        shell: bash
+
+  # Publish to PyPI (only on tagged releases)
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [verify-release]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    environment:
+      name: pypi
+      url: https://pypi.org/project/cloaca/
+    permissions:
+      id-token: write  # Required for trusted publishing
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Organize artifacts for PyPI
+        run: |
+          mkdir -p pypi-dist
+
+          # Move dispatcher sdist
+          mv dist/dispatcher-sdist/*.tar.gz pypi-dist/
+
+          # Move all backend wheels
+          find dist -name "*.whl" -exec mv {} pypi-dist/ \;
+
+          echo "Files to upload:"
+          ls -la pypi-dist/
+
+      - name: Verify package metadata
+        run: |
+          python -m pip install --upgrade pip twine
+          twine check pypi-dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi-dist/
+          verbose: true
+
+  # Create GitHub release assets
+  create-release-assets:
+    name: Create Release Assets
+    needs: [build-release-wheels, build-dispatcher-sdist]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create release archive
+        run: |
+          mkdir -p release-assets
+
+          # Create comprehensive release package
+          tar -czf release-assets/cloaca-python-wheels-${GITHUB_REF#refs/tags/}.tar.gz artifacts/
+
+          # Create platform-specific packages
+          for os in ubuntu-latest macos-latest windows-latest; do
+            mkdir -p "platform-$os"
+            find artifacts -name "*$os*" -exec cp {} "platform-$os/" \;
+            if [ "$(ls -A platform-$os)" ]; then
+              tar -czf "release-assets/cloaca-python-$os-${GITHUB_REF#refs/tags/}.tar.gz" "platform-$os/"
+            fi
+          done
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/*.tar.gz

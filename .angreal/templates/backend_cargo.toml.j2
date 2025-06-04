@@ -1,0 +1,19 @@
+[package]
+name = "cloaca-backend"
+version = "{{version}}"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Python bindings for Cloacina workflow orchestration engine"
+
+[lib]
+name = "cloaca_backend"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
+cloacina = { path = "../cloacina", default-features = false, features = ["{{backend}}"] }
+
+[features]
+default = []
+postgres = []
+sqlite = []

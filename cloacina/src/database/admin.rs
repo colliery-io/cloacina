@@ -27,6 +27,7 @@ pub use postgres_impl::*;
 #[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
+    #[allow(unused_imports)] // TODO: Check if this is needed
     use crate::PipelineError;
     use diesel::pg::PgConnection;
     use diesel::prelude::*;

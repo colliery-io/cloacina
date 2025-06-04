@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloaca"
+version = "{{version}}"
+description = "Python bindings for Cloacina - a robust workflow orchestration engine"
+readme = "README.md"
+authors = [
+    {name = "Cloacina Team", email = "team@cloacina.dev"}
+]
+license = {text = "MIT OR Apache-2.0"}
+classifiers = [
+
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+postgres = ["cloaca-postgres=={{version}}"]
+sqlite = ["cloaca-sqlite=={{version}}"]
+
+
+[project.urls]
+Homepage = "https://github.com/dstorey/cloacina"
+Repository = "https://github.com/dstorey/cloacina"
+Documentation = "https://cloacina.dev"
+Issues = "https://github.com/dstorey/cloacina/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cloaca = ["py.typed"]
+
