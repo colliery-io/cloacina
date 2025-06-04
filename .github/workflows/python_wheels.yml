@@ -77,7 +77,7 @@ jobs:
           source test-venv/bin/activate || test-venv\\Scripts\\activate
 
           # Install dispatcher and backend wheel
-          pip install ../cloaca-dispatcher
+          pip install ../cloaca
           pip install "$wheel_file"
 
           # Test basic functionality
@@ -144,7 +144,7 @@ jobs:
           source test-env/bin/activate || test-env\\Scripts\\activate
 
           # Install packages
-          pip install cloaca-dispatcher/
+          pip install cloaca/
           pip install "$wheel_file"
           pip install pytest pytest-asyncio
 
@@ -174,18 +174,18 @@ jobs:
           pip install build twine
 
       - name: Build dispatcher sdist
-        working-directory: cloaca-dispatcher
+        working-directory: cloaca
         run: python -m build --sdist
 
       - name: Check sdist
-        working-directory: cloaca-dispatcher
+        working-directory: cloaca
         run: twine check dist/*
 
       - name: Upload sdist artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sdist-dispatcher
-          path: cloaca-dispatcher/dist/*.tar.gz
+          path: cloaca/dist/*.tar.gz
           retention-days: 30
 
   # Comprehensive smoke test across all wheels

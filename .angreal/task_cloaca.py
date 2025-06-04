@@ -127,7 +127,7 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     
     # Install dispatcher package
     print("Installing dispatcher package...")
-    subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca-dispatcher")], check=True, capture_output=True)
+    subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca")], check=True, capture_output=True)
     
     # Step 3: Build and install backend wheel
     print(f"Step 3: Building and installing {backend_name} wheel...")
@@ -188,7 +188,7 @@ def generate(backend):
         # Generate dispatcher pyproject.toml
         dispatcher_template = template_dir / "dispatcher_pyproject.toml.j2"
         dispatcher_content = render_template(dispatcher_template.read_text(), {"version": version})
-        dispatcher_path = project_root / "cloaca-dispatcher" / "pyproject.toml"
+        dispatcher_path = project_root / "cloaca" / "pyproject.toml"
         
         # Generate backend Cargo.toml
         backend_template = template_dir / "backend_cargo.toml.j2"
@@ -285,7 +285,7 @@ def scrub():
         # Define cloaca-specific directories
         cloaca_dirs = [
             project_root / "cloaca-backend",
-            project_root / "cloaca-dispatcher"
+            project_root / "cloaca"
         ]
         
         for cloaca_dir in cloaca_dirs:
@@ -326,7 +326,7 @@ def scrub():
         
         # Files to clean with their template paths
         files_to_clean = {
-            project_root / "cloaca-dispatcher" / "pyproject.toml": ".angreal/templates/dispatcher_pyproject.toml.j2",
+            project_root / "cloaca" / "pyproject.toml": ".angreal/templates/dispatcher_pyproject.toml.j2",
             project_root / "cloaca-backend" / "Cargo.toml": ".angreal/templates/backend_cargo.toml.j2",
             project_root / "cloaca-backend" / "pyproject.toml": ".angreal/templates/backend_pyproject.toml.j2",
             project_root / "cloaca-backend" / "python" / "cloaca_postgres" / "__init__.py": "cloaca-backend/python/cloaca_{{backend}}/__init__.py",

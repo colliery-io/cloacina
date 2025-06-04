@@ -85,14 +85,14 @@ jobs:
           pip install build
 
       - name: Build dispatcher sdist
-        working-directory: cloaca-dispatcher
+        working-directory: cloaca
         run: python -m build --sdist
 
       - name: Upload dispatcher sdist
         uses: actions/upload-artifact@v4
         with:
           name: dispatcher-sdist
-          path: cloaca-dispatcher/dist/*.tar.gz
+          path: cloaca/dist/*.tar.gz
 
   # Verify all wheels work correctly
   verify-release:
