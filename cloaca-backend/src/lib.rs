@@ -16,6 +16,30 @@
 
 use pyo3::prelude::*;
 
+/// A simple hello world class for testing
+#[pyclass]
+pub struct HelloClass {
+    message: String,
+}
+
+#[pymethods]
+impl HelloClass {
+    #[new]
+    pub fn new() -> Self {
+        HelloClass {
+            message: "Hello from HelloClass!".to_string(),
+        }
+    }
+    
+    pub fn get_message(&self) -> String {
+        self.message.clone()
+    }
+    
+    pub fn __repr__(&self) -> String {
+        format!("HelloClass(message='{}')", self.message)
+    }
+}
+
 /// A simple hello world function for testing
 #[pyfunction]
 fn hello_world() -> String {
@@ -54,6 +78,9 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Simple test functions
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
     m.add_function(wrap_pyfunction!(get_backend, m)?)?;
+
+    // Test class
+    m.add_class::<HelloClass>()?;
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "sqlite")?;

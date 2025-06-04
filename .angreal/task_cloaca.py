@@ -157,7 +157,7 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     
     # Find and install the wheel
     wheel_pattern = f"cloaca_{backend_name}-*.whl"
-    wheel_dir = project_root / "target" / "wheels"
+    wheel_dir = backend_dir / "target" / "wheels"
     wheel_files = list(wheel_dir.glob(wheel_pattern))
     
     if not wheel_files:

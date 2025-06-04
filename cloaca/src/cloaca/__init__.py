@@ -88,6 +88,8 @@ try:
         hello_world = _backend_module.hello_world
     if hasattr(_backend_module, "get_backend"):
         get_backend = _backend_module.get_backend
+    if hasattr(_backend_module, "HelloClass"):
+        HelloClass = _backend_module.HelloClass
 
 except ImportError as import_error:
     # If no backend is available, provide helpful error message

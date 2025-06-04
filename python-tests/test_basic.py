@@ -117,3 +117,19 @@ class TestBackendFunctionality:
         # Should be callable
         assert callable(cloaca.hello_world)
         assert callable(cloaca.get_backend)
+
+    def test_hello_class_basic(self):
+        """Test basic HelloClass functionality."""
+        import cloaca
+        
+        # Test HelloClass creation
+        hello_class = cloaca.HelloClass()
+        assert hello_class is not None
+        
+        # Test method call
+        message = hello_class.get_message()
+        assert message == "Hello from HelloClass!"
+        
+        # Test string representation
+        repr_str = repr(hello_class)
+        assert "HelloClass" in repr_str
