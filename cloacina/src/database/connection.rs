@@ -16,8 +16,8 @@
 
 //! Database connection management module supporting both PostgreSQL and SQLite.
 //!
-//! This module provides a connection pool implementation using `r2d2` for managing
-//! database connections efficiently. It handles connection pooling, connection lifecycle,
+//! This module provides an async connection pool implementation using `deadpool-diesel` for managing
+//! database connections efficiently. It handles async connection pooling, connection lifecycle,
 //! and provides a thread-safe way to access database connections.
 //!
 //! # Features
@@ -50,16 +50,17 @@
 //! );
 //! ```
 
-use diesel::r2d2::{ConnectionManager, Pool};
 use tracing::info;
 
 #[cfg(feature = "postgres")]
-use diesel::r2d2::{CustomizeConnection, Error as R2D2Error};
+use deadpool_diesel::postgres::{Manager, Pool, Runtime};
 #[cfg(feature = "postgres")]
 use diesel::PgConnection;
 #[cfg(feature = "postgres")]
 use url::Url;
 
+#[cfg(feature = "sqlite")]
+use deadpool_diesel::sqlite::{Manager, Pool, Runtime};
 #[cfg(feature = "sqlite")]
 use diesel::SqliteConnection;
 
@@ -71,36 +72,19 @@ pub type DbConnection = PgConnection;
 pub type DbConnection = SqliteConnection;
 
 /// Type alias for the connection manager based on the selected backend
-pub type DbConnectionManager = ConnectionManager<DbConnection>;
+#[cfg(feature = "postgres")]
+pub type DbConnectionManager = Manager;
+
+#[cfg(feature = "sqlite")]
+pub type DbConnectionManager = Manager;
 
 /// Type alias for the connection pool
-pub type DbPool = Pool<DbConnectionManager>;
-
 #[cfg(feature = "postgres")]
-/// Connection customizer that sets the PostgreSQL search_path for schema isolation
-///
-/// This customizer is applied to each connection when it's acquired from the pool,
-/// ensuring that all database operations occur within the specified schema.
-#[derive(Debug, Clone)]
-struct SchemaCustomizer {
-    schema: Option<String>,
-}
+pub type DbPool = Pool;
 
-#[cfg(feature = "postgres")]
-impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
-    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), R2D2Error> {
-        use diesel::prelude::*;
+#[cfg(feature = "sqlite")]
+pub type DbPool = Pool;
 
-        if let Some(ref schema) = self.schema {
-            // Set search_path to the specified schema, with public as fallback for extensions
-            let sql = format!("SET search_path TO {}, public", schema);
-            diesel::sql_query(&sql)
-                .execute(conn)
-                .map_err(R2D2Error::QueryError)?;
-        }
-        Ok(())
-    }
-}
 
 /// Represents a pool of database connections.
 ///
@@ -112,7 +96,7 @@ impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
 ///
 /// The `Database` struct is `Clone` and can be safely shared between threads.
 /// Each clone references the same underlying connection pool.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Database {
     /// The actual connection pool.
     pool: DbPool,
@@ -155,10 +139,10 @@ impl Database {
         #[cfg(feature = "sqlite")]
         {
             let connection_url = Self::build_connection_url(connection_string, database_name);
-            let manager = ConnectionManager::<DbConnection>::new(connection_url);
-            let pool = Pool::builder()
-                .max_size(max_size)
-                .build(manager)
+            let manager = Manager::new(connection_url, Runtime::Tokio1);
+            let pool = Pool::builder(manager)
+                .max_size(max_size as usize)
+                .build()
                 .expect("Failed to create connection pool");
 
             info!("Database connection pool initialized");
@@ -187,15 +171,12 @@ impl Database {
         schema: Option<&str>,
     ) -> Self {
         let connection_url = Self::build_connection_url(connection_string, database_name);
-        let manager = ConnectionManager::<DbConnection>::new(connection_url);
+        let manager = Manager::new(connection_url, Runtime::Tokio1);
 
-        // Build the connection pool with schema customizer
-        let pool = Pool::builder()
-            .max_size(max_size)
-            .connection_customizer(Box::new(SchemaCustomizer {
-                schema: schema.map(String::from),
-            }))
-            .build(manager)
+        // Build the connection pool
+        let pool = Pool::builder(manager)
+            .max_size(max_size as usize)
+            .build()
             .expect("Failed to create connection pool");
 
         info!(
@@ -219,10 +200,10 @@ impl Database {
     /// # Returns
     /// * `Result<(), String>` - Success or error message
     #[cfg(feature = "postgres")]
-    pub fn setup_schema(&self, schema: &str) -> Result<(), String> {
+    pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
         use diesel::prelude::*;
 
-        let mut conn = self.pool.get().map_err(|e| e.to_string())?;
+        let mut conn = self.pool.get().await.map_err(|e| e.to_string())?;
 
         // Create schema if it doesn't exist
         let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema);

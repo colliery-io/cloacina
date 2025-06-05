@@ -14,8 +14,8 @@ categories.workspace = true
 
 [features]
 default = ["macros", "postgres"]
-postgres = ["diesel/postgres", "diesel/uuid"]
-sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35"]
+postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres"]
+sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite"]
 macros = ["cloacina-macros"]
 
 [dependencies]
@@ -33,12 +33,12 @@ aquamarine = { version = "0.6.0" }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = { version = "0.10" }
 croner = { version = "2.1.0" }
-diesel = { version = "2.1.0", features = ["r2d2", "chrono", "serde_json"] }
+deadpool-diesel = { version = "0.6", features = ["sqlite", "postgres"] }
+diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 dotenvy = { version = "0.15" }
 petgraph = { version = "0.6" }
 rand = { version = "0.8" }
-r2d2 = { version = "0.8" }
 serde = { version = "1.0", features = ["derive"] }
 serial_test = { version = "3.2.0" }
 tempfile = { version = "3.2" }

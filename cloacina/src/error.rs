@@ -143,7 +143,7 @@ pub enum ContextError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Invalid execution scope: {0}")]
     InvalidScope(String),
@@ -292,7 +292,7 @@ pub enum ValidationError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Context error: {0}")]
     Context(#[from] ContextError),
@@ -305,7 +305,7 @@ pub enum ExecutorError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Task not found in registry: {0}")]
     TaskNotFound(String),
