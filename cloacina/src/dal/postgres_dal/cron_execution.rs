@@ -34,6 +34,7 @@ use crate::error::ValidationError;
 use crate::models::cron_execution::{CronExecution, NewCronExecution};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 use uuid::Uuid;
 
 /// Data Access Layer for cron execution operations.
@@ -95,7 +96,7 @@ impl<'a> CronExecutionDAL<'a> {
 
         let execution: CronExecution = diesel::insert_into(cron_executions::table)
             .values(&new_execution)
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(execution)
     }
@@ -126,7 +127,7 @@ impl<'a> CronExecutionDAL<'a> {
                 cron_executions::pipeline_execution_id.eq(pipeline_uuid),
                 cron_executions::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -180,7 +181,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.lt(cutoff_time))
             .select(cron_executions::all_columns)
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(lost_executions)
     }
@@ -196,7 +197,7 @@ impl<'a> CronExecutionDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        let execution = cron_executions::table.find(uuid_id).first(&mut *conn)?;
+        let execution = cron_executions::table.find(uuid_id).first(&mut **conn)?;
         Ok(execution)
     }
 
@@ -226,7 +227,7 @@ impl<'a> CronExecutionDAL<'a> {
             .order(cron_executions::scheduled_time.desc())
             .limit(limit)
             .offset(offset)
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(executions)
     }
@@ -250,7 +251,7 @@ impl<'a> CronExecutionDAL<'a> {
 
         let execution = cron_executions::table
             .filter(cron_executions::pipeline_execution_id.eq(uuid_id))
-            .first(&mut *conn)
+            .first(&mut **conn)
             .optional()?;
 
         Ok(execution)
@@ -286,7 +287,7 @@ impl<'a> CronExecutionDAL<'a> {
             .order(cron_executions::scheduled_time.desc())
             .limit(limit)
             .offset(offset)
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(executions)
     }
@@ -305,7 +306,7 @@ impl<'a> CronExecutionDAL<'a> {
         let count = cron_executions::table
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .count()
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(count)
     }
@@ -334,7 +335,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .filter(cron_executions::scheduled_time.eq(scheduled_ts))
             .count()
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(count > 0)
     }
@@ -356,7 +357,7 @@ impl<'a> CronExecutionDAL<'a> {
         let execution = cron_executions::table
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .order(cron_executions::scheduled_time.desc())
-            .first(&mut *conn)
+            .first(&mut **conn)
             .optional()?;
 
         Ok(execution)
@@ -378,7 +379,7 @@ impl<'a> CronExecutionDAL<'a> {
 
         let deleted_count = diesel::delete(cron_executions::table)
             .filter(cron_executions::scheduled_time.lt(cutoff_ts))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(deleted_count)
     }
@@ -404,14 +405,14 @@ impl<'a> CronExecutionDAL<'a> {
         let total_executions = cron_executions::table
             .filter(cron_executions::claimed_at.ge(since_ts))
             .count()
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         // Get successful executions (those with pipeline executions)
         let successful_executions = cron_executions::table
             .inner_join(crate::database::schema::pipeline_executions::table)
             .filter(cron_executions::claimed_at.ge(since_ts))
             .count()
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         // Get lost executions (no pipeline execution after 10 minutes)
         let lost_cutoff = UniversalTimestamp(Utc::now() - chrono::Duration::minutes(10));
@@ -425,7 +426,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(cron_executions::claimed_at.ge(since_ts))
             .filter(cron_executions::claimed_at.lt(lost_cutoff))
             .count()
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(CronExecutionStats {
             total_executions,

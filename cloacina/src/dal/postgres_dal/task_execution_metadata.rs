@@ -33,6 +33,7 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 use uuid::Uuid;
 
 /// Data Access Layer for Task Execution Metadata
@@ -60,7 +61,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         let metadata: TaskExecutionMetadata = diesel::insert_into(task_execution_metadata::table)
             .values(&new_metadata)
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(metadata)
     }
@@ -83,7 +84,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq(task_name))
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(metadata)
     }
@@ -103,7 +104,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(metadata)
     }
@@ -130,7 +131,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::context_id.eq(context_uuid),
                 task_execution_metadata::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -159,7 +160,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::context_id.eq(&new_metadata.context_id),
                 task_execution_metadata::updated_at.eq(diesel::dsl::now),
             ))
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(metadata)
     }
@@ -182,7 +183,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(metadata)
     }
@@ -224,7 +225,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::all_columns,
                 contexts::value.nullable(),
             ))
-            .load::<(TaskExecutionMetadata, Option<String>)>(&mut *conn)?;
+            .load::<(TaskExecutionMetadata, Option<String>)>(&mut **conn)?;
 
         Ok(results)
     }

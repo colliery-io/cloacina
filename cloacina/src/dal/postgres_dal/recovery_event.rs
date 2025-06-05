@@ -20,6 +20,7 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 
 /// Data access layer for recovery event operations.
 ///
@@ -114,7 +115,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let result = diesel::insert_into(recovery_events::table)
             .values(&new_event)
             .returning(RecoveryEvent::as_returning())
-            .get_result(&mut *conn)
+            .get_result(&mut **conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to create recovery event: {}", e),
             })?;
@@ -163,7 +164,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id.0))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut *conn)
+            .load(&mut **conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -212,7 +213,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::task_execution_id.eq(task_execution_id.0))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut *conn)
+            .load(&mut **conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -257,7 +258,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::recovery_type.eq(recovery_type))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut *conn)
+            .load(&mut **conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -331,7 +332,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .order(recovery_events::recovered_at.desc())
             .limit(limit)
-            .load(&mut *conn)
+            .load(&mut **conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recent recovery events: {}", e),
             })?;

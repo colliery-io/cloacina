@@ -36,6 +36,7 @@ use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
+use std::ops::DerefMut;
 use uuid::Uuid;
 
 /// Statistics about retry behavior for a pipeline execution.
@@ -76,7 +77,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
         let task: TaskExecution = diesel::insert_into(task_executions::table)
             .values(&new_task)
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(task)
     }
@@ -97,7 +98,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.eq("NotStarted"))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(tasks)
     }
@@ -117,14 +118,14 @@ impl<'a> TaskExecutionDAL<'a> {
         // Get task info for logging before updating
         let task = task_executions::table
             .find(task_id.0)
-            .first::<TaskExecution>(&mut *conn)?;
+            .first::<TaskExecution>(&mut **conn)?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
                 task_executions::status.eq("Ready"),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         tracing::debug!(
             "Task state change: {} -> Ready (task: {}, pipeline: {})",
@@ -153,7 +154,7 @@ impl<'a> TaskExecutionDAL<'a> {
         // Get task info for logging before updating
         let task = task_executions::table
             .find(task_id.0)
-            .first::<TaskExecution>(&mut *conn)?;
+            .first::<TaskExecution>(&mut **conn)?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -161,7 +162,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::error_details.eq(reason),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         tracing::info!(
             "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
@@ -188,7 +189,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(tasks)
     }
@@ -212,7 +213,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::task_name.eq(task_name))
             .select(task_executions::status)
-            .first(&mut *conn)?;
+            .first(&mut **conn)?;
 
         Ok(status)
     }
@@ -252,7 +253,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::task_name.eq_any(&task_names))
             .select((task_executions::task_name, task_executions::status))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         let status_map: HashMap<String, String> = results.into_iter().collect();
         Ok(status_map)
@@ -288,7 +289,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let tasks: Vec<TaskExecution> = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_ids))
             .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(tasks)
     }
@@ -315,7 +316,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
             .count()
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(incomplete_count == 0)
     }
@@ -332,7 +333,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
         let orphaned_tasks = task_executions::table
             .filter(task_executions::status.eq("Running"))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(orphaned_tasks)
     }
@@ -358,7 +359,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::last_recovery_at.eq(diesel::dsl::now),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -385,7 +386,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -409,7 +410,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(task_executions::status.eq("Failed"))
             .filter(task_executions::error_details.like("ABANDONED:%"))
             .count()
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(failed_count > 0)
     }
@@ -424,7 +425,7 @@ impl<'a> TaskExecutionDAL<'a> {
     pub async fn get_by_id(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let task = task_executions::table.find(task_id.0).first(&mut *conn)?;
+        let task = task_executions::table.find(task_id.0).first(&mut **conn)?;
 
         Ok(task)
     }
@@ -443,7 +444,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     .is_null()
                     .or(task_executions::retry_at.le(diesel::dsl::now)),
             )
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(ready_tasks)
     }
@@ -474,7 +475,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::completed_at.eq(None::<NaiveDateTime>),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -494,7 +495,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-            .load::<TaskExecution>(&mut *conn)?;
+            .load::<TaskExecution>(&mut **conn)?;
 
         let mut stats = RetryStats::default();
 
@@ -533,7 +534,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let exhausted_tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.eq("Failed"))
-            .load::<TaskExecution>(&mut *conn)?
+            .load::<TaskExecution>(&mut **conn)?
             .into_iter()
             .filter(|task| task.attempt >= task.max_attempts)
             .collect();
@@ -563,7 +564,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::status.eq("Ready"),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -584,7 +585,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::completed_at.eq(diesel::dsl::now),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -611,7 +612,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::last_error.eq(error_message),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -642,7 +643,7 @@ impl<'a> TaskExecutionDAL<'a> {
             RETURNING id, pipeline_execution_id, task_name, attempt
             "#,
         )
-        .get_result(&mut *conn)
+        .get_result(&mut **conn)
         .optional()?;
 
         Ok(result)

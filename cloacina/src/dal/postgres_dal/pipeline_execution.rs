@@ -20,6 +20,7 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 
 /// Data Access Layer for managing pipeline executions in the database.
 ///
@@ -47,7 +48,7 @@ impl<'a> PipelineExecutionDAL<'a> {
 
         let execution: PipelineExecution = diesel::insert_into(pipeline_executions::table)
             .values(&new_execution)
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(execution)
     }
@@ -62,7 +63,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let execution = pipeline_executions::table.find(id).first(&mut *conn)?;
+        let execution = pipeline_executions::table.find(id).first(&mut **conn)?;
 
         Ok(execution)
     }
@@ -76,7 +77,7 @@ impl<'a> PipelineExecutionDAL<'a> {
 
         let executions = pipeline_executions::table
             .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(executions)
     }
@@ -94,7 +95,7 @@ impl<'a> PipelineExecutionDAL<'a> {
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set(pipeline_executions::status.eq(status))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -114,7 +115,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::status.eq("Completed"),
                 pipeline_executions::completed_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -133,7 +134,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
             .order(pipeline_executions::started_at.desc())
             .select(pipeline_executions::pipeline_version)
-            .first(&mut *conn)
+            .first(&mut **conn)
             .optional()?;
 
         Ok(version)
@@ -157,7 +158,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::error_details.eq(reason),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -180,7 +181,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::last_recovery_at.eq(diesel::dsl::now),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -201,7 +202,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::completed_at.eq(diesel::dsl::now),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -219,7 +220,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         let executions = pipeline_executions::table
             .order(pipeline_executions::started_at.desc())
             .limit(limit)
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(executions)
     }

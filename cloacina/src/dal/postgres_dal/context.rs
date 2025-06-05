@@ -48,6 +48,7 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ContextError;
 use crate::models::context::{DbContext, NewDbContext};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 use tracing::warn;
 use uuid::Uuid;
 

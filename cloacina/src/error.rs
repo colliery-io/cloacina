@@ -298,6 +298,12 @@ pub enum ValidationError {
     Context(#[from] ContextError),
 }
 
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ValidationError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ValidationError::ConnectionPool(err.to_string())
+    }
+}
+
 /// Errors that can occur during task execution.
 #[derive(Debug, Error)]
 pub enum ExecutorError {
@@ -333,6 +339,12 @@ pub enum ExecutorError {
 
     #[error("Validation error: {0}")]
     Validation(#[from] ValidationError),
+}
+
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ExecutorError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ExecutorError::ConnectionPool(err.to_string())
+    }
 }
 
 /// Errors that can occur during workflow construction and management.

@@ -36,6 +36,7 @@ use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 use uuid::Uuid;
 
 /// Data Access Layer for cron schedule operations.
@@ -60,7 +61,7 @@ impl<'a> CronScheduleDAL<'a> {
 
         let schedule: CronSchedule = diesel::insert_into(cron_schedules::table)
             .values(&new_schedule)
-            .get_result(&mut *conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(schedule)
     }
@@ -76,7 +77,7 @@ impl<'a> CronScheduleDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        let schedule = cron_schedules::table.find(uuid_id).first(&mut *conn)?;
+        let schedule = cron_schedules::table.find(uuid_id).first(&mut **conn)?;
         Ok(schedule)
     }
 
@@ -114,7 +115,7 @@ impl<'a> CronScheduleDAL<'a> {
                     .or(cron_schedules::end_date.ge(now_ts)),
             )
             .order(cron_schedules::next_run_at.asc())
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(schedules)
     }
@@ -148,7 +149,7 @@ impl<'a> CronScheduleDAL<'a> {
                 cron_schedules::next_run_at.eq(next_run_ts),
                 cron_schedules::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -170,7 +171,7 @@ impl<'a> CronScheduleDAL<'a> {
                 cron_schedules::enabled.eq(UniversalBool::new(true)),
                 cron_schedules::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -192,7 +193,7 @@ impl<'a> CronScheduleDAL<'a> {
                 cron_schedules::enabled.eq(UniversalBool::new(false)),
                 cron_schedules::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -208,7 +209,7 @@ impl<'a> CronScheduleDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        diesel::delete(cron_schedules::table.find(uuid_id)).execute(&mut *conn)?;
+        diesel::delete(cron_schedules::table.find(uuid_id)).execute(&mut **conn)?;
         Ok(())
     }
 
@@ -239,7 +240,7 @@ impl<'a> CronScheduleDAL<'a> {
             .order(cron_schedules::workflow_name.asc())
             .limit(limit)
             .offset(offset)
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(schedules)
     }
@@ -260,7 +261,7 @@ impl<'a> CronScheduleDAL<'a> {
         let schedules = cron_schedules::table
             .filter(cron_schedules::workflow_name.eq(workflow_name))
             .order(cron_schedules::created_at.desc())
-            .load(&mut *conn)?;
+            .load(&mut **conn)?;
 
         Ok(schedules)
     }
@@ -290,7 +291,7 @@ impl<'a> CronScheduleDAL<'a> {
                 cron_schedules::next_run_at.eq(next_run_ts),
                 cron_schedules::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -345,7 +346,7 @@ impl<'a> CronScheduleDAL<'a> {
                 cron_schedules::next_run_at.eq(next_run_ts),
                 cron_schedules::updated_at.eq(now_ts),
             ))
-            .execute(&mut *conn)?;
+            .execute(&mut **conn)?;
 
         // Return true if exactly one row was updated (successful claim)
         Ok(updated_rows == 1)
@@ -367,7 +368,7 @@ impl<'a> CronScheduleDAL<'a> {
             query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
         }
 
-        let count = query.count().first(&mut *conn)?;
+        let count = query.count().first(&mut **conn)?;
         Ok(count)
     }
 }
