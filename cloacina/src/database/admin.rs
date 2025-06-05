@@ -27,8 +27,8 @@ pub use postgres_impl::*;
 #[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
-    use crate::PipelineError;
     use diesel::pg::PgConnection;
+    use std::ops::DerefMut;
     use diesel::prelude::*;
     use rand::Rng;
 
@@ -66,7 +66,7 @@ mod postgres_impl {
         Database(#[from] diesel::result::Error),
 
         #[error("Connection pool error: {0}")]
-        Pool(#[from] diesel::r2d2::PoolError),
+        Pool(#[from] deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>),
 
         #[error("SQL execution error: {message}")]
         SqlExecution { message: String },
@@ -85,7 +85,7 @@ mod postgres_impl {
         ///
         /// If `tenant_config.password` is empty, a secure 32-character password will be auto-generated.
         /// Returns the tenant credentials for distribution to the tenant.
-        pub fn create_tenant(
+        pub async fn create_tenant(
             &self,
             tenant_config: TenantConfig,
         ) -> Result<TenantCredentials, AdminError> {
@@ -108,10 +108,10 @@ mod postgres_impl {
                 tenant_config.password.clone() // Use admin-provided password
             };
 
-            let mut conn = self.database.pool().get()?;
+            let mut conn = self.database.pool().get().await?;
 
             // Execute all tenant setup SQL in a transaction
-            conn.transaction::<(), AdminError, _>(|conn| {
+            conn.deref_mut().transaction::<(), AdminError, _>(|conn| {
                 // 1. Create schema
                 self.create_schema(conn, &tenant_config.schema_name)?;
 
@@ -145,10 +145,10 @@ mod postgres_impl {
         /// Remove a tenant (user + schema)
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
-        pub fn remove_tenant(&self, schema_name: &str, username: &str) -> Result<(), AdminError> {
-            let mut conn = self.database.pool().get()?;
+        pub async fn remove_tenant(&self, schema_name: &str, username: &str) -> Result<(), AdminError> {
+            let mut conn = self.database.pool().get().await?;
 
-            conn.transaction::<(), AdminError, _>(|conn| {
+            conn.deref_mut().transaction::<(), AdminError, _>(|conn| {
                 // 1. Revoke permissions
                 self.revoke_schema_permissions(conn, schema_name, username)?;
 

@@ -17,6 +17,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
+use std::ops::DerefMut;
 use tokio::sync::{broadcast, watch, RwLock};
 use uuid::Uuid;
 
@@ -282,6 +283,7 @@ impl DefaultRunnerBuilder {
         if let Some(ref schema) = self.schema {
             database
                 .setup_schema(schema)
+                .await
                 .map_err(|e| PipelineError::Configuration {
                     message: format!("Failed to set up schema '{}': {}", schema, e),
                 })?;
@@ -291,10 +293,11 @@ impl DefaultRunnerBuilder {
                 database
                     .pool()
                     .get()
+                    .await
                     .map_err(|e| PipelineError::DatabaseConnection {
                         message: e.to_string(),
                     })?;
-            crate::database::run_migrations(&mut conn).map_err(|e| {
+            crate::database::run_migrations(conn.deref_mut()).map_err(|e| {
                 PipelineError::DatabaseConnection {
                     message: e.to_string(),
                 }
@@ -440,10 +443,11 @@ impl DefaultRunner {
                 database
                     .pool()
                     .get()
+                    .await
                     .map_err(|e| PipelineError::DatabaseConnection {
                         message: e.to_string(),
                     })?;
-            crate::database::run_migrations(&mut conn).map_err(|e| {
+            crate::database::run_migrations(conn.deref_mut()).map_err(|e| {
                 PipelineError::DatabaseConnection {
                     message: e.to_string(),
                 }

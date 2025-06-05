@@ -102,11 +102,11 @@ impl<'a> RecoveryEventDAL<'a> {
     /// };
     /// let event = recovery_dal.create(new_event)?;
     /// ```
-    pub fn create(&self, new_event: NewRecoveryEvent) -> Result<RecoveryEvent, ValidationError> {
+    pub async fn create(&self, new_event: NewRecoveryEvent) -> Result<RecoveryEvent, ValidationError> {
         let mut conn = self
             .dal
             .pool
-            .get()
+            .get().await
             .map_err(|e| ValidationError::DatabaseConnection {
                 message: format!("Failed to get connection: {}", e),
             })?;
@@ -114,7 +114,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let result = diesel::insert_into(recovery_events::table)
             .values(&new_event)
             .returning(RecoveryEvent::as_returning())
-            .get_result(&mut conn)
+            .get_result(&mut *conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to create recovery event: {}", e),
             })?;
@@ -148,14 +148,14 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Recovery at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub fn get_by_pipeline(
+    pub async fn get_by_pipeline(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal
             .pool
-            .get()
+            .get().await
             .map_err(|e| ValidationError::DatabaseConnection {
                 message: format!("Failed to get connection: {}", e),
             })?;
@@ -163,7 +163,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id.0))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut conn)
+            .load(&mut *conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -197,14 +197,14 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Task recovery at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub fn get_by_task(
+    pub async fn get_by_task(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal
             .pool
-            .get()
+            .get().await
             .map_err(|e| ValidationError::DatabaseConnection {
                 message: format!("Failed to get connection: {}", e),
             })?;
@@ -212,7 +212,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::task_execution_id.eq(task_execution_id.0))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut conn)
+            .load(&mut *conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -245,11 +245,11 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Workflow unavailable at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub fn get_by_type(&self, recovery_type: &str) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub async fn get_by_type(&self, recovery_type: &str) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal
             .pool
-            .get()
+            .get().await
             .map_err(|e| ValidationError::DatabaseConnection {
                 message: format!("Failed to get connection: {}", e),
             })?;
@@ -257,7 +257,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .filter(recovery_events::recovery_type.eq(recovery_type))
             .order(recovery_events::recovered_at.desc())
-            .load(&mut conn)
+            .load(&mut *conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })?;
@@ -289,7 +289,7 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Workflow unavailable at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub fn get_workflow_unavailable_events(&self) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub async fn get_workflow_unavailable_events(&self) -> Result<Vec<RecoveryEvent>, ValidationError> {
         self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str())
     }
 
@@ -319,11 +319,11 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Recent recovery at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let mut conn = self
             .dal
             .pool
-            .get()
+            .get().await
             .map_err(|e| ValidationError::DatabaseConnection {
                 message: format!("Failed to get connection: {}", e),
             })?;
@@ -331,7 +331,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let events = recovery_events::table
             .order(recovery_events::recovered_at.desc())
             .limit(limit)
-            .load(&mut conn)
+            .load(&mut *conn)
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recent recovery events: {}", e),
             })?;

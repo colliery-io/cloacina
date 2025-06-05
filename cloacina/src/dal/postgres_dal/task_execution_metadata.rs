@@ -52,15 +52,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The created metadata record or an error
-    pub fn create(
+    pub async fn create(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let metadata: TaskExecutionMetadata = diesel::insert_into(task_execution_metadata::table)
             .values(&new_metadata)
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(metadata)
     }
@@ -73,17 +73,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
-    pub fn get_by_pipeline_and_task(
+    pub async fn get_by_pipeline_and_task(
         &self,
         pipeline_id: UniversalUuid,
         task_name: &str,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq(task_name))
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(metadata)
     }
@@ -95,15 +95,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
-    pub fn get_by_task_execution(
+    pub async fn get_by_task_execution(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(metadata)
     }
@@ -116,12 +116,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn update_context_id(
+    pub async fn update_context_id(
         &self,
         task_execution_id: UniversalUuid,
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let context_uuid: Option<Uuid> = context_id.map(|id| id.into());
         diesel::update(task_execution_metadata::table)
@@ -130,7 +130,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::context_id.eq(context_uuid),
                 task_execution_metadata::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -145,11 +145,11 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The created/updated metadata record or an error
-    pub fn upsert_task_execution_metadata(
+    pub async fn upsert_task_execution_metadata(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let metadata: TaskExecutionMetadata = diesel::insert_into(task_execution_metadata::table)
             .values(&new_metadata)
@@ -159,7 +159,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::context_id.eq(&new_metadata.context_id),
                 task_execution_metadata::updated_at.eq(diesel::dsl::now),
             ))
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(metadata)
     }
@@ -172,17 +172,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecutionMetadata>, ValidationError>` - Vector of metadata records or an error
-    pub fn get_dependency_metadata(
+    pub async fn get_dependency_metadata(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let metadata = task_execution_metadata::table
             .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
             .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(metadata)
     }
@@ -201,7 +201,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Performance
     /// This method replaces N+1 queries (1 for metadata + N for contexts) with a single JOIN query.
-    pub fn get_dependency_metadata_with_contexts(
+    pub async fn get_dependency_metadata_with_contexts(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
@@ -212,7 +212,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let results = task_execution_metadata::table
             .left_join(
@@ -224,7 +224,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 task_execution_metadata::all_columns,
                 contexts::value.nullable(),
             ))
-            .load::<(TaskExecutionMetadata, Option<String>)>(&mut conn)?;
+            .load::<(TaskExecutionMetadata, Option<String>)>(&mut *conn)?;
 
         Ok(results)
     }

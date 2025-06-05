@@ -39,15 +39,15 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<PipelineExecution, ValidationError>` - The created pipeline execution or an error
-    pub fn create(
+    pub async fn create(
         &self,
         new_execution: NewPipelineExecution,
     ) -> Result<PipelineExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let execution: PipelineExecution = diesel::insert_into(pipeline_executions::table)
             .values(&new_execution)
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(execution)
     }
@@ -59,10 +59,10 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<PipelineExecution, ValidationError>` - The pipeline execution or an error if not found
-    pub fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
-        let execution = pipeline_executions::table.find(id).first(&mut conn)?;
+        let execution = pipeline_executions::table.find(id).first(&mut *conn)?;
 
         Ok(execution)
     }
@@ -71,12 +71,12 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<PipelineExecution>, ValidationError>` - Vector of active pipeline executions
-    pub fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let executions = pipeline_executions::table
             .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(executions)
     }
@@ -89,12 +89,12 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn update_status(&self, id: UniversalUuid, status: &str) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn update_status(&self, id: UniversalUuid, status: &str) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set(pipeline_executions::status.eq(status))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -106,15 +106,15 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set((
                 pipeline_executions::status.eq("Completed"),
                 pipeline_executions::completed_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -126,14 +126,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Option<String>, ValidationError>` - The most recent version string or None if no executions exist
-    pub fn get_last_version(&self, pipeline_name: &str) -> Result<Option<String>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_last_version(&self, pipeline_name: &str) -> Result<Option<String>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let version: Option<String> = pipeline_executions::table
             .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
             .order(pipeline_executions::started_at.desc())
             .select(pipeline_executions::pipeline_version)
-            .first(&mut conn)
+            .first(&mut *conn)
             .optional()?;
 
         Ok(version)
@@ -147,8 +147,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_failed(&self, id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn mark_failed(&self, id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set((
@@ -157,7 +157,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::error_details.eq(reason),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -170,8 +170,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn increment_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn increment_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set((
@@ -180,7 +180,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::last_recovery_at.eq(diesel::dsl::now),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -192,8 +192,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(pipeline_executions::table.find(id.0))
             .set((
@@ -201,7 +201,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 pipeline_executions::completed_at.eq(diesel::dsl::now),
                 pipeline_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -213,13 +213,13 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<PipelineExecution>, ValidationError>` - Vector of recent pipeline executions
-    pub fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let executions = pipeline_executions::table
             .order(pipeline_executions::started_at.desc())
             .limit(limit)
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(executions)
     }

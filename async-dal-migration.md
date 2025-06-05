@@ -117,13 +117,20 @@ No Python bindings or boundary layer work will be done in this branch. The goal 
 - **Target pattern**: `let mut conn = self.dal.pool.get().await?;` (async)
 - **Connection pool**: `diesel::r2d2::Pool` → `deadpool_diesel::Pool`
 
-### In Progress 🔄
-- [ ] Replace r2d2 with deadpool for async connection pooling
+### In Progress 🔄  
+- [ ] Fix remaining deadpool-diesel compatibility issues
+- [ ] Fix remaining async conversion errors in admin.rs, types.rs
+
+### Completed ✅
+- [x] Replace r2d2 with deadpool for async connection pooling
+- [x] Connection pool migration (Phase 1.1)
+- [x] DAL method signatures update (Phase 1.2)  
+- [x] DAL implementations converted to async (Phase 1.3)
+- [x] Service layer async conversion (Phase 2)
+- [x] Core deadpool connection dereferencing pattern established
 
 ### Pending ⏳
-- [ ] Connection pool migration
-- [ ] DAL method signatures update
-- [ ] Caller updates
+- [ ] Complete remaining file async conversions
 - [ ] Testing and validation
 - [ ] Python bindings simplification
 

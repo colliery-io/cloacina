@@ -71,12 +71,12 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecution, ValidationError>` - The created task execution record
-    pub fn create(&self, new_task: NewTaskExecution) -> Result<TaskExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn create(&self, new_task: NewTaskExecution) -> Result<TaskExecution, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let task: TaskExecution = diesel::insert_into(task_executions::table)
             .values(&new_task)
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(task)
     }
@@ -88,16 +88,16 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of pending tasks
-    pub fn get_pending_tasks(
+    pub async fn get_pending_tasks(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.eq("NotStarted"))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(tasks)
     }
@@ -111,20 +111,20 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         // Get task info for logging before updating
         let task = task_executions::table
             .find(task_id.0)
-            .first::<TaskExecution>(&mut conn)?;
+            .first::<TaskExecution>(&mut *conn)?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
                 task_executions::status.eq("Ready"),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         tracing::debug!(
             "Task state change: {} -> Ready (task: {}, pipeline: {})",
@@ -143,17 +143,17 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_skipped(
+    pub async fn mark_skipped(
         &self,
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Get task info for logging before updating
         let task = task_executions::table
             .find(task_id.0)
-            .first::<TaskExecution>(&mut conn)?;
+            .first::<TaskExecution>(&mut *conn)?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -161,7 +161,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::error_details.eq(reason),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         tracing::info!(
             "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
@@ -180,15 +180,15 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of all tasks
-    pub fn get_all_tasks_for_pipeline(
+    pub async fn get_all_tasks_for_pipeline(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(tasks)
     }
@@ -201,18 +201,18 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<String, ValidationError>` - Current status of the task
-    pub fn get_task_status(
+    pub async fn get_task_status(
         &self,
         pipeline_execution_id: UniversalUuid,
         task_name: &str,
     ) -> Result<String, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let status: String = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::task_name.eq(task_name))
             .select(task_executions::status)
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(status)
     }
@@ -235,7 +235,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// let statuses = dal.task_execution().get_task_statuses_batch(pipeline_id, task_names)?;
     /// let task1_status = statuses.get("task1");
     /// ```
-    pub fn get_task_statuses_batch(
+    pub async fn get_task_statuses_batch(
         &self,
         pipeline_execution_id: UniversalUuid,
         task_names: Vec<String>,
@@ -246,13 +246,13 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(HashMap::new());
         }
 
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let results: Vec<(String, String)> = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::task_name.eq_any(&task_names))
             .select((task_executions::task_name, task_executions::status))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         let status_map: HashMap<String, String> = results.into_iter().collect();
         Ok(status_map)
@@ -271,7 +271,7 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Performance
     /// This replaces N individual queries (one per pipeline) with a single batch query.
-    pub fn get_pending_tasks_batch(
+    pub async fn get_pending_tasks_batch(
         &self,
         pipeline_execution_ids: Vec<UniversalUuid>,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
@@ -279,7 +279,7 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let pipeline_ids: Vec<Uuid> = pipeline_execution_ids
             .into_iter()
@@ -288,7 +288,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let tasks: Vec<TaskExecution> = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_ids))
             .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(tasks)
     }
@@ -305,17 +305,17 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<bool, ValidationError>` - True if pipeline is complete
-    pub fn check_pipeline_completion(
+    pub async fn check_pipeline_completion(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let incomplete_count: i64 = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
             .count()
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(incomplete_count == 0)
     }
@@ -327,12 +327,12 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of orphaned tasks
-    pub fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let orphaned_tasks = task_executions::table
             .filter(task_executions::status.eq("Running"))
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(orphaned_tasks)
     }
@@ -347,8 +347,8 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn reset_task_for_recovery(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn reset_task_for_recovery(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -358,7 +358,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::last_recovery_at.eq(diesel::dsl::now),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -371,12 +371,12 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_abandoned(
+    pub async fn mark_abandoned(
         &self,
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -385,7 +385,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -397,11 +397,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<bool, ValidationError>` - True if pipeline should be marked as failed
-    pub fn check_pipeline_failure(
+    pub async fn check_pipeline_failure(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Check if any tasks are permanently failed (abandoned)
         let failed_count: i64 = task_executions::table
@@ -409,7 +409,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .filter(task_executions::status.eq("Failed"))
             .filter(task_executions::error_details.like("ABANDONED:%"))
             .count()
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(failed_count > 0)
     }
@@ -421,10 +421,10 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<TaskExecution, ValidationError>` - The task execution record
-    pub fn get_by_id(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_by_id(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
-        let task = task_executions::table.find(task_id.0).first(&mut conn)?;
+        let task = task_executions::table.find(task_id.0).first(&mut *conn)?;
 
         Ok(task)
     }
@@ -433,8 +433,8 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of tasks ready for retry
-    pub fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         let ready_tasks = task_executions::table
             .filter(task_executions::status.eq("Ready"))
@@ -443,7 +443,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     .is_null()
                     .or(task_executions::retry_at.le(diesel::dsl::now)),
             )
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(ready_tasks)
     }
@@ -457,13 +457,13 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn schedule_retry(
+    pub async fn schedule_retry(
         &self,
         task_id: UniversalUuid,
         retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -474,7 +474,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::completed_at.eq(None::<NaiveDateTime>),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -486,15 +486,15 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<RetryStats, ValidationError>` - Statistics about retry behavior
-    pub fn get_retry_stats(
+    pub async fn get_retry_stats(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         let tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-            .load::<TaskExecution>(&mut conn)?;
+            .load::<TaskExecution>(&mut *conn)?;
 
         let mut stats = RetryStats::default();
 
@@ -523,17 +523,17 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of exhausted tasks
-    pub fn get_exhausted_retry_tasks(
+    pub async fn get_exhausted_retry_tasks(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Use a more explicit query to avoid type inference issues
         let exhausted_tasks = task_executions::table
             .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
             .filter(task_executions::status.eq("Failed"))
-            .load::<TaskExecution>(&mut conn)?
+            .load::<TaskExecution>(&mut *conn)?
             .into_iter()
             .filter(|task| task.attempt >= task.max_attempts)
             .collect();
@@ -550,8 +550,8 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -563,7 +563,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::status.eq("Ready"),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -575,8 +575,8 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -584,7 +584,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::completed_at.eq(diesel::dsl::now),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -597,12 +597,12 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn mark_failed(
+    pub async fn mark_failed(
         &self,
         task_id: UniversalUuid,
         error_message: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -611,7 +611,7 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::last_error.eq(error_message),
                 task_executions::updated_at.eq(diesel::dsl::now),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -623,8 +623,8 @@ impl<'a> TaskExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
-    pub fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
 
         // Atomic claim using FOR UPDATE SKIP LOCKED
         let result: Option<ClaimResult> = diesel::sql_query(
@@ -642,7 +642,7 @@ impl<'a> TaskExecutionDAL<'a> {
             RETURNING id, pipeline_execution_id, task_name, attempt
             "#,
         )
-        .get_result(&mut conn)
+        .get_result(&mut *conn)
         .optional()?;
 
         Ok(result)
