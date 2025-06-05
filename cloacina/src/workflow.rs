@@ -550,6 +550,62 @@ impl Workflow {
         Ok(())
     }
 
+    /// Add a boxed task to the Workflow
+    ///
+    /// This method accepts an already-boxed task, which is useful for dynamic
+    /// task registration scenarios (like Python bindings) where tasks are
+    /// stored as trait objects in registries.
+    ///
+    /// # Arguments
+    ///
+    /// * `task` - Boxed task to add
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the task was added successfully
+    /// * `Err(WorkflowError)` - If the task ID is duplicate
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use cloacina::*;
+    /// # use async_trait::async_trait;
+    /// # struct MyTask;
+    /// # #[async_trait]
+    /// # impl Task for MyTask {
+    /// #     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
+    /// #     fn id(&self) -> &str { "my_task" }
+    /// #     fn dependencies(&self) -> &[String] { &[] }
+    /// # }
+    /// let mut workflow = Workflow::new("test_workflow");
+    /// let boxed_task: Box<dyn Task> = Box::new(MyTask);
+    ///
+    /// workflow.add_boxed_task(boxed_task)?;
+    /// assert!(workflow.get_task("my_task").is_some());
+    /// # Ok::<(), WorkflowError>(())
+    /// ```
+    pub fn add_boxed_task(&mut self, task: Box<dyn Task>) -> Result<(), WorkflowError> {
+        let task_id = task.id().to_string();
+
+        // Check for duplicate task ID
+        if self.tasks.contains_key(&task_id) {
+            return Err(WorkflowError::DuplicateTask(task_id));
+        }
+
+        // Add task to dependency graph
+        self.dependency_graph.add_node(task_id.clone());
+
+        // Add dependencies
+        for dep in task.dependencies() {
+            self.dependency_graph.add_edge(task_id.clone(), dep.clone());
+        }
+
+        // Store the task (already boxed)
+        self.tasks.insert(task_id, task);
+
+        Ok(())
+    }
+
     /// Validate the Workflow structure
     ///
     /// Checks for:
@@ -1451,5 +1507,111 @@ mod tests {
 
         // Versions should be different due to different fingerprints
         assert_ne!(workflow1.metadata().version, workflow2.metadata().version);
+    }
+
+    #[test]
+    fn test_workflow_add_boxed_task() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let task: Box<dyn Task> = Box::new(TestTask::new("boxed_task", vec![]));
+
+        // Test adding a boxed task
+        assert!(workflow.add_boxed_task(task).is_ok());
+        assert!(workflow.get_task("boxed_task").is_some());
+    }
+
+    #[test]
+    fn test_workflow_add_boxed_task_with_dependencies() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        
+        // Add first task
+        let task1: Box<dyn Task> = Box::new(TestTask::new("task1", vec![]));
+        workflow.add_boxed_task(task1).unwrap();
+        
+        // Add second task that depends on first
+        let task2: Box<dyn Task> = Box::new(TestTask::new("task2", vec!["task1"]));
+        workflow.add_boxed_task(task2).unwrap();
+
+        // Verify both tasks are present
+        assert!(workflow.get_task("task1").is_some());
+        assert!(workflow.get_task("task2").is_some());
+        
+        // Verify dependencies
+        let deps = workflow.get_dependencies("task2").unwrap();
+        assert_eq!(deps, &["task1"]);
+        
+        // Verify topological sort works
+        let sorted = workflow.topological_sort().unwrap();
+        let pos1 = sorted.iter().position(|x| x == "task1").unwrap();
+        let pos2 = sorted.iter().position(|x| x == "task2").unwrap();
+        assert!(pos1 < pos2);
+    }
+
+    #[test]
+    fn test_workflow_add_boxed_task_duplicate_id() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        
+        // Add first task
+        let task1: Box<dyn Task> = Box::new(TestTask::new("duplicate_id", vec![]));
+        workflow.add_boxed_task(task1).unwrap();
+        
+        // Try to add second task with same ID
+        let task2: Box<dyn Task> = Box::new(TestTask::new("duplicate_id", vec![]));
+        let result = workflow.add_boxed_task(task2);
+        
+        // Should fail with duplicate task error
+        assert!(matches!(result, Err(WorkflowError::DuplicateTask(_))));
+    }
+
+    #[test]
+    fn test_workflow_add_boxed_task_vs_regular_task() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        
+        // Add regular task
+        let regular_task = TestTask::new("regular", vec![]);
+        workflow.add_task(regular_task).unwrap();
+        
+        // Add boxed task
+        let boxed_task: Box<dyn Task> = Box::new(TestTask::new("boxed", vec!["regular"]));
+        workflow.add_boxed_task(boxed_task).unwrap();
+        
+        // Both should work together
+        assert!(workflow.get_task("regular").is_some());
+        assert!(workflow.get_task("boxed").is_some());
+        
+        // Verify validation passes
+        assert!(workflow.validate().is_ok());
+        
+        // Verify topological sort includes both
+        let sorted = workflow.topological_sort().unwrap();
+        assert!(sorted.contains(&"regular".to_string()));
+        assert!(sorted.contains(&"boxed".to_string()));
+    }
+
+    #[test]
+    fn test_workflow_add_boxed_task_missing_dependency() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        
+        // Add task with non-existent dependency
+        let task: Box<dyn Task> = Box::new(TestTask::new("task_with_missing_dep", vec!["nonexistent"]));
+        workflow.add_boxed_task(task).unwrap();
+        
+        // Should be added successfully (dependency checking happens at validation)
+        assert!(workflow.get_task("task_with_missing_dep").is_some());
+        
+        // But validation should fail
+        assert!(matches!(
+            workflow.validate(),
+            Err(ValidationError::MissingDependency { .. })
+        ));
     }
 }

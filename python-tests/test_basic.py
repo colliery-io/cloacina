@@ -563,3 +563,240 @@ class TestBackendFunctionality:
         assert callable(task1)
         assert callable(task2)
         assert callable(task3)
+
+    def test_workflow_builder_creation(self):
+        """Test WorkflowBuilder creation and basic functionality."""
+        import cloaca
+        
+        # Test that WorkflowBuilder is available
+        assert hasattr(cloaca, "WorkflowBuilder")
+        assert callable(cloaca.WorkflowBuilder)
+        
+        # Test basic creation
+        builder = cloaca.WorkflowBuilder("test_workflow")
+        assert builder is not None
+        
+    def test_workflow_builder_description(self):
+        """Test WorkflowBuilder description setting."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("test_workflow")
+        builder.description("This is a test workflow")
+        # No return value to test, just ensure it doesn't raise
+        
+    def test_workflow_builder_tags(self):
+        """Test WorkflowBuilder tag functionality."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("test_workflow")
+        builder.tag("environment", "test")
+        builder.tag("team", "backend")
+        # No return value to test, just ensure it doesn't raise
+        
+    def test_workflow_builder_build_empty(self):
+        """Test building an empty workflow (no tasks)."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("empty_workflow")
+        builder.description("An empty test workflow")
+        builder.tag("type", "test")
+        
+        # Should be able to build empty workflow
+        workflow = builder.build()
+        assert workflow is not None
+        
+        # Test workflow properties
+        assert workflow.name == "empty_workflow"
+        assert workflow.description == "An empty test workflow"
+        assert isinstance(workflow.version, str)
+        assert len(workflow.version) > 0
+        
+    def test_workflow_builder_add_task_missing(self):
+        """Test that adding non-existent task fails appropriately."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("test_workflow")
+        
+        # Should fail when trying to add non-existent task
+        try:
+            builder.add_task("nonexistent_task")
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "not found in registry" in str(e)
+            
+    def test_workflow_builder_build_with_tasks_success(self):
+        """Test successful workflow building with tasks."""
+        import cloaca
+        
+        # First register a task
+        @cloaca.task(id="test_task_for_workflow")
+        def test_task(context):
+            return context
+            
+        builder = cloaca.WorkflowBuilder("task_workflow")
+        
+        # Add the task
+        builder.add_task("test_task_for_workflow")
+        
+        # Building should now succeed
+        workflow = builder.build()
+        assert workflow is not None
+        assert workflow.name == "task_workflow"
+        
+        # Should have one task
+        topo = workflow.topological_sort()
+        assert len(topo) == 1
+        assert "test_task_for_workflow" in topo
+
+    def test_workflow_builder_with_dependencies(self):
+        """Test workflow building with task dependencies."""
+        import cloaca
+        
+        # Register tasks with dependencies
+        @cloaca.task(id="extract_data")
+        def extract_data(context):
+            context.set("data_extracted", True)
+            return context
+            
+        @cloaca.task(id="transform_data", dependencies=["extract_data"])
+        def transform_data(context):
+            context.set("data_transformed", True)
+            return context
+            
+        @cloaca.task(id="load_data", dependencies=["transform_data"])
+        def load_data(context):
+            context.set("data_loaded", True)
+            return context
+            
+        # Build workflow with all tasks
+        builder = cloaca.WorkflowBuilder("etl_workflow")
+        builder.description("ETL pipeline workflow")
+        builder.tag("type", "etl")
+        builder.add_task("extract_data")
+        builder.add_task("transform_data")
+        builder.add_task("load_data")
+        
+        workflow = builder.build()
+        assert workflow is not None
+        assert workflow.name == "etl_workflow"
+        assert workflow.description == "ETL pipeline workflow"
+        
+        # Check topological ordering
+        topo = workflow.topological_sort()
+        assert len(topo) == 3
+        
+        # extract_data should come before transform_data
+        extract_pos = topo.index("extract_data")
+        transform_pos = topo.index("transform_data")
+        load_pos = topo.index("load_data")
+        
+        assert extract_pos < transform_pos
+        assert transform_pos < load_pos
+        
+        # Test execution levels
+        levels = workflow.get_execution_levels()
+        assert len(levels) == 3  # Three sequential levels
+        assert levels[0] == ["extract_data"]
+        assert levels[1] == ["transform_data"]
+        assert levels[2] == ["load_data"]
+            
+    def test_workflow_properties(self):
+        """Test Workflow object properties and methods."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("property_test")
+        builder.description("Test workflow properties")
+        workflow = builder.build()
+        
+        # Test basic properties
+        assert workflow.name == "property_test"
+        assert workflow.description == "Test workflow properties"
+        assert isinstance(workflow.version, str)
+        
+        # Test validation (empty workflow should fail validation)
+        try:
+            workflow.validate()
+            assert False, "Empty workflow should fail validation"
+        except ValueError as e:
+            assert "cannot be empty" in str(e)
+        
+        # Test topological sort (empty workflow should fail)
+        try:
+            topo = workflow.topological_sort()
+            assert False, "Empty workflow should fail topological sort"
+        except ValueError as e:
+            assert "cannot be empty" in str(e)
+        
+        # Test execution levels (empty workflow should fail)
+        try:
+            levels = workflow.get_execution_levels()
+            assert False, "Empty workflow should fail execution levels"
+        except ValueError as e:
+            assert "cannot be empty" in str(e)
+        
+        # Test roots and leaves (should work even for empty workflow)
+        roots = workflow.get_roots()
+        leaves = workflow.get_leaves()
+        assert isinstance(roots, list)
+        assert isinstance(leaves, list)
+        assert len(roots) == 0
+        assert len(leaves) == 0
+        
+    def test_workflow_parallel_task_check(self):
+        """Test workflow can_run_parallel method."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("parallel_test")
+        workflow = builder.build()
+        
+        # For empty workflow, all task checks should return True (no constraints)
+        # But since tasks don't exist, this might behave differently
+        # Just test the method exists and is callable
+        result = workflow.can_run_parallel("task1", "task2")
+        assert isinstance(result, bool)
+        
+    def test_workflow_string_representation(self):
+        """Test Workflow string representation."""
+        import cloaca
+        
+        builder = cloaca.WorkflowBuilder("repr_test")
+        workflow = builder.build()
+        
+        repr_str = repr(workflow)
+        assert isinstance(repr_str, str)
+        assert "Workflow" in repr_str
+        assert "repr_test" in repr_str
+        
+    def test_workflow_version_consistency(self):
+        """Test that identical workflows have identical versions."""
+        import cloaca
+        
+        # Create two identical workflows
+        builder1 = cloaca.WorkflowBuilder("version_test")
+        builder1.description("Test description")
+        builder1.tag("env", "test")
+        workflow1 = builder1.build()
+        
+        builder2 = cloaca.WorkflowBuilder("version_test")
+        builder2.description("Test description")
+        builder2.tag("env", "test")
+        workflow2 = builder2.build()
+        
+        # Should have the same version (content-based)
+        assert workflow1.version == workflow2.version
+        
+    def test_workflow_version_changes(self):
+        """Test that different workflows have different versions."""
+        import cloaca
+        
+        # Create two different workflows
+        builder1 = cloaca.WorkflowBuilder("version_test")
+        builder1.description("First description")
+        workflow1 = builder1.build()
+        
+        builder2 = cloaca.WorkflowBuilder("version_test")
+        builder2.description("Second description")
+        workflow2 = builder2.build()
+        
+        # Should have different versions
+        assert workflow1.version != workflow2.version

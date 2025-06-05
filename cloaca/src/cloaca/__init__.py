@@ -96,6 +96,14 @@ try:
         DefaultRunnerConfig = _backend_module.DefaultRunnerConfig
     if hasattr(_backend_module, "task"):
         task = _backend_module.task
+    if hasattr(_backend_module, "WorkflowBuilder"):
+        WorkflowBuilder = _backend_module.WorkflowBuilder
+    if hasattr(_backend_module, "Workflow"):
+        Workflow = _backend_module.Workflow
+    if hasattr(_backend_module, "DefaultRunner"):
+        DefaultRunner = _backend_module.DefaultRunner
+    if hasattr(_backend_module, "PipelineResult"):
+        PipelineResult = _backend_module.PipelineResult
 
 except ImportError as import_error:
     # If no backend is available, provide helpful error message

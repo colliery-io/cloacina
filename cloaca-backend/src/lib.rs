@@ -18,9 +18,13 @@ use pyo3::prelude::*;
 
 mod context;
 mod task;
+mod workflow;
+mod runner;
 
 use context::{PyContext, PyDefaultRunnerConfig};
 use task::task as task_decorator;
+use workflow::{PyWorkflowBuilder, PyWorkflow};
+use runner::{PyDefaultRunner, PyPipelineResult};
 
 /// A simple hello world class for testing
 #[pyclass]
@@ -84,6 +88,14 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Task decorator function
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
 
+    // Workflow classes
+    m.add_class::<PyWorkflowBuilder>()?;
+    m.add_class::<PyWorkflow>()?;
+
+    // Runner classes
+    m.add_class::<PyDefaultRunner>()?;
+    m.add_class::<PyPipelineResult>()?;
+
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "postgres")?;
 
@@ -108,6 +120,14 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Task decorator function
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
+
+    // Workflow classes
+    m.add_class::<PyWorkflowBuilder>()?;
+    m.add_class::<PyWorkflow>()?;
+
+    // Runner classes
+    m.add_class::<PyDefaultRunner>()?;
+    m.add_class::<PyPipelineResult>()?;
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "sqlite")?;
