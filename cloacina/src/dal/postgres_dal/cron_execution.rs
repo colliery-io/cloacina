@@ -81,11 +81,11 @@ impl<'a> CronExecutionDAL<'a> {
     ///     result.execution_id
     /// )?;
     /// ```
-    pub fn create(
+    pub async fn create(
         &self,
         mut new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
 
         // For PostgreSQL, use database defaults for timestamps by setting to None
         // The database will automatically set CURRENT_TIMESTAMP
@@ -95,7 +95,7 @@ impl<'a> CronExecutionDAL<'a> {
 
         let execution: CronExecution = diesel::insert_into(cron_executions::table)
             .values(&new_execution)
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)?;
 
         Ok(execution)
     }
@@ -111,12 +111,12 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub fn update_pipeline_execution_id(
+    pub async fn update_pipeline_execution_id(
         &self,
         cron_execution_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = cron_execution_id.into();
         let pipeline_uuid: Uuid = pipeline_execution_id.into();
         let now_ts = UniversalTimestamp::now();
@@ -126,7 +126,7 @@ impl<'a> CronExecutionDAL<'a> {
                 cron_executions::pipeline_execution_id.eq(pipeline_uuid),
                 cron_executions::updated_at.eq(now_ts),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(())
     }
@@ -161,11 +161,11 @@ impl<'a> CronExecutionDAL<'a> {
     ///     retry_lost_execution(lost).await?;
     /// }
     /// ```
-    pub fn find_lost_executions(
+    pub async fn find_lost_executions(
         &self,
         older_than_minutes: i32,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let cutoff_time =
             UniversalTimestamp(Utc::now() - chrono::Duration::minutes(older_than_minutes as i64));
 
@@ -180,7 +180,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(crate::database::schema::pipeline_executions::id.is_null())
             .filter(cron_executions::claimed_at.lt(cutoff_time))
             .select(cron_executions::all_columns)
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(lost_executions)
     }
@@ -192,11 +192,11 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<CronExecution, ValidationError>` - The cron execution record
-    pub fn get_by_id(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        let execution = cron_executions::table.find(uuid_id).first(&mut conn)?;
+        let execution = cron_executions::table.find(uuid_id).first(&mut *conn)?;
         Ok(execution)
     }
 
@@ -212,13 +212,13 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<CronExecution>, ValidationError>` - List of execution records
-    pub fn get_by_schedule_id(
+    pub async fn get_by_schedule_id(
         &self,
         schedule_id: UniversalUuid,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let executions = cron_executions::table
@@ -226,7 +226,7 @@ impl<'a> CronExecutionDAL<'a> {
             .order(cron_executions::scheduled_time.desc())
             .limit(limit)
             .offset(offset)
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(executions)
     }
@@ -241,16 +241,16 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Option<CronExecution>, ValidationError>` - The cron execution record if it exists
-    pub fn get_by_pipeline_execution_id(
+    pub async fn get_by_pipeline_execution_id(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = pipeline_execution_id.into();
 
         let execution = cron_executions::table
             .filter(cron_executions::pipeline_execution_id.eq(uuid_id))
-            .first(&mut conn)
+            .first(&mut *conn)
             .optional()?;
 
         Ok(execution)
@@ -269,14 +269,14 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Vec<CronExecution>, ValidationError>` - List of execution records in the time range
-    pub fn get_by_time_range(
+    pub async fn get_by_time_range(
         &self,
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let start_ts = UniversalTimestamp(start_time);
         let end_ts = UniversalTimestamp(end_time);
 
@@ -286,7 +286,7 @@ impl<'a> CronExecutionDAL<'a> {
             .order(cron_executions::scheduled_time.desc())
             .limit(limit)
             .offset(offset)
-            .load(&mut conn)?;
+            .load(&mut *conn)?;
 
         Ok(executions)
     }
@@ -298,14 +298,14 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<i64, ValidationError>` - Total count of executions
-    pub fn count_by_schedule(&self, schedule_id: UniversalUuid) -> Result<i64, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn count_by_schedule(&self, schedule_id: UniversalUuid) -> Result<i64, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let count = cron_executions::table
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .count()
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(count)
     }
@@ -321,12 +321,12 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<bool, ValidationError>` - True if execution already exists
-    pub fn execution_exists(
+    pub async fn execution_exists(
         &self,
         schedule_id: UniversalUuid,
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
         let scheduled_ts = UniversalTimestamp(scheduled_time);
 
@@ -334,7 +334,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .filter(cron_executions::scheduled_time.eq(scheduled_ts))
             .count()
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(count > 0)
     }
@@ -346,17 +346,17 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Option<CronExecution>, ValidationError>` - The most recent execution if any exists
-    pub fn get_latest_by_schedule(
+    pub async fn get_latest_by_schedule(
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let execution = cron_executions::table
             .filter(cron_executions::schedule_id.eq(uuid_id))
             .order(cron_executions::scheduled_time.desc())
-            .first(&mut conn)
+            .first(&mut *conn)
             .optional()?;
 
         Ok(execution)
@@ -372,13 +372,13 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<usize, ValidationError>` - Number of records deleted
-    pub fn delete_older_than(&self, older_than: DateTime<Utc>) -> Result<usize, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+    pub async fn delete_older_than(&self, older_than: DateTime<Utc>) -> Result<usize, ValidationError> {
+        let mut conn = self.dal.pool.get().await?;
         let cutoff_ts = UniversalTimestamp(older_than);
 
         let deleted_count = diesel::delete(cron_executions::table)
             .filter(cron_executions::scheduled_time.lt(cutoff_ts))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)?;
 
         Ok(deleted_count)
     }
@@ -393,25 +393,25 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<CronExecutionStats, ValidationError>` - Aggregated statistics
-    pub fn get_execution_stats(
+    pub async fn get_execution_stats(
         &self,
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
-        let mut conn = self.dal.pool.get()?;
+        let mut conn = self.dal.pool.get().await?;
         let since_ts = UniversalTimestamp(since);
 
         // Get total executions
         let total_executions = cron_executions::table
             .filter(cron_executions::claimed_at.ge(since_ts))
             .count()
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         // Get successful executions (those with pipeline executions)
         let successful_executions = cron_executions::table
             .inner_join(crate::database::schema::pipeline_executions::table)
             .filter(cron_executions::claimed_at.ge(since_ts))
             .count()
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         // Get lost executions (no pipeline execution after 10 minutes)
         let lost_cutoff = UniversalTimestamp(Utc::now() - chrono::Duration::minutes(10));
@@ -425,7 +425,7 @@ impl<'a> CronExecutionDAL<'a> {
             .filter(cron_executions::claimed_at.ge(since_ts))
             .filter(cron_executions::claimed_at.lt(lost_cutoff))
             .count()
-            .first(&mut conn)?;
+            .first(&mut *conn)?;
 
         Ok(CronExecutionStats {
             total_executions,

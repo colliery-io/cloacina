@@ -83,7 +83,7 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn create<T>(&self, context: &Context<T>) -> Result<Option<UniversalUuid>, ContextError>
+    pub async fn create<T>(&self, context: &Context<T>) -> Result<Option<UniversalUuid>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
@@ -100,7 +100,7 @@ impl<'a> ContextDAL<'a> {
             return Ok(None);
         }
 
-        let conn = &mut self.dal.pool.get()?;
+        let conn = &mut self.dal.pool.get().await?;
 
         // Create new database record
         let new_context = NewDbContext { value };
@@ -108,7 +108,7 @@ impl<'a> ContextDAL<'a> {
         // Insert and get the ID
         let db_context: DbContext = diesel::insert_into(contexts::table)
             .values(&new_context)
-            .get_result(conn)?;
+            .get_result(&mut **conn)?;
 
         Ok(Some(db_context.id.into()))
     }
@@ -128,15 +128,15 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn read<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
+    pub async fn read<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get()?;
+        let conn = &mut self.dal.pool.get().await?;
 
         // Get the database record
         let uuid_id: Uuid = id.into();
-        let db_context: DbContext = contexts::table.find(uuid_id).first(conn)?;
+        let db_context: DbContext = contexts::table.find(uuid_id).first(&mut **conn)?;
 
         // Deserialize into application context
         Context::<T>::from_json(db_context.value)
@@ -158,11 +158,11 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn update<T>(&self, id: UniversalUuid, context: &Context<T>) -> Result<(), ContextError>
+    pub async fn update<T>(&self, id: UniversalUuid, context: &Context<T>) -> Result<(), ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get()?;
+        let conn = &mut self.dal.pool.get().await?;
 
         // Serialize the context data
         let value = context.to_json()?;
@@ -171,7 +171,7 @@ impl<'a> ContextDAL<'a> {
         let uuid_id: Uuid = id.into();
         diesel::update(contexts::table.find(uuid_id))
             .set(contexts::value.eq(value))
-            .execute(conn)?;
+            .execute(&mut **conn)?;
 
         Ok(())
     }
@@ -187,10 +187,10 @@ impl<'a> ContextDAL<'a> {
     /// # Returns
     ///
     /// * `Result<(), ContextError>` - Success or error
-    pub fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        let conn = &mut self.dal.pool.get()?;
+    pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
+        let conn = &mut self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
-        diesel::delete(contexts::table.find(uuid_id)).execute(conn)?;
+        diesel::delete(contexts::table.find(uuid_id)).execute(&mut **conn)?;
         Ok(())
     }
 
@@ -211,18 +211,18 @@ impl<'a> ContextDAL<'a> {
     /// # Type Parameters
     ///
     /// * `T` - The type of data stored in the context, must implement Serialize, Deserialize, and Debug
-    pub fn list<T>(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>
+    pub async fn list<T>(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get()?;
+        let conn = &mut self.dal.pool.get().await?;
 
         // Get the database records with pagination
         let db_contexts: Vec<DbContext> = contexts::table
             .limit(limit)
             .offset(offset)
             .order(contexts::created_at.desc())
-            .load(conn)?;
+            .load(&mut **conn)?;
 
         // Convert to application contexts
         let mut contexts = Vec::new();
