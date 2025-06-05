@@ -277,6 +277,11 @@ impl PyContext {
     pub(crate) fn into_inner(self) -> cloacina::Context<serde_json::Value> {
         self.inner
     }
+    
+    /// Clone the inner Rust Context (for internal use)
+    pub(crate) fn clone_inner(&self) -> cloacina::Context<serde_json::Value> {
+        self.inner.clone_data()
+    }
 }
 
 /// Manual implementation of Clone since Context<T> doesn't implement Clone
@@ -616,5 +621,11 @@ impl PyDefaultRunnerConfig {
             self.inner.db_pool_size
         )
     }
+}
 
+impl PyDefaultRunnerConfig {
+    /// Get the inner Rust config (for internal use)
+    pub(crate) fn to_rust_config(&self) -> cloacina::runner::DefaultRunnerConfig {
+        self.inner.clone()
+    }
 }

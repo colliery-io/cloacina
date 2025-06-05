@@ -17,6 +17,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use std::sync::Arc;
+use tokio::runtime::Runtime;
 
 use crate::context::PyContext;
 
@@ -74,41 +75,73 @@ impl PyPipelineResult {
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
     inner: Arc<cloacina::DefaultRunner>,
+    runtime: Arc<Runtime>,
 }
 
 #[pymethods]
 impl PyDefaultRunner {
     /// Create a new DefaultRunner with database connection
     #[new]
-    pub fn new(_database_url: &str) -> PyResult<Self> {
-        // For now, return an error indicating this requires async runtime
-        Err(PyValueError::new_err(
-            "DefaultRunner creation requires async runtime support. \
-             This will be implemented in a future update."
-        ))
+    pub fn new(database_url: &str) -> PyResult<Self> {
+        // Create a tokio runtime for async operations
+        let runtime = Runtime::new().map_err(|e| {
+            PyValueError::new_err(format!("Failed to create tokio runtime: {}", e))
+        })?;
+
+        // Use the runtime to create the DefaultRunner
+        let runner = runtime.block_on(async {
+            cloacina::DefaultRunner::new(database_url).await
+        }).map_err(|e| {
+            PyValueError::new_err(format!("Failed to create DefaultRunner: {}", e))
+        })?;
+
+        Ok(PyDefaultRunner {
+            inner: Arc::new(runner),
+            runtime: Arc::new(runtime),
+        })
     }
 
     /// Create a new DefaultRunner with custom configuration
     #[staticmethod]
     pub fn with_config(
-        _database_url: &str,
-        _config: &crate::context::PyDefaultRunnerConfig,
+        database_url: &str,
+        config: &crate::context::PyDefaultRunnerConfig,
     ) -> PyResult<PyDefaultRunner> {
-        // For now, return an error indicating this requires async runtime
-        Err(PyValueError::new_err(
-            "DefaultRunner creation with config requires async runtime support. \
-             This will be implemented in a future update."
-        ))
+        // Create a tokio runtime for async operations
+        let runtime = Runtime::new().map_err(|e| {
+            PyValueError::new_err(format!("Failed to create tokio runtime: {}", e))
+        })?;
+
+        // Convert Python config to Rust config
+        let rust_config = config.to_rust_config();
+
+        // Use the runtime to create the DefaultRunner
+        let runner = runtime.block_on(async {
+            cloacina::DefaultRunner::with_config(database_url, rust_config).await
+        }).map_err(|e| {
+            PyValueError::new_err(format!("Failed to create DefaultRunner: {}", e))
+        })?;
+
+        Ok(PyDefaultRunner {
+            inner: Arc::new(runner),
+            runtime: Arc::new(runtime),
+        })
     }
 
     /// Execute a workflow by name with context
-    pub fn execute(&self, _workflow_name: &str, _context: &PyContext) -> PyResult<PyPipelineResult> {
-        // This is a blocking operation that will require async runtime
-        // For now, we'll return an error indicating this limitation
-        Err(PyValueError::new_err(
-            "Workflow execution requires async runtime support. \
-             This will be implemented in a future update."
-        ))
+    pub fn execute(&self, workflow_name: &str, context: &PyContext) -> PyResult<PyPipelineResult> {
+        // Clone the PyContext to get a Rust Context
+        let rust_context = context.clone_inner();
+
+        // Execute the workflow using the runtime
+        let result = self.runtime.block_on(async {
+            use cloacina::executor::PipelineExecutor;
+            self.inner.execute(workflow_name, rust_context).await
+        }).map_err(|e| {
+            PyValueError::new_err(format!("Workflow execution failed: {}", e))
+        })?;
+
+        Ok(PyPipelineResult::from_result(result))
     }
 
     /// Start the runner (task scheduler and executor)

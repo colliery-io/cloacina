@@ -173,9 +173,10 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
 
 @cloaca()
 @angreal.command(name="generate", about="generate all configuration files from templates")
-@angreal.argument(name="backend", long="backend", help="Backend to generate for: postgres or sqlite")
+@angreal.argument(name="backend", long="backend", help="Backend to generate for: postgres or sqlite", required=True)
 def generate(backend):
     """Generate all configuration files from templates."""
+
     try:
         version = get_workspace_version()
         
