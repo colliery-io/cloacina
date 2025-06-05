@@ -186,11 +186,12 @@ impl<'a> TaskExecutionDAL<'a> {
                 .first::<TaskExecution>(conn)
         }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
+        let reason_for_update = reason.clone();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
                 .set((
                     task_executions::status.eq("Skipped"),
-                    task_executions::error_details.eq(&reason),
+                    task_executions::error_details.eq(&reason_for_update),
                     task_executions::updated_at.eq(current_timestamp()),
                 ))
                 .execute(conn)
