@@ -19,7 +19,7 @@
 //! This module provides the SQLite-specific implementation of the data access layer.
 //! It uses universal wrapper types to handle SQLite-specific storage requirements.
 
-use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
+use deadpool_diesel::sqlite::Pool;
 use diesel::sqlite::SqliteConnection;
 
 pub mod context;
@@ -44,26 +44,24 @@ pub use cron_execution::CronExecutionStats;
 #[derive(Clone)]
 pub struct DAL {
     /// A connection pool for SQLite database connections.
-    pub pool: Pool<ConnectionManager<SqliteConnection>>,
+    pub pool: Pool,
 }
 
 impl DAL {
     /// Creates a new DAL instance with the provided connection pool.
-    pub fn new(pool: Pool<ConnectionManager<SqliteConnection>>) -> Self {
+    pub fn new(pool: Pool) -> Self {
         DAL { pool }
     }
 
     /// Executes a closure within a database transaction.
-    pub fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
+    pub async fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
     where
-        F: FnOnce(
-            &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        ) -> Result<T, crate::error::ValidationError>,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, crate::error::ValidationError> + Send + 'static,
+        T: Send + 'static,
     {
         use diesel::connection::Connection;
-
-        let mut conn = self.pool.get()?;
-        conn.transaction(f)
+        let mut conn = self.pool.get().await?;
+        conn.interact(move |conn| conn.transaction(f)).await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 
     /// Returns a ContextDAL instance for context-related database operations.
