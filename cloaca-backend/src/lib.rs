@@ -23,7 +23,7 @@ mod runner;
 
 use context::{PyContext, PyDefaultRunnerConfig};
 use task::task as task_decorator;
-use workflow::{PyWorkflowBuilder, PyWorkflow};
+use workflow::{PyWorkflowBuilder, PyWorkflow, register_workflow_constructor};
 use runner::{PyDefaultRunner, PyPipelineResult};
 
 /// A simple hello world class for testing
@@ -91,6 +91,7 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Workflow classes
     m.add_class::<PyWorkflowBuilder>()?;
     m.add_class::<PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
 
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;
@@ -124,6 +125,7 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Workflow classes
     m.add_class::<PyWorkflowBuilder>()?;
     m.add_class::<PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
 
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;

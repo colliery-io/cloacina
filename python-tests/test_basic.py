@@ -901,3 +901,125 @@ class TestBackendFunctionality:
             # Clean up
             if os.path.exists(db_path):
                 os.unlink(db_path)
+
+    def test_workflow_decorator_functionality(self):
+        """Test the @workflow decorator for automatic registration."""
+        import cloaca
+        
+        # Check that workflow decorator exists
+        assert hasattr(cloaca, "workflow"), "workflow decorator should be available"
+        
+        # Define a task for the workflow
+        @cloaca.task(id="decorator_task")
+        def decorator_task(context):
+            context.set("decorator_executed", True)
+            return context
+        
+        # Test the workflow decorator
+        @cloaca.workflow("test_decorator_workflow", "Test workflow using decorator")
+        def create_test_workflow():
+            """Create a test workflow using the decorator."""
+            builder = cloaca.WorkflowBuilder("test_decorator_workflow")
+            builder.description("Test workflow using decorator")
+            builder.add_task("decorator_task")
+            return builder.build()
+        
+        # Test that the function can still be called directly
+        workflow_instance = create_test_workflow()
+        assert workflow_instance.name == "test_decorator_workflow"
+        assert workflow_instance.description == "Test workflow using decorator"
+        assert workflow_instance.version is not None
+
+    def test_register_workflow_constructor_function(self):
+        """Test the register_workflow_constructor function directly."""
+        import cloaca
+        
+        # Check that the function exists
+        assert hasattr(cloaca, "register_workflow_constructor"), "register_workflow_constructor should be available"
+        
+        # Define a task for the workflow
+        @cloaca.task(id="registration_task")
+        def registration_task(context):
+            context.set("registration_executed", True)
+            return context
+        
+        # Create a workflow constructor function
+        def create_registration_workflow():
+            builder = cloaca.WorkflowBuilder("registration_test_workflow")
+            builder.description("Test workflow for manual registration")
+            builder.add_task("registration_task")
+            return builder.build()
+        
+        # Test manual registration
+        cloaca.register_workflow_constructor("registration_test_workflow", create_registration_workflow)
+        
+        # Verify the function still works
+        workflow_instance = create_registration_workflow()
+        assert workflow_instance.name == "registration_test_workflow"
+        assert workflow_instance.description == "Test workflow for manual registration"
+
+    def test_workflow_decorator_end_to_end_without_database(self):
+        """Test end-to-end workflow creation with decorator (no database execution)."""
+        import cloaca
+        
+        # Define a chain of tasks
+        @cloaca.task(id="step1_task")
+        def step1_task(context):
+            context.set("step1_done", True)
+            return context
+        
+        @cloaca.task(id="step2_task", dependencies=["step1_task"])
+        def step2_task(context):
+            context.set("step2_done", True)
+            return context
+        
+        @cloaca.task(id="step3_task", dependencies=["step2_task"])
+        def step3_task(context):
+            context.set("step3_done", True)
+            return context
+        
+        # Define workflow using decorator
+        @cloaca.workflow("chain_workflow", "Multi-step chain workflow")
+        def create_chain_workflow():
+            """Chain workflow with dependencies."""
+            builder = cloaca.WorkflowBuilder("chain_workflow")
+            builder.description("Multi-step chain workflow")
+            builder.add_task("step1_task")
+            builder.add_task("step2_task")
+            builder.add_task("step3_task")
+            return builder.build()
+        
+        # Test that workflow decorator registration works
+        workflow_instance = create_chain_workflow()
+        assert workflow_instance.name == "chain_workflow"
+        assert workflow_instance.description == "Multi-step chain workflow"
+        
+        # Test workflow structure
+        assert workflow_instance.version is not None
+        
+        # Test dependency structure
+        root_tasks = workflow_instance.get_roots()
+        assert "step1_task" in root_tasks
+        assert len(root_tasks) == 1  # Only step1 should be a root
+        
+        leaf_tasks = workflow_instance.get_leaves()
+        assert "step3_task" in leaf_tasks
+        assert len(leaf_tasks) == 1  # Only step3 should be a leaf
+        
+        # Test execution levels (parallel groups)
+        execution_levels = workflow_instance.get_execution_levels()
+        assert len(execution_levels) == 3  # Three sequential levels
+        assert execution_levels[0] == ["step1_task"]
+        assert execution_levels[1] == ["step2_task"]  
+        assert execution_levels[2] == ["step3_task"]
+        
+        # Test topological sort
+        topo_order = workflow_instance.topological_sort()
+        assert topo_order == ["step1_task", "step2_task", "step3_task"]
+        
+        # Test parallelism checks
+        assert not workflow_instance.can_run_parallel("step1_task", "step2_task")
+        assert not workflow_instance.can_run_parallel("step2_task", "step3_task")
+        
+        # Test validation
+        workflow_instance.validate()  # Should not raise an exception

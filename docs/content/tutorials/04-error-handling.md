@@ -187,7 +187,7 @@ Let's implement these tasks in our workflow. Create `src/main.rs` with the follo
 //! - Monitoring task execution outcomes
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn, error};
@@ -427,8 +427,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Tutorial 04: Error Handling and Retries");
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
-    // Initialize executor with database
-    let executor = UnifiedExecutor::new("error_handling.db").await?;
+    // Initialize runner with database
+    let runner = DefaultRunner::new("error_handling.db").await?;
 
     // Create the workflow
     let _workflow = workflow! {
@@ -450,15 +450,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute the workflow
     info!("Executing workflow");
-    let result = executor.execute("error_handling_workflow", input_context).await?;
+    let result = runner.execute("error_handling_workflow", input_context).await?;
 
     // Print the final report
     if let Some(report) = result.final_context.get("execution_report") {
         info!("Final execution report: {}", report);
     }
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     info!("Tutorial completed!");
     Ok(())

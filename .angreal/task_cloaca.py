@@ -90,31 +90,15 @@ def get_workspace_version() -> str:
 def _build_and_install_cloaca_backend(backend_name, venv_name):
     """Build cloaca backend wheel and install it in a test environment with dispatcher.
     
+    Assumes files are already generated and docker is set up if needed.
+    Only handles virtual environment creation and building.
     Returns the VirtualEnv object and paths to executables.
     """
     project_root = Path(angreal.get_root()).parent
     venv_path = project_root / venv_name
-    
-    # Step 1: Generate files
-    print("Step 1: Generating files...")
-    result = generate(backend_name)
-    if result != 0:
-        raise Exception(f"Failed to generate files for {backend_name}")
 
-    # Step 1.5: Setup Docker for postgres backend
-    if backend_name == "postgres":
-        print("Step 1.5: Setting up Docker services for postgres...")
-        # Start Docker services for postgres backend
-        exit_code = docker_up()
-        if exit_code != 0:
-            raise Exception("Failed to start Docker services")
-        
-        # Wait for services to be ready
-        print("Waiting for services to be ready...")
-        time.sleep(10)
-
-    # Step 2: Create test environment
-    print("Step 2: Creating test environment...")
+    # Create test environment
+    print("Creating test environment...")
     venv = VirtualEnv(path=str(venv_path), now=True)
     
     python_exe = venv.path / "bin" / "python"
@@ -129,8 +113,8 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     print("Installing dispatcher package...")
     subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca")], check=True, capture_output=True)
     
-    # Step 3: Build and install backend wheel
-    print(f"Step 3: Building and installing {backend_name} wheel...")
+    # Build and install backend wheel
+    print(f"Building and installing {backend_name} wheel...")
     backend_dir = project_root / "cloaca-backend"
     
     # Clean existing extensions
@@ -264,6 +248,27 @@ def generate(backend):
         else:
             print(f"  Warning: Template directory not found: {backend_python_src}")
         
+        # Create debug virtual environment with backend installed
+        print(f"Creating debug virtual environment...")
+        venv_name = f"debug-env-{backend}"
+        venv_path = project_root / venv_name
+        
+        try:
+            # Remove existing debug environment if it exists
+            if venv_path.exists():
+                print(f"  Removing existing debug environment: {venv_name}")
+                shutil.rmtree(venv_path)
+            
+            # Build and install backend explicitly (files already generated above)
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
+            
+            print(f"✓ Debug environment ready: {venv_name}")
+            print(f"  Usage: {venv_path}/bin/python your_debug_script.py")
+            
+        except Exception as e:
+            print(f"  Warning: Failed to create debug environment: {e}")
+            print("  You can still use the generated files manually")
+        
         print(f"Successfully generated files for {backend} backend!")
         return 0
         
@@ -278,6 +283,21 @@ def scrub():
     """Replace generated files with placeholder content and clean build artifacts."""
     try:
         project_root = Path(angreal.get_root()).parent
+        
+        # Clean debug environments
+        print("Cleaning debug environments...")
+        debug_envs_cleaned = 0
+        for backend in ["postgres", "sqlite"]:
+            debug_env = project_root / f"debug-env-{backend}"
+            if debug_env.exists():
+                shutil.rmtree(debug_env)
+                debug_envs_cleaned += 1
+                print(f"  Removed debug environment: {debug_env}")
+        
+        if debug_envs_cleaned > 0:
+            print(f"Cleaned {debug_envs_cleaned} debug environments")
+        else:
+            print("No debug environments to clean")
         
         # Clean build artifacts from cloaca crates only
         print("Cleaning cloaca build artifacts...")
@@ -505,7 +525,22 @@ def smoke(backend=None):
         venv_path = project_root / venv_name
 
         try:
-            # Build and install cloaca backend in test environment
+            # Step 1: Generate files
+            print("Step 1: Generating files...")
+            result = generate(backend_name)
+            if result != 0:
+                raise Exception(f"Failed to generate files for {backend_name}")
+
+            # Step 2: Setup Docker for postgres backend
+            if backend_name == "postgres":
+                print("Step 2: Setting up Docker services for postgres...")
+                exit_code = docker_up()
+                if exit_code != 0:
+                    raise Exception("Failed to start Docker services")
+                print("Waiting for services to be ready...")
+                time.sleep(10)
+
+            # Step 3: Build and install cloaca backend in test environment
             venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
             
             # Step 4: Run smoke test
@@ -594,7 +629,22 @@ def test(backend=None, filter=None):
         venv_path = project_root / venv_name
 
         try:
-            # Build and install cloaca backend in test environment
+            # Step 1: Generate files
+            print("Step 1: Generating files...")
+            result = generate(backend_name)
+            if result != 0:
+                raise Exception(f"Failed to generate files for {backend_name}")
+
+            # Step 2: Setup Docker for postgres backend
+            if backend_name == "postgres":
+                print("Step 2: Setting up Docker services for postgres...")
+                exit_code = docker_up()
+                if exit_code != 0:
+                    raise Exception("Failed to start Docker services")
+                print("Waiting for services to be ready...")
+                time.sleep(10)
+
+            # Step 3: Build and install cloaca backend in test environment
             venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
             
             # Step 4: Run tests

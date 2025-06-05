@@ -86,7 +86,7 @@ Let's create a simple workflow with a single task that prints a greeting message
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use tracing::info;
 
@@ -112,8 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Simple Cloacina Example");
 
-    // Initialize executor with SQLite database (migrations run automatically)
-    let executor = UnifiedExecutor::new("simple_workflow.db").await?;
+    // Initialize runner with SQLite database (migrations run automatically)
+    let runner = DefaultRunner::new("simple_workflow.db").await?;
 
     // Create a simple workflow (automatically registers in global registry)
     let _workflow = workflow! {
@@ -129,14 +129,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Executing workflow");
 
-    // Execute the workflow (scheduler and executor managed automatically)
-    let result = executor.execute("simple_workflow", input_context).await?;
+    // Execute the workflow (scheduler and runner managed automatically)
+    let result = runner.execute("simple_workflow", input_context).await?;
 
     info!("Workflow completed with status: {:?}", result.status);
     info!("Final context: {:?}", result.final_context);
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     info!("Simple example completed!");
 
@@ -151,9 +151,9 @@ Let's walk through the code in execution order and understand why each component
 1. **Imports and Dependencies**: First, we import all necessary components from Cloacina:
    ```rust
    use cloacina::{task, workflow, Context, TaskError};
-   use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+   use cloacina::runner::DefaultRunner;
    ```
-   These imports are needed because they define the core types and traits we'll use throughout the program. The `PipelineExecutor` trait is particularly important as it defines the interface that `UnifiedExecutor` implements.
+   These imports are needed because they define the core types and traits we'll use throughout the program. `DefaultRunner` provides the interface for executing workflows and managing task pipelines.
 
 2. **Task Definition**: We define our task:
    ```rust
@@ -169,10 +169,10 @@ Let's walk through the code in execution order and understand why each component
        .with_env_filter("simple_example=debug,cloacina=debug")
        .init();
 
-   // 2. Create the executor - this must happen before any workflow definition
+   // 2. Create the runner - this must happen before any workflow definition
    // because the workflow! macro registers workflows in a global registry
-   // that the executor needs to access
-   let executor = UnifiedExecutor::new("simple_workflow.db").await?;
+   // that the runner needs to access
+   let runner = DefaultRunner::new("simple_workflow.db").await?;
 
    // 3. Define the workflow - the workflow! macro will automatically register
    // it in the global registry that the executor uses
@@ -184,23 +184,23 @@ Let's walk through the code in execution order and understand why each component
    ```
    This sequence is important because:
    - Logging must be initialized first to capture all subsequent operations
-   - The executor must be created before workflows because it manages the workflow registry
-   - The workflow! macro automatically registers workflows in the global registry that the executor uses
+   - The runner must be created before workflows because it manages the workflow registry
+   - The workflow! macro automatically registers workflows in the global registry that the runner uses
 
 4. **Workflow Execution**: Only after all components are set up can we execute the workflow:
    ```rust
    // Create and execute with input context
    let input_context = Context::new();
-   let result = executor.execute("simple_workflow", input_context).await?;
+   let result = runner.execute("simple_workflow", input_context).await?;
    ```
    The execution requires:
-   - A properly initialized executor
+   - A properly initialized runner
    - A registered workflow
    - An input context
 
-5. **Cleanup**: Finally, we properly shut down the executor:
+5. **Cleanup**: Finally, we properly shut down the runner:
    ```rust
-   executor.shutdown().await?;
+   runner.shutdown().await?;
    ```
    This ensures all resources are properly released and the database connection is closed gracefully.
 

@@ -1034,6 +1034,88 @@ impl Workflow {
             .and_then(|task| task.code_fingerprint())
     }
 
+    /// Get all task IDs in the workflow
+    ///
+    /// # Returns
+    ///
+    /// Vector of all task IDs currently in the workflow
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use cloacina::*;
+    /// # let workflow = Workflow::new("test");
+    /// let task_ids = workflow.get_task_ids();
+    /// println!("Tasks in workflow: {:?}", task_ids);
+    /// ```
+    pub fn get_task_ids(&self) -> Vec<String> {
+        self.tasks.keys().cloned().collect()
+    }
+
+    /// Create a new workflow instance from the same data as this workflow
+    ///
+    /// This method recreates a workflow by fetching tasks from the global task registry
+    /// and rebuilding the workflow structure. This is useful for workflow registration
+    /// scenarios where you need to create a fresh workflow instance.
+    ///
+    /// # Returns
+    ///
+    /// A new workflow instance with the same structure and metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any tasks cannot be found in the global registry
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use cloacina::*;
+    /// # let original_workflow = Workflow::new("test");
+    /// let recreated_workflow = original_workflow.recreate_from_registry()?;
+    /// assert_eq!(original_workflow.name(), recreated_workflow.name());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn recreate_from_registry(&self) -> Result<Workflow, WorkflowError> {
+        let mut new_workflow = Workflow::new(&self.name);
+        
+        // Copy metadata (except version which will be recalculated)
+        new_workflow.metadata.description = self.metadata.description.clone();
+        new_workflow.metadata.tags = self.metadata.tags.clone();
+        new_workflow.metadata.created_at = self.metadata.created_at;
+        
+        // Get the task registry
+        let registry = crate::task::global_task_registry();
+        let guard = registry.lock().map_err(|e| {
+            WorkflowError::RegistryError(format!("Failed to access task registry: {}", e))
+        })?;
+        
+        // Recreate all tasks from the registry
+        for task_id in self.get_task_ids() {
+            let constructor = guard.get(&task_id).ok_or_else(|| {
+                WorkflowError::TaskNotFound(format!(
+                    "Task '{}' not found in global registry during workflow recreation", 
+                    task_id
+                ))
+            })?;
+            
+            // Create a new task instance
+            let task = constructor();
+            
+            // Add the task to the new workflow
+            new_workflow.add_boxed_task(task).map_err(|e| {
+                WorkflowError::TaskError(format!("Failed to add task '{}' during recreation: {}", task_id, e))
+            })?;
+        }
+        
+        // Validate the recreated workflow
+        new_workflow.validate().map_err(|e| {
+            WorkflowError::ValidationError(format!("Recreated workflow validation failed: {}", e))
+        })?;
+        
+        // Finalize and return
+        Ok(new_workflow.finalize())
+    }
+
     /// Finalize Workflow and calculate version.
     ///
     /// This method calculates the content-based version hash and sets it
@@ -1613,5 +1695,95 @@ mod tests {
             workflow.validate(),
             Err(ValidationError::MissingDependency { .. })
         ));
+    }
+
+    #[test]
+    fn test_workflow_get_task_ids() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        
+        // Add some tasks
+        let task1 = TestTask::new("task1", vec![]);
+        let task2 = TestTask::new("task2", vec!["task1"]);
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        
+        // Get task IDs
+        let task_ids = workflow.get_task_ids();
+        assert_eq!(task_ids.len(), 2);
+        assert!(task_ids.contains(&"task1".to_string()));
+        assert!(task_ids.contains(&"task2".to_string()));
+    }
+
+    #[test]
+    fn test_workflow_recreate_from_registry() {
+        init_test_logging();
+
+        // First, register some tasks in the global registry
+        {
+            let registry = crate::task::global_task_registry();
+            let mut guard = registry.lock().unwrap();
+            
+            // Clear any existing tasks
+            guard.clear();
+            
+            // Register test task constructors
+            guard.insert("test_task_1".to_string(), Box::new(|| {
+                Box::new(TestTask::new("test_task_1", vec![]))
+            }));
+            guard.insert("test_task_2".to_string(), Box::new(|| {
+                Box::new(TestTask::new("test_task_2", vec!["test_task_1"]))
+            }));
+        }
+        
+        // Create original workflow using the registered tasks
+        let mut original_workflow = Workflow::new("test-recreation");
+        original_workflow.set_description("Original workflow for testing recreation");
+        original_workflow.add_tag("environment", "test");
+        
+        // Add tasks from registry
+        {
+            let registry = crate::task::global_task_registry();
+            let guard = registry.lock().unwrap();
+            
+            let task1 = guard.get("test_task_1").unwrap()();
+            let task2 = guard.get("test_task_2").unwrap()();
+            
+            original_workflow.add_boxed_task(task1).unwrap();
+            original_workflow.add_boxed_task(task2).unwrap();
+        }
+        
+        let original_workflow = original_workflow.finalize();
+        
+        // Test recreation
+        let recreated_workflow = original_workflow.recreate_from_registry().unwrap();
+        
+        // Verify the recreation worked
+        assert_eq!(original_workflow.name(), recreated_workflow.name());
+        assert_eq!(original_workflow.metadata().description, recreated_workflow.metadata().description);
+        assert_eq!(original_workflow.metadata().tags, recreated_workflow.metadata().tags);
+        
+        // Verify tasks were recreated
+        let original_task_ids = original_workflow.get_task_ids();
+        let recreated_task_ids = recreated_workflow.get_task_ids();
+        assert_eq!(original_task_ids.len(), recreated_task_ids.len());
+        
+        for task_id in &original_task_ids {
+            assert!(recreated_task_ids.contains(task_id));
+            assert!(recreated_workflow.get_task(task_id).is_some());
+        }
+        
+        // Verify dependencies are preserved
+        assert_eq!(
+            original_workflow.get_dependencies("test_task_2"),
+            recreated_workflow.get_dependencies("test_task_2")
+        );
+        
+        // Verify topological sort is the same
+        assert_eq!(
+            original_workflow.topological_sort().unwrap(),
+            recreated_workflow.topological_sort().unwrap()
+        );
     }
 }

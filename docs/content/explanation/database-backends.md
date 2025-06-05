@@ -45,16 +45,16 @@ cloacina = { version = "0.0.0-alpha.2", default-features = false, features = ["s
 
 **PostgreSQL:**
 ```rust
-let executor = UnifiedExecutor::new("postgres://user:pass@localhost:5432/mydb").await?;
+let runner = DefaultRunner::new("postgres://user:pass@localhost:5432/mydb").await?;
 ```
 
 **SQLite:**
 ```rust
 // File-based database with optimizations
-let executor = UnifiedExecutor::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+let runner = DefaultRunner::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
 
 // In-memory database (for testing)
-let executor = UnifiedExecutor::new(":memory:").await?;
+let runner = DefaultRunner::new(":memory:").await?;
 ```
 
 ### Concurrency Characteristics
@@ -85,7 +85,7 @@ SQLite requires specific configuration for optimal performance. Here's the recom
 
 ```rust
 // Recommended connection string with optimizations
-let executor = UnifiedExecutor::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+let runner = DefaultRunner::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
 
 // Configuration details:
 // - WAL mode: Enables concurrent readers while writing

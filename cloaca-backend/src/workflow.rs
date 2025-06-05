@@ -193,3 +193,38 @@ impl PyWorkflow {
         )
     }
 }
+
+/// Register a workflow constructor function in the global registry
+///
+/// This allows Python-built workflows to be available for execution.
+/// The constructor function should return a PyWorkflow when called.
+///
+/// # Arguments
+/// * `workflow_name` - Name of the workflow to register
+/// * `constructor` - Python callable that returns a PyWorkflow
+#[pyfunction]
+pub fn register_workflow_constructor(workflow_name: String, constructor: PyObject) -> PyResult<()> {
+    // Create a Rust closure that calls the Python constructor and converts the result
+    // Following the same pattern as the Rust workflow! macro
+    let rust_constructor = move || -> cloacina::Workflow {
+        Python::with_gil(|py| {
+            // Call the Python constructor function
+            let py_workflow = constructor.call0(py)
+                .expect("Failed to call Python workflow constructor");
+            
+            // Extract the PyWorkflow and get its inner Rust workflow
+            let py_workflow: PyRef<PyWorkflow> = py_workflow.extract(py)
+                .expect("Constructor must return a Workflow");
+            
+            // Use the new recreate_from_registry method to create a fresh workflow
+            // that follows the same pattern as the Rust macro
+            py_workflow.inner.recreate_from_registry()
+                .expect("Failed to recreate workflow from registry")
+        })
+    };
+    
+    // Register with the global Rust workflow registry
+    cloacina::register_workflow_constructor(workflow_name, rust_constructor);
+    
+    Ok(())
+}

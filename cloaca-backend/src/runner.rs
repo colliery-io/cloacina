@@ -133,14 +133,31 @@ impl PyDefaultRunner {
         // Clone the PyContext to get a Rust Context
         let rust_context = context.clone_inner();
 
-        // Execute the workflow using the runtime
-        let result = self.runtime.block_on(async {
+        eprintln!("DEBUG: Python execute() called for workflow: {}", workflow_name);
+        
+        // Create a completely new runtime for this execution to avoid any conflicts
+        let rt = Runtime::new().map_err(|e| {
+            PyValueError::new_err(format!("Failed to create execution runtime: {}", e))
+        })?;
+        
+        let inner = self.inner.clone();
+        let workflow_name = workflow_name.to_string();
+        
+        eprintln!("DEBUG: About to block_on with fresh runtime");
+        
+        // Use a fresh runtime to execute - this avoids any nested runtime issues
+        let result = rt.block_on(async move {
+            eprintln!("DEBUG: Inside fresh runtime, calling PipelineExecutor::execute");
             use cloacina::executor::PipelineExecutor;
-            self.inner.execute(workflow_name, rust_context).await
+            let exec_result = inner.execute(&workflow_name, rust_context).await;
+            eprintln!("DEBUG: PipelineExecutor::execute returned: {:?}", exec_result.is_ok());
+            exec_result
         }).map_err(|e| {
+            eprintln!("DEBUG: Execution failed with error: {}", e);
             PyValueError::new_err(format!("Workflow execution failed: {}", e))
         })?;
 
+        eprintln!("DEBUG: Execution completed successfully");
         Ok(PyPipelineResult::from_result(result))
     }
 
@@ -162,6 +179,14 @@ impl PyDefaultRunner {
             "Runner shutdown requires async runtime support. \
              This will be implemented in a future update."
         ))
+    }
+    
+    /// Shutdown the runner and cleanup resources
+    pub fn shutdown(&self) -> PyResult<()> {
+        // Shutdown the runtime to prevent hanging
+        // Note: This is a best-effort cleanup - once shutdown, the runner cannot be reused
+        // For now, we'll just return Ok since the runtime will be dropped when the object is destroyed
+        Ok(())
     }
 
     /// String representation

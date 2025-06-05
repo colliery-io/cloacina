@@ -29,7 +29,7 @@ tokio = { version = "1.0", features = ["full"] }
 ### Step 2: Create Multi-Tenant Executors
 
 ```rust
-use cloacina::executor::unified_executor::UnifiedExecutor;
+use cloacina::runner::DefaultRunner;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -40,11 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut executors = HashMap::new();
 
     // Tenant A
-    let tenant_a = UnifiedExecutor::with_schema(database_url, "tenant_a").await?;
+    let tenant_a = DefaultRunner::with_schema(database_url, "tenant_a").await?;
     executors.insert("tenant_a", tenant_a);
 
     // Tenant B
-    let tenant_b = UnifiedExecutor::with_schema(database_url, "tenant_b").await?;
+    let tenant_b = DefaultRunner::with_schema(database_url, "tenant_b").await?;
     executors.insert("tenant_b", tenant_b);
 
     Ok(())
