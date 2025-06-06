@@ -103,14 +103,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// let event = recovery_dal.create(new_event)?;
     /// ```
     pub async fn create(&self, new_event: NewRecoveryEvent) -> Result<RecoveryEvent, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get()
-            .await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let conn = self.dal.pool.get().await?;
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
@@ -178,14 +171,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get()
-            .await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let conn = self.dal.pool.get().await?;
 
         let events = conn.interact(move |conn| {
             recovery_events::table
@@ -230,14 +216,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get()
-            .await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let conn = self.dal.pool.get().await?;
 
         let events = conn.interact(move |conn| {
             recovery_events::table
@@ -278,14 +257,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_by_type(&self, recovery_type: &str) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get()
-            .await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let conn = self.dal.pool.get().await?;
         let recovery_type = recovery_type.to_string();
 
         let events = conn.interact(move |conn| {
@@ -356,14 +328,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get()
-            .await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let conn = self.dal.pool.get().await?;
 
         let events = conn.interact(move |conn| {
             recovery_events::table

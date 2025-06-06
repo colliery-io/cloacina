@@ -146,10 +146,16 @@ async fn test_task_abandonment_after_max_retries() {
         .unwrap();
 
     // Manually set recovery attempts to maximum (3)
-    diesel::update(task_executions::table.find(task_with_max_retries.id))
-        .set(task_executions::recovery_attempts.eq(3))
-        .execute(&mut dal.pool.get().await.unwrap())
-        .unwrap();
+    let task_id = task_with_max_retries.id;
+    let conn = dal.pool.get().await.unwrap();
+    conn.interact(move |conn| {
+        diesel::update(task_executions::table.find(task_id))
+            .set(task_executions::recovery_attempts.eq(3))
+            .execute(conn)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon task");
 
@@ -347,10 +353,16 @@ async fn test_multiple_orphaned_tasks_recovery() {
         .unwrap();
 
     // Set max retries on one task
-    diesel::update(task_executions::table.find(max_retry_task.id))
-        .set(task_executions::recovery_attempts.eq(3))
-        .execute(&mut dal.pool.get().await.unwrap())
-        .unwrap();
+    let task_id = max_retry_task.id;
+    let conn = dal.pool.get().await.unwrap();
+    conn.interact(move |conn| {
+        diesel::update(task_executions::table.find(task_id))
+            .set(task_executions::recovery_attempts.eq(3))
+            .execute(conn)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
 

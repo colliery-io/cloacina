@@ -99,7 +99,7 @@ impl<'a> ContextDAL<'a> {
             return Ok(None);
         }
 
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
@@ -142,7 +142,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Get the database record
         let db_context: DbContext = conn.interact(move |conn| {
@@ -173,7 +173,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Serialize the context data
         let value = context.to_json()?;
@@ -201,7 +201,7 @@ impl<'a> ContextDAL<'a> {
     ///
     /// * `Result<(), ContextError>` - Success or error
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         conn.interact(move |conn| {
             diesel::delete(contexts::table.find(id)).execute(conn)
         }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
@@ -229,7 +229,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Get the database records with pagination
         let db_contexts: Vec<DbContext> = conn.interact(move |conn| {

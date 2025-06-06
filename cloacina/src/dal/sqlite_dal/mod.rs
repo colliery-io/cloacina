@@ -60,7 +60,7 @@ impl DAL {
         T: Send + 'static,
     {
         use diesel::connection::Connection;
-        let mut conn = self.pool.get().await?;
+        let conn = self.pool.get().await?;
         conn.interact(move |conn| conn.transaction(f)).await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 

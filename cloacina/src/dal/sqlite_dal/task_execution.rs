@@ -70,7 +70,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<TaskExecution, ValidationError>` - The created task execution record
     pub async fn create(&self, new_task: NewTaskExecution) -> Result<TaskExecution, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
@@ -114,7 +114,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let tasks = conn.interact(move |conn| {
             task_executions::table
@@ -136,7 +136,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Get task info for logging before updating
         let task = conn.interact(move |conn| {
@@ -176,7 +176,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let reason = reason.to_string();
 
         // Get task info for logging before updating
@@ -218,7 +218,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let tasks = conn.interact(move |conn| {
             task_executions::table
@@ -242,7 +242,7 @@ impl<'a> TaskExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
         task_name: &str,
     ) -> Result<String, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let task_name = task_name.to_string();
 
         let status: String = conn.interact(move |conn| {
@@ -285,7 +285,7 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(HashMap::new());
         }
 
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let results: Vec<(String, String)> = conn.interact(move |conn| {
             task_executions::table
@@ -320,7 +320,7 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let tasks: Vec<TaskExecution> = conn.interact(move |conn| {
             task_executions::table
@@ -348,7 +348,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let incomplete_count: i64 = conn.interact(move |conn| {
             task_executions::table
@@ -369,7 +369,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of orphaned tasks
     pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let orphaned_tasks = conn.interact(move |conn| {
             task_executions::table
@@ -391,7 +391,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn reset_task_for_recovery(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -421,7 +421,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let reason = reason.to_string();
 
         conn.interact(move |conn| {
@@ -449,7 +449,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Check if any tasks are permanently failed (abandoned)
         let failed_count: i64 = conn.interact(move |conn| {
@@ -472,7 +472,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<TaskExecution, ValidationError>` - The task execution record
     pub async fn get_by_id(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let task = conn.interact(move |conn| {
             task_executions::table.find(task_id).first(conn)
@@ -486,7 +486,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of tasks ready for retry
     pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let ready_tasks = conn.interact(move |conn| {
             task_executions::table
@@ -517,7 +517,7 @@ impl<'a> TaskExecutionDAL<'a> {
         retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -546,7 +546,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let tasks = conn.interact(move |conn| {
             task_executions::table
@@ -585,7 +585,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Use a more explicit query to avoid type inference issues
         let exhausted_tasks = conn.interact(move |conn| {
@@ -611,7 +611,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -638,7 +638,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -666,7 +666,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         error_message: &str,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let error_message = error_message.to_string();
 
         conn.interact(move |conn| {
@@ -690,7 +690,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
     pub async fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a transaction
         conn.interact(move |conn| {

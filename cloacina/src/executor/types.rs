@@ -26,7 +26,7 @@ use crate::database::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::Database;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 
 /// Execution scope information for a context
 ///
@@ -98,7 +98,7 @@ impl DependencyLoader {
         for dep_task_name in self.dependency_tasks.iter().rev() {
             // Check cache first (read lock)
             {
-                let cache = self.loaded_contexts.read().unwrap();
+                let cache = self.loaded_contexts.read().await;
                 if let Some(context_data) = cache.get(dep_task_name) {
                     if let Some(value) = context_data.get(key) {
                         return Ok(Some(value.clone())); // Found! (overwrite strategy)
@@ -108,7 +108,7 @@ impl DependencyLoader {
 
             // Lazy load dependency context if not cached (write lock)
             {
-                let mut cache = self.loaded_contexts.write().unwrap();
+                let mut cache = self.loaded_contexts.write().await;
                 if !cache.contains_key(dep_task_name) {
                     let dep_context_data = self.load_dependency_context_data(dep_task_name).await?;
                     cache.insert(dep_task_name.clone(), dep_context_data);

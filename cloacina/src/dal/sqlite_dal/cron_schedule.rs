@@ -55,7 +55,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<CronSchedule, ValidationError>` - The created cron schedule record
     pub async fn create(&self, new_schedule: NewCronSchedule) -> Result<CronSchedule, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Generate ID and timestamps manually for SQLite
         let id = UniversalUuid::new_v4();
@@ -101,7 +101,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<CronSchedule, ValidationError>` - The cron schedule record
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronSchedule, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let schedule = conn.interact(move |conn| {
             cron_schedules::table.find(id).first(conn)
@@ -126,7 +126,7 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let now_ts = UniversalTimestamp(now);
 
         let schedules = conn.interact(move |conn| {
@@ -167,7 +167,7 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let last_run_ts = UniversalTimestamp(last_run);
         let next_run_ts = UniversalTimestamp(next_run);
         let now_ts = UniversalTimestamp::now();
@@ -193,7 +193,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn enable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let now_ts = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
@@ -216,7 +216,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn disable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let now_ts = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
@@ -239,7 +239,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         conn.interact(move |conn| {
             diesel::delete(cron_schedules::table.find(id)).execute(conn)
@@ -262,7 +262,7 @@ impl<'a> CronScheduleDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let schedules = conn.interact(move |conn| {
             let mut query = cron_schedules::table.into_boxed();
@@ -292,7 +292,7 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         workflow_name: &str,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let workflow_name = workflow_name.to_string();
 
         let schedules = conn.interact(move |conn| {
@@ -320,7 +320,7 @@ impl<'a> CronScheduleDAL<'a> {
         id: UniversalUuid,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let next_run_ts = UniversalTimestamp(next_run);
         let now_ts = UniversalTimestamp::now();
 
@@ -370,7 +370,7 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let current_ts = UniversalTimestamp(current_time);
         let last_run_ts = UniversalTimestamp(last_run);
         let next_run_ts = UniversalTimestamp(next_run);
@@ -401,7 +401,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// # Returns
     /// * `Result<i64, ValidationError>` - Total count of schedules
     pub async fn count(&self, enabled_only: bool) -> Result<i64, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let count = conn.interact(move |conn| {
             let mut query = cron_schedules::table.into_boxed();
