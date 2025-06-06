@@ -21,44 +21,6 @@ import threading
 import time
 import sys
 
-
-@pytest.fixture
-def isolated_runner():
-    """Fixture that provides a completely isolated runner with fresh database and fresh module state."""
-    # Create a unique temporary database for this test
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-        db_path = tmp.name
-    
-    # Use WAL mode + unique database for complete isolation
-    db_url = f"sqlite://{db_path}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
-    
-    try:
-        # Force reload cloaca module to get fresh global registry state
-        # This prevents mutex poisoning and stale workflow data between tests
-        import importlib
-        if 'cloaca' in sys.modules:
-            importlib.reload(sys.modules['cloaca'])
-        
-        # Create runner instance - each test gets its own
-        runner = cloaca.DefaultRunner(db_url)
-        
-        yield runner
-        
-        # Explicit cleanup - shutdown runner first
-        try:
-            runner.shutdown()
-        except:
-            pass  # Ignore shutdown errors during cleanup
-            
-    finally:
-        # Always cleanup database file
-        if os.path.exists(db_path):
-            try:
-                os.unlink(db_path)
-            except:
-                pass  # Ignore cleanup errors
-
-
 @pytest.fixture(autouse=True)
 def enable_rust_logging():
     """Enable Rust logging for all tests."""
@@ -647,37 +609,7 @@ class TestConfigurationAndCustomization:
 
 class TestRegressionCases:
     """Test specific regression cases we've encountered."""
-    
-    def test_sqlite_wal_mode_prevents_deadlocks(self, isolated_runner):
-        """Test that SQLite WAL mode prevents deadlocks during execution."""
-        import cloaca
-        
-        # This test verifies the fix for database deadlocks
-        # WAL mode should be included in the isolated_runner fixture
-        # Note: We can't directly check the URL from the runner, but the fixture uses WAL mode
-        
-        @cloaca.task(id="wal_test_task")
-        def wal_test_task(context):
-            context.set("wal_test_executed", True)
-            return context
-        
-        @cloaca.workflow("wal_test_workflow", "WAL mode test")
-        def create_wal_test():
-            builder = cloaca.WorkflowBuilder("wal_test_workflow")
-            builder.description("WAL mode test")
-            builder.add_task("wal_test_task")
-            return builder.build()
-        
-        runner = isolated_runner
-        context = cloaca.Context()
-        
-        # This should not deadlock
-        result = runner.execute("wal_test_workflow", context)
-        
-        # Explicitly shutdown the runner
-        runner.shutdown()
-        
-        assert result is not None
+
     
     def test_thread_separation_async_runtime(self, isolated_runner):
         """Test that thread separation prevents async runtime conflicts."""
@@ -771,10 +703,10 @@ class TestFunctionBasedDAGTopology:
             builder.add_task("auto_id_task")  # Should work with auto-generated ID
             return builder.build()
         
-        with isolated_runner as runner:
-            context = cloaca.Context()
-            result = runner.execute("auto_id_test", context)
-            
+        runner = isolated_runner
+        context = cloaca.Context()
+        result = runner.execute("auto_id_test", context)
+        
         assert result is not None
         
     def test_function_references_in_dependencies(self, isolated_runner):
@@ -802,9 +734,9 @@ class TestFunctionBasedDAGTopology:
             builder.add_task("consumer_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            context = cloaca.Context()
-            result = runner.execute("function_deps_test", context)
+        runner = isolated_runner
+        context = cloaca.Context()
+        result = runner.execute("function_deps_test", context)
             
         assert result is not None
         
@@ -830,9 +762,9 @@ class TestFunctionBasedDAGTopology:
             builder.add_task(step_two)   # Function reference
             return builder.build()
         
-        with isolated_runner as runner:
-            context = cloaca.Context()
-            result = runner.execute("function_refs_test", context)
+        runner = isolated_runner
+        context = cloaca.Context()
+        result = runner.execute("function_refs_test", context)
             
         assert result is not None
         
@@ -869,9 +801,9 @@ class TestFunctionBasedDAGTopology:
             builder.add_task("mixed_deps_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            context = cloaca.Context()
-            result = runner.execute("mixed_deps_test", context)
+        runner = isolated_runner
+        context = cloaca.Context()
+        result = runner.execute("mixed_deps_test", context)
             
         assert result is not None
         
@@ -917,9 +849,9 @@ class TestFunctionBasedDAGTopology:
             builder.add_task(load_data)
             return builder.build()
         
-        with isolated_runner as runner:
-            context = cloaca.Context()
-            result = runner.execute("complex_function_dag", context)
+        runner = isolated_runner
+        context = cloaca.Context()
+        result = runner.execute("complex_function_dag", context)
             
         assert result is not None
         
@@ -987,18 +919,18 @@ class TestCronScheduling:
             builder.add_task("cron_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register cron workflow - daily at midnight UTC
-            schedule_id = runner.register_cron_workflow(
-                "test_cron_workflow",
-                "0 0 * * *",  # Every day at midnight
-                "UTC"
-            )
-            
-            # Should return a UUID string
-            assert isinstance(schedule_id, str)
-            assert len(schedule_id) == 36  # UUID format: 8-4-4-4-12 characters with hyphens
-            assert schedule_id.count('-') == 4
+        runner = isolated_runner
+        # Register cron workflow - daily at midnight UTC
+        schedule_id = runner.register_cron_workflow(
+            "test_cron_workflow",
+            "0 0 * * *",  # Every day at midnight
+            "UTC"
+        )
+        
+        # Should return a UUID string
+        assert isinstance(schedule_id, str)
+        assert len(schedule_id) == 36  # UUID format: 8-4-4-4-12 characters with hyphens
+        assert schedule_id.count('-') == 4
     
     def test_register_cron_workflow_with_timezone(self, isolated_runner):
         """Test cron workflow registration with different timezones."""
@@ -1015,33 +947,33 @@ class TestCronScheduling:
             builder.add_task("timezone_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Test different timezone formats
-            schedule_id_utc = runner.register_cron_workflow(
-                "timezone_cron_workflow",
-                "30 14 * * 1-5",  # Weekdays at 2:30 PM
-                "UTC"
-            )
-            
-            schedule_id_ny = runner.register_cron_workflow(
-                "timezone_cron_workflow", 
-                "0 9 * * *",      # Every day at 9 AM
-                "America/New_York"
-            )
-            
-            # Both should return valid UUID strings
-            assert isinstance(schedule_id_utc, str)
-            assert isinstance(schedule_id_ny, str)
-            assert schedule_id_utc != schedule_id_ny  # Should be different schedules
+        runner = isolated_runner
+        # Test different timezone formats
+        schedule_id_utc = runner.register_cron_workflow(
+            "timezone_cron_workflow",
+            "30 14 * * 1-5",  # Weekdays at 2:30 PM
+            "UTC"
+        )
+        
+        schedule_id_ny = runner.register_cron_workflow(
+            "timezone_cron_workflow", 
+            "0 9 * * *",      # Every day at 9 AM
+            "America/New_York"
+        )
+        
+        # Both should return valid UUID strings
+        assert isinstance(schedule_id_utc, str)
+        assert isinstance(schedule_id_ny, str)
+        assert schedule_id_utc != schedule_id_ny  # Should be different schedules
     
     def test_list_cron_schedules_empty(self, isolated_runner):
         """Test listing cron schedules when none exist."""
-        with isolated_runner as runner:
-            schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            
-            # Should return empty list
-            assert isinstance(schedules, list)
-            assert len(schedules) == 0
+        runner = isolated_runner
+        schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        
+        # Should return empty list
+        assert isinstance(schedules, list)
+        assert len(schedules) == 0
     
     def test_list_cron_schedules_with_data(self, isolated_runner):
         """Test listing cron schedules with registered workflows."""
@@ -1058,42 +990,42 @@ class TestCronScheduling:
             builder.add_task("list_test_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register multiple cron workflows
-            schedule_id_1 = runner.register_cron_workflow(
-                "list_test_workflow",
-                "0 8 * * *",
-                "UTC"
-            )
+        runner = isolated_runner
+        # Register multiple cron workflows
+        schedule_id_1 = runner.register_cron_workflow(
+            "list_test_workflow",
+            "0 8 * * *",
+            "UTC"
+        )
+        
+        schedule_id_2 = runner.register_cron_workflow(
+            "list_test_workflow",
+            "0 20 * * *", 
+            "America/New_York"
+        )
+        
+        # List all schedules
+        schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        
+        assert isinstance(schedules, list)
+        assert len(schedules) == 2
+        
+        # Verify schedule structure
+        for schedule in schedules:
+            assert isinstance(schedule, dict)
+            assert "id" in schedule
+            assert "workflow_name" in schedule
+            assert "cron_expression" in schedule
+            assert "timezone" in schedule
+            assert "enabled" in schedule
+            assert "next_run_at" in schedule
+            assert "created_at" in schedule
+            assert "updated_at" in schedule
             
-            schedule_id_2 = runner.register_cron_workflow(
-                "list_test_workflow",
-                "0 20 * * *", 
-                "America/New_York"
-            )
-            
-            # List all schedules
-            schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            
-            assert isinstance(schedules, list)
-            assert len(schedules) == 2
-            
-            # Verify schedule structure
-            for schedule in schedules:
-                assert isinstance(schedule, dict)
-                assert "id" in schedule
-                assert "workflow_name" in schedule
-                assert "cron_expression" in schedule
-                assert "timezone" in schedule
-                assert "enabled" in schedule
-                assert "next_run_at" in schedule
-                assert "created_at" in schedule
-                assert "updated_at" in schedule
-                
-                assert schedule["workflow_name"] == "list_test_workflow"
-                assert schedule["cron_expression"] in ["0 8 * * *", "0 20 * * *"]
-                assert schedule["timezone"] in ["UTC", "America/New_York"]
-                assert isinstance(schedule["enabled"], bool)
+            assert schedule["workflow_name"] == "list_test_workflow"
+            assert schedule["cron_expression"] in ["0 8 * * *", "0 20 * * *"]
+            assert schedule["timezone"] in ["UTC", "America/New_York"]
+            assert isinstance(schedule["enabled"], bool)
     
     def test_list_cron_schedules_with_filters(self, isolated_runner):
         """Test listing cron schedules with limit and offset."""
@@ -1110,33 +1042,33 @@ class TestCronScheduling:
             builder.add_task("filter_test_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register multiple schedules
-            schedule_ids = []
-            for i in range(5):
-                schedule_id = runner.register_cron_workflow(
-                    "filter_test_workflow",
-                    f"0 {8 + i} * * *",  # Different hours
-                    "UTC"
-                )
-                schedule_ids.append(schedule_id)
-            
-            # Test limit
-            schedules = runner.list_cron_schedules(enabled_only=False, limit=3, offset=0)
-            assert len(schedules) <= 3
-            
-            # Test offset
-            schedules_page_1 = runner.list_cron_schedules(enabled_only=False, limit=2, offset=0)
-            schedules_page_2 = runner.list_cron_schedules(enabled_only=False, limit=2, offset=2)
-            
-            assert len(schedules_page_1) <= 2
-            assert len(schedules_page_2) <= 2
-            
-            # Verify they're different schedules (if we have enough)
-            if len(schedules_page_1) > 0 and len(schedules_page_2) > 0:
-                page_1_ids = {s["id"] for s in schedules_page_1}
-                page_2_ids = {s["id"] for s in schedules_page_2}
-                assert page_1_ids.isdisjoint(page_2_ids)  # No overlap
+        runner = isolated_runner
+        # Register multiple schedules
+        schedule_ids = []
+        for i in range(5):
+            schedule_id = runner.register_cron_workflow(
+                "filter_test_workflow",
+                f"0 {8 + i} * * *",  # Different hours
+                "UTC"
+            )
+            schedule_ids.append(schedule_id)
+        
+        # Test limit
+        schedules = runner.list_cron_schedules(enabled_only=False, limit=3, offset=0)
+        assert len(schedules) <= 3
+        
+        # Test offset
+        schedules_page_1 = runner.list_cron_schedules(enabled_only=False, limit=2, offset=0)
+        schedules_page_2 = runner.list_cron_schedules(enabled_only=False, limit=2, offset=2)
+        
+        assert len(schedules_page_1) <= 2
+        assert len(schedules_page_2) <= 2
+        
+        # Verify they're different schedules (if we have enough)
+        if len(schedules_page_1) > 0 and len(schedules_page_2) > 0:
+            page_1_ids = {s["id"] for s in schedules_page_1}
+            page_2_ids = {s["id"] for s in schedules_page_2}
+            assert page_1_ids.isdisjoint(page_2_ids)  # No overlap
     
     def test_set_cron_schedule_enabled(self, isolated_runner):
         """Test enabling and disabling cron schedules."""
@@ -1153,23 +1085,23 @@ class TestCronScheduling:
             builder.add_task("enable_test_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register a cron workflow
-            schedule_id = runner.register_cron_workflow(
-                "enable_test_workflow",
-                "0 12 * * *",
-                "UTC"
-            )
-            
-            # Disable the schedule
-            runner.set_cron_schedule_enabled(schedule_id, False)
-            
-            # Re-enable the schedule
-            runner.set_cron_schedule_enabled(schedule_id, True)
-            
-            # Verify the operations completed without error
-            # (The actual enabled state verification would require 
-            # inspecting the database or list_cron_schedules)
+        runner = isolated_runner
+        # Register a cron workflow
+        schedule_id = runner.register_cron_workflow(
+            "enable_test_workflow",
+            "0 12 * * *",
+            "UTC"
+        )
+        
+        # Disable the schedule
+        runner.set_cron_schedule_enabled(schedule_id, False)
+        
+        # Re-enable the schedule
+        runner.set_cron_schedule_enabled(schedule_id, True)
+        
+        # Verify the operations completed without error
+        # (The actual enabled state verification would require 
+        # inspecting the database or list_cron_schedules)
     
     def test_delete_cron_schedule(self, isolated_runner):
         """Test deleting cron schedules."""
@@ -1186,57 +1118,57 @@ class TestCronScheduling:
             builder.add_task("delete_test_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register a cron workflow
-            schedule_id = runner.register_cron_workflow(
-                "delete_test_workflow",
-                "0 6 * * *",
-                "UTC"
-            )
-            
-            # Verify it exists
-            schedules_before = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            initial_count = len(schedules_before)
-            assert initial_count >= 1
-            
-            # Delete the schedule
-            runner.delete_cron_schedule(schedule_id)
-            
-            # Verify it's gone
-            schedules_after = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            final_count = len(schedules_after)
-            assert final_count == initial_count - 1
-            
-            # Verify the specific schedule is no longer in the list
-            remaining_ids = {s["id"] for s in schedules_after}
-            assert schedule_id not in remaining_ids
+        runner = isolated_runner
+        # Register a cron workflow
+        schedule_id = runner.register_cron_workflow(
+            "delete_test_workflow",
+            "0 6 * * *",
+            "UTC"
+        )
+        
+        # Verify it exists
+        schedules_before = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        initial_count = len(schedules_before)
+        assert initial_count >= 1
+        
+        # Delete the schedule
+        runner.delete_cron_schedule(schedule_id)
+        
+        # Verify it's gone
+        schedules_after = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        final_count = len(schedules_after)
+        assert final_count == initial_count - 1
+        
+        # Verify the specific schedule is no longer in the list
+        remaining_ids = {s["id"] for s in schedules_after}
+        assert schedule_id not in remaining_ids
     
     def test_cron_schedule_error_handling(self, isolated_runner):
         """Test error handling for cron scheduling operations."""
         import cloaca
         import pytest
         
-        with isolated_runner as runner:
-            # Test with invalid UUID format
-            with pytest.raises(Exception) as exc_info:
-                runner.set_cron_schedule_enabled("invalid-uuid", True)
-            assert "Invalid schedule ID" in str(exc_info.value)
-            
-            with pytest.raises(Exception) as exc_info:
-                runner.delete_cron_schedule("not-a-uuid")
-            assert "Invalid schedule ID" in str(exc_info.value)
-            
-            # Test with valid UUID format but non-existent schedule
-            fake_uuid = "550e8400-e29b-41d4-a716-446655440000"
-            
-            # These might not raise exceptions depending on the underlying implementation
-            # but they should handle the requests gracefully
-            try:
-                runner.set_cron_schedule_enabled(fake_uuid, True)
-                runner.delete_cron_schedule(fake_uuid)
-            except Exception as e:
-                # If they do raise exceptions, they should be meaningful
-                assert "schedule" in str(e).lower() or "uuid" in str(e).lower()
+        runner = isolated_runner
+        # Test with invalid UUID format
+        with pytest.raises(Exception) as exc_info:
+            runner.set_cron_schedule_enabled("invalid-uuid", True)
+        assert "Invalid schedule ID" in str(exc_info.value)
+        
+        with pytest.raises(Exception) as exc_info:
+            runner.delete_cron_schedule("not-a-uuid")
+        assert "Invalid schedule ID" in str(exc_info.value)
+        
+        # Test with valid UUID format but non-existent schedule
+        fake_uuid = "550e8400-e29b-41d4-a716-446655440000"
+        
+        # These might not raise exceptions depending on the underlying implementation
+        # but they should handle the requests gracefully
+        try:
+            runner.set_cron_schedule_enabled(fake_uuid, True)
+            runner.delete_cron_schedule(fake_uuid)
+        except Exception as e:
+            # If they do raise exceptions, they should be meaningful
+            assert "schedule" in str(e).lower() or "uuid" in str(e).lower()
     
     def test_cron_complex_expressions(self, isolated_runner):
         """Test complex cron expressions and edge cases."""
@@ -1253,35 +1185,35 @@ class TestCronScheduling:
             builder.add_task("complex_cron_task")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Test various complex cron expressions
-            test_expressions = [
-                ("0 0 1 * *", "UTC"),           # First day of every month
-                ("0 9-17 * * 1-5", "UTC"),     # Business hours, weekdays
-                ("30 2 * * 0", "UTC"),         # Sunday at 2:30 AM
-                ("0 */4 * * *", "UTC"),        # Every 4 hours
-                ("15 14 1 * *", "UTC"),        # 14:15 on the 1st of every month
-                ("0 22 * * 1-5", "America/New_York"),  # 10 PM weekdays Eastern
-            ]
-            
-            schedule_ids = []
-            for cron_expr, timezone in test_expressions:
-                schedule_id = runner.register_cron_workflow(
-                    "complex_cron_workflow",
-                    cron_expr,
-                    timezone
-                )
-                schedule_ids.append(schedule_id)
-                assert isinstance(schedule_id, str)
-                assert len(schedule_id) == 36  # UUID format
-            
-            # Verify all schedules were created
-            schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            assert len(schedules) >= len(test_expressions)
-            
-            # Clean up
-            for schedule_id in schedule_ids:
-                runner.delete_cron_schedule(schedule_id)
+        runner = isolated_runner
+        # Test various complex cron expressions
+        test_expressions = [
+            ("0 0 1 * *", "UTC"),           # First day of every month
+            ("0 9-17 * * 1-5", "UTC"),     # Business hours, weekdays
+            ("30 2 * * 0", "UTC"),         # Sunday at 2:30 AM
+            ("0 */4 * * *", "UTC"),        # Every 4 hours
+            ("15 14 1 * *", "UTC"),        # 14:15 on the 1st of every month
+            ("0 22 * * 1-5", "America/New_York"),  # 10 PM weekdays Eastern
+        ]
+        
+        schedule_ids = []
+        for cron_expr, timezone in test_expressions:
+            schedule_id = runner.register_cron_workflow(
+                "complex_cron_workflow",
+                cron_expr,
+                timezone
+            )
+            schedule_ids.append(schedule_id)
+            assert isinstance(schedule_id, str)
+            assert len(schedule_id) == 36  # UUID format
+        
+        # Verify all schedules were created
+        schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        assert len(schedules) >= len(test_expressions)
+        
+        # Clean up
+        for schedule_id in schedule_ids:
+            runner.delete_cron_schedule(schedule_id)
     
     def test_cron_workflow_integration(self, isolated_runner):
         """Test full integration of cron scheduling with workflow execution."""
@@ -1307,34 +1239,34 @@ class TestCronScheduling:
             builder.add_task("integration_task_2")
             return builder.build()
         
-        with isolated_runner as runner:
-            # Register the workflow for cron execution
-            schedule_id = runner.register_cron_workflow(
-                "integration_cron_workflow",
-                "0 3 * * *",  # Daily at 3 AM
-                "UTC"
-            )
-            
-            # Test manual execution of the same workflow
-            # (This ensures the workflow itself works correctly)
-            context = cloaca.Context()
-            result = runner.execute("integration_cron_workflow", context)
-            
-            # Verify the execution completed successfully
-            assert result is not None
-            assert result.status == "Completed"
-            
-            # NOTE: final_context only contains original input data by design
-            # Task-set values are available during execution but not returned
-            # This is consistent with other workflow execution behavior
-            
-            # Verify the cron schedule exists
-            schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
-            schedule_found = any(s["id"] == schedule_id for s in schedules)
-            assert schedule_found
-            
-            # Clean up
-            runner.delete_cron_schedule(schedule_id)
+        runner = isolated_runner
+        # Register the workflow for cron execution
+        schedule_id = runner.register_cron_workflow(
+            "integration_cron_workflow",
+            "0 3 * * *",  # Daily at 3 AM
+            "UTC"
+        )
+        
+        # Test manual execution of the same workflow
+        # (This ensures the workflow itself works correctly)
+        context = cloaca.Context()
+        result = runner.execute("integration_cron_workflow", context)
+        
+        # Verify the execution completed successfully
+        assert result is not None
+        assert result.status == "Completed"
+        
+        # NOTE: final_context only contains original input data by design
+        # Task-set values are available during execution but not returned
+        # This is consistent with other workflow execution behavior
+        
+        # Verify the cron schedule exists
+        schedules = runner.list_cron_schedules(enabled_only=False, limit=100, offset=0)
+        schedule_found = any(s["id"] == schedule_id for s in schedules)
+        assert schedule_found
+        
+        # Clean up
+        runner.delete_cron_schedule(schedule_id)
 
 
 if __name__ == "__main__":

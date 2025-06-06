@@ -107,7 +107,7 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     # Install pip and dependencies
     print("Installing dependencies...")
     subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
-    subprocess.run([str(pip_exe), "install", "maturin", "pytest", "pytest-asyncio"], check=True, capture_output=True)
+    subprocess.run([str(pip_exe), "install", "maturin", "pytest", "pytest-asyncio", "psycopg2", "pytest-timeout"], check=True, capture_output=True)
     
     # Install dispatcher package
     print("Installing dispatcher package...")
@@ -574,6 +574,11 @@ except Exception as e:
             print(f"✗ Failed to setup {backend_name} test environment: {e}")
             all_passed = False
         finally:
+            # Clean up Docker services for postgres backend
+            if backend_name == "postgres":
+                print("Cleaning up Docker services...")
+                docker_down(remove_volumes=True)
+            
             # Clean up test environment
             if venv_path.exists():
                 print(f"Cleaning up test environment: {venv_name}")
@@ -649,7 +654,7 @@ def test(backend=None, filter=None):
             
             # Step 4: Run tests
             print("Step 4: Running tests...")
-            cmd = [str(python_exe), "-m", "pytest", str(project_root / "python-tests"), "-v"]
+            cmd = [str(python_exe), "-m", "pytest", "--timeout=10", str(project_root / "python-tests"), "-v"]
             if filter:
                 cmd.extend(["-k", filter])
             
@@ -676,6 +681,11 @@ def test(backend=None, filter=None):
             print(f"✗ Failed to setup {backend_name} test environment: {e}")
             all_passed = False
         finally:
+            # Clean up Docker services for postgres backend
+            if backend_name == "postgres":
+                print("Cleaning up Docker services...")
+                docker_down(remove_volumes=True)
+            
             # Clean up test environment
             if venv_path.exists():
                 print(f"Cleaning up test environment: {venv_name}")

@@ -4,172 +4,257 @@ This test is updated to reflect the current behavior where final_context
 only contains the original input values (by design).
 """
 import pytest
-import tempfile
-import os
 
 
-def test_end_to_end_workflow_execution():
+def test_end_to_end_workflow_execution(isolated_runner):
     """Test complete end-to-end workflow execution using the @workflow decorator."""
-    import logging
-    import sys
-    import importlib
-    
-    # Force reload cloaca module to get fresh global registry state
-    if 'cloaca' in sys.modules:
-        importlib.reload(sys.modules['cloaca'])
-    
     import cloaca
     
-    # Enable detailed logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        stream=sys.stdout
-    )
+    # Define tasks using the decorator
+    @cloaca.task(id="extract_data")
+    def extract_data(context):
+        """Simulate data extraction."""
+        source = context.get('source', 'default_source')
+        context.set('extracted_data', f'data_from_{source}')
+        context.set('record_count', 100)
+        return context
     
-    # Enable Rust tracing
-    os.environ['RUST_LOG'] = 'cloacina=info,cloaca_backend=debug'
+    @cloaca.task(id="transform_data", dependencies=['extract_data'])
+    def transform_data(context):
+        """Simulate data transformation."""
+        context.set('transformed_data', 'cleaned_and_processed')
+        context.set('validation_status', 'passed')
+        return context
     
-    # Create a temporary database with WAL mode (critical for avoiding deadlocks)
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-        db_path = tmp.name
+    @cloaca.task(id="load_data", dependencies=['transform_data'])
+    def load_data(context):
+        """Simulate data loading."""
+        context.set('load_status', 'completed')
+        context.set('destination', 'data_warehouse')
+        return context
     
-    # Use WAL mode for better concurrency
-    db_url = f"sqlite://{db_path}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
+    runner = isolated_runner
     
-    print(f"Using database: {db_url}")
+    # Define workflow using the decorator
+    @cloaca.workflow('end_to_end_etl', 'End to end ETL workflow')
+    def etl_workflow():
+        builder = cloaca.WorkflowBuilder('end_to_end_etl')
+        builder.description('End to end ETL workflow')
+        builder.add_task('extract_data')
+        builder.add_task('transform_data')
+        builder.add_task('load_data')
+        return builder.build()
     
-    try:
-        print("1. Defining task...")
-        # Define a simple task
-        @cloaca.task(id="e2e_task")
-        def e2e_task(context):
-            """Simple task that sets a value."""
-            print("Task e2e_task executing!")
-            context.set("task_executed", True)
-            context.set("result", "e2e_success")
-            return context
-        
-        print("2. Defining workflow...")
-        # Define workflow using decorator
-        @cloaca.workflow("e2e_workflow", "End-to-end test workflow")
-        def create_e2e_workflow():
-            """Create end-to-end test workflow."""
-            print("Creating workflow instance...")
-            builder = cloaca.WorkflowBuilder("e2e_workflow")
-            builder.description("End-to-end test workflow")
-            builder.add_task("e2e_task")
-            workflow = builder.build()
-            print(f"Workflow built: {workflow}")
-            return workflow
-        
-        print("3. Creating runner...")
-        # Create runner and execute workflow
-        runner = cloaca.DefaultRunner(db_url)
-        print("Runner created successfully")
-        
-        print("4. Creating context...")
-        context = cloaca.Context()
-        context.set("test_id", "e2e_001")
-        context.set("input_data", "test_input")
-        print(f"Context created: {context}")
-        
-        print("5. Executing workflow...")
-        # Execute the auto-registered workflow
-        result = runner.execute("e2e_workflow", context)
-        print("6. Execution completed!")
-        
-        # Verify execution was successful
-        assert result is not None
-        assert hasattr(result, 'status')
-        assert hasattr(result, 'final_context')
-        
-        # Check the final context - NOTE: Only original input is returned by design
-        final_context = result.final_context
-        assert final_context.get("test_id") == "e2e_001"
-        assert final_context.get("input_data") == "test_input"
-        
-        # Task-set values are NOT returned in final context (confirmed behavior)
-        # They are available during execution for task-to-task data flow
-        
-        print(f"✓ End-to-end workflow execution completed!")
-        print(f"  Status: {result.status}")
-        print(f"  Final context contains original input only (by design)")
-        
-    finally:
-        # Clean up
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+    # Execute the workflow with initial context
+    initial_context = {
+        'source': 'customer_database',
+        'execution_date': '2024-01-15',
+        'job_id': 'etl_001'
+    }
+    
+    context = cloaca.Context(initial_context)
+    result = runner.execute('end_to_end_etl', context)
+    assert result is not None, "Execution result should not be None"
+    
+    # Get final context from result
+    final_context = result.final_context
+    assert final_context is not None, "Final context should not be None"
+    
+    # Verify that the original input context is preserved
+    # This reflects the current behavior where only input values are kept
+    assert final_context.get('source') == 'customer_database'
+    assert final_context.get('execution_date') == '2024-01-15'
+    assert final_context.get('job_id') == 'etl_001'
+    
+    print(f"Workflow completed successfully. Final context: {final_context}")
 
 
-def test_multi_task_workflow_execution():
-    """Test workflow with multiple tasks and dependencies."""
-    import sys
-    import importlib
-    
-    # Force reload cloaca module to get fresh global registry state
-    if 'cloaca' in sys.modules:
-        importlib.reload(sys.modules['cloaca'])
-    
+def test_multi_task_workflow_execution(isolated_runner):
+    """Test workflow with multiple parallel and sequential tasks."""
     import cloaca
     
-    # Create a temporary database with WAL mode
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-        db_path = tmp.name
+    @cloaca.task()
+    def initialize(context):
+        """Initialize the workflow."""
+        context.set('initialized', True)
+        context.set('start_time', '10:00')
+        return context
     
-    db_url = f"sqlite://{db_path}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
+    @cloaca.task(dependencies=['initialize'])
+    def parallel_task_a(context):
+        """First parallel task."""
+        context.set('task_a_result', 'completed')
+        return context
     
-    try:
-        # Define tasks with dependencies
-        @cloaca.task(id="step1")
-        def step1_task(context):
-            context.set("step1_data", "Hello")
-            return context
-        
-        @cloaca.task(id="step2", dependencies=["step1"])
-        def step2_task(context):
-            value = context.get("step1_data")
-            context.set("step2_data", f"{value} World")
-            return context
-        
-        # Define workflow
-        @cloaca.workflow("multi_step_workflow", "Multi-step workflow")
-        def create_multi_step_workflow():
-            builder = cloaca.WorkflowBuilder("multi_step_workflow")
-            builder.description("Multi-step workflow")
-            builder.add_task("step1")
-            builder.add_task("step2")
-            return builder.build()
-        
-        # Execute workflow
-        runner = cloaca.DefaultRunner(db_url)
-        context = cloaca.Context()
-        context.set("workflow_id", "multi_001")
-        context.set("initial_input", "test_data")
-        
-        result = runner.execute("multi_step_workflow", context)
-        
-        # Verify execution succeeded
-        assert result is not None
-        final_context = result.final_context
-        
-        # Only original input is returned in final context (confirmed behavior)
-        assert final_context.get("workflow_id") == "multi_001"
-        assert final_context.get("initial_input") == "test_data"
-        
-        # Task-set values are used for inter-task communication during execution
-        # but are not returned in final context
-        
-        print("✓ Multi-task workflow execution completed!")
-        print("  Dependencies resolved correctly during execution")
-        print("  Final context contains original input only (by design)")
-        
-    finally:
-        # Clean up
-        if os.path.exists(db_path):
-            os.unlink(db_path)
+    @cloaca.task(dependencies=['initialize'])
+    def parallel_task_b(context):
+        """Second parallel task."""
+        context.set('task_b_result', 'completed')
+        return context
+    
+    @cloaca.task(dependencies=['parallel_task_a', 'parallel_task_b'])
+    def finalize(context):
+        """Finalize after parallel tasks complete."""
+        context.set('finalized', True)
+        context.set('end_time', '10:30')
+        return context
+    
+    runner = isolated_runner
+    
+    @cloaca.workflow('multi_step_workflow')
+    def multi_step():
+        initialize()
+        parallel_task_a()
+        parallel_task_b()
+        finalize()
+    
+    # Execute with initial context
+    initial_context = cloaca.Context({
+        'workflow_name': 'multi_step_test',
+        'batch_id': 'batch_123'
+    })
+    
+    result = runner.execute('multi_step_workflow', initial_context)
+    assert result is not None
+    
+    final_context = result.final_context
+    assert final_context is not None
+    
+    # Verify original context is preserved
+    assert final_context.get('workflow_name') == 'multi_step_test'
+    assert final_context.get('batch_id') == 'batch_123'
+    
+    print(f"Multi-step workflow completed. Final context: {final_context}")
 
 
-if __name__ == "__main__":
-    test_end_to_end_workflow_execution()
-    test_multi_task_workflow_execution()
+def test_workflow_with_error_handling(isolated_runner):
+    """Test workflow behavior with potential errors."""
+    import cloaca
+    
+    @cloaca.task()
+    def safe_task(context):
+        """A task that should complete successfully."""
+        context.set('safe_result', 'success')
+        return context
+    
+    @cloaca.task(dependencies=['safe_task'])
+    def another_safe_task(context):
+        """Another safe task."""
+        context.set('another_result', 'also_success')
+        return context
+    
+    runner = isolated_runner
+    
+    @cloaca.workflow('error_handling_test')
+    def error_workflow():
+        safe_task()
+        another_safe_task()
+    
+    initial_context = cloaca.Context({'test_type': 'error_handling'})
+    
+    result = runner.execute('error_handling_test', initial_context)
+    
+    assert result is not None
+    final_context = result.final_context
+    assert final_context.get('test_type') == 'error_handling'
+
+
+def test_workflow_with_complex_dependencies(isolated_runner):
+    """Test workflow with complex dependency chains."""
+    import cloaca
+    
+    @cloaca.task()
+    def root_task(context):
+        context.set('root', 'completed')
+        return context
+    
+    @cloaca.task(dependencies=['root_task'])
+    def branch_a1(context):
+        context.set('branch_a1', 'done')
+        return context
+    
+    @cloaca.task(dependencies=['root_task'])
+    def branch_b1(context):
+        context.set('branch_b1', 'done')
+        return context
+    
+    @cloaca.task(dependencies=['branch_a1'])
+    def branch_a2(context):
+        context.set('branch_a2', 'done')
+        return context
+    
+    @cloaca.task(dependencies=['branch_b1'])
+    def branch_b2(context):
+        context.set('branch_b2', 'done')
+        return context
+    
+    @cloaca.task(dependencies=['branch_a2', 'branch_b2'])
+    def merge_task(context):
+        context.set('merged', 'all_branches_complete')
+        return context
+    
+    runner = isolated_runner
+    
+    @cloaca.workflow('complex_dependencies')
+    def complex_workflow():
+        root_task()
+        branch_a1()
+        branch_b1()
+        branch_a2()
+        branch_b2()
+        merge_task()
+    
+    initial_context = cloaca.Context({'complexity': 'high', 'test_id': 'complex_001'})
+    
+    result = runner.execute('complex_dependencies', initial_context)
+    
+    assert result is not None
+    final_context = result.final_context
+    assert final_context.get('complexity') == 'high'
+    assert final_context.get('test_id') == 'complex_001'
+    
+    print(f"Complex workflow completed. Final context: {final_context}")
+
+
+def test_empty_workflow(isolated_runner):
+    """Test workflow with no tasks."""
+    import cloaca
+    
+    runner = isolated_runner
+    
+    @cloaca.workflow('empty_workflow')
+    def empty():
+        pass  # No tasks
+    
+    initial_context = cloaca.Context({'empty_test': True})
+    
+    result = runner.execute('empty_workflow', initial_context)
+    
+    assert result is not None
+    final_context = result.final_context
+    assert final_context.get('empty_test') is True
+
+
+def test_single_task_workflow(isolated_runner):
+    """Test workflow with only one task."""
+    import cloaca
+    
+    @cloaca.task()
+    def single_task(context):
+        context.set('single', True)
+        context.set('result', 'lone_task_completed')
+        return context
+    
+    runner = isolated_runner
+    
+    @cloaca.workflow('single_task_workflow')
+    def single():
+        single_task()
+    
+    initial_context = cloaca.Context({'single_test': 'yes'})
+    
+    result = runner.execute('single_task_workflow', initial_context)
+    
+    assert result is not None
+    final_context = result.final_context
+    assert final_context.get('single_test') == 'yes'
