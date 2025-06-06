@@ -85,7 +85,7 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         mut new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // For PostgreSQL, use database defaults for timestamps by setting to None
         // The database will automatically set CURRENT_TIMESTAMP
@@ -118,7 +118,7 @@ impl<'a> CronExecutionDAL<'a> {
         cron_execution_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = cron_execution_id.into();
         let pipeline_uuid: Uuid = pipeline_execution_id.into();
         let now_ts = UniversalTimestamp::now();
@@ -169,7 +169,7 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than_minutes: i32,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let cutoff_time =
             UniversalTimestamp(Utc::now() - chrono::Duration::minutes(older_than_minutes as i64));
 
@@ -199,7 +199,7 @@ impl<'a> CronExecutionDAL<'a> {
     /// # Returns
     /// * `Result<CronExecution, ValidationError>` - The cron execution record
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
         let execution = conn.interact(move |conn| {
@@ -226,7 +226,7 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let executions = conn.interact(move |conn| {
@@ -255,7 +255,7 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = pipeline_execution_id.into();
 
         let execution = conn.interact(move |conn| {
@@ -288,7 +288,7 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let start_ts = UniversalTimestamp(start_time);
         let end_ts = UniversalTimestamp(end_time);
 
@@ -313,7 +313,7 @@ impl<'a> CronExecutionDAL<'a> {
     /// # Returns
     /// * `Result<i64, ValidationError>` - Total count of executions
     pub async fn count_by_schedule(&self, schedule_id: UniversalUuid) -> Result<i64, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let count = conn.interact(move |conn| {
@@ -342,7 +342,7 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
         let scheduled_ts = UniversalTimestamp(scheduled_time);
 
@@ -368,7 +368,7 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
         let execution = conn.interact(move |conn| {
@@ -393,7 +393,7 @@ impl<'a> CronExecutionDAL<'a> {
     /// # Returns
     /// * `Result<usize, ValidationError>` - Number of records deleted
     pub async fn delete_older_than(&self, older_than: DateTime<Utc>) -> Result<usize, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let cutoff_ts = UniversalTimestamp(older_than);
 
         let deleted_count = conn.interact(move |conn| {
@@ -419,7 +419,7 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let since_ts = UniversalTimestamp(since);
         let lost_cutoff = UniversalTimestamp(Utc::now() - chrono::Duration::minutes(10));
 

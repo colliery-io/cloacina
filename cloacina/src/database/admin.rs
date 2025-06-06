@@ -30,9 +30,9 @@ mod postgres_impl {
     use diesel::pg::PgConnection;
     use diesel::prelude::*;
     use rand::Rng;
-    use std::ops::{Deref, DerefMut};
 
     /// Database administrator for tenant provisioning
+    #[allow(dead_code)]
     pub struct DatabaseAdmin {
         database: Database,
     }
@@ -87,6 +87,7 @@ mod postgres_impl {
         }
     }
 
+    #[allow(dead_code)]
     impl DatabaseAdmin {
         /// Create a new database administrator
         pub fn new(database: Database) -> Self {
@@ -343,7 +344,7 @@ mod postgres_impl {
         }
     }
 
-    /// Generate a cryptographically secure password
+    #[allow(dead_code)]
     fn generate_secure_password(length: usize) -> String {
         let charset: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                               abcdefghijklmnopqrstuvwxyz\

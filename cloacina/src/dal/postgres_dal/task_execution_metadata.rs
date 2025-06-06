@@ -56,7 +56,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let metadata: TaskExecutionMetadata = conn.interact(move |conn| {
             diesel::insert_into(task_execution_metadata::table)
@@ -80,7 +80,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         task_name: &str,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let task_name_owned = task_name.to_string();
         let metadata = conn.interact(move |conn| {
@@ -104,7 +104,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let metadata = conn.interact(move |conn| {
             task_execution_metadata::table
@@ -128,7 +128,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_execution_id: UniversalUuid,
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let context_uuid: Option<Uuid> = context_id.map(|id| id.into());
         conn.interact(move |conn| {
@@ -158,7 +158,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let metadata: TaskExecutionMetadata = conn.interact(move |conn| {
             diesel::insert_into(task_execution_metadata::table)
@@ -188,7 +188,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let dependency_task_names_owned = dependency_task_names.to_vec();
         let metadata = conn.interact(move |conn| {
@@ -226,7 +226,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         let dependency_task_names_owned = dependency_task_names.to_vec();
         let results = conn.interact(move |conn| {

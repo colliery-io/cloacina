@@ -288,7 +288,7 @@ impl DefaultRunnerBuilder {
                 })?;
         } else {
             // Run migrations in public schema
-            let mut conn =
+            let conn =
                 database
                     .pool()
                     .get()
@@ -441,7 +441,7 @@ impl DefaultRunner {
 
         // Run migrations
         {
-            let mut conn =
+            let conn =
                 database
                     .pool()
                     .get()

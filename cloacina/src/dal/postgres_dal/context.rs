@@ -100,7 +100,7 @@ impl<'a> ContextDAL<'a> {
             return Ok(None);
         }
 
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Create new database record
         let new_context = NewDbContext { value };
@@ -134,7 +134,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Get the database record
         let uuid_id: Uuid = id.into();
@@ -166,7 +166,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Serialize the context data
         let value = context.to_json()?;
@@ -194,7 +194,7 @@ impl<'a> ContextDAL<'a> {
     ///
     /// * `Result<(), ContextError>` - Success or error
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
         conn.interact(move |conn| {
             diesel::delete(contexts::table.find(uuid_id)).execute(conn)
@@ -223,7 +223,7 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let mut conn = self.dal.pool.get().await?;
+        let conn = self.dal.pool.get().await?;
 
         // Get the database records with pagination
         let db_contexts: Vec<DbContext> = conn.interact(move |conn| {

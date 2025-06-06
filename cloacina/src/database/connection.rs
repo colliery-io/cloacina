@@ -213,7 +213,7 @@ impl Database {
     pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
         use diesel::prelude::*;
 
-        let mut conn = self.pool.get().await.map_err(|e| e.to_string())?;
+        let conn = self.pool.get().await.map_err(|e| e.to_string())?;
 
         let schema_name = schema.to_string();
         let schema_name_clone = schema_name.clone();
