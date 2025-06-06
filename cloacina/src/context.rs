@@ -476,7 +476,7 @@ where
     /// * `Ok(Some(&T))` - If the key exists in local context
     /// * `Ok(None)` - If the key doesn't exist anywhere
     /// * `Err(ExecutorError)` - If dependency loading fails
-    pub fn get_with_dependencies(&self, key: &str) -> Result<Option<&T>, ExecutorError>
+    pub async fn get_with_dependencies(&self, key: &str) -> Result<Option<&T>, ExecutorError>
     where
         T: From<serde_json::Value>,
     {
@@ -491,7 +491,7 @@ where
         // If not found locally and we have a dependency loader, try loading from dependencies
         if let Some(loader) = &self.dependency_loader {
             debug!("Key '{}' not found locally, checking dependencies", key);
-            match loader.load_from_dependencies(key)? {
+            match loader.load_from_dependencies(key).await? {
                 Some(_json_value) => {
                     // Note: Since we can't modify self in this immutable method,
                     // we can't cache the loaded value. The caller should use
@@ -544,7 +544,7 @@ where
     /// * `Ok(Some(&T))` - If the key exists (locally or loaded from dependencies)
     /// * `Ok(None)` - If the key doesn't exist anywhere
     /// * `Err(ExecutorError)` - If dependency loading fails
-    pub fn load_from_dependencies_and_cache(
+    pub async fn load_from_dependencies_and_cache(
         &mut self,
         key: &str,
     ) -> Result<Option<T>, ExecutorError>
@@ -565,7 +565,7 @@ where
         // If not found locally and we have a dependency loader, try loading from dependencies
         if let Some(loader) = &self.dependency_loader {
             debug!("Key '{}' not found locally, loading from dependencies", key);
-            match loader.load_from_dependencies(key)? {
+            match loader.load_from_dependencies(key).await? {
                 Some(json_value) => {
                     debug!(
                         "Found key '{}' in dependency contexts, caching locally",

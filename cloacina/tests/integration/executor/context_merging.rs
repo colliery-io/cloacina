@@ -25,7 +25,7 @@ use crate::fixtures::get_or_init_fixture;
 // Helper for getting database for tests
 async fn get_test_database() -> Database {
     let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap();
+    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     locked_fixture.initialize().await;
     locked_fixture.get_database()
 }
@@ -135,14 +135,13 @@ impl Task for ContextMergerTask {
 
         // Try to load all expected keys from dependencies
         for key in &self.expected_keys {
-            match context.load_from_dependencies_and_cache(key) {
-                Ok(Some(value)) => {
-                    merged_values.insert(key.clone(), value);
-                }
+            // Load the value from dependencies or local context
+            let value = match context.load_from_dependencies_and_cache(key).await {
+                Ok(Some(value)) => value,
                 Ok(None) => {
                     // Check if it's in local context
                     if let Some(local_value) = context.get(key) {
-                        merged_values.insert(key.clone(), local_value.clone());
+                        local_value.clone()
                     } else {
                         return Err(TaskError::Unknown {
                             task_id: self.id.clone(),
@@ -159,7 +158,9 @@ impl Task for ContextMergerTask {
                         message: format!("Failed to load key '{}': {}", key, e),
                     });
                 }
-            }
+            };
+
+            merged_values.insert(key.clone(), value);
         }
 
         // Add a summary of merged values
@@ -170,6 +171,7 @@ impl Task for ContextMergerTask {
                 .collect(),
         );
 
+        // Insert the summary into the context
         context
             .insert("merged_keys", summary)
             .map_err(|e| TaskError::Unknown {
@@ -247,12 +249,15 @@ async fn test_context_merging_latest_wins() {
     let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
-    let mut input_context = Context::new();
-    input_context
-        .insert("initial_context", Value::String("merging_test".to_string()))
-        .unwrap();
+    let input_context = Arc::new(tokio::sync::Mutex::new(Context::new()));
+    {
+        let mut context = input_context.lock().await;
+        context
+            .insert("initial_context", Value::String("merging_test".to_string()))
+            .unwrap();
+    }
     let pipeline_id = scheduler
-        .schedule_workflow_execution("merging_pipeline", input_context)
+        .schedule_workflow_execution("merging_pipeline", input_context.lock().await.clone_data())
         .await
         .unwrap();
 
@@ -278,11 +283,16 @@ async fn test_context_merging_latest_wins() {
     let merger_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger")
+        .await
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = merger_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -400,11 +410,16 @@ async fn test_execution_scope_context_setup() {
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector")
+        .await
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = task_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()

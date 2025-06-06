@@ -73,7 +73,7 @@ let workflow = workflow! {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize executor with database connection
-    let executor = UnifiedExecutor::new("postgresql://user:pass@localhost/mydb").await?;
+    let executor = DefaultRunner::new("postgresql://user:pass@localhost/mydb").await?;
 
     // Execute workflow with automatic state persistence
     let context = Context::new();

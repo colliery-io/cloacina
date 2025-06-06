@@ -49,7 +49,7 @@ impl Task for SimpleTask {
 #[serial]
 async fn test_schedule_workflow_execution() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -82,6 +82,7 @@ async fn test_schedule_workflow_execution() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline execution");
 
     assert_eq!(pipeline.pipeline_name, "test-workflow");
@@ -92,7 +93,7 @@ async fn test_schedule_workflow_execution() {
 #[serial]
 async fn test_schedule_nonexistent_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -118,7 +119,7 @@ async fn test_schedule_nonexistent_workflow() {
 #[serial]
 async fn test_workflow_version_tracking() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -149,6 +150,7 @@ async fn test_workflow_version_tracking() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline execution");
 
     // Since we're using auto-versioning, just verify a version was set

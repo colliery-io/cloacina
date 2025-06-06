@@ -29,7 +29,7 @@ use tracing::info;
 #[serial]
 async fn test_orphaned_task_recovery() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -45,6 +45,7 @@ async fn test_orphaned_task_recovery() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create a task stuck in "Running" state (orphaned)
@@ -59,6 +60,7 @@ async fn test_orphaned_task_recovery() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry)");
@@ -71,7 +73,11 @@ async fn test_orphaned_task_recovery() {
     info!("Verifying task was abandoned due to unavailable workflow");
 
     // With new graceful recovery, task should be abandoned since workflow is not in registry
-    let abandoned_task = dal.task_execution().get_by_id(orphaned_task.id).unwrap();
+    let abandoned_task = dal
+        .task_execution()
+        .get_by_id(orphaned_task.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task.status, "Failed");
     assert!(abandoned_task
         .error_details
@@ -83,6 +89,7 @@ async fn test_orphaned_task_recovery() {
     let failed_pipeline = dal
         .pipeline_execution()
         .get_by_id(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(failed_pipeline.status, "Failed");
 
@@ -90,6 +97,7 @@ async fn test_orphaned_task_recovery() {
     let recovery_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert!(!recovery_events.is_empty());
     let task_events: Vec<_> = recovery_events
@@ -107,7 +115,7 @@ async fn test_orphaned_task_recovery() {
 #[serial]
 async fn test_task_abandonment_after_max_retries() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -123,6 +131,7 @@ async fn test_task_abandonment_after_max_retries() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create a task stuck in "Running" state with maximum recovery attempts already reached
@@ -137,13 +146,20 @@ async fn test_task_abandonment_after_max_retries() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     // Manually set recovery attempts to maximum (3)
-    diesel::update(task_executions::table.find(task_with_max_retries.id))
-        .set(task_executions::recovery_attempts.eq(3))
-        .execute(&mut dal.pool.get().unwrap())
-        .unwrap();
+    let task_id = task_with_max_retries.id;
+    let conn = dal.pool.get().await.unwrap();
+    conn.interact(move |conn| {
+        diesel::update(task_executions::table.find(task_id))
+            .set(task_executions::recovery_attempts.eq(3))
+            .execute(conn)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon task");
 
@@ -158,6 +174,7 @@ async fn test_task_abandonment_after_max_retries() {
     let abandoned_task = dal
         .task_execution()
         .get_by_id(task_with_max_retries.id)
+        .await
         .unwrap();
     assert_eq!(abandoned_task.status, "Failed");
     assert!(abandoned_task
@@ -170,6 +187,7 @@ async fn test_task_abandonment_after_max_retries() {
     let failed_pipeline = dal
         .pipeline_execution()
         .get_by_id(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(failed_pipeline.status, "Failed");
 
@@ -177,6 +195,7 @@ async fn test_task_abandonment_after_max_retries() {
     let recovery_events = dal
         .recovery_event()
         .get_by_task(task_with_max_retries.id)
+        .await
         .unwrap();
     assert_eq!(recovery_events.len(), 1);
     assert_eq!(recovery_events[0].recovery_type, "workflow_unavailable");
@@ -188,7 +207,7 @@ async fn test_task_abandonment_after_max_retries() {
 #[serial]
 async fn test_no_recovery_needed() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -204,6 +223,7 @@ async fn test_no_recovery_needed() {
             status: "Completed".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create tasks with normal states (no orphans)
@@ -218,6 +238,7 @@ async fn test_no_recovery_needed() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let _ready_task = dal
@@ -231,6 +252,7 @@ async fn test_no_recovery_needed() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let _not_started_task = dal
@@ -244,6 +266,7 @@ async fn test_no_recovery_needed() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with recovery - should find no orphans");
@@ -259,6 +282,7 @@ async fn test_no_recovery_needed() {
     let recovery_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(recovery_events.len(), 0);
 
@@ -269,7 +293,7 @@ async fn test_no_recovery_needed() {
 #[serial]
 async fn test_multiple_orphaned_tasks_recovery() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -285,6 +309,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create multiple orphaned tasks
@@ -299,6 +324,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let orphaned_task2 = dal
@@ -312,6 +338,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     // Create one task with max retries
@@ -326,13 +353,20 @@ async fn test_multiple_orphaned_tasks_recovery() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     // Set max retries on one task
-    diesel::update(task_executions::table.find(max_retry_task.id))
-        .set(task_executions::recovery_attempts.eq(3))
-        .execute(&mut dal.pool.get().unwrap())
-        .unwrap();
+    let task_id = max_retry_task.id;
+    let conn = dal.pool.get().await.unwrap();
+    conn.interact(move |conn| {
+        diesel::update(task_executions::table.find(task_id))
+            .set(task_executions::recovery_attempts.eq(3))
+            .execute(conn)
+    })
+    .await
+    .unwrap()
+    .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
 
@@ -344,21 +378,33 @@ async fn test_multiple_orphaned_tasks_recovery() {
     info!("Verifying all tasks were abandoned due to unavailable workflow");
 
     // All tasks should be abandoned due to workflow unavailability
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
         .unwrap()
         .contains("Workflow 'multi-recovery-test' no longer available"));
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details
         .unwrap()
         .contains("Workflow 'multi-recovery-test' no longer available"));
 
-    let abandoned_task3 = dal.task_execution().get_by_id(max_retry_task.id).unwrap();
+    let abandoned_task3 = dal
+        .task_execution()
+        .get_by_id(max_retry_task.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task3.status, "Failed");
     assert!(abandoned_task3
         .error_details
@@ -369,6 +415,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
     let failed_pipeline = dal
         .pipeline_execution()
         .get_by_id(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(failed_pipeline.status, "Failed");
 
@@ -376,6 +423,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
     let all_recovery_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert!(!all_recovery_events.is_empty());
 
@@ -392,7 +440,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
 #[serial]
 async fn test_recovery_event_details() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -408,6 +456,7 @@ async fn test_recovery_event_details() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create an orphaned task
@@ -422,6 +471,7 @@ async fn test_recovery_event_details() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry)");
@@ -434,7 +484,11 @@ async fn test_recovery_event_details() {
     info!("Verifying workflow unavailable recovery event details");
 
     // Verify workflow unavailable recovery event details
-    let recovery_events = dal.recovery_event().get_by_task(orphaned_task.id).unwrap();
+    let recovery_events = dal
+        .recovery_event()
+        .get_by_task(orphaned_task.id)
+        .await
+        .unwrap();
     assert_eq!(recovery_events.len(), 1);
 
     let event = &recovery_events[0];
@@ -458,7 +512,7 @@ async fn test_recovery_event_details() {
 #[serial]
 async fn test_graceful_recovery_for_unknown_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -474,6 +528,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create orphaned tasks from the unknown workflow
@@ -488,6 +543,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let orphaned_task2 = dal
@@ -501,6 +557,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with empty workflow registry - should gracefully abandon unknown workflow");
@@ -513,7 +570,11 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     info!("Verifying tasks were abandoned gracefully");
 
     // Verify tasks were abandoned
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
@@ -521,7 +582,11 @@ async fn test_graceful_recovery_for_unknown_workflow() {
         .contains("Workflow 'unknown-workflow' no longer available"));
     assert!(abandoned_task1.completed_at.is_some());
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details
@@ -533,6 +598,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     let failed_pipeline = dal
         .pipeline_execution()
         .get_by_id(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(failed_pipeline.status, "Failed");
     assert!(failed_pipeline
@@ -544,6 +610,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     let workflow_unavailable_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert!(!workflow_unavailable_events.is_empty());
 
@@ -577,7 +644,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
 #[serial]
 async fn test_recovery_event_details_multiple_tasks() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -593,6 +660,7 @@ async fn test_recovery_event_details_multiple_tasks() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create multiple orphaned tasks
@@ -607,6 +675,7 @@ async fn test_recovery_event_details_multiple_tasks() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let orphaned_task2 = dal
@@ -620,6 +689,7 @@ async fn test_recovery_event_details_multiple_tasks() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should record detailed events");
@@ -635,6 +705,7 @@ async fn test_recovery_event_details_multiple_tasks() {
     let recovery_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(recovery_events.len(), 3); // Two task events + one pipeline event
 
@@ -712,7 +783,7 @@ async fn test_recovery_event_details_multiple_tasks() {
 #[serial]
 async fn test_recovery_event_details_unknown_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -728,6 +799,7 @@ async fn test_recovery_event_details_unknown_workflow() {
             status: "Running".to_string(),
             context_id: None,
         })
+        .await
         .unwrap();
 
     // Create orphaned tasks from the unknown workflow
@@ -742,6 +814,7 @@ async fn test_recovery_event_details_unknown_workflow() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     let orphaned_task2 = dal
@@ -755,6 +828,7 @@ async fn test_recovery_event_details_unknown_workflow() {
             trigger_rules: json!({"type": "Always"}).to_string(),
             task_configuration: json!({}).to_string(),
         })
+        .await
         .unwrap();
 
     info!("Creating scheduler with recovery (empty workflow registry) - should handle unknown workflow gracefully");
@@ -767,7 +841,11 @@ async fn test_recovery_event_details_unknown_workflow() {
     info!("Verifying graceful handling of unknown workflow");
 
     // Verify tasks were abandoned
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
@@ -775,7 +853,11 @@ async fn test_recovery_event_details_unknown_workflow() {
         .contains("Workflow 'unknown-workflow-test' no longer available"));
     assert!(abandoned_task1.completed_at.is_some());
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details
@@ -787,6 +869,7 @@ async fn test_recovery_event_details_unknown_workflow() {
     let failed_pipeline = dal
         .pipeline_execution()
         .get_by_id(pipeline_execution.id)
+        .await
         .unwrap();
     assert_eq!(failed_pipeline.status, "Failed");
     assert!(failed_pipeline
@@ -798,6 +881,7 @@ async fn test_recovery_event_details_unknown_workflow() {
     let workflow_unavailable_events = dal
         .recovery_event()
         .get_by_pipeline(pipeline_execution.id)
+        .await
         .unwrap();
     assert!(!workflow_unavailable_events.is_empty());
 

@@ -282,23 +282,28 @@ impl DefaultRunnerBuilder {
         if let Some(ref schema) = self.schema {
             database
                 .setup_schema(schema)
+                .await
                 .map_err(|e| PipelineError::Configuration {
                     message: format!("Failed to set up schema '{}': {}", schema, e),
                 })?;
         } else {
             // Run migrations in public schema
-            let mut conn =
+            let conn =
                 database
                     .pool()
                     .get()
+                    .await
                     .map_err(|e| PipelineError::DatabaseConnection {
                         message: e.to_string(),
                     })?;
-            crate::database::run_migrations(&mut conn).map_err(|e| {
-                PipelineError::DatabaseConnection {
+            conn.interact(|conn| crate::database::run_migrations(conn))
+                .await
+                .map_err(|e| PipelineError::DatabaseConnection {
                     message: e.to_string(),
-                }
-            })?;
+                })?
+                .map_err(|e| PipelineError::DatabaseConnection {
+                    message: e.to_string(),
+                })?;
         }
 
         // Create scheduler with recovery if enabled
@@ -436,18 +441,22 @@ impl DefaultRunner {
 
         // Run migrations
         {
-            let mut conn =
+            let conn =
                 database
                     .pool()
                     .get()
+                    .await
                     .map_err(|e| PipelineError::DatabaseConnection {
                         message: e.to_string(),
                     })?;
-            crate::database::run_migrations(&mut conn).map_err(|e| {
-                PipelineError::DatabaseConnection {
+            conn.interact(|conn| crate::database::run_migrations(conn))
+                .await
+                .map_err(|e| PipelineError::DatabaseConnection {
                     message: e.to_string(),
-                }
-            })?;
+                })?
+                .map_err(|e| PipelineError::DatabaseConnection {
+                    message: e.to_string(),
+                })?;
         }
 
         // Create scheduler with recovery if enabled
@@ -727,6 +736,7 @@ impl DefaultRunner {
         let pipeline_execution = dal
             .pipeline_execution()
             .get_by_id(UniversalUuid(execution_id))
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get pipeline execution: {}", e),
             })?;
@@ -734,6 +744,7 @@ impl DefaultRunner {
         let task_executions = dal
             .task_execution()
             .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get task executions: {}", e),
             })?;
@@ -742,6 +753,7 @@ impl DefaultRunner {
         let final_context = if let Some(context_id) = pipeline_execution.context_id {
             dal.context()
                 .read(context_id)
+                .await
                 .map_err(|e| PipelineError::ExecutionFailed {
                     message: format!("Failed to get context: {}", e),
                 })?
@@ -895,6 +907,7 @@ impl PipelineExecutor for DefaultRunner {
             let pipeline = dal
                 .pipeline_execution()
                 .get_by_id(UniversalUuid(execution_id))
+                .await
                 .map_err(|e| PipelineError::ExecutionFailed {
                     message: format!("Failed to check execution status: {}", e),
                 })?;
@@ -999,6 +1012,7 @@ impl PipelineExecutor for DefaultRunner {
         let pipeline = dal
             .pipeline_execution()
             .get_by_id(UniversalUuid(execution_id))
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get execution status: {}", e),
             })?;
@@ -1042,6 +1056,7 @@ impl PipelineExecutor for DefaultRunner {
 
         dal.pipeline_execution()
             .cancel(execution_id.into())
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to cancel execution: {}", e),
             })?;
@@ -1058,11 +1073,13 @@ impl PipelineExecutor for DefaultRunner {
     async fn list_executions(&self) -> Result<Vec<PipelineResult>, PipelineError> {
         let dal = DAL::new(self.database.pool());
 
-        let executions = dal.pipeline_execution().list_recent(100).map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let executions = dal
+            .pipeline_execution()
+            .list_recent(100)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to list executions: {}", e),
-            }
-        })?;
+            })?;
 
         let mut results = Vec::new();
         for execution in executions {
@@ -1135,6 +1152,7 @@ impl DefaultRunner {
         })?;
 
         let now = chrono::Utc::now();
+        // Calculate next run time from now, ensuring it's in the future
         let next_run = evaluator
             .next_execution(now)
             .map_err(|e| PipelineError::Configuration {
@@ -1156,11 +1174,13 @@ impl DefaultRunner {
             next_run_at: UniversalTimestamp(next_run),
         };
 
-        let schedule = dal.cron_schedule().create(new_schedule).map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let schedule = dal
+            .cron_schedule()
+            .create(new_schedule)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to create cron schedule: {}", e),
-            }
-        })?;
+            })?;
 
         Ok(schedule.id)
     }
@@ -1189,6 +1209,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
         dal.cron_schedule()
             .list(enabled_only, limit, offset)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to list cron schedules: {}", e),
             })
@@ -1216,9 +1237,9 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
 
         if enabled {
-            dal.cron_schedule().enable(schedule_id)
+            dal.cron_schedule().enable(schedule_id).await
         } else {
-            dal.cron_schedule().disable(schedule_id)
+            dal.cron_schedule().disable(schedule_id).await
         }
         .map_err(|e| PipelineError::ExecutionFailed {
             message: format!("Failed to update cron schedule: {}", e),
@@ -1245,6 +1266,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
         dal.cron_schedule()
             .delete(schedule_id)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to delete cron schedule: {}", e),
             })
@@ -1270,6 +1292,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
         dal.cron_schedule()
             .get_by_id(schedule_id)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get cron schedule: {}", e),
             })
@@ -1307,11 +1330,13 @@ impl DefaultRunner {
         }
 
         // Get current schedule
-        let mut schedule = dal.cron_schedule().get_by_id(schedule_id).map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let mut schedule = dal
+            .cron_schedule()
+            .get_by_id(schedule_id)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get cron schedule: {}", e),
-            }
-        })?;
+            })?;
 
         // Update fields if provided
         if let Some(expr) = cron_expression {
@@ -1340,6 +1365,7 @@ impl DefaultRunner {
         // Update the schedule
         dal.cron_schedule()
             .update_next_run(schedule_id, next_run)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to update cron schedule: {}", e),
             })?;
@@ -1371,6 +1397,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
         dal.cron_execution()
             .get_by_schedule_id(schedule_id, limit, offset)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get cron execution history: {}", e),
             })
@@ -1396,6 +1423,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.pool());
         dal.cron_execution()
             .get_execution_stats(since)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get cron execution stats: {}", e),
             })

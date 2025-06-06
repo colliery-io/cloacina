@@ -27,12 +27,12 @@ pub use postgres_impl::*;
 #[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
-    use crate::PipelineError;
     use diesel::pg::PgConnection;
     use diesel::prelude::*;
     use rand::Rng;
 
     /// Database administrator for tenant provisioning
+    #[allow(dead_code)]
     pub struct DatabaseAdmin {
         database: Database,
     }
@@ -66,7 +66,7 @@ mod postgres_impl {
         Database(#[from] diesel::result::Error),
 
         #[error("Connection pool error: {0}")]
-        Pool(#[from] diesel::r2d2::PoolError),
+        Pool(String),
 
         #[error("SQL execution error: {message}")]
         SqlExecution { message: String },
@@ -75,6 +75,19 @@ mod postgres_impl {
         InvalidConfig { message: String },
     }
 
+    impl From<deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>> for AdminError {
+        fn from(err: deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>) -> Self {
+            AdminError::Pool(format!("{:?}", err))
+        }
+    }
+
+    impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for AdminError {
+        fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+            AdminError::Pool(format!("{:?}", err))
+        }
+    }
+
+    #[allow(dead_code)]
     impl DatabaseAdmin {
         /// Create a new database administrator
         pub fn new(database: Database) -> Self {
@@ -85,10 +98,13 @@ mod postgres_impl {
         ///
         /// If `tenant_config.password` is empty, a secure 32-character password will be auto-generated.
         /// Returns the tenant credentials for distribution to the tenant.
-        pub fn create_tenant(
+        pub async fn create_tenant(
             &self,
-            tenant_config: TenantConfig,
+            _tenant_config: TenantConfig,
         ) -> Result<TenantCredentials, AdminError> {
+            // TODO: Temporarily disabled during async migration
+            todo!("Admin functions need rework for deadpool-diesel")
+            /*
             // Validate configuration
             if tenant_config.schema_name.is_empty() {
                 return Err(AdminError::InvalidConfig {
@@ -108,58 +124,78 @@ mod postgres_impl {
                 tenant_config.password.clone() // Use admin-provided password
             };
 
-            let mut conn = self.database.pool().get()?;
+            // Clone values needed in the closure
+            let schema_name = tenant_config.schema_name.clone();
+            let username = tenant_config.username.clone();
+            let final_password_clone = final_password.clone();
+
+            // Clone again for use after the closure
+            let schema_name_result = schema_name.clone();
+            let username_result = username.clone();
+
+            let mut conn = self.database.pool().get().await?;
 
             // Execute all tenant setup SQL in a transaction
-            conn.transaction::<(), AdminError, _>(|conn| {
+            conn.deref_mut().transaction::<(), AdminError, _>(|conn| {
                 // 1. Create schema
-                self.create_schema(conn, &tenant_config.schema_name)?;
+                self.create_schema(conn, &schema_name)?;
 
                 // 2. Create user with determined password
-                self.create_user(conn, &tenant_config.username, &final_password)?;
+                self.create_user(conn, &username, &final_password_clone)?;
 
                 // 3. Grant permissions
                 self.grant_schema_permissions(
                     conn,
-                    &tenant_config.schema_name,
-                    &tenant_config.username,
+                    &schema_name,
+                    &username,
                 )?;
 
                 // 4. Run migrations in the schema
-                self.run_migrations_in_schema(conn, &tenant_config.schema_name)?;
+                self.run_migrations_in_schema(conn, &schema_name)?;
 
                 Ok(())
             })?;
 
             // Return credentials for admin to share with tenant
             let connection_string =
-                self.build_connection_string(&tenant_config.username, &final_password);
+                self.build_connection_string(&username_result, &final_password);
             Ok(TenantCredentials {
-                username: tenant_config.username,
+                username: username_result,
                 password: final_password, // Either provided or generated
-                schema_name: tenant_config.schema_name,
+                schema_name: schema_name_result,
                 connection_string,
             })
+            */
         }
 
         /// Remove a tenant (user + schema)
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
-        pub fn remove_tenant(&self, schema_name: &str, username: &str) -> Result<(), AdminError> {
-            let mut conn = self.database.pool().get()?;
+        pub async fn remove_tenant(
+            &self,
+            _schema_name: &str,
+            _username: &str,
+        ) -> Result<(), AdminError> {
+            // TODO: Temporarily disabled during async migration
+            todo!("Admin functions need rework for deadpool-diesel")
+            /*
+            let mut conn = self.database.pool().get().await?;
+            let schema_name = schema_name.to_string();
+            let username = username.to_string();
 
-            conn.transaction::<(), AdminError, _>(|conn| {
+            conn.deref_mut().transaction::<(), AdminError, _>(|conn| {
                 // 1. Revoke permissions
-                self.revoke_schema_permissions(conn, schema_name, username)?;
+                self.revoke_schema_permissions(conn, &schema_name, &username)?;
 
                 // 2. Drop user
-                self.drop_user(conn, username)?;
+                self.drop_user(conn, &username)?;
 
                 // 3. Drop schema (with CASCADE to remove all objects)
-                self.drop_schema(conn, schema_name)?;
+                self.drop_schema(conn, &schema_name)?;
 
                 Ok(())
-            })
+            })?
+            */
         }
 
         // Private helper methods
@@ -312,7 +348,7 @@ mod postgres_impl {
         }
     }
 
-    /// Generate a cryptographically secure password
+    #[allow(dead_code)]
     fn generate_secure_password(length: usize) -> String {
         let charset: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                               abcdefghijklmnopqrstuvwxyz\

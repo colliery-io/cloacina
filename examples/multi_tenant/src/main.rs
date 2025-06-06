@@ -19,7 +19,8 @@
 //! This example demonstrates how to use Cloacina's multi-tenant capabilities
 //! with PostgreSQL schema-based isolation.
 
-use cloacina::executor::unified_executor::UnifiedExecutor;
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::DefaultRunner;
 use cloacina::PipelineError;
 use std::env;
 use tracing::{info, warn};
@@ -54,11 +55,11 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 
     // Method 1: Using convenience method
     info!("Creating tenant 'acme_corp' using convenience method");
-    let acme_executor = UnifiedExecutor::with_schema(database_url, "acme_corp").await?;
+    let acme_executor = DefaultRunner::with_schema(database_url, "acme_corp").await?;
 
     // Method 2: Using builder pattern
     info!("Creating tenant 'globex_inc' using builder pattern");
-    let globex_executor = UnifiedExecutor::builder()
+    let globex_executor = DefaultRunner::builder()
         .database_url(database_url)
         .schema("globex_inc")
         .build()
@@ -66,7 +67,7 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 
     // Method 3: Single-tenant (uses public schema)
     info!("Creating single-tenant executor (public schema)");
-    let single_tenant = UnifiedExecutor::new(database_url).await?;
+    let single_tenant = DefaultRunner::new(database_url).await?;
 
     info!("All executors created successfully!");
 
@@ -92,7 +93,7 @@ async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), Pipeli
     info!("Creating executor for tenant 'persistent_tenant'...");
 
     // First creation - will create schema and run migrations
-    let first_executor = UnifiedExecutor::with_schema(database_url, "persistent_tenant").await?;
+    let first_executor = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
     info!("First executor created - schema and tables initialized");
 
     // Simulate some work would happen here...
@@ -104,7 +105,7 @@ async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), Pipeli
 
     // Create a new executor for the same tenant
     info!("Creating new executor for same tenant after shutdown...");
-    let second_executor = UnifiedExecutor::with_schema(database_url, "persistent_tenant").await?;
+    let second_executor = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
     info!("Second executor created successfully!");
     info!("- Schema was NOT recreated (already exists)");
     info!("- Migrations were NOT re-run (already applied)");
@@ -116,7 +117,7 @@ async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), Pipeli
 
     // Basic migration example
     info!("\nMigration tip: To migrate from single-tenant to multi-tenant:");
-    info!("1. Create UnifiedExecutor with schema for new tenant");
+    info!("1. Create DefaultRunner with schema for new tenant");
     info!("2. Existing data remains in 'public' schema");
     info!("3. New tenant data is isolated in its own schema");
     info!("4. Both can run side-by-side during transition");

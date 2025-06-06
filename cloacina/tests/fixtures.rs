@@ -118,46 +118,65 @@ impl TestFixture {
 
     /// Initialize the fixture with additional setup
     pub async fn initialize(&mut self) {
-        if self.initialized {
-            return;
+        // Initialize the database schema
+        cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
+        self.initialized = true;
+    }
+
+    /// Reset the database by dropping and recreating it
+    pub async fn reset_database(&mut self) {
+        // For PostgreSQL, we need to properly handle connection termination
+        #[cfg(feature = "postgres")]
+        {
+            use diesel::Connection;
+
+            // Connect to the 'postgres' database to perform admin operations
+            let mut admin_conn =
+                PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/postgres")
+                    .expect("Failed to connect to postgres database for admin operations");
+
+            // Terminate existing connections to 'cloacina'
+            diesel::sql_query(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'cloacina' AND pid <> pg_backend_pid()"
+            )
+            .execute(&mut admin_conn)
+            .expect("Failed to terminate existing connections");
+
+            // Drop and recreate the database
+            diesel::sql_query("DROP DATABASE IF EXISTS cloacina")
+                .execute(&mut admin_conn)
+                .expect("Failed to drop database");
+
+            diesel::sql_query("CREATE DATABASE cloacina")
+                .execute(&mut admin_conn)
+                .expect("Failed to create database");
+
+            // Create new connections
+            let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+            let mut conn =
+                PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+                    .expect("Failed to connect to PostgreSQL database");
+
+            // Run migrations
+            cloacina::database::run_migrations(&mut conn).expect("Failed to run migrations");
+
+            // Update the fixture's connections
+            self.db = db;
+            self.conn = conn;
         }
 
-        // Run any necessary database setup using our migration function
-        cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
-
-        info!("Test fixture initialized successfully");
-        self.initialized = true;
+        #[cfg(feature = "sqlite")]
+        {
+            // For SQLite, we just need to run migrations
+            cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
+        }
     }
 }
 
 impl Drop for TestFixture {
     fn drop(&mut self) {
-        info!("Cleaning up test fixture");
-
-        #[cfg(feature = "postgres")]
-        {
-            // Drop and recreate the database
-            diesel::sql_query(
-                "
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = 'cloacina' AND pid <> pg_backend_pid();
-
-                DROP DATABASE IF EXISTS cloacina;
-                CREATE DATABASE cloacina;
-            ",
-            )
-            .execute(&mut self.conn)
-            .expect("Failed to reset database");
-        }
-
-        #[cfg(feature = "sqlite")]
-        {
-            // SQLite cleanup is automatic - in-memory database is dropped
-            // No explicit cleanup needed
-        }
-
-        // The database connection will be automatically dropped
+        // No need to reset the database here - tests should manage their own cleanup
+        // This prevents interference with other tests that might still be running
     }
 }
 

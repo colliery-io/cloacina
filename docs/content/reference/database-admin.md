@@ -232,16 +232,16 @@ The method performs these operations in a single transaction:
    AdminError::SqlExecution { message: "Failed to create schema: permission denied" }
    ```
 
-## Integration with UnifiedExecutor
+## Integration with DefaultRunner
 
-The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `UnifiedExecutor`:
+The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 
 ```rust
 // Create tenant
 let creds = admin.create_tenant(config)?;
 
-// Use credentials with UnifiedExecutor
-let executor = UnifiedExecutor::with_schema(
+// Use credentials with DefaultRunner
+let executor = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
 ).await?;
