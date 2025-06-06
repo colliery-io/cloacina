@@ -30,6 +30,27 @@ enum RuntimeMessage {
         context: cloacina::Context<serde_json::Value>,
         response_tx: oneshot::Sender<Result<cloacina::executor::PipelineResult, cloacina::executor::PipelineError>>,
     },
+    RegisterCronWorkflow {
+        workflow_name: String,
+        cron_expression: String,
+        timezone: String,
+        response_tx: oneshot::Sender<Result<String, cloacina::executor::PipelineError>>,
+    },
+    ListCronSchedules {
+        enabled_only: bool,
+        limit: i64,
+        offset: i64,
+        response_tx: oneshot::Sender<Result<Vec<cloacina::models::cron_schedule::CronSchedule>, cloacina::executor::PipelineError>>,
+    },
+    SetCronScheduleEnabled {
+        schedule_id: String,
+        enabled: bool,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::PipelineError>>,
+    },
+    DeleteCronSchedule {
+        schedule_id: String,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::PipelineError>>,
+    },
     Shutdown,
 }
 
@@ -184,6 +205,61 @@ impl PyDefaultRunner {
                                 eprintln!("TASK: Response sent successfully");
                             });
                         }
+                        RuntimeMessage::RegisterCronWorkflow { workflow_name, cron_expression, timezone, response_tx } => {
+                            eprintln!("THREAD: Received register cron workflow request for: {}", workflow_name);
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = runner_clone.register_cron_workflow(&workflow_name, &cron_expression, &timezone)
+                                    .await
+                                    .map(|uuid| uuid.to_string());
+                                
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::ListCronSchedules { enabled_only, limit, offset, response_tx } => {
+                            eprintln!("THREAD: Received list cron schedules request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = runner_clone.list_cron_schedules(enabled_only, limit, offset).await;
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::SetCronScheduleEnabled { schedule_id, enabled, response_tx } => {
+                            eprintln!("THREAD: Received set cron schedule enabled request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = match schedule_id.parse::<uuid::Uuid>() {
+                                    Ok(uuid) => {
+                                        let universal_uuid = cloacina::UniversalUuid::from(uuid);
+                                        runner_clone.set_cron_schedule_enabled(universal_uuid, enabled).await
+                                    }
+                                    Err(e) => Err(cloacina::executor::PipelineError::Configuration {
+                                        message: format!("Invalid schedule ID: {}", e),
+                                    }),
+                                };
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::DeleteCronSchedule { schedule_id, response_tx } => {
+                            eprintln!("THREAD: Received delete cron schedule request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = match schedule_id.parse::<uuid::Uuid>() {
+                                    Ok(uuid) => {
+                                        let universal_uuid = cloacina::UniversalUuid::from(uuid);
+                                        runner_clone.delete_cron_schedule(universal_uuid).await
+                                    }
+                                    Err(e) => Err(cloacina::executor::PipelineError::Configuration {
+                                        message: format!("Invalid schedule ID: {}", e),
+                                    }),
+                                };
+                                let _ = response_tx.send(result);
+                            });
+                        }
                         RuntimeMessage::Shutdown => {
                             eprintln!("THREAD: Received shutdown signal");
                             break;
@@ -263,6 +339,61 @@ impl PyDefaultRunner {
                                 // Send response back to the calling thread
                                 let _ = response_tx.send(result);
                                 eprintln!("TASK: Response sent successfully");
+                            });
+                        }
+                        RuntimeMessage::RegisterCronWorkflow { workflow_name, cron_expression, timezone, response_tx } => {
+                            eprintln!("THREAD: Received register cron workflow request for: {}", workflow_name);
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = runner_clone.register_cron_workflow(&workflow_name, &cron_expression, &timezone)
+                                    .await
+                                    .map(|uuid| uuid.to_string());
+                                
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::ListCronSchedules { enabled_only, limit, offset, response_tx } => {
+                            eprintln!("THREAD: Received list cron schedules request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = runner_clone.list_cron_schedules(enabled_only, limit, offset).await;
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::SetCronScheduleEnabled { schedule_id, enabled, response_tx } => {
+                            eprintln!("THREAD: Received set cron schedule enabled request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = match schedule_id.parse::<uuid::Uuid>() {
+                                    Ok(uuid) => {
+                                        let universal_uuid = cloacina::UniversalUuid::from(uuid);
+                                        runner_clone.set_cron_schedule_enabled(universal_uuid, enabled).await
+                                    }
+                                    Err(e) => Err(cloacina::executor::PipelineError::Configuration {
+                                        message: format!("Invalid schedule ID: {}", e),
+                                    }),
+                                };
+                                let _ = response_tx.send(result);
+                            });
+                        }
+                        RuntimeMessage::DeleteCronSchedule { schedule_id, response_tx } => {
+                            eprintln!("THREAD: Received delete cron schedule request");
+                            
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = match schedule_id.parse::<uuid::Uuid>() {
+                                    Ok(uuid) => {
+                                        let universal_uuid = cloacina::UniversalUuid::from(uuid);
+                                        runner_clone.delete_cron_schedule(universal_uuid).await
+                                    }
+                                    Err(e) => Err(cloacina::executor::PipelineError::Configuration {
+                                        message: format!("Invalid schedule ID: {}", e),
+                                    }),
+                                };
+                                let _ = response_tx.send(result);
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -374,17 +505,29 @@ impl PyDefaultRunner {
     /// ```
     pub fn register_cron_workflow(
         &self,
-        py: Python,
         workflow_name: String,
         cron_expression: String,
         timezone: String,
+        py: Python,
     ) -> PyResult<String> {
-        // TODO: Implement cron functionality using message-based approach
-        // For now, return an error indicating this is not yet implemented
-        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-            "Cron scheduling functionality is not yet implemented in Python bindings. \
-             This feature will be added in a future update."
-        ))
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        let message = RuntimeMessage::RegisterCronWorkflow {
+            workflow_name,
+            cron_expression,
+            timezone,
+            response_tx,
+        };
+        
+        py.allow_threads(|| {
+            self.runtime_handle.lock().unwrap().tx.send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            
+            let result = response_rx.blocking_recv()
+                .map_err(|_| PyValueError::new_err("Failed to receive response from runtime thread"))?;
+            
+            result.map_err(|e| PyValueError::new_err(format!("Failed to register cron workflow: {}", e)))
+        })
     }
     
     /// List all cron schedules
@@ -398,14 +541,55 @@ impl PyDefaultRunner {
     /// * List of dictionaries containing schedule information
     pub fn list_cron_schedules(
         &self,
-        py: Python,
         enabled_only: Option<bool>,
         limit: Option<i64>,
         offset: Option<i64>,
+        py: Python,
     ) -> PyResult<Vec<PyObject>> {
-        // TODO: Implement cron functionality using message-based approach
-        // For now, return an empty list
-        Ok(vec![])
+        let enabled_only = enabled_only.unwrap_or(false);
+        let limit = limit.unwrap_or(100);
+        let offset = offset.unwrap_or(0);
+        
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        let message = RuntimeMessage::ListCronSchedules {
+            enabled_only,
+            limit,
+            offset,
+            response_tx,
+        };
+        
+        py.allow_threads(|| {
+            self.runtime_handle.lock().unwrap().tx.send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            
+            let result = response_rx.blocking_recv()
+                .map_err(|_| PyValueError::new_err("Failed to receive response from runtime thread"))?;
+            
+            let schedules = result.map_err(|e| PyValueError::new_err(format!("Failed to list cron schedules: {}", e)))?;
+            
+            // Convert schedules to Python dictionaries
+            let py_schedules: Result<Vec<PyObject>, PyErr> = schedules.into_iter()
+                .map(|schedule| {
+                    Python::with_gil(|py| {
+                        let dict = pyo3::types::PyDict::new(py);
+                        dict.set_item("id", schedule.id.to_string())?;
+                        dict.set_item("workflow_name", schedule.workflow_name)?;
+                        dict.set_item("cron_expression", schedule.cron_expression)?;
+                        dict.set_item("timezone", schedule.timezone)?;
+                        dict.set_item("enabled", schedule.enabled.is_true())?;
+                        dict.set_item("catchup_policy", schedule.catchup_policy)?;
+                        dict.set_item("next_run_at", schedule.next_run_at.to_string())?;
+                        dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
+                        dict.set_item("created_at", schedule.created_at.to_string())?;
+                        dict.set_item("updated_at", schedule.updated_at.to_string())?;
+                        Ok(dict.into())
+                    })
+                })
+                .collect();
+            
+            py_schedules
+        })
     }
     
     /// Enable or disable a cron schedule
@@ -415,29 +599,50 @@ impl PyDefaultRunner {
     /// * `enabled` - True to enable, False to disable
     pub fn set_cron_schedule_enabled(
         &self,
-        py: Python,
         schedule_id: String,
         enabled: bool,
+        py: Python,
     ) -> PyResult<()> {
-        // TODO: Implement cron functionality using message-based approach
-        // For now, return an error indicating this is not yet implemented
-        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-            "Cron schedule management is not yet implemented in Python bindings. \
-             This feature will be added in a future update."
-        ))
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        let message = RuntimeMessage::SetCronScheduleEnabled {
+            schedule_id,
+            enabled,
+            response_tx,
+        };
+        
+        py.allow_threads(|| {
+            self.runtime_handle.lock().unwrap().tx.send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            
+            let result = response_rx.blocking_recv()
+                .map_err(|_| PyValueError::new_err("Failed to receive response from runtime thread"))?;
+            
+            result.map_err(|e| PyValueError::new_err(format!("Failed to update cron schedule: {}", e)))
+        })
     }
     
     /// Delete a cron schedule
     ///
     /// # Arguments
     /// * `schedule_id` - Schedule ID to delete
-    pub fn delete_cron_schedule(&self, py: Python, schedule_id: String) -> PyResult<()> {
-        // TODO: Implement cron functionality using message-based approach
-        // For now, return an error indicating this is not yet implemented
-        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-            "Cron schedule deletion is not yet implemented in Python bindings. \
-             This feature will be added in a future update."
-        ))
+    pub fn delete_cron_schedule(&self, schedule_id: String, py: Python) -> PyResult<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+        
+        let message = RuntimeMessage::DeleteCronSchedule {
+            schedule_id,
+            response_tx,
+        };
+        
+        py.allow_threads(|| {
+            self.runtime_handle.lock().unwrap().tx.send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            
+            let result = response_rx.blocking_recv()
+                .map_err(|_| PyValueError::new_err("Failed to receive response from runtime thread"))?;
+            
+            result.map_err(|e| PyValueError::new_err(format!("Failed to delete cron schedule: {}", e)))
+        })
     }
 
     /// String representation

@@ -15,6 +15,7 @@
  */
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -170,17 +171,30 @@ fn build_retry_policy(
 /// Decorator class that holds task configuration
 #[pyclass]
 struct TaskDecorator {
-    id: String,
-    dependencies: Vec<String>,
+    id: Option<String>, // Now optional - can be derived from function name
+    dependencies: Vec<PyObject>, // Now supports both strings and function objects
     retry_policy: cloacina::retry::RetryPolicy,
 }
 
 #[pymethods]
 impl TaskDecorator {
     fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
-        // Clone values for the constructor closure
-        let task_id = self.id.clone();
-        let deps = self.dependencies.clone();
+        // Determine task ID - use provided ID or derive from function name
+        let task_id = if let Some(id) = &self.id {
+            id.clone()
+        } else {
+            // Extract function name
+            func.getattr(py, "__name__")?.extract::<String>(py)?
+        };
+        
+        // Convert dependencies from mixed PyObject list to string list
+        let deps = match self.convert_dependencies_to_strings(py) {
+            Ok(deps) => deps,
+            Err(e) => {
+                eprintln!("Error converting dependencies: {}", e);
+                return Err(e);
+            }
+        };
         let policy = self.retry_policy.clone();
         let function = func.clone_ref(py);
         
@@ -208,6 +222,57 @@ impl TaskDecorator {
         // Return the original function (decorator behavior)
         Ok(func)
     }
+    
+    /// Convert mixed dependencies (strings and function objects) to string task IDs
+    fn convert_dependencies_to_strings(&self, py: Python) -> PyResult<Vec<String>> {
+        let mut string_deps = Vec::new();
+        
+        for (i, dep) in self.dependencies.iter().enumerate() {
+            if let Ok(string_dep) = dep.extract::<String>(py) {
+                // It's a string - use directly
+                string_deps.push(string_dep);
+            } else {
+                // Try to get function name
+                match dep.bind(py).hasattr("__name__") {
+                    Ok(true) => {
+                        match dep.getattr(py, "__name__") {
+                            Ok(name_obj) => {
+                                match name_obj.extract::<String>(py) {
+                                    Ok(func_name) => string_deps.push(func_name),
+                                    Err(e) => {
+                                        return Err(PyValueError::new_err(format!(
+                                            "Dependency {} has __name__ but it's not a string: {}", 
+                                            i, e
+                                        )));
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                return Err(PyValueError::new_err(format!(
+                                    "Failed to get __name__ from dependency {}: {}", 
+                                    i, e
+                                )));
+                            }
+                        }
+                    },
+                    Ok(false) => {
+                        return Err(PyValueError::new_err(format!(
+                            "Dependency {} must be either a string or a function object with __name__ attribute", 
+                            i
+                        )));
+                    },
+                    Err(e) => {
+                        return Err(PyValueError::new_err(format!(
+                            "Failed to check if dependency {} has __name__ attribute: {}", 
+                            i, e
+                        )));
+                    }
+                }
+            }
+        }
+        
+        Ok(string_deps)
+    }
 }
 
 /// Python @task decorator function
@@ -216,6 +281,8 @@ impl TaskDecorator {
 /// Python functions as tasks in the Cloacina execution engine.
 /// 
 /// # Examples
+/// 
+/// **String-based approach (traditional):**
 /// ```python
 /// @cloaca.task(
 ///     id="my_task",
@@ -227,10 +294,21 @@ impl TaskDecorator {
 ///     context.set("result", "processed")
 ///     return context
 /// ```
+/// 
+/// **Function-based approach (recommended):**
+/// ```python
+/// @cloaca.task()  # ID automatically derived from function name
+/// def extract_data(context):
+///     return context
+/// 
+/// @cloaca.task(dependencies=[extract_data])  # Direct function reference
+/// def process_data(context):
+///     return context
+/// ```
 #[pyfunction]
 #[pyo3(signature = (
     *,
-    id,
+    id = None,
     dependencies = None,
     retry_attempts = None,
     retry_backoff = None,
@@ -240,8 +318,8 @@ impl TaskDecorator {
     retry_jitter = None
 ))]
 pub fn task(
-    id: String,
-    dependencies: Option<Vec<String>>,
+    id: Option<String>,
+    dependencies: Option<Vec<PyObject>>,
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
     retry_delay_ms: Option<u64>,

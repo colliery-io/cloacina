@@ -844,7 +844,10 @@ class TestBackendFunctionality:
             # Test DefaultRunner creation with config
             runner = cloaca.DefaultRunner.with_config(f"sqlite://{db_path}", config)
             assert runner is not None
-            assert str(runner) == "DefaultRunner(async_runtime_required)"
+            assert str(runner) == "DefaultRunner(thread_separated_async_runtime)"
+            
+            # Properly shut down the runner before cleanup
+            runner.shutdown()
         finally:
             # Clean up
             if os.path.exists(db_path):

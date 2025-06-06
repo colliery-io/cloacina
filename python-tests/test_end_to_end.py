@@ -10,9 +10,15 @@ import os
 
 def test_end_to_end_workflow_execution():
     """Test complete end-to-end workflow execution using the @workflow decorator."""
-    import cloaca
     import logging
     import sys
+    import importlib
+    
+    # Force reload cloaca module to get fresh global registry state
+    if 'cloaca' in sys.modules:
+        importlib.reload(sys.modules['cloaca'])
+    
+    import cloaca
     
     # Enable detailed logging
     logging.basicConfig(
@@ -98,6 +104,13 @@ def test_end_to_end_workflow_execution():
 
 def test_multi_task_workflow_execution():
     """Test workflow with multiple tasks and dependencies."""
+    import sys
+    import importlib
+    
+    # Force reload cloaca module to get fresh global registry state
+    if 'cloaca' in sys.modules:
+        importlib.reload(sys.modules['cloaca'])
+    
     import cloaca
     
     # Create a temporary database with WAL mode

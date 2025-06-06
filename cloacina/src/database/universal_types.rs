@@ -196,21 +196,18 @@ impl ToSql<Text, Sqlite> for UniversalTimestamp {
     }
 }
 
-#[cfg(feature = "sqlite")]
 impl fmt::Display for UniversalTimestamp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.to_rfc3339())
     }
 }
 
-#[cfg(feature = "sqlite")]
 impl From<DateTime<Utc>> for UniversalTimestamp {
     fn from(dt: DateTime<Utc>) -> Self {
         Self(dt)
     }
 }
 
-#[cfg(feature = "sqlite")]
 impl From<UniversalTimestamp> for DateTime<Utc> {
     fn from(wrapper: UniversalTimestamp) -> Self {
         wrapper.0
