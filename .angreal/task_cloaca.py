@@ -5,6 +5,7 @@ Uses composable functions from file_generation, build_operations, and file_opera
 for clean, testable command implementations.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -654,14 +655,15 @@ def test(backend=None, filter=None):
             
             # Step 4: Run tests
             print("Step 4: Running tests...")
-            cmd = [str(python_exe), "-m", "pytest", "--timeout=10", str(project_root / "python-tests"), "-v"]
+            
+            # Use pytest from the virtual environment that has the compiled backend installed
+            pytest_exe = venv.path / "bin" / "pytest"
+            cmd = [str(pytest_exe), "--timeout=10", str(project_root / "python-tests"), "-v"]
             if filter:
                 cmd.extend(["-k", filter])
             
             # Set environment variable for backend detection
-            import os
             env = os.environ.copy()
-            env["CLOACA_BACKEND"] = backend_name
             
             try:
                 subprocess.run(cmd, env=env, check=True)

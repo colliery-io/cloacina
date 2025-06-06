@@ -274,10 +274,10 @@ pub fn register_workflow_constructor(workflow_name: String, constructor: PyObjec
                             let workflow = &*arc;
                             let mut new_workflow = cloacina::Workflow::new(workflow.name());
                             // Copy metadata
-                            if let Some(desc) = workflow.description() {
+                            if let Some(ref desc) = workflow.metadata().description {
                                 new_workflow.set_description(desc);
                             }
-                            for (k, v) in workflow.tags() {
+                            for (k, v) in &workflow.metadata().tags {
                                 new_workflow.add_tag(k, v);
                             }
                             // Tasks are already in the workflow, no need to recreate them

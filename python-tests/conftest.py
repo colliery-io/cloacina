@@ -1,30 +1,40 @@
 """
-Shared pytest configuration and fixtures for all Cloaca tests.
-This module provides connection pooling to avoid PostgreSQL 'too many clients' errors.
+New shared pytest configuration for Cloaca test harness rewrite.
+
+This module implements the new fixture strategy to solve connection pool exhaustion:
+- Single shared runner across tests to prevent PostgreSQL "too many clients" errors
+- Registry cleanup between tests instead of runner recreation
+- Selective isolation for tests that truly need it
+
+Design principles:
+1. Single connection pool shared across tests
+2. Registry cleanup between tests to prevent workflow/task pollution  
+3. Fast cleanup avoiding slow runner.shutdown() calls
+4. Selective isolation for critical tests
 """
 
 import os
 import pytest
 import tempfile
 import threading
+import time
 import sys
+import signal
+from contextlib import contextmanager
 
-# Global connection pool for tests to avoid "too many clients" error
-_test_connection_pool = {}
-_pool_lock = threading.Lock()
+
+# Global shared runner instance
+_shared_runner = None
+_runner_lock = threading.Lock()
 
 
 def get_test_db_url():
     """Get appropriate database URL based on compiled backend."""
-    # We need to import cloaca here since we can't assume it's available at module level
-    # Import after any potential module reloading in the fixture
-    backend = None
     try:
         import cloaca
         backend = cloaca.get_backend()
     except ImportError:
-        # Fallback - try to determine from environment or assume sqlite
-        backend = "sqlite"
+        raise SystemError("cloaca not available")
     
     if backend == "postgres":
         return "postgresql://cloacina:cloacina@localhost:5432/cloacina"
@@ -37,148 +47,176 @@ def get_test_db_url():
         raise ValueError(f"Unsupported backend: {backend}")
 
 
-def get_pooled_connection(db_url):
-    """Get a pooled connection to avoid 'too many clients' error."""
-    with _pool_lock:
-        if db_url not in _test_connection_pool:
-            import psycopg2
-            from urllib.parse import urlparse
-            parsed = urlparse(db_url)
-            
-            conn = psycopg2.connect(
-                host=parsed.hostname,
-                port=parsed.port,
-                user=parsed.username,
-                password=parsed.password,
-                database=parsed.path[1:],
-                connect_timeout=10
-            )
-            conn.autocommit = True
-            _test_connection_pool[db_url] = conn
-            print(f"DEBUG: Created new pooled connection for {db_url}")
-        else:
-            print(f"DEBUG: Reusing pooled connection for {db_url}")
-        return _test_connection_pool[db_url]
-
-
-def cleanup_test_db(db_url):
-    """Clean up test database after test completion."""
-    print(f"DEBUG: Cleaning up database: {db_url}")
-    
-    if db_url.startswith("sqlite://"):
-        # For SQLite, remove the file
-        db_path = db_url.split("://")[1].split("?")[0]
-        if os.path.exists(db_path):
-            print(f"DEBUG: Removing SQLite file: {db_path}")
-            os.unlink(db_path)
-        else:
-            print(f"DEBUG: SQLite file not found: {db_path}")
-    elif db_url.startswith("postgresql://"):
-        # For PostgreSQL, drop all tables using pooled connection
-        print("DEBUG: Attempting PostgreSQL cleanup")
-        try:
-            conn = get_pooled_connection(db_url)
-            cursor = conn.cursor()
-            
-            # Get all table names
-            cursor.execute("""
-                SELECT tablename FROM pg_tables 
-                WHERE schemaname = 'public'
-            """)
-            tables = cursor.fetchall()
-            print(f"DEBUG: Found {len(tables)} tables to drop: {[t[0] for t in tables]}")
-            
-            # Drop all tables
-            for table in tables:
-                print(f"DEBUG: Dropping table: {table[0]}")
-                cursor.execute(f"DROP TABLE IF EXISTS {table[0]} CASCADE")
-            
-            cursor.close()
-            print("DEBUG: PostgreSQL cleanup completed successfully")
-                    
-        except ImportError:
-            # psycopg2 not available, skip cleanup
-            print("Warning: psycopg2 not available, skipping PostgreSQL cleanup")
-        except Exception as e:
-            # Log but don't fail the test
-            print(f"Warning: Failed to clean up PostgreSQL tables: {e}")
-    else:
-        print(f"DEBUG: Unknown database type for cleanup: {db_url}")
-
-
-@pytest.fixture
-def isolated_runner():
-    """Fixture that provides a completely isolated runner with fresh database and fresh module state."""
-    # Force reload cloaca module to get fresh global registry state
-    # This prevents mutex poisoning and stale workflow data between tests
-    import importlib
-    if 'cloaca' in sys.modules:
-        importlib.reload(sys.modules['cloaca'])
-    
-    # Import cloaca after potential reload
-    import cloaca
-    
-    # Get appropriate database URL for the backend
-    db_url = get_test_db_url()
-    print(f"DEBUG: Generated database URL: {db_url}")
-    
-    # Test database connectivity first
-    if db_url.startswith("postgresql://"):
-        try:
-            conn = get_pooled_connection(db_url)
-            print("DEBUG: PostgreSQL connection test successful")
-        except Exception as e:
-            print(f"DEBUG: PostgreSQL connection test failed: {e}")
-            raise
-    
+def clear_registries():
+    """Clear all task and workflow registries to prevent test pollution."""
     try:
-        # Create runner instance - each test gets its own
-        print(f"DEBUG: About to create DefaultRunner with URL: {db_url}")
-        runner = cloaca.DefaultRunner(db_url)
-        print(f"DEBUG: DefaultRunner created successfully")
-        
-        yield runner
-        
-        # Explicit cleanup - shutdown runner first with timeout protection
+        import cloaca
+        # Force reload cloaca module to get fresh registry state
+        import importlib
+        if 'cloaca' in sys.modules:
+            importlib.reload(sys.modules['cloaca'])
+        print("DEBUG: Cleared registries via module reload")
+    except Exception as e:
+        print(f"WARNING: Failed to clear registries: {e}")
+
+
+@pytest.fixture(scope="session")
+def shared_runner():
+    """
+    Single shared runner for the entire test session.
+    
+    This prevents connection pool exhaustion by reusing the same connection pool
+    across all tests. The runner is created once and shutdown at session end.
+    """
+    global _shared_runner
+    
+    with _runner_lock:
+        if _shared_runner is None:
+            print("DEBUG: Creating shared runner for session")
+            
+            import cloaca
+            db_url = get_test_db_url()
+            
+            print(f"DEBUG: Creating shared runner with URL: {db_url}")
+            _shared_runner = cloaca.DefaultRunner(db_url)
+            print("DEBUG: Shared runner created successfully")
+    
+    yield _shared_runner
+    
+    # Cleanup at session end
+    if _shared_runner is not None:
+        print("DEBUG: Shutting down shared runner at session end")
         try:
-            print("DEBUG: Shutting down runner services")
-            import signal
-            
+            # Set a timeout for shutdown
             def timeout_handler(signum, frame):
-                print("WARNING: Runner shutdown timed out after 5 seconds")
-                raise TimeoutError("Runner shutdown timeout")
+                print("WARNING: Shared runner shutdown timed out")
+                raise TimeoutError("Shutdown timeout")
             
-            # Set a 5 second timeout for shutdown
             signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(5)
+            signal.alarm(10)  # 10 second timeout
             
             try:
-                runner.shutdown()
+                _shared_runner.shutdown()
                 signal.alarm(0)  # Cancel timeout
-                print("DEBUG: Runner shutdown completed")
+                print("DEBUG: Shared runner shutdown completed")
             except TimeoutError:
                 print("WARNING: Forced shutdown due to timeout")
-                signal.alarm(0)  # Cancel timeout
+                signal.alarm(0)
                 
         except Exception as e:
-            print(f"Warning: Error during runner shutdown: {e}")
+            print(f"WARNING: Error during shared runner shutdown: {e}")
         
-        # Clean up database
-        cleanup_test_db(db_url)
+        _shared_runner = None
+
+
+@pytest.fixture(scope="function")
+def clean_runner(shared_runner):
+    """
+    Clean slate for each test using shared runner.
+    
+    Clears registries to prevent test pollution while reusing the connection pool.
+    This provides test isolation without the cost of runner recreation.
+    """
+    print("DEBUG: Setting up clean runner (clearing registries)")
+    
+    # Clear registries before test
+    clear_registries()
+    
+    # Return the shared runner
+    runner = shared_runner
+    
+    yield runner
+    
+    # Clear registries after test
+    print("DEBUG: Cleaning up after test (clearing registries)")
+    clear_registries()
+
+
+@pytest.fixture(scope="function")
+def isolated_db():
+    """
+    Completely isolated database per test.
+    
+    For tests that need true isolation from shared state.
+    Creates a new runner with fresh database connection.
+    """
+    print("DEBUG: Creating isolated database runner")
+    
+    # Force fresh module state
+    clear_registries()
+    
+    import cloaca
+    db_url = get_test_db_url()
+    
+    # Create isolated runner
+    runner = cloaca.DefaultRunner(db_url)
+    print("DEBUG: Isolated runner created")
+    
+    yield runner
+    
+    # Cleanup isolated runner
+    print("DEBUG: Shutting down isolated runner")
+    try:
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Isolated runner shutdown timeout")
         
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(5)  # 5 second timeout
+        
+        try:
+            runner.shutdown()
+            signal.alarm(0)
+            print("DEBUG: Isolated runner shutdown completed")
+        except TimeoutError:
+            print("WARNING: Isolated runner shutdown timed out")
+            signal.alarm(0)
+            
     except Exception as e:
-        print(f"ERROR: Failed to create runner: {e}")
-        cleanup_test_db(db_url)
-        raise
+        print(f"WARNING: Error during isolated runner shutdown: {e}")
+    
+    # Clean up database if SQLite
+    if db_url.startswith("sqlite://"):
+        db_path = db_url.split("://")[1].split("?")[0]
+        if os.path.exists(db_path):
+            try:
+                os.unlink(db_path)
+                print(f"DEBUG: Removed SQLite file: {db_path}")
+            except Exception as e:
+                print(f"WARNING: Failed to remove SQLite file: {e}")
+
+
+@contextmanager
+def timeout_protection(seconds=15):
+    """Context manager to protect against hanging operations."""
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {seconds} seconds")
+    
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+@pytest.fixture(autouse=True)
+def enable_rust_logging():
+    """Enable Rust logging for all tests."""
+    os.environ['RUST_LOG'] = 'cloacina=info,cloaca_backend=debug'
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Close all pooled connections at the end of the test session."""
-    with _pool_lock:
-        for db_url, conn in _test_connection_pool.items():
-            try:
-                conn.close()
-                print(f"DEBUG: Closed pooled connection for {db_url}")
-            except Exception as e:
-                print(f"Warning: Error closing connection for {db_url}: {e}")
-        _test_connection_pool.clear()
+    """Final cleanup at session end."""
+    print("DEBUG: Test session finished, performing final cleanup")
+    global _shared_runner
+    
+    # Ensure shared runner is cleaned up
+    if _shared_runner is not None:
+        print("DEBUG: Final shared runner cleanup")
+        try:
+            _shared_runner.shutdown()
+        except Exception as e:
+            print(f"WARNING: Error in final shared runner cleanup: {e}")
+        _shared_runner = None

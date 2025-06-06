@@ -60,12 +60,19 @@ fn hello_world() -> String {
 #[pyfunction]
 fn get_backend() -> &'static str {
     #[cfg(feature = "postgres")]
-    return "postgres";
+    {
+        return "postgres";
+    }
 
     #[cfg(feature = "sqlite")]
-    return "sqlite";
+    {
+        return "sqlite";
+    }
 
-    "unknown"
+    #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+    {
+        "unknown"
+    }
 }
 
 /// A Python module implemented in Rust.
