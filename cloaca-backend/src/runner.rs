@@ -18,8 +18,44 @@ use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use tokio::sync::{oneshot, mpsc};
+use std::thread;
 
 use crate::context::PyContext;
+
+/// Message types for communication with the async runtime thread
+enum RuntimeMessage {
+    Execute {
+        workflow_name: String,
+        context: cloacina::Context<serde_json::Value>,
+        response_tx: oneshot::Sender<Result<cloacina::executor::PipelineResult, cloacina::executor::PipelineError>>,
+    },
+    Shutdown,
+}
+
+/// Simplified runner for Python bindings that doesn't start background services
+struct SimplifiedRunner {
+    database: cloacina::Database,
+    dal: Arc<cloacina::dal::DAL>,
+}
+
+/// Handle to the background async runtime thread
+struct AsyncRuntimeHandle {
+    tx: mpsc::UnboundedSender<RuntimeMessage>,
+    thread_handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for AsyncRuntimeHandle {
+    fn drop(&mut self) {
+        // Send shutdown signal
+        let _ = self.tx.send(RuntimeMessage::Shutdown);
+        
+        // Wait for thread to finish
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
 
 /// Python wrapper for PipelineResult
 #[pyclass(name = "PipelineResult")]
@@ -74,8 +110,7 @@ impl PyPipelineResult {
 /// Python wrapper for DefaultRunner
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
-    inner: Arc<cloacina::DefaultRunner>,
-    runtime: Arc<Runtime>,
+    runtime_handle: AsyncRuntimeHandle,
 }
 
 #[pymethods]
@@ -83,21 +118,80 @@ impl PyDefaultRunner {
     /// Create a new DefaultRunner with database connection
     #[new]
     pub fn new(database_url: &str) -> PyResult<Self> {
-        // Create a tokio runtime for async operations
-        let runtime = Runtime::new().map_err(|e| {
-            PyValueError::new_err(format!("Failed to create tokio runtime: {}", e))
-        })?;
-
-        // Use the runtime to create the DefaultRunner
-        let runner = runtime.block_on(async {
-            cloacina::DefaultRunner::new(database_url).await
-        }).map_err(|e| {
-            PyValueError::new_err(format!("Failed to create DefaultRunner: {}", e))
-        })?;
-
+        let database_url = database_url.to_string();
+        
+        // Create a channel for communicating with the async runtime thread
+        let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
+        
+        // Spawn a dedicated thread for the async runtime
+        let thread_handle = thread::spawn(move || {
+            // Initialize logging in this thread
+            eprintln!("THREAD: Initializing logging in background thread");
+            if std::env::var("RUST_LOG").is_ok() {
+                eprintln!("THREAD: RUST_LOG found: {:?}", std::env::var("RUST_LOG"));
+                // Try to initialize tracing in this thread
+                let _ = tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                    .try_init();
+            } else {
+                eprintln!("THREAD: No RUST_LOG environment variable found");
+            }
+            
+            // Create the tokio runtime in the dedicated thread
+            let rt = Runtime::new().expect("Failed to create tokio runtime");
+            
+            // Create the DefaultRunner within the async context
+            let runner = rt.block_on(async {
+                eprintln!("THREAD: Creating DefaultRunner and starting background services");
+                let runner = cloacina::DefaultRunner::new(&database_url).await
+                    .expect("Failed to create DefaultRunner");
+                eprintln!("THREAD: DefaultRunner created, background services should be running");
+                runner
+            });
+            
+            let runner = Arc::new(runner);
+            
+            // Event loop for processing messages - spawn tasks instead of blocking
+            rt.block_on(async {
+                while let Some(message) = rx.recv().await {
+                    match message {
+                        RuntimeMessage::Execute { workflow_name, context, response_tx } => {
+                            eprintln!("THREAD: Received execute request for workflow: {}", workflow_name);
+                            eprintln!("THREAD: Spawning execution task");
+                            
+                            let runner_clone = runner.clone();
+                            // Spawn the execution as a separate task to avoid blocking the message loop
+                            tokio::spawn(async move {
+                                eprintln!("TASK: About to call runner.execute()");
+                                
+                                // Execute the workflow in the async runtime
+                                use cloacina::executor::PipelineExecutor;
+                                let result = runner_clone.execute(&workflow_name, context).await;
+                                
+                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
+                                eprintln!("TASK: Sending response back to Python thread");
+                                
+                                // Send response back to the calling thread
+                                let _ = response_tx.send(result);
+                                eprintln!("TASK: Response sent successfully");
+                            });
+                        }
+                        RuntimeMessage::Shutdown => {
+                            eprintln!("THREAD: Received shutdown signal");
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            eprintln!("THREAD: Runtime thread shutting down");
+        });
+        
         Ok(PyDefaultRunner {
-            inner: Arc::new(runner),
-            runtime: Arc::new(runtime),
+            runtime_handle: AsyncRuntimeHandle {
+                tx,
+                thread_handle: Some(thread_handle),
+            },
         })
     }
 
@@ -107,57 +201,114 @@ impl PyDefaultRunner {
         database_url: &str,
         config: &crate::context::PyDefaultRunnerConfig,
     ) -> PyResult<PyDefaultRunner> {
-        // Create a tokio runtime for async operations
-        let runtime = Runtime::new().map_err(|e| {
-            PyValueError::new_err(format!("Failed to create tokio runtime: {}", e))
-        })?;
-
-        // Convert Python config to Rust config
+        let database_url = database_url.to_string();
         let rust_config = config.to_rust_config();
-
-        // Use the runtime to create the DefaultRunner
-        let runner = runtime.block_on(async {
-            cloacina::DefaultRunner::with_config(database_url, rust_config).await
-        }).map_err(|e| {
-            PyValueError::new_err(format!("Failed to create DefaultRunner: {}", e))
-        })?;
-
+        
+        // Create a channel for communicating with the async runtime thread
+        let (tx, mut rx) = mpsc::unbounded_channel::<RuntimeMessage>();
+        
+        // Spawn a dedicated thread for the async runtime
+        let thread_handle = thread::spawn(move || {
+            // Initialize logging in this thread
+            eprintln!("THREAD: Initializing logging in background thread");
+            if std::env::var("RUST_LOG").is_ok() {
+                eprintln!("THREAD: RUST_LOG found: {:?}", std::env::var("RUST_LOG"));
+                // Try to initialize tracing in this thread
+                let _ = tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                    .try_init();
+            } else {
+                eprintln!("THREAD: No RUST_LOG environment variable found");
+            }
+            
+            // Create the tokio runtime in the dedicated thread
+            let rt = Runtime::new().expect("Failed to create tokio runtime");
+            
+            // Create the DefaultRunner within the async context
+            let runner = rt.block_on(async {
+                cloacina::DefaultRunner::with_config(&database_url, rust_config).await
+                    .expect("Failed to create DefaultRunner")
+            });
+            
+            let runner = Arc::new(runner);
+            
+            // Event loop for processing messages - spawn tasks instead of blocking
+            rt.block_on(async {
+                while let Some(message) = rx.recv().await {
+                    match message {
+                        RuntimeMessage::Execute { workflow_name, context, response_tx } => {
+                            eprintln!("THREAD: Received execute request for workflow: {}", workflow_name);
+                            eprintln!("THREAD: Spawning execution task");
+                            
+                            let runner_clone = runner.clone();
+                            // Spawn the execution as a separate task to avoid blocking the message loop
+                            tokio::spawn(async move {
+                                eprintln!("TASK: About to call runner.execute()");
+                                
+                                // Execute the workflow in the async runtime
+                                use cloacina::executor::PipelineExecutor;
+                                let result = runner_clone.execute(&workflow_name, context).await;
+                                
+                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
+                                eprintln!("TASK: Sending response back to Python thread");
+                                
+                                // Send response back to the calling thread
+                                let _ = response_tx.send(result);
+                                eprintln!("TASK: Response sent successfully");
+                            });
+                        }
+                        RuntimeMessage::Shutdown => {
+                            eprintln!("THREAD: Received shutdown signal");
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            eprintln!("THREAD: Runtime thread shutting down");
+        });
+        
         Ok(PyDefaultRunner {
-            inner: Arc::new(runner),
-            runtime: Arc::new(runtime),
+            runtime_handle: AsyncRuntimeHandle {
+                tx,
+                thread_handle: Some(thread_handle),
+            },
         })
     }
 
     /// Execute a workflow by name with context
-    pub fn execute(&self, workflow_name: &str, context: &PyContext) -> PyResult<PyPipelineResult> {
-        // Clone the PyContext to get a Rust Context
+    pub fn execute(&self, workflow_name: &str, context: &PyContext, py: Python) -> PyResult<PyPipelineResult> {
         let rust_context = context.clone_inner();
-
-        eprintln!("DEBUG: Python execute() called for workflow: {}", workflow_name);
-        
-        // Create a completely new runtime for this execution to avoid any conflicts
-        let rt = Runtime::new().map_err(|e| {
-            PyValueError::new_err(format!("Failed to create execution runtime: {}", e))
-        })?;
-        
-        let inner = self.inner.clone();
         let workflow_name = workflow_name.to_string();
+
+        eprintln!("THREADS: Python execute() called for workflow: {}", workflow_name);
         
-        eprintln!("DEBUG: About to block_on with fresh runtime");
+        // Create a oneshot channel for the response
+        let (response_tx, response_rx) = oneshot::channel();
         
-        // Use a fresh runtime to execute - this avoids any nested runtime issues
-        let result = rt.block_on(async move {
-            eprintln!("DEBUG: Inside fresh runtime, calling PipelineExecutor::execute");
-            use cloacina::executor::PipelineExecutor;
-            let exec_result = inner.execute(&workflow_name, rust_context).await;
-            eprintln!("DEBUG: PipelineExecutor::execute returned: {:?}", exec_result.is_ok());
-            exec_result
-        }).map_err(|e| {
-            eprintln!("DEBUG: Execution failed with error: {}", e);
-            PyValueError::new_err(format!("Workflow execution failed: {}", e))
+        // Send the execute message to the async runtime thread
+        let message = RuntimeMessage::Execute {
+            workflow_name: workflow_name.clone(),
+            context: rust_context,
+            response_tx,
+        };
+        
+        // Send message without holding the GIL
+        let result = py.allow_threads(|| {
+            eprintln!("THREADS: Sending execute message to runtime thread");
+            self.runtime_handle.tx.send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+            
+            eprintln!("THREADS: Waiting for response from runtime thread");
+            // Wait for the response
+            let result = response_rx.blocking_recv()
+                .map_err(|_| PyValueError::new_err("Failed to receive response from runtime thread"))?;
+            
+            eprintln!("THREADS: Received response from runtime thread");
+            result.map_err(|e| PyValueError::new_err(format!("Workflow execution failed: {}", e)))
         })?;
 
-        eprintln!("DEBUG: Execution completed successfully");
+        eprintln!("THREADS: Execution completed successfully");
         Ok(PyPipelineResult::from_result(result))
     }
 
@@ -183,15 +334,15 @@ impl PyDefaultRunner {
     
     /// Shutdown the runner and cleanup resources
     pub fn shutdown(&self) -> PyResult<()> {
-        // Shutdown the runtime to prevent hanging
-        // Note: This is a best-effort cleanup - once shutdown, the runner cannot be reused
-        // For now, we'll just return Ok since the runtime will be dropped when the object is destroyed
+        // Send shutdown message to the async runtime thread
+        let _ = self.runtime_handle.tx.send(RuntimeMessage::Shutdown);
+        eprintln!("THREADS: Shutdown message sent to runtime thread");
         Ok(())
     }
 
     /// String representation
     pub fn __repr__(&self) -> String {
-        "DefaultRunner(async_runtime_required)".to_string()
+        "DefaultRunner(thread_separated_async_runtime)".to_string()
     }
 }
 

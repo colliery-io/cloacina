@@ -104,7 +104,8 @@ impl cloacina::Task for PythonTaskWrapper {
     }
     
     fn trigger_rules(&self) -> serde_json::Value { 
-        serde_json::Value::Null 
+        // Default to Always trigger rule (same as Rust macro default)
+        serde_json::json!({"type": "Always"})
     }
     
     fn code_fingerprint(&self) -> Option<String> { 
