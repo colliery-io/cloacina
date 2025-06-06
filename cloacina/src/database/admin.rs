@@ -100,8 +100,11 @@ mod postgres_impl {
         /// Returns the tenant credentials for distribution to the tenant.
         pub async fn create_tenant(
             &self,
-            tenant_config: TenantConfig,
+            _tenant_config: TenantConfig,
         ) -> Result<TenantCredentials, AdminError> {
+            // TODO: Temporarily disabled during async migration
+            todo!("Admin functions need rework for deadpool-diesel")
+            /*
             // Validate configuration
             if tenant_config.schema_name.is_empty() {
                 return Err(AdminError::InvalidConfig {
@@ -125,6 +128,7 @@ mod postgres_impl {
             let schema_name = tenant_config.schema_name.clone();
             let username = tenant_config.username.clone();
             let final_password_clone = final_password.clone();
+
 
             // Clone again for use after the closure
             let schema_name_result = schema_name.clone();
@@ -213,12 +217,14 @@ mod postgres_impl {
 
             // Return credentials for admin to share with tenant
             let connection_string = self.build_connection_string(&username_result, &final_password);
+
             Ok(TenantCredentials {
                 username: username_result,
                 password: final_password, // Either provided or generated
                 schema_name: schema_name_result,
                 connection_string,
             })
+            */
         }
 
         /// Remove a tenant (user + schema)
