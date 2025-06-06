@@ -45,8 +45,9 @@ struct AsyncRuntimeHandle {
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
-impl Drop for AsyncRuntimeHandle {
-    fn drop(&mut self) {
+impl AsyncRuntimeHandle {
+    /// Shutdown the runtime thread and wait for it to complete
+    fn shutdown(&mut self) {
         // Send shutdown signal
         let _ = self.tx.send(RuntimeMessage::Shutdown);
         
@@ -54,6 +55,13 @@ impl Drop for AsyncRuntimeHandle {
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();
         }
+    }
+}
+
+impl Drop for AsyncRuntimeHandle {
+    fn drop(&mut self) {
+        // Ensure shutdown on drop
+        self.shutdown();
     }
 }
 
@@ -110,7 +118,7 @@ impl PyPipelineResult {
 /// Python wrapper for DefaultRunner
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
-    runtime_handle: AsyncRuntimeHandle,
+    runtime_handle: std::cell::RefCell<AsyncRuntimeHandle>,
 }
 
 #[pymethods]
@@ -188,10 +196,10 @@ impl PyDefaultRunner {
         });
         
         Ok(PyDefaultRunner {
-            runtime_handle: AsyncRuntimeHandle {
+            runtime_handle: std::cell::RefCell::new(AsyncRuntimeHandle {
                 tx,
                 thread_handle: Some(thread_handle),
-            },
+            }),
         })
     }
 
@@ -296,7 +304,7 @@ impl PyDefaultRunner {
         // Send message without holding the GIL
         let result = py.allow_threads(|| {
             eprintln!("THREADS: Sending execute message to runtime thread");
-            self.runtime_handle.tx.send(message)
+            self.runtime_handle.borrow().tx.send(message)
                 .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
             
             eprintln!("THREADS: Waiting for response from runtime thread");
@@ -333,10 +341,16 @@ impl PyDefaultRunner {
     }
     
     /// Shutdown the runner and cleanup resources
-    pub fn shutdown(&self) -> PyResult<()> {
-        // Send shutdown message to the async runtime thread
-        let _ = self.runtime_handle.tx.send(RuntimeMessage::Shutdown);
-        eprintln!("THREADS: Shutdown message sent to runtime thread");
+    pub fn shutdown(&self, py: Python) -> PyResult<()> {
+        eprintln!("THREADS: Starting shutdown process");
+        
+        // Release the GIL while waiting for the thread to complete
+        py.allow_threads(|| {
+            // Call shutdown on the runtime handle, which will send the message and wait for thread completion
+            self.runtime_handle.borrow_mut().shutdown();
+        });
+        
+        eprintln!("THREADS: Shutdown completed successfully");
         Ok(())
     }
 

@@ -95,6 +95,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("First workflow completed with status: {:?}", result1.status);
     info!("First workflow execution took: {:?}", result1.duration);
 
+    // Check final context values for comparison with Python
+    println!("Checking final context values...");
+    let final_context = &result1.final_context;
+    println!("Final context keys: {:?}", final_context.data().keys().collect::<Vec<_>>());
+    println!("extracted_numbers: {:?}", final_context.get("extracted_numbers"));
+    println!("transformed_numbers: {:?}", final_context.get("transformed_numbers"));
+    println!("loaded_numbers: {:?}", final_context.get("loaded_numbers"));
+    println!("load_status: {:?}", final_context.get("load_status"));
+
     // Shutdown the runner
     runner.shutdown().await?;
 

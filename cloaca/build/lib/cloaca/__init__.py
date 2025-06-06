@@ -7,11 +7,25 @@ and environment configuration.
 """
 
 import importlib
-import os
 from typing import Any, Optional
 
 __version__ = "0.1.0"
 __backend__: Optional[str] = None
+
+
+def _validate_backend_version(module: Any, backend_name: str) -> None:
+    """Validate that backend version matches dispatcher version."""
+    if hasattr(module, "__version__"):
+        backend_version = module.__version__
+        if backend_version != __version__:
+            raise ImportError(
+                f"Version mismatch detected!\n"
+                f"  Dispatcher version: {__version__}\n"
+                f"  {backend_name.title()} backend version: {backend_version}\n"
+                f"This indicates a package installation problem. Please reinstall:\n"
+                f"  pip uninstall cloaca cloaca-{backend_name}\n"
+                f"  pip install cloaca[{backend_name}]=={__version__}"
+            )
 
 
 def _load_backend() -> tuple[Any, str]:
@@ -20,14 +34,24 @@ def _load_backend() -> tuple[Any, str]:
 
     try:
         module = importlib.import_module("cloaca_postgres")
+        _validate_backend_version(module, "postgres")
         available_backends.append(("postgres", module))
-    except ImportError:
+    except ImportError as e:
+        # If it's a version mismatch, re-raise it immediately
+        if "Version mismatch detected" in str(e):
+            raise
+        # Otherwise, backend just isn't installed, which is fine
         pass
 
     try:
         module = importlib.import_module("cloaca_sqlite")
+        _validate_backend_version(module, "sqlite")
         available_backends.append(("sqlite", module))
-    except ImportError:
+    except ImportError as e:
+        # If it's a version mismatch, re-raise it immediately
+        if "Version mismatch detected" in str(e):
+            raise
+        # Otherwise, backend just isn't installed, which is fine
         pass
 
     if len(available_backends) == 0:
@@ -64,22 +88,77 @@ try:
         hello_world = _backend_module.hello_world
     if hasattr(_backend_module, "get_backend"):
         get_backend = _backend_module.get_backend
+    if hasattr(_backend_module, "HelloClass"):
+        HelloClass = _backend_module.HelloClass
+    if hasattr(_backend_module, "Context"):
+        Context = _backend_module.Context
+    if hasattr(_backend_module, "DefaultRunnerConfig"):
+        DefaultRunnerConfig = _backend_module.DefaultRunnerConfig
+    if hasattr(_backend_module, "task"):
+        task = _backend_module.task
+    if hasattr(_backend_module, "WorkflowBuilder"):
+        WorkflowBuilder = _backend_module.WorkflowBuilder
+    if hasattr(_backend_module, "Workflow"):
+        Workflow = _backend_module.Workflow
+    if hasattr(_backend_module, "register_workflow_constructor"):
+        register_workflow_constructor = _backend_module.register_workflow_constructor
+    if hasattr(_backend_module, "DefaultRunner"):
+        DefaultRunner = _backend_module.DefaultRunner
+    if hasattr(_backend_module, "PipelineResult"):
+        PipelineResult = _backend_module.PipelineResult
 
-except ImportError:
+    # Add the workflow decorator
+    def workflow(name: str, description: str = None):
+        """
+        Decorator for creating and automatically registering workflows.
+        
+        Args:
+            name: Unique name for the workflow
+            description: Optional description of the workflow
+            
+        Example:
+            @workflow("my_pipeline", "Data processing pipeline")
+            def create_my_pipeline():
+                builder = WorkflowBuilder("my_pipeline")
+                if description:
+                    builder.description(description)
+                builder.add_task("task1")
+                builder.add_task("task2") 
+                return builder.build()
+        """
+        def decorator(func):
+            def wrapper():
+                # Create the workflow using the decorated function
+                workflow_instance = func()
+                
+                # Ensure the workflow has the correct name and description
+                if hasattr(workflow_instance, 'name') and workflow_instance.name != name:
+                    raise ValueError(f"Workflow function returned workflow with name '{workflow_instance.name}' but decorator specified '{name}'")
+                
+                return workflow_instance
+            
+            # Auto-register the workflow constructor
+            if hasattr(_backend_module, "register_workflow_constructor"):
+                register_workflow_constructor(name, wrapper)
+            
+            # Return the original function (not the wrapper) so it can still be called directly
+            return func
+        
+        return decorator
+
+except ImportError as import_error:
     # If no backend is available, provide helpful error message
+    error_msg = str(import_error)
+
     def _raise_no_backend(*args, **kwargs):
-        raise ImportError(str(e))
+        raise ImportError(error_msg)
 
     # Create placeholder symbols that raise helpful errors
     hello_world = _raise_no_backend
     get_backend = _raise_no_backend
+    workflow = _raise_no_backend
 
-    __all__ = ["hello_world", "get_backend"]
-
-
-def get_backend() -> Optional[str]:
-    """Get the currently loaded backend name."""
-    return __backend__
+    __all__ = ["hello_world", "get_backend", "workflow"]
 
 
 def get_version() -> str:

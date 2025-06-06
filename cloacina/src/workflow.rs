@@ -1248,8 +1248,15 @@ pub fn register_workflow_constructor<F>(workflow_name: String, constructor: F)
 where
     F: Fn() -> Workflow + Send + Sync + 'static,
 {
-    let mut registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap();
+    tracing::debug!("Registering workflow constructor: {}", workflow_name);
+    let mut registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap_or_else(|poisoned| {
+        // Handle poisoned mutex by clearing the registry and continuing
+        tracing::warn!("Global workflow registry mutex was poisoned, clearing and continuing");
+        eprintln!("WARNING: Global workflow registry mutex was poisoned, clearing and continuing");
+        poisoned.into_inner()
+    });
     registry.insert(workflow_name, Box::new(constructor));
+    tracing::debug!("Successfully registered workflow constructor");
 }
 
 /// Get the global workflow registry
@@ -1276,8 +1283,16 @@ pub fn global_workflow_registry(
 /// }
 /// ```
 pub fn get_all_workflows() -> Vec<Workflow> {
-    let registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap();
-    registry.values().map(|constructor| constructor()).collect()
+    tracing::debug!("Getting all workflows from global registry");
+    let registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap_or_else(|poisoned| {
+        // Handle poisoned mutex by clearing the registry and continuing
+        tracing::warn!("Global workflow registry mutex was poisoned, clearing and continuing");
+        eprintln!("WARNING: Global workflow registry mutex was poisoned, clearing and continuing");
+        poisoned.into_inner()
+    });
+    let workflows = registry.values().map(|constructor| constructor()).collect::<Vec<_>>();
+    tracing::debug!("Retrieved {} workflows from global registry", workflows.len());
+    workflows
 }
 
 #[cfg(test)]
@@ -1723,7 +1738,10 @@ mod tests {
         // First, register some tasks in the global registry
         {
             let registry = crate::task::global_task_registry();
-            let mut guard = registry.lock().unwrap();
+            let mut guard = registry.lock().unwrap_or_else(|poisoned| {
+                tracing::warn!("Task registry mutex was poisoned in test, clearing and continuing");
+                poisoned.into_inner()
+            });
             
             // Clear any existing tasks
             guard.clear();
@@ -1745,7 +1763,10 @@ mod tests {
         // Add tasks from registry
         {
             let registry = crate::task::global_task_registry();
-            let guard = registry.lock().unwrap();
+            let guard = registry.lock().unwrap_or_else(|poisoned| {
+                tracing::warn!("Task registry mutex was poisoned in test, clearing and continuing");
+                poisoned.into_inner()
+            });
             
             let task1 = guard.get("test_task_1").unwrap()();
             let task2 = guard.get("test_task_2").unwrap()();

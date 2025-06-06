@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
-"""Test just runner creation."""
+"""Test just DefaultRunner creation with async DAL."""
 import sys
 import os
-import tempfile
 
-test_env = "/Users/dstorey/Desktop/colliery/cloacina/test-env-sqlite/lib/python3.12/site-packages"
-if os.path.exists(test_env):
-    sys.path.insert(0, test_env)
+print("Testing DefaultRunner creation...")
 
-print("1. Importing cloaca...")
-import cloaca
+# Enable Rust logging
+os.environ['RUST_LOG'] = 'debug,cloacina=trace'
+os.environ['RUST_BACKTRACE'] = '1'
 
-print("2. Creating database file...")
-with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-    db_path = tmp.name
-print(f"   Database: {db_path}")
-
-print("3. About to create DefaultRunner...")
-print("   This might hang during initialization...")
-sys.stdout.flush()
-
-runner = cloaca.DefaultRunner(f"sqlite://{db_path}")
-
-print("4. SUCCESS: Runner created!")
-print(f"   Runner: {runner}")
-
-print("5. Testing a simple query...")
-# Just see if we can create a context
-context = cloaca.Context()
-print("   Context created")
-
-print("\nRunner creation test completed successfully!")
+try:
+    print("1. Importing cloaca...")
+    import cloaca
+    print("   Backend: sqlite")
+    
+    print("2. Creating runner with SQLite WAL mode...")
+    runner = cloaca.DefaultRunner("sqlite://test_runner.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
+    print("   Runner created successfully!")
+    
+    print("3. Checking runner properties...")
+    print(f"   Runner type: {type(runner)}")
+    print("   Runner has execute method:", hasattr(runner, 'execute'))
+    
+    print("4. Success! DefaultRunner works with async DAL")
+    
+    # Clean up
+    if os.path.exists("test_runner.db"):
+        os.remove("test_runner.db")
+    
+except Exception as e:
+    print(f"ERROR: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)

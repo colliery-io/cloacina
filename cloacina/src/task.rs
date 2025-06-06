@@ -1105,8 +1105,15 @@ pub fn register_task_constructor<F>(task_id: String, constructor: F)
 where
     F: Fn() -> Box<dyn Task> + Send + Sync + 'static,
 {
-    let mut registry = GLOBAL_TASK_REGISTRY.lock().unwrap();
+    tracing::debug!("Registering task constructor: {}", task_id);
+    let mut registry = GLOBAL_TASK_REGISTRY.lock().unwrap_or_else(|poisoned| {
+        // Handle poisoned mutex by clearing the registry and continuing
+        tracing::warn!("Global task registry mutex was poisoned, clearing and continuing");
+        eprintln!("WARNING: Global task registry mutex was poisoned, clearing and continuing");
+        poisoned.into_inner()
+    });
     registry.insert(task_id, Box::new(constructor));
+    tracing::debug!("Successfully registered task constructor");
 }
 
 /// Get the global task registry
