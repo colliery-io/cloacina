@@ -16,7 +16,7 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::{oneshot, mpsc};
 use std::thread;
@@ -118,7 +118,7 @@ impl PyPipelineResult {
 /// Python wrapper for DefaultRunner
 #[pyclass(name = "DefaultRunner")]
 pub struct PyDefaultRunner {
-    runtime_handle: std::cell::RefCell<AsyncRuntimeHandle>,
+    runtime_handle: Mutex<AsyncRuntimeHandle>,
 }
 
 #[pymethods]
@@ -196,7 +196,7 @@ impl PyDefaultRunner {
         });
         
         Ok(PyDefaultRunner {
-            runtime_handle: std::cell::RefCell::new(AsyncRuntimeHandle {
+            runtime_handle: Mutex::new(AsyncRuntimeHandle {
                 tx,
                 thread_handle: Some(thread_handle),
             }),
@@ -277,10 +277,10 @@ impl PyDefaultRunner {
         });
         
         Ok(PyDefaultRunner {
-            runtime_handle: AsyncRuntimeHandle {
+            runtime_handle: Mutex::new(AsyncRuntimeHandle {
                 tx,
                 thread_handle: Some(thread_handle),
-            },
+            }),
         })
     }
 
@@ -304,7 +304,7 @@ impl PyDefaultRunner {
         // Send message without holding the GIL
         let result = py.allow_threads(|| {
             eprintln!("THREADS: Sending execute message to runtime thread");
-            self.runtime_handle.borrow().tx.send(message)
+            self.runtime_handle.lock().unwrap().tx.send(message)
                 .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
             
             eprintln!("THREADS: Waiting for response from runtime thread");
@@ -347,16 +347,119 @@ impl PyDefaultRunner {
         // Release the GIL while waiting for the thread to complete
         py.allow_threads(|| {
             // Call shutdown on the runtime handle, which will send the message and wait for thread completion
-            self.runtime_handle.borrow_mut().shutdown();
+            self.runtime_handle.lock().unwrap().shutdown();
         });
         
         eprintln!("THREADS: Shutdown completed successfully");
         Ok(())
     }
 
+    /// Register a cron workflow for automatic execution at scheduled times
+    ///
+    /// # Arguments
+    /// * `workflow_name` - Name of the workflow to execute
+    /// * `cron_expression` - Standard cron expression (e.g., "0 2 * * *" for daily at 2 AM)
+    /// * `timezone` - Timezone for cron interpretation (e.g., "UTC", "America/New_York")
+    ///
+    /// # Returns
+    /// * Schedule ID as a string
+    ///
+    /// # Examples
+    /// ```python
+    /// # Daily backup at 2 AM UTC
+    /// schedule_id = runner.register_cron_workflow("backup_workflow", "0 2 * * *", "UTC")
+    /// 
+    /// # Business hours processing (9 AM - 5 PM, weekdays, Eastern Time)
+    /// schedule_id = runner.register_cron_workflow("business_workflow", "0 9-17 * * 1-5", "America/New_York")
+    /// ```
+    pub fn register_cron_workflow(
+        &self,
+        py: Python,
+        workflow_name: String,
+        cron_expression: String,
+        timezone: String,
+    ) -> PyResult<String> {
+        // TODO: Implement cron functionality using message-based approach
+        // For now, return an error indicating this is not yet implemented
+        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
+            "Cron scheduling functionality is not yet implemented in Python bindings. \
+             This feature will be added in a future update."
+        ))
+    }
+    
+    /// List all cron schedules
+    ///
+    /// # Arguments
+    /// * `enabled_only` - If True, only return enabled schedules
+    /// * `limit` - Maximum number of schedules to return (default: 100)
+    /// * `offset` - Number of schedules to skip (default: 0)
+    ///
+    /// # Returns
+    /// * List of dictionaries containing schedule information
+    pub fn list_cron_schedules(
+        &self,
+        py: Python,
+        enabled_only: Option<bool>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> PyResult<Vec<PyObject>> {
+        // TODO: Implement cron functionality using message-based approach
+        // For now, return an empty list
+        Ok(vec![])
+    }
+    
+    /// Enable or disable a cron schedule
+    ///
+    /// # Arguments
+    /// * `schedule_id` - Schedule ID to modify
+    /// * `enabled` - True to enable, False to disable
+    pub fn set_cron_schedule_enabled(
+        &self,
+        py: Python,
+        schedule_id: String,
+        enabled: bool,
+    ) -> PyResult<()> {
+        // TODO: Implement cron functionality using message-based approach
+        // For now, return an error indicating this is not yet implemented
+        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
+            "Cron schedule management is not yet implemented in Python bindings. \
+             This feature will be added in a future update."
+        ))
+    }
+    
+    /// Delete a cron schedule
+    ///
+    /// # Arguments
+    /// * `schedule_id` - Schedule ID to delete
+    pub fn delete_cron_schedule(&self, py: Python, schedule_id: String) -> PyResult<()> {
+        // TODO: Implement cron functionality using message-based approach
+        // For now, return an error indicating this is not yet implemented
+        Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
+            "Cron schedule deletion is not yet implemented in Python bindings. \
+             This feature will be added in a future update."
+        ))
+    }
+
     /// String representation
     pub fn __repr__(&self) -> String {
         "DefaultRunner(thread_separated_async_runtime)".to_string()
+    }
+
+    /// Context manager entry
+    pub fn __enter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    /// Context manager exit - automatically shutdown
+    pub fn __exit__(
+        &self,
+        py: Python,
+        _exc_type: Option<&Bound<PyAny>>,
+        _exc_value: Option<&Bound<PyAny>>,
+        _traceback: Option<&Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        self.shutdown(py)?;
+        Ok(false) // Don't suppress exceptions
     }
 }
 
