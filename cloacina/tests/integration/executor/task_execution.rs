@@ -26,7 +26,7 @@ use crate::fixtures::get_or_init_fixture;
 // Helper for getting database for tests
 async fn get_test_database() -> Database {
     let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap();
+    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     locked_fixture.initialize().await;
     locked_fixture.get_database()
 }
@@ -166,7 +166,13 @@ impl Task for DependencyConsumerTask {
 
 #[tokio::test]
 async fn test_task_executor_basic_execution() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    
+    // Reset the database to ensure a clean state
+    fixture.reset_database().await;
+    
+    let database = fixture.get_database();
 
     // Create task registry
     let mut task_registry = TaskRegistry::new();
@@ -221,14 +227,17 @@ async fn test_task_executor_basic_execution() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_executions = dal
         .task_execution()
-        .get_pending_tasks(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
         .await
         .unwrap();
 
-    // Should be no pending tasks (task should be completed)
-    assert_eq!(task_executions.len(), 0, "Task should have been completed");
+    // Verify task execution
+    assert_eq!(task_executions.len(), 1);
+    let task = &task_executions[0];
+    assert_eq!(task.status, "Completed");
+    assert_eq!(task.task_name, "test_task");
 
-    // Abort the executor
+    // Clean up
     executor_handle.abort();
 }
 

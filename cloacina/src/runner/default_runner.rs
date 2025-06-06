@@ -1150,6 +1150,7 @@ impl DefaultRunner {
         })?;
 
         let now = chrono::Utc::now();
+        // Calculate next run time from now, ensuring it's in the future
         let next_run = evaluator
             .next_execution(now)
             .map_err(|e| PipelineError::Configuration {

@@ -49,7 +49,7 @@ impl Task for SimpleTask {
 #[serial]
 async fn test_always_trigger_rule() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 

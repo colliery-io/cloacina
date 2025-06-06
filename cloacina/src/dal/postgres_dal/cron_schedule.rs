@@ -105,7 +105,10 @@ impl<'a> CronScheduleDAL<'a> {
         let now_ts = UniversalTimestamp(now);
 
         let schedules = conn.interact(move |conn| {
-            cron_schedules::table
+            // Set transaction isolation level to serializable
+            diesel::sql_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(conn)?;
+            
+            let schedules = cron_schedules::table
                 .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
                 .filter(cron_schedules::next_run_at.le(now_ts))
                 .filter(
@@ -119,7 +122,9 @@ impl<'a> CronScheduleDAL<'a> {
                         .or(cron_schedules::end_date.ge(now_ts)),
                 )
                 .order(cron_schedules::next_run_at.asc())
-                .load(conn)
+                .load(conn)?;
+
+            Ok::<_, diesel::result::Error>(schedules)
         }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(schedules)
@@ -359,7 +364,10 @@ impl<'a> CronScheduleDAL<'a> {
 
         // Atomic update: only update if schedule is still due and enabled
         let updated_rows = conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(uuid_id))
+            // Set transaction isolation level to serializable
+            diesel::sql_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(conn)?;
+
+            let updated_rows = diesel::update(cron_schedules::table.find(uuid_id))
                 .filter(cron_schedules::next_run_at.le(current_ts))
                 .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
                 .set((
@@ -367,7 +375,9 @@ impl<'a> CronScheduleDAL<'a> {
                     cron_schedules::next_run_at.eq(next_run_ts),
                     cron_schedules::updated_at.eq(now_ts),
                 ))
-                .execute(conn)
+                .execute(conn)?;
+
+            Ok::<_, diesel::result::Error>(updated_rows)
         }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Return true if exactly one row was updated (successful claim)

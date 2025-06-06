@@ -29,7 +29,7 @@ use tracing::info;
 #[serial]
 async fn test_orphaned_task_recovery() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -111,7 +111,7 @@ async fn test_orphaned_task_recovery() {
 #[serial]
 async fn test_task_abandonment_after_max_retries() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -203,7 +203,7 @@ async fn test_task_abandonment_after_max_retries() {
 #[serial]
 async fn test_no_recovery_needed() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -289,7 +289,7 @@ async fn test_no_recovery_needed() {
 #[serial]
 async fn test_multiple_orphaned_tasks_recovery() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -424,7 +424,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
 #[serial]
 async fn test_recovery_event_details() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -492,7 +492,7 @@ async fn test_recovery_event_details() {
 #[serial]
 async fn test_graceful_recovery_for_unknown_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -616,7 +616,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
 #[serial]
 async fn test_recovery_event_details_multiple_tasks() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());
@@ -755,7 +755,7 @@ async fn test_recovery_event_details_multiple_tasks() {
 #[serial]
 async fn test_recovery_event_details_unknown_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut guard = fixture.lock().unwrap();
+    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
     let dal = DAL::new(database.pool());

@@ -25,7 +25,7 @@ use crate::fixtures::get_or_init_fixture;
 // Helper for getting database for tests
 async fn get_test_database() -> Database {
     let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap();
+    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     locked_fixture.initialize().await;
     locked_fixture.get_database()
 }

@@ -24,6 +24,7 @@ use serial_test::serial;
 use std::time::Duration;
 use tokio::time::sleep;
 
+
 #[tokio::test]
 #[serial]
 async fn test_cron_evaluator_basic() {
@@ -44,7 +45,7 @@ async fn test_cron_evaluator_basic() {
 #[serial]
 async fn test_cron_schedule_creation() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let dal = fixture.get_dal();
 
@@ -66,7 +67,15 @@ async fn test_cron_schedule_creation() {
 #[tokio::test]
 #[serial]
 async fn test_default_runner_cron_integration() {
-    // Use the same database URLs as the fixture
+    // Get test fixture and initialize it
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    
+    // Reset the database to ensure a clean state
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    // Use the same database URL as the fixture
     #[cfg(feature = "postgres")]
     let database_url = "postgres://cloacina:cloacina@localhost:5432/cloacina";
     #[cfg(feature = "sqlite")]
@@ -79,6 +88,19 @@ async fn test_default_runner_cron_integration() {
         .await
         .unwrap();
 
+    // Register a cron workflow that won't be due immediately
+    runner
+        .register_cron_workflow(
+            "test-workflow",
+            "0 * * * *", // Run at the start of every hour
+            "UTC",
+        )
+        .await
+        .expect("Failed to register cron workflow");
+
+    // Let the cron scheduler initialize
+    sleep(Duration::from_millis(100)).await;
+
     // Test the new cron management methods
     let stats = runner
         .get_cron_execution_stats(Utc::now() - chrono::Duration::try_hours(1).unwrap())
@@ -86,7 +108,7 @@ async fn test_default_runner_cron_integration() {
         .unwrap();
     assert_eq!(stats.total_executions, 0); // No executions yet
 
-    // Shutdown gracefully
+    // Ensure proper cleanup by explicitly shutting down
     runner.shutdown().await.unwrap();
 }
 
