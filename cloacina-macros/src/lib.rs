@@ -721,7 +721,7 @@ fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
             fn auto_register() {
                 cloacina::register_task_constructor(
                     #task_id.to_string(),
-                    || Box::new(#task_struct_name::new())
+                    || std::sync::Arc::new(#task_struct_name::new())
                 );
             }
         };
