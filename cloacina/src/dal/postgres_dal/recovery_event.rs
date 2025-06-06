@@ -20,7 +20,6 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
-use std::ops::DerefMut;
 
 /// Data access layer for recovery event operations.
 ///
@@ -104,21 +103,14 @@ impl<'a> RecoveryEventDAL<'a> {
     /// let event = recovery_dal.create(new_event)?;
     /// ```
     pub async fn create(&self, new_event: NewRecoveryEvent) -> Result<RecoveryEvent, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get().await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let mut conn = self.dal.pool.get().await?;
 
-        let result = diesel::insert_into(recovery_events::table)
-            .values(&new_event)
-            .returning(RecoveryEvent::as_returning())
-            .get_result(&mut **conn)
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to create recovery event: {}", e),
-            })?;
+        let result = conn.interact(move |conn| {
+            diesel::insert_into(recovery_events::table)
+                .values(&new_event)
+                .returning(RecoveryEvent::as_returning())
+                .get_result(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(result)
     }
@@ -153,21 +145,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get().await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let mut conn = self.dal.pool.get().await?;
 
-        let events = recovery_events::table
-            .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id.0))
-            .order(recovery_events::recovered_at.desc())
-            .load(&mut **conn)
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to get recovery events: {}", e),
-            })?;
+        let events = conn.interact(move |conn| {
+            recovery_events::table
+                .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id.0))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(events)
     }
@@ -202,21 +187,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get().await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let mut conn = self.dal.pool.get().await?;
 
-        let events = recovery_events::table
-            .filter(recovery_events::task_execution_id.eq(task_execution_id.0))
-            .order(recovery_events::recovered_at.desc())
-            .load(&mut **conn)
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to get recovery events: {}", e),
-            })?;
+        let events = conn.interact(move |conn| {
+            recovery_events::table
+                .filter(recovery_events::task_execution_id.eq(task_execution_id.0))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(events)
     }
@@ -247,21 +225,15 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_by_type(&self, recovery_type: &str) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get().await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let mut conn = self.dal.pool.get().await?;
+        let recovery_type = recovery_type.to_string();
 
-        let events = recovery_events::table
-            .filter(recovery_events::recovery_type.eq(recovery_type))
-            .order(recovery_events::recovered_at.desc())
-            .load(&mut **conn)
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to get recovery events: {}", e),
-            })?;
+        let events = conn.interact(move |conn| {
+            recovery_events::table
+                .filter(recovery_events::recovery_type.eq(recovery_type))
+                .order(recovery_events::recovered_at.desc())
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(events)
     }
@@ -291,7 +263,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_workflow_unavailable_events(&self) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str())
+        self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str()).await
     }
 
     /// Gets recent recovery events for monitoring purposes.
@@ -321,21 +293,14 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let mut conn = self
-            .dal
-            .pool
-            .get().await
-            .map_err(|e| ValidationError::DatabaseConnection {
-                message: format!("Failed to get connection: {}", e),
-            })?;
+        let mut conn = self.dal.pool.get().await?;
 
-        let events = recovery_events::table
-            .order(recovery_events::recovered_at.desc())
-            .limit(limit)
-            .load(&mut **conn)
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to get recent recovery events: {}", e),
-            })?;
+        let events = conn.interact(move |conn| {
+            recovery_events::table
+                .order(recovery_events::recovered_at.desc())
+                .limit(limit)
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(events)
     }

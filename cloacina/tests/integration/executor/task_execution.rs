@@ -125,7 +125,7 @@ impl DependencyConsumerTask {
 impl Task for DependencyConsumerTask {
     async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
         // Try to load dependency value using lazy loading
-        match context.load_from_dependencies_and_cache(&self.dependency_key) {
+        match context.load_from_dependencies_and_cache(&self.dependency_key).await {
             Ok(Some(value)) => {
                 // Add a derived value to show dependency was loaded
                 context
@@ -222,6 +222,7 @@ async fn test_task_executor_basic_execution() {
     let task_executions = dal
         .task_execution()
         .get_pending_tasks(UniversalUuid(pipeline_id))
+        .await
         .unwrap();
 
     // Should be no pending tasks (task should be completed)
@@ -294,12 +295,13 @@ async fn test_task_executor_dependency_loading() {
     let consumer_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     // Verify the consumer processed the dependency data
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = consumer_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -412,6 +414,7 @@ async fn test_task_executor_timeout_handling() {
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "timeout_task")
+        .await
         .unwrap();
 
     assert_eq!(
@@ -490,13 +493,14 @@ async fn test_pipeline_engine_unified_mode() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task");
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task")
+        .await;
 
     // If the task was executed, metadata should exist
     match task_metadata {
         Ok(metadata) => {
             if let Some(context_id) = metadata.context_id {
-                let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+                let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
                 let context_data = context.data();
                 assert!(
                     context_data.contains_key("result"),
@@ -512,6 +516,7 @@ async fn test_pipeline_engine_unified_mode() {
             let task_status = dal
                 .task_execution()
                 .get_task_status(UniversalUuid(pipeline_id), "unified_task")
+                .await
                 .unwrap();
             assert_ne!(task_status, "Pending", "Task should have been processed");
         }
@@ -615,6 +620,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "initial_context_task")
+        .await
         .unwrap();
     assert_eq!(
         task_status, "Completed",
@@ -625,10 +631,11 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "initial_context_task")
+        .await
         .unwrap();
 
     if let Some(context_id) = task_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+        let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
         let context_data = context.data();
 
         assert!(
@@ -803,10 +810,12 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let producer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "producer")
+        .await
         .unwrap();
     let consumer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     assert_eq!(
@@ -822,10 +831,11 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let consumer_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     if let Some(context_id) = consumer_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+        let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
         let context_data = context.data();
 
         assert!(

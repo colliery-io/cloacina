@@ -29,7 +29,7 @@ tokio = { version = "1.0", features = ["full"] }
 ### Step 2: Create Multi-Tenant Executors
 
 ```rust
-use cloacina::executor::unified_executor::UnifiedExecutor;
+use cloacina::runner::DefaultRunner;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -40,11 +40,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut executors = HashMap::new();
 
     // Tenant A
-    let tenant_a = UnifiedExecutor::with_schema(database_url, "tenant_a").await?;
+    let tenant_a = DefaultRunner::with_schema(database_url, "tenant_a").await?;
     executors.insert("tenant_a", tenant_a);
 
     // Tenant B
-    let tenant_b = UnifiedExecutor::with_schema(database_url, "tenant_b").await?;
+    let tenant_b = DefaultRunner::with_schema(database_url, "tenant_b").await?;
     executors.insert("tenant_b", tenant_b);
 
     Ok(())
@@ -59,7 +59,7 @@ use tokio::sync::RwLock;
 
 pub struct TenantManager {
     database_url: String,
-    executors: Arc<RwLock<HashMap<String, UnifiedExecutor>>>,
+    executors: Arc<RwLock<HashMap<String, DefaultRunner>>>,
 }
 
 impl TenantManager {
@@ -70,7 +70,7 @@ impl TenantManager {
         }
     }
 
-    pub async fn get_executor(&self, tenant_id: &str) -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
+    pub async fn get_executor(&self, tenant_id: &str) -> Result<DefaultRunner, Box<dyn std::error::Error>> {
         // Check if executor already exists
         {
             let executors = self.executors.read().await;
@@ -80,7 +80,7 @@ impl TenantManager {
         }
 
         // Create new executor for tenant
-        let executor = UnifiedExecutor::with_schema(&self.database_url, tenant_id).await?;
+        let executor = DefaultRunner::with_schema(&self.database_url, tenant_id).await?;
 
         // Store for reuse
         {
@@ -109,7 +109,7 @@ impl TenantManager {
 ```rust
 use std::env;
 
-async fn create_tenant_executor() -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
+async fn create_tenant_executor() -> Result<DefaultRunner, Box<dyn std::error::Error>> {
     let database_url = env::var("DATABASE_URL")?;
     let tenant_id = env::var("TENANT_ID")?;
 
@@ -118,7 +118,7 @@ async fn create_tenant_executor() -> Result<UnifiedExecutor, Box<dyn std::error:
         return Err("Invalid tenant ID format".into());
     }
 
-    let executor = UnifiedExecutor::with_schema(&database_url, &tenant_id).await?;
+    let executor = DefaultRunner::with_schema(&database_url, &tenant_id).await?;
     Ok(executor)
 }
 ```
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     store_in_secrets_manager(&tenant_creds)?;
 
     // Step 4: Tenant application uses their credentials
-    let executor = UnifiedExecutor::with_schema(
+    let executor = DefaultRunner::with_schema(
         &tenant_creds.connection_string,
         &tenant_creds.schema_name
     ).await?;
@@ -198,7 +198,7 @@ impl SecureTenantManager {
         Ok(())
     }
 
-    pub async fn get_executor(&self, tenant_id: &str) -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
+    pub async fn get_executor(&self, tenant_id: &str) -> Result<DefaultRunner, Box<dyn std::error::Error>> {
         let creds = self.credentials
             .read()
             .await
@@ -206,7 +206,7 @@ impl SecureTenantManager {
             .ok_or("Tenant not found")?
             .clone();
 
-        let executor = UnifiedExecutor::with_schema(
+        let executor = DefaultRunner::with_schema(
             &creds.connection_string,
             &creds.schema_name
         ).await?;
@@ -280,14 +280,14 @@ impl SqliteTenantManager {
         })
     }
 
-    pub async fn get_executor(&self, tenant_id: &str) -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
+    pub async fn get_executor(&self, tenant_id: &str) -> Result<DefaultRunner, Box<dyn std::error::Error>> {
         // Validate tenant ID
         if !tenant_id.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
             return Err("Invalid tenant ID format".into());
         }
 
         let db_path = format!("sqlite://{}/{}.db", self.data_dir, tenant_id);
-        let executor = UnifiedExecutor::new(&db_path).await?;
+        let executor = DefaultRunner::new(&db_path).await?;
 
         Ok(executor)
     }
@@ -430,8 +430,8 @@ pub struct TenantConfig {
 }
 
 impl TenantConfig {
-    pub async fn create_executor(&self) -> Result<UnifiedExecutor, Box<dyn std::error::Error>> {
-        let mut builder = UnifiedExecutor::builder()
+    pub async fn create_executor(&self) -> Result<DefaultRunner, Box<dyn std::error::Error>> {
+        let mut builder = DefaultRunner::builder()
             .database_url(&self.database_url);
 
         if let Some(ref schema) = self.schema {
@@ -469,8 +469,8 @@ mod tests {
         let database_url = "postgresql://test:test@localhost/cloacina_test";
 
         // Create two tenant executors
-        let tenant_a = UnifiedExecutor::with_schema(database_url, "test_tenant_a").await.unwrap();
-        let tenant_b = UnifiedExecutor::with_schema(database_url, "test_tenant_b").await.unwrap();
+        let tenant_a = DefaultRunner::with_schema(database_url, "test_tenant_a").await.unwrap();
+        let tenant_b = DefaultRunner::with_schema(database_url, "test_tenant_b").await.unwrap();
 
         // Execute workflows in each tenant
         let context_a = Context::new();
@@ -494,7 +494,7 @@ mod tests {
 ### Connection Pool Tuning
 
 ```rust
-let executor = UnifiedExecutor::builder()
+let executor = DefaultRunner::builder()
     .database_url(&database_url)
     .schema(&tenant_id)
     .db_pool_size(20)  // Tune based on tenant load

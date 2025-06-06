@@ -196,7 +196,7 @@ impl TaskExecutor {
         &self,
     ) -> Result<Option<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
         // Use DAL's atomic claim method
-        if let Some(claim_result) = self.dal.task_execution().claim_ready_task()? {
+        if let Some(claim_result) = self.dal.task_execution().claim_ready_task().await? {
             let claimed_task = ClaimedTask {
                 task_execution_id: claim_result.id,
                 pipeline_execution_id: claim_result.pipeline_execution_id,
@@ -263,11 +263,11 @@ impl TaskExecutor {
             if let Ok(pipeline_execution) = self
                 .dal
                 .pipeline_execution()
-                .get_by_id(claimed_task.pipeline_execution_id)
+                .get_by_id(claimed_task.pipeline_execution_id).await
             {
                 if let Some(context_id) = pipeline_execution.context_id {
                     if let Ok(initial_context) =
-                        self.dal.context().read::<serde_json::Value>(context_id)
+                        self.dal.context().read::<serde_json::Value>(context_id).await
                     {
                         // Merge initial context data
                         for (key, value) in initial_context.data() {
@@ -291,7 +291,7 @@ impl TaskExecutor {
                 .get_dependency_metadata_with_contexts(
                     claimed_task.pipeline_execution_id,
                     dependencies,
-                )
+                ).await
             {
                 for (_task_metadata, context_json) in dep_metadata_with_contexts {
                     if let Some(json_str) = context_json {
@@ -438,7 +438,7 @@ impl TaskExecutor {
         use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
 
         // Save context data to the contexts table
-        let context_id = self.dal.context().create(&context)?;
+        let context_id = self.dal.context().create(&context).await?;
 
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
@@ -450,7 +450,7 @@ impl TaskExecutor {
 
         self.dal
             .task_execution_metadata()
-            .upsert_task_execution_metadata(task_metadata_record)?;
+            .upsert_task_execution_metadata(task_metadata_record).await?;
 
         let key_count = context.data().len();
         let keys: Vec<_> = context.data().keys().collect();
@@ -473,11 +473,11 @@ impl TaskExecutor {
         task_execution_id: UniversalUuid,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
+        let task = self.dal.task_execution().get_by_id(task_execution_id).await?;
 
         self.dal
             .task_execution()
-            .mark_completed(task_execution_id)?;
+            .mark_completed(task_execution_id).await?;
 
         info!(
             "Task state change: {} -> Completed (task: {}, pipeline: {})",
@@ -526,11 +526,11 @@ impl TaskExecutor {
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
+        let task = self.dal.task_execution().get_by_id(task_execution_id).await?;
 
         self.dal
             .task_execution()
-            .mark_failed(task_execution_id, &error.to_string())?;
+            .mark_failed(task_execution_id, &error.to_string()).await?;
 
         error!(
             "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
@@ -641,7 +641,7 @@ impl TaskExecutor {
             claimed_task.task_execution_id,
             crate::database::UniversalTimestamp(retry_at),
             claimed_task.attempt + 1,
-        )?;
+        ).await?;
 
         info!(
             "Scheduled retry for task {} in {:?} (attempt {})",

@@ -90,6 +90,7 @@ async fn test_task_dependency_initialization() {
     let tasks = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get tasks for pipeline");
 
     assert_eq!(tasks.len(), 2);
@@ -150,6 +151,7 @@ async fn test_dependency_satisfaction_check() {
     let pending_tasks = dal
         .task_execution()
         .get_pending_tasks(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pending tasks");
 
     assert_eq!(pending_tasks.len(), 2);
@@ -177,6 +179,7 @@ async fn test_dependency_satisfaction_check() {
     let updated_tasks = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get all tasks");
 
     let independent_status = updated_tasks

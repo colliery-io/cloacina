@@ -86,7 +86,7 @@ Let's create a simple workflow with a single task that prints a greeting message
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use tracing::info;
 
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Simple Cloacina Example");
 
     // Initialize executor with SQLite database (migrations run automatically)
-    let executor = UnifiedExecutor::new("simple_workflow.db").await?;
+    let executor = DefaultRunner::new("simple_workflow.db").await?;
 
     // Create a simple workflow (automatically registers in global registry)
     let _workflow = workflow! {
@@ -151,9 +151,9 @@ Let's walk through the code in execution order and understand why each component
 1. **Imports and Dependencies**: First, we import all necessary components from Cloacina:
    ```rust
    use cloacina::{task, workflow, Context, TaskError};
-   use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+   use cloacina::runner::DefaultRunner;
    ```
-   These imports are needed because they define the core types and traits we'll use throughout the program. The `PipelineExecutor` trait is particularly important as it defines the interface that `UnifiedExecutor` implements.
+   These imports are needed because they define the core types and traits we'll use throughout the program. The `DefaultRunner` is the main executor that handles workflow execution.
 
 2. **Task Definition**: We define our task:
    ```rust
@@ -172,7 +172,7 @@ Let's walk through the code in execution order and understand why each component
    // 2. Create the executor - this must happen before any workflow definition
    // because the workflow! macro registers workflows in a global registry
    // that the executor needs to access
-   let executor = UnifiedExecutor::new("simple_workflow.db").await?;
+   let executor = DefaultRunner::new("simple_workflow.db").await?;
 
    // 3. Define the workflow - the workflow! macro will automatically register
    // it in the global registry that the executor uses

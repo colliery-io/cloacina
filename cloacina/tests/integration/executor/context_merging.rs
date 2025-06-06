@@ -135,7 +135,7 @@ impl Task for ContextMergerTask {
 
         // Try to load all expected keys from dependencies
         for key in &self.expected_keys {
-            match context.load_from_dependencies_and_cache(key) {
+            match context.load_from_dependencies_and_cache(key).await {
                 Ok(Some(value)) => {
                     merged_values.insert(key.clone(), value);
                 }
@@ -278,11 +278,12 @@ async fn test_context_merging_latest_wins() {
     let merger_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger")
+        .await
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = merger_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -400,11 +401,12 @@ async fn test_execution_scope_context_setup() {
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector")
+        .await
         .unwrap();
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = task_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()

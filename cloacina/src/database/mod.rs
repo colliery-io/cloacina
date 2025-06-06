@@ -64,11 +64,11 @@
 //! ## Usage
 //!
 //! ```rust
-//! use cloacina::executor::UnifiedExecutor;
+//! use cloacina::runner::DefaultRunner;
 //! use cloacina::database::{DbPool, Result};
 //!
 //! // Initialize executor (automatically runs migrations)
-//! let executor = UnifiedExecutor::new("postgresql://user:pass@localhost/cloacina").await?;
+//! let executor = DefaultRunner::new("postgresql://user:pass@localhost/cloacina").await?;
 //!
 //! // Manual database access example
 //! let pool = DbPool::builder()
@@ -92,7 +92,7 @@
 //!
 //! - [`run_migrations`]: Manually runs pending database migrations
 //!
-//! Migrations are automatically applied when using `UnifiedExecutor`. For lower-level
+//! Migrations are automatically applied when using `DefaultRunner`. For lower-level
 //! database access, migrations can be run manually using `run_migrations()`.
 
 pub mod admin;

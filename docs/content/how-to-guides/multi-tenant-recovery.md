@@ -16,12 +16,12 @@ Cloacina has recovery enabled by default. Each tenant's recovery operates indepe
 
 ```rust
 // First executor creates schema and runs migrations
-let executor1 = UnifiedExecutor::with_schema(db_url, "tenant_acme").await?;
+let executor1 = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
 // ... work gets interrupted ...
 executor1.shutdown().await?;
 
 // Second executor automatically recovers any interrupted work
-let executor2 = UnifiedExecutor::with_schema(db_url, "tenant_acme").await?;
+let executor2 = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
 // - Schema already exists (not recreated)
 // - Migrations already applied (not re-run)
 // - Orphaned tasks automatically detected and recovered
@@ -42,10 +42,10 @@ When migrating an existing single-tenant deployment to multi-tenant:
 
 ```rust
 // Existing single-tenant application uses public schema
-let legacy_executor = UnifiedExecutor::new(db_url).await?;
+let legacy_executor = DefaultRunner::new(db_url).await?;
 
 // New tenant uses isolated schema
-let tenant_executor = UnifiedExecutor::with_schema(db_url, "tenant_001").await?;
+let tenant_executor = DefaultRunner::with_schema(db_url, "tenant_001").await?;
 
 // Both can run side-by-side during migration
 // Existing data remains in public schema
@@ -66,13 +66,13 @@ let tenant_executor = UnifiedExecutor::with_schema(db_url, "tenant_001").await?;
 
 ```rust
 // Development: Quick setup for testing
-let dev_tenant = UnifiedExecutor::with_schema(
+let dev_tenant = DefaultRunner::with_schema(
     "postgresql://localhost/dev_db",
     "test_tenant"
 ).await?;
 
 // Production: Full configuration
-let prod_tenant = UnifiedExecutor::builder()
+let prod_tenant = DefaultRunner::builder()
     .database_url(&production_url)
     .schema(&tenant_id)
     .enable_recovery(true)

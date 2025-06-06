@@ -51,7 +51,6 @@
 //! ```
 
 use tracing::info;
-use std::ops::DerefMut;
 
 #[cfg(feature = "postgres")]
 use deadpool_diesel::postgres::{Manager, Pool, Runtime};
@@ -216,20 +215,26 @@ impl Database {
 
         let mut conn = self.pool.get().await.map_err(|e| e.to_string())?;
 
+        let schema_name = schema.to_string();
+        let schema_name_clone = schema_name.clone();
+        
         // Create schema if it doesn't exist
-        let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema);
-        diesel::sql_query(&create_schema_sql)
-            .execute(conn.deref_mut())
-            .map_err(|e| format!("Failed to create schema: {}", e))?;
+        conn.interact(move |conn| {
+            let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
+            diesel::sql_query(&create_schema_sql).execute(conn)
+        }).await.map_err(|e| format!("Failed to create schema: {}", e))?
+          .map_err(|e| format!("Failed to create schema: {}", e))?;
 
         // Set search path for migrations
-        let set_search_path_sql = format!("SET search_path TO {}, public", schema);
-        diesel::sql_query(&set_search_path_sql)
-            .execute(conn.deref_mut())
-            .map_err(|e| format!("Failed to set search path: {}", e))?;
+        conn.interact(move |conn| {
+            let set_search_path_sql = format!("SET search_path TO {}, public", schema_name_clone);
+            diesel::sql_query(&set_search_path_sql).execute(conn)
+        }).await.map_err(|e| format!("Failed to set search path: {}", e))?
+          .map_err(|e| format!("Failed to set search path: {}", e))?;
 
         // Run migrations in the schema
-        crate::database::run_migrations(conn.deref_mut())
+        conn.interact(|conn| crate::database::run_migrations(conn))
+            .await.map_err(|e| format!("Failed to run migrations in schema: {}", e))?
             .map_err(|e| format!("Failed to run migrations in schema: {}", e))?;
 
         info!("Schema '{}' set up successfully", schema);

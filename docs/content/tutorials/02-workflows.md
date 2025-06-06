@@ -78,7 +78,7 @@ In Cloacina, a workflow is a collection of tasks that work together to accomplis
 3. **Data Flow**: Tasks share data through a shared context
 4. **Error Handling**: Failed tasks can affect dependent tasks
 5. **Retry Strategies**: Tasks can be configured to retry on failure
-6. **UnifiedExecutor**: Manages workflow execution with persistence
+6. **DefaultRunner**: Manages workflow execution with persistence
 
 ### Workflow Structure
 
@@ -217,7 +217,7 @@ Now, create `src/main.rs` to define and execute our workflow:
 //! - Recovery from failures
 
 use cloacina::{workflow, Context};
-use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use tracing::info;
 
@@ -234,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting ETL Example");
 
     // Initialize executor with SQLite database
-    let executor = UnifiedExecutor::new("workflow_etl.db").await?;
+    let executor = DefaultRunner::new("workflow_etl.db").await?;
 
     // Create the ETL workflow
     let _pipeline = create_etl_workflow()?;
@@ -301,7 +301,7 @@ Let's walk through the code in execution order and understand why each component
        .init();
 
    // 2. Create the executor
-   let executor = UnifiedExecutor::new("workflow_etl.db").await?;
+   let executor = DefaultRunner::new("workflow_etl.db").await?;
 
    // 3. Define the workflow
    let workflow = workflow! {

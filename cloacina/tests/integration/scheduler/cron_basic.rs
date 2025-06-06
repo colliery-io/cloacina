@@ -59,7 +59,7 @@ async fn test_cron_schedule_creation() {
         next_run_at: UniversalTimestamp(Utc::now()),
     };
 
-    let created_schedule = dal.cron_schedule().create(schedule).unwrap();
+    let created_schedule = dal.cron_schedule().create(schedule).await.unwrap();
     assert!(created_schedule.id.to_string().len() > 0);
 }
 

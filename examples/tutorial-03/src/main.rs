@@ -42,7 +42,8 @@
 //! - **Result Combination**: Merging results from parallel tasks
 //! - **Final Convergence**: All processing completes before cleanup
 
-use cloacina::executor::{PipelineExecutor, UnifiedExecutor};
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::DefaultRunner;
 use cloacina::{task, workflow, Context, TaskError};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -537,8 +538,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Parallel Processing Example");
 
-    // Initialize executor with SQLite database using WAL mode for better concurrency
-    let executor = UnifiedExecutor::new(
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let runner = DefaultRunner::new(
         "tutorial-03.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
     )
     .await?;
@@ -564,15 +565,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_context = Context::new();
 
     info!("Executing parallel processing workflow");
-    let result = executor
+    let result = runner
         .execute("parallel_processing", input_context)
         .await?;
 
     info!("Workflow completed with status: {:?}", result.status);
     info!("Final context: {:?}", result.final_context);
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     info!("Parallel processing example completed!");
     Ok(())

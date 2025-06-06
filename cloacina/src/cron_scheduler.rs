@@ -47,11 +47,11 @@
 //!
 //! ```rust
 //! use cloacina::cron_scheduler::CronScheduler;
-//! use cloacina::executor::UnifiedExecutor;
+//! use cloacina::runner::DefaultRunner;
 //! use std::time::Duration;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let executor = UnifiedExecutor::new("postgresql://localhost/mydb").await?;
+//! let executor = DefaultRunner::new("postgresql://localhost/mydb").await?;
 //! let scheduler = CronScheduler::new(
 //!     executor.dal(),
 //!     executor.clone(),
@@ -219,6 +219,7 @@ impl CronScheduler {
             .dal
             .cron_schedule()
             .get_due_schedules(now)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: e.to_string(),
             })?;
@@ -284,6 +285,7 @@ impl CronScheduler {
             .dal
             .cron_schedule()
             .claim_and_update(schedule.id, now, now, next_run)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: e.to_string(),
             })?;
@@ -305,7 +307,7 @@ impl CronScheduler {
         // Execute all scheduled times using guaranteed execution pattern
         for scheduled_time in execution_times {
             // Step 1: Create audit record BEFORE handoff (guaranteed execution)
-            let audit_record_id = match self.create_execution_audit(schedule.id, scheduled_time) {
+            let audit_record_id = match self.create_execution_audit(schedule.id, scheduled_time).await {
                 Ok(id) => id,
                 Err(e) => {
                     error!(
@@ -322,7 +324,7 @@ impl CronScheduler {
                 Ok(pipeline_execution_id) => {
                     // Step 3: Complete audit trail linking
                     if let Err(e) =
-                        self.complete_execution_audit(audit_record_id, pipeline_execution_id)
+                        self.complete_execution_audit(audit_record_id, pipeline_execution_id).await
                     {
                         error!(
                             "Failed to complete audit trail for schedule {} execution: {}",
@@ -518,7 +520,7 @@ impl CronScheduler {
     ///
     /// # Returns
     /// * `Result<crate::database::UniversalUuid, ValidationError>` - ID of the audit record
-    fn create_execution_audit(
+    async fn create_execution_audit(
         &self,
         schedule_id: crate::database::UniversalUuid,
         scheduled_time: DateTime<Utc>,
@@ -528,7 +530,7 @@ impl CronScheduler {
 
         let new_execution = NewCronExecution::new(schedule_id, UniversalTimestamp(scheduled_time));
 
-        let audit_record = self.dal.cron_execution().create(new_execution)?;
+        let audit_record = self.dal.cron_execution().create(new_execution).await?;
 
         debug!(
             "Created execution audit record {} for schedule {} (scheduled: {})",
@@ -546,14 +548,14 @@ impl CronScheduler {
     /// # Arguments
     /// * `audit_record_id` - UUID of the audit record to update
     /// * `pipeline_execution_id` - UUID of the created pipeline execution
-    fn complete_execution_audit(
+    async fn complete_execution_audit(
         &self,
         audit_record_id: crate::database::UniversalUuid,
         pipeline_execution_id: crate::database::UniversalUuid,
     ) -> Result<(), ValidationError> {
         self.dal
             .cron_execution()
-            .update_pipeline_execution_id(audit_record_id, pipeline_execution_id)?;
+            .update_pipeline_execution_id(audit_record_id, pipeline_execution_id).await?;
 
         debug!(
             "Completed execution audit record {} -> pipeline {}",

@@ -168,6 +168,7 @@ impl CronRecoveryService {
             .dal
             .cron_execution()
             .find_lost_executions(self.config.lost_threshold_minutes)
+            .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to find lost executions: {}", e),
             })?;
@@ -225,7 +226,7 @@ impl CronRecoveryService {
         );
 
         // Get the schedule to check if it's still active
-        let schedule = match self.dal.cron_schedule().get_by_id(execution.schedule_id) {
+        let schedule = match self.dal.cron_schedule().get_by_id(execution.schedule_id).await {
             Ok(sched) => sched,
             Err(e) => {
                 warn!(
@@ -312,7 +313,7 @@ impl CronRecoveryService {
                 if let Err(e) = self.dal.cron_execution().update_pipeline_execution_id(
                     execution.id,
                     crate::database::UniversalUuid(pipeline_result.execution_id),
-                ) {
+                ).await {
                     error!(
                         "Failed to update audit record for recovered execution {}: {}",
                         execution.id, e

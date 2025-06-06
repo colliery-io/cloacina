@@ -20,7 +20,8 @@
 //! isolated tenant users with their own database credentials and schemas.
 
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
-use cloacina::executor::unified_executor::UnifiedExecutor;
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::DefaultRunner;
 use std::env;
 use tracing::{error, info, warn};
 
@@ -65,7 +66,7 @@ async fn demonstrate_admin_tenant_creation(
         schema_name: "tenant_acme".to_string(),
         username: "acme_user".to_string(),
         password: "admin_chosen_password".to_string(),
-    });
+    }).await;
 
     match tenant_a_result {
         Ok(tenant_a_creds) => {
@@ -91,7 +92,7 @@ async fn demonstrate_admin_tenant_creation(
         schema_name: "tenant_globex".to_string(),
         username: "globex_user".to_string(),
         password: "".to_string(), // Empty = auto-generate
-    });
+    }).await;
 
     match tenant_b_result {
         Ok(tenant_b_creds) => {
@@ -130,7 +131,7 @@ async fn demonstrate_tenant_isolation(
     // Example of how tenant applications would connect:
     info!("Creating executor with shared credentials for demonstration...");
     let tenant_executor_result =
-        UnifiedExecutor::with_schema(admin_database_url, "demo_tenant").await;
+        DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
 
     match tenant_executor_result {
         Ok(tenant_executor) => {
@@ -156,16 +157,16 @@ async fn demonstrate_tenant_isolation(
 
     // Show the API pattern
     info!("=== API Usage Pattern ===");
-    info!("The same UnifiedExecutor::with_schema() API works for both:");
+    info!("The same DefaultRunner::with_schema() API works for both:");
     info!("");
     info!("// Shared credentials (current approach)");
-    info!("let executor = UnifiedExecutor::with_schema(");
+    info!("let executor = DefaultRunner::with_schema(");
     info!("    \"postgresql://shared_user:shared_pw@host/db\",");
     info!("    \"tenant_acme\"");
     info!(").await?;");
     info!("");
     info!("// Per-tenant credentials (enhanced security)");
-    info!("let executor = UnifiedExecutor::with_schema(");
+    info!("let executor = DefaultRunner::with_schema(");
     info!("    \"postgresql://acme_user:tenant_pw@host/db\",");
     info!("    \"tenant_acme\"");
     info!(").await?;");

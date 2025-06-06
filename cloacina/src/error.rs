@@ -304,6 +304,12 @@ impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ValidationEr
     }
 }
 
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ContextError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ContextError::ConnectionPool(err.to_string())
+    }
+}
+
 /// Errors that can occur during task execution.
 #[derive(Debug, Error)]
 pub enum ExecutorError {

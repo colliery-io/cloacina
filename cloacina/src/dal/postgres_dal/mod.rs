@@ -86,9 +86,8 @@
 //! when operations complete. The pool size and other connection parameters can be
 //! configured when creating the database instance.
 
-use deadpool_diesel::postgres::{Object, Pool};
+use deadpool_diesel::postgres::Pool;
 use diesel::pg::PgConnection;
-use std::ops::{Deref, DerefMut};
 
 pub mod context;
 pub mod cron_execution;
@@ -179,11 +178,12 @@ impl DAL {
     /// ```
     pub async fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
     where
-        F: FnOnce(&mut PgConnection) -> Result<T, crate::error::ValidationError>,
+        F: FnOnce(&mut PgConnection) -> Result<T, crate::error::ValidationError> + Send + 'static,
+        T: Send + 'static,
     {
         use diesel::connection::Connection;
-        let mut conn = self.pool.get().await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?;
-        conn.deref_mut().transaction(f)
+        let mut conn = self.pool.get().await?;
+        conn.interact(move |conn| conn.transaction(f)).await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 
     /// Returns a ContextDAL instance for context-related database operations.

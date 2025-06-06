@@ -187,7 +187,7 @@ Let's implement these tasks in our workflow. Create `src/main.rs` with the follo
 //! - Monitoring task execution outcomes
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::executor::{UnifiedExecutor, PipelineExecutor};
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn, error};
@@ -428,7 +428,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize executor with database
-    let executor = UnifiedExecutor::new("error_handling.db").await?;
+    let executor = DefaultRunner::new("error_handling.db").await?;
 
     // Create the workflow
     let _workflow = workflow! {

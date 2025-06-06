@@ -20,7 +20,6 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
-use std::ops::DerefMut;
 
 /// Data Access Layer for managing pipeline executions in the database.
 ///
@@ -46,9 +45,11 @@ impl<'a> PipelineExecutionDAL<'a> {
     ) -> Result<PipelineExecution, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let execution: PipelineExecution = diesel::insert_into(pipeline_executions::table)
-            .values(&new_execution)
-            .get_result(&mut **conn)?;
+        let execution: PipelineExecution = conn.interact(move |conn| {
+            diesel::insert_into(pipeline_executions::table)
+                .values(&new_execution)
+                .get_result(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -63,7 +64,9 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let execution = pipeline_executions::table.find(id).first(&mut **conn)?;
+        let execution = conn.interact(move |conn| {
+            pipeline_executions::table.find(id).first(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -75,9 +78,11 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let executions = pipeline_executions::table
-            .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
-            .load(&mut **conn)?;
+        let executions = conn.interact(move |conn| {
+            pipeline_executions::table
+                .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }
@@ -92,10 +97,13 @@ impl<'a> PipelineExecutionDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn update_status(&self, id: UniversalUuid, status: &str) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get().await?;
+        let status = status.to_string();
 
-        diesel::update(pipeline_executions::table.find(id.0))
-            .set(pipeline_executions::status.eq(status))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id.0))
+                .set(pipeline_executions::status.eq(status))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -110,12 +118,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        diesel::update(pipeline_executions::table.find(id.0))
-            .set((
-                pipeline_executions::status.eq("Completed"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id.0))
+                .set((
+                    pipeline_executions::status.eq("Completed"),
+                    pipeline_executions::completed_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -129,13 +139,16 @@ impl<'a> PipelineExecutionDAL<'a> {
     /// * `Result<Option<String>, ValidationError>` - The most recent version string or None if no executions exist
     pub async fn get_last_version(&self, pipeline_name: &str) -> Result<Option<String>, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
+        let pipeline_name = pipeline_name.to_string();
 
-        let version: Option<String> = pipeline_executions::table
-            .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
-            .order(pipeline_executions::started_at.desc())
-            .select(pipeline_executions::pipeline_version)
-            .first(&mut **conn)
-            .optional()?;
+        let version: Option<String> = conn.interact(move |conn| {
+            pipeline_executions::table
+                .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
+                .order(pipeline_executions::started_at.desc())
+                .select(pipeline_executions::pipeline_version)
+                .first(conn)
+                .optional()
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(version)
     }
@@ -150,15 +163,18 @@ impl<'a> PipelineExecutionDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_failed(&self, id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get().await?;
+        let reason = reason.to_string();
 
-        diesel::update(pipeline_executions::table.find(id.0))
-            .set((
-                pipeline_executions::status.eq("Failed"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
-                pipeline_executions::error_details.eq(reason),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id.0))
+                .set((
+                    pipeline_executions::status.eq("Failed"),
+                    pipeline_executions::completed_at.eq(diesel::dsl::now),
+                    pipeline_executions::error_details.eq(reason),
+                    pipeline_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -174,14 +190,16 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn increment_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        diesel::update(pipeline_executions::table.find(id.0))
-            .set((
-                pipeline_executions::recovery_attempts
-                    .eq(pipeline_executions::recovery_attempts + 1),
-                pipeline_executions::last_recovery_at.eq(diesel::dsl::now),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id.0))
+                .set((
+                    pipeline_executions::recovery_attempts
+                        .eq(pipeline_executions::recovery_attempts + 1),
+                    pipeline_executions::last_recovery_at.eq(diesel::dsl::now),
+                    pipeline_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -196,13 +214,15 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        diesel::update(pipeline_executions::table.find(id.0))
-            .set((
-                pipeline_executions::status.eq("Cancelled"),
-                pipeline_executions::completed_at.eq(diesel::dsl::now),
-                pipeline_executions::updated_at.eq(diesel::dsl::now),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id.0))
+                .set((
+                    pipeline_executions::status.eq("Cancelled"),
+                    pipeline_executions::completed_at.eq(diesel::dsl::now),
+                    pipeline_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -217,10 +237,12 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let executions = pipeline_executions::table
-            .order(pipeline_executions::started_at.desc())
-            .limit(limit)
-            .load(&mut **conn)?;
+        let executions = conn.interact(move |conn| {
+            pipeline_executions::table
+                .order(pipeline_executions::started_at.desc())
+                .limit(limit)
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }

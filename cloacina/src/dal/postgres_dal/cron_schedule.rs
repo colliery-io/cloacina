@@ -36,7 +36,6 @@ use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use std::ops::DerefMut;
 use uuid::Uuid;
 
 /// Data Access Layer for cron schedule operations.
@@ -59,9 +58,11 @@ impl<'a> CronScheduleDAL<'a> {
     pub async fn create(&self, new_schedule: NewCronSchedule) -> Result<CronSchedule, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let schedule: CronSchedule = diesel::insert_into(cron_schedules::table)
-            .values(&new_schedule)
-            .get_result(&mut **conn)?;
+        let schedule: CronSchedule = conn.interact(move |conn| {
+            diesel::insert_into(cron_schedules::table)
+                .values(&new_schedule)
+                .get_result(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(schedule)
     }
@@ -77,7 +78,9 @@ impl<'a> CronScheduleDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        let schedule = cron_schedules::table.find(uuid_id).first(&mut **conn)?;
+        let schedule = conn.interact(move |conn| {
+            cron_schedules::table.find(uuid_id).first(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
         Ok(schedule)
     }
 
@@ -101,21 +104,23 @@ impl<'a> CronScheduleDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let now_ts = UniversalTimestamp(now);
 
-        let schedules = cron_schedules::table
-            .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
-            .filter(cron_schedules::next_run_at.le(now_ts))
-            .filter(
-                cron_schedules::start_date
-                    .is_null()
-                    .or(cron_schedules::start_date.le(now_ts)),
-            )
-            .filter(
-                cron_schedules::end_date
-                    .is_null()
-                    .or(cron_schedules::end_date.ge(now_ts)),
-            )
-            .order(cron_schedules::next_run_at.asc())
-            .load(&mut **conn)?;
+        let schedules = conn.interact(move |conn| {
+            cron_schedules::table
+                .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
+                .filter(cron_schedules::next_run_at.le(now_ts))
+                .filter(
+                    cron_schedules::start_date
+                        .is_null()
+                        .or(cron_schedules::start_date.le(now_ts)),
+                )
+                .filter(
+                    cron_schedules::end_date
+                        .is_null()
+                        .or(cron_schedules::end_date.ge(now_ts)),
+                )
+                .order(cron_schedules::next_run_at.asc())
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(schedules)
     }
@@ -143,13 +148,15 @@ impl<'a> CronScheduleDAL<'a> {
         let next_run_ts = UniversalTimestamp(next_run);
         let now_ts = UniversalTimestamp::now();
 
-        diesel::update(cron_schedules::table.find(uuid_id))
-            .set((
-                cron_schedules::last_run_at.eq(Some(last_run_ts)),
-                cron_schedules::next_run_at.eq(next_run_ts),
-                cron_schedules::updated_at.eq(now_ts),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(cron_schedules::table.find(uuid_id))
+                .set((
+                    cron_schedules::last_run_at.eq(Some(last_run_ts)),
+                    cron_schedules::next_run_at.eq(next_run_ts),
+                    cron_schedules::updated_at.eq(now_ts),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -166,12 +173,14 @@ impl<'a> CronScheduleDAL<'a> {
         let uuid_id: Uuid = id.into();
         let now_ts = UniversalTimestamp::now();
 
-        diesel::update(cron_schedules::table.find(uuid_id))
-            .set((
-                cron_schedules::enabled.eq(UniversalBool::new(true)),
-                cron_schedules::updated_at.eq(now_ts),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(cron_schedules::table.find(uuid_id))
+                .set((
+                    cron_schedules::enabled.eq(UniversalBool::new(true)),
+                    cron_schedules::updated_at.eq(now_ts),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -188,12 +197,14 @@ impl<'a> CronScheduleDAL<'a> {
         let uuid_id: Uuid = id.into();
         let now_ts = UniversalTimestamp::now();
 
-        diesel::update(cron_schedules::table.find(uuid_id))
-            .set((
-                cron_schedules::enabled.eq(UniversalBool::new(false)),
-                cron_schedules::updated_at.eq(now_ts),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(cron_schedules::table.find(uuid_id))
+                .set((
+                    cron_schedules::enabled.eq(UniversalBool::new(false)),
+                    cron_schedules::updated_at.eq(now_ts),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -209,7 +220,9 @@ impl<'a> CronScheduleDAL<'a> {
         let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        diesel::delete(cron_schedules::table.find(uuid_id)).execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::delete(cron_schedules::table.find(uuid_id)).execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
         Ok(())
     }
 
@@ -230,17 +243,19 @@ impl<'a> CronScheduleDAL<'a> {
     ) -> Result<Vec<CronSchedule>, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let mut query = cron_schedules::table.into_boxed();
+        let schedules = conn.interact(move |conn| {
+            let mut query = cron_schedules::table.into_boxed();
 
-        if enabled_only {
-            query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
-        }
+            if enabled_only {
+                query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
+            }
 
-        let schedules = query
-            .order(cron_schedules::workflow_name.asc())
-            .limit(limit)
-            .offset(offset)
-            .load(&mut **conn)?;
+            query
+                .order(cron_schedules::workflow_name.asc())
+                .limit(limit)
+                .offset(offset)
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(schedules)
     }
@@ -257,11 +272,14 @@ impl<'a> CronScheduleDAL<'a> {
         workflow_name: &str,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
+        let workflow_name = workflow_name.to_string();
 
-        let schedules = cron_schedules::table
-            .filter(cron_schedules::workflow_name.eq(workflow_name))
-            .order(cron_schedules::created_at.desc())
-            .load(&mut **conn)?;
+        let schedules = conn.interact(move |conn| {
+            cron_schedules::table
+                .filter(cron_schedules::workflow_name.eq(workflow_name))
+                .order(cron_schedules::created_at.desc())
+                .load(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(schedules)
     }
@@ -286,12 +304,14 @@ impl<'a> CronScheduleDAL<'a> {
         let next_run_ts = UniversalTimestamp(next_run);
         let now_ts = UniversalTimestamp::now();
 
-        diesel::update(cron_schedules::table.find(uuid_id))
-            .set((
-                cron_schedules::next_run_at.eq(next_run_ts),
-                cron_schedules::updated_at.eq(now_ts),
-            ))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(cron_schedules::table.find(uuid_id))
+                .set((
+                    cron_schedules::next_run_at.eq(next_run_ts),
+                    cron_schedules::updated_at.eq(now_ts),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -338,15 +358,17 @@ impl<'a> CronScheduleDAL<'a> {
         let now_ts = UniversalTimestamp::now();
 
         // Atomic update: only update if schedule is still due and enabled
-        let updated_rows = diesel::update(cron_schedules::table.find(uuid_id))
-            .filter(cron_schedules::next_run_at.le(current_ts))
-            .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
-            .set((
-                cron_schedules::last_run_at.eq(Some(last_run_ts)),
-                cron_schedules::next_run_at.eq(next_run_ts),
-                cron_schedules::updated_at.eq(now_ts),
-            ))
-            .execute(&mut **conn)?;
+        let updated_rows = conn.interact(move |conn| {
+            diesel::update(cron_schedules::table.find(uuid_id))
+                .filter(cron_schedules::next_run_at.le(current_ts))
+                .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
+                .set((
+                    cron_schedules::last_run_at.eq(Some(last_run_ts)),
+                    cron_schedules::next_run_at.eq(next_run_ts),
+                    cron_schedules::updated_at.eq(now_ts),
+                ))
+                .execute(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Return true if exactly one row was updated (successful claim)
         Ok(updated_rows == 1)
@@ -362,13 +384,15 @@ impl<'a> CronScheduleDAL<'a> {
     pub async fn count(&self, enabled_only: bool) -> Result<i64, ValidationError> {
         let mut conn = self.dal.pool.get().await?;
 
-        let mut query = cron_schedules::table.into_boxed();
+        let count = conn.interact(move |conn| {
+            let mut query = cron_schedules::table.into_boxed();
 
-        if enabled_only {
-            query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
-        }
+            if enabled_only {
+                query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
+            }
 
-        let count = query.count().first(&mut **conn)?;
+            query.count().first(conn)
+        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
         Ok(count)
     }
 }

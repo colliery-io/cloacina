@@ -90,7 +90,7 @@ impl DependencyLoader {
     ///
     /// # Returns
     /// * `Result<Option<serde_json::Value>, ExecutorError>` - The found value or None if not found
-    pub fn load_from_dependencies(
+    pub async fn load_from_dependencies(
         &self,
         key: &str,
     ) -> Result<Option<serde_json::Value>, ExecutorError> {
@@ -110,7 +110,7 @@ impl DependencyLoader {
             {
                 let mut cache = self.loaded_contexts.write().unwrap();
                 if !cache.contains_key(dep_task_name) {
-                    let dep_context_data = self.load_dependency_context_data(dep_task_name)?;
+                    let dep_context_data = self.load_dependency_context_data(dep_task_name).await?;
                     cache.insert(dep_task_name.clone(), dep_context_data);
                 }
 
@@ -133,17 +133,18 @@ impl DependencyLoader {
     ///
     /// # Returns
     /// * `Result<HashMap<String, serde_json::Value>, ExecutorError>` - The loaded context data
-    fn load_dependency_context_data(
+    async fn load_dependency_context_data(
         &self,
         task_name: &str,
     ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
         let dal = DAL::new(self.database.pool());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)?;
+            .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)
+            .await?;
 
         if let Some(context_id) = task_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id)?;
+            let context = dal.context().read::<serde_json::Value>(context_id).await?;
             Ok(context.data().clone())
         } else {
             // Task has no output context

@@ -48,7 +48,6 @@ use crate::database::universal_types::UniversalUuid;
 use crate::error::ContextError;
 use crate::models::context::{DbContext, NewDbContext};
 use diesel::prelude::*;
-use std::ops::DerefMut;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -101,15 +100,17 @@ impl<'a> ContextDAL<'a> {
             return Ok(None);
         }
 
-        let conn = &mut self.dal.pool.get().await?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Create new database record
         let new_context = NewDbContext { value };
 
         // Insert and get the ID
-        let db_context: DbContext = diesel::insert_into(contexts::table)
-            .values(&new_context)
-            .get_result(&mut **conn)?;
+        let db_context: DbContext = conn.interact(move |conn| {
+            diesel::insert_into(contexts::table)
+                .values(&new_context)
+                .get_result(conn)
+        }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
         Ok(Some(db_context.id.into()))
     }
@@ -133,11 +134,13 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get().await?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Get the database record
         let uuid_id: Uuid = id.into();
-        let db_context: DbContext = contexts::table.find(uuid_id).first(&mut **conn)?;
+        let db_context: DbContext = conn.interact(move |conn| {
+            contexts::table.find(uuid_id).first(conn)
+        }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
         // Deserialize into application context
         Context::<T>::from_json(db_context.value)
@@ -163,16 +166,18 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get().await?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Serialize the context data
         let value = context.to_json()?;
 
         // Update the database record
         let uuid_id: Uuid = id.into();
-        diesel::update(contexts::table.find(uuid_id))
-            .set(contexts::value.eq(value))
-            .execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::update(contexts::table.find(uuid_id))
+                .set(contexts::value.eq(value))
+                .execute(conn)
+        }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -189,9 +194,11 @@ impl<'a> ContextDAL<'a> {
     ///
     /// * `Result<(), ContextError>` - Success or error
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        let conn = &mut self.dal.pool.get().await?;
+        let mut conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
-        diesel::delete(contexts::table.find(uuid_id)).execute(&mut **conn)?;
+        conn.interact(move |conn| {
+            diesel::delete(contexts::table.find(uuid_id)).execute(conn)
+        }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
         Ok(())
     }
 
@@ -216,14 +223,16 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug,
     {
-        let conn = &mut self.dal.pool.get().await?;
+        let mut conn = self.dal.pool.get().await?;
 
         // Get the database records with pagination
-        let db_contexts: Vec<DbContext> = contexts::table
-            .limit(limit)
-            .offset(offset)
-            .order(contexts::created_at.desc())
-            .load(&mut **conn)?;
+        let db_contexts: Vec<DbContext> = conn.interact(move |conn| {
+            contexts::table
+                .limit(limit)
+                .offset(offset)
+                .order(contexts::created_at.desc())
+                .load(conn)
+        }).await.map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
         // Convert to application contexts
         let mut contexts = Vec::new();

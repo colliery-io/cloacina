@@ -79,6 +79,7 @@ async fn test_always_trigger_rule() {
     let _tasks = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get tasks");
 
     // Since we have an empty workflow, there should be no tasks
@@ -86,6 +87,7 @@ async fn test_always_trigger_rule() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline");
 
     assert_eq!(pipeline.status, "Pending");
