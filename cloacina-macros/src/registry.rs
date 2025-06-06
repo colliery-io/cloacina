@@ -74,28 +74,16 @@ impl CompileTimeTaskRegistry {
     /// # Returns
     /// * `Ok(())` if registration was successful
     /// * `Err(CompileTimeError::DuplicateTaskId)` if the task ID is already registered
-    ///   (except in test environments)
     pub fn register_task(&mut self, task_info: TaskInfo) -> Result<(), CompileTimeError> {
         let task_id = &task_info.id;
 
-        // In test mode, allow duplicate task IDs (tests often define same IDs in different modules)
-        let is_test_env = std::env::var("CARGO_CRATE_NAME")
-            .map(|name| name.contains("test") || name == "cloacina")
-            .unwrap_or(false)
-            || std::env::var("CARGO_PKG_NAME")
-                .map(|name| name.contains("test") || name == "cloacina")
-                .unwrap_or(false);
-
-        // Check for duplicate task IDs (but allow in test environments)
+        // Check for duplicate task IDs
         if let Some(existing) = self.tasks.get(task_id) {
-            if !is_test_env {
-                return Err(CompileTimeError::DuplicateTaskId {
-                    task_id: task_id.clone(),
-                    existing_location: existing.file_path.clone(),
-                    duplicate_location: task_info.file_path.clone(),
-                });
-            }
-            // In test mode, just overwrite the existing task
+            return Err(CompileTimeError::DuplicateTaskId {
+                task_id: task_id.clone(),
+                existing_location: existing.file_path.clone(),
+                duplicate_location: task_info.file_path.clone(),
+            });
         }
 
         // Add to dependency graph

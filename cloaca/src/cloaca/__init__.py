@@ -96,55 +96,11 @@ try:
         DefaultRunnerConfig = _backend_module.DefaultRunnerConfig
     if hasattr(_backend_module, "task"):
         task = _backend_module.task
-    if hasattr(_backend_module, "WorkflowBuilder"):
-        WorkflowBuilder = _backend_module.WorkflowBuilder
-    if hasattr(_backend_module, "Workflow"):
-        Workflow = _backend_module.Workflow
-    if hasattr(_backend_module, "register_workflow_constructor"):
-        register_workflow_constructor = _backend_module.register_workflow_constructor
     if hasattr(_backend_module, "DefaultRunner"):
         DefaultRunner = _backend_module.DefaultRunner
     if hasattr(_backend_module, "PipelineResult"):
         PipelineResult = _backend_module.PipelineResult
 
-    # Add the workflow decorator
-    def workflow(name: str, description: str = None):
-        """
-        Decorator for creating and automatically registering workflows.
-        
-        Args:
-            name: Unique name for the workflow
-            description: Optional description of the workflow
-            
-        Example:
-            @workflow("my_pipeline", "Data processing pipeline")
-            def create_my_pipeline():
-                builder = WorkflowBuilder("my_pipeline")
-                if description:
-                    builder.description(description)
-                builder.add_task("task1")
-                builder.add_task("task2") 
-                return builder.build()
-        """
-        def decorator(func):
-            def wrapper():
-                # Create the workflow using the decorated function
-                workflow_instance = func()
-                
-                # Ensure the workflow has the correct name and description
-                if hasattr(workflow_instance, 'name') and workflow_instance.name != name:
-                    raise ValueError(f"Workflow function returned workflow with name '{workflow_instance.name}' but decorator specified '{name}'")
-                
-                return workflow_instance
-            
-            # Auto-register the workflow constructor
-            if hasattr(_backend_module, "register_workflow_constructor"):
-                register_workflow_constructor(name, wrapper)
-            
-            # Return the original function (not the wrapper) so it can still be called directly
-            return func
-        
-        return decorator
 
 except ImportError as import_error:
     # If no backend is available, provide helpful error message
@@ -156,9 +112,8 @@ except ImportError as import_error:
     # Create placeholder symbols that raise helpful errors
     hello_world = _raise_no_backend
     get_backend = _raise_no_backend
-    workflow = _raise_no_backend
 
-    __all__ = ["hello_world", "get_backend", "workflow"]
+    __all__ = ["hello_world", "get_backend"]
 
 
 def get_version() -> str:

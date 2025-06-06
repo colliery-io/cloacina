@@ -653,24 +653,71 @@ def test(backend=None, filter=None):
             # Step 3: Build and install cloaca backend in test environment
             venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
             
-            # Step 4: Run tests
-            print("Step 4: Running tests...")
+            # Step 4: Run tests with file-level isolation
+            print("Step 4: Running tests with file-level isolation...")
             
-            # Use pytest from the virtual environment that has the compiled backend installed
-            pytest_exe = venv.path / "bin" / "pytest"
-            cmd = [str(pytest_exe), "--timeout=10", str(project_root / "python-tests"), "-v"]
+            # Discover all test files
+            test_dir = project_root / "python-tests"
+            test_files = list(test_dir.glob("test_*.py"))
+            
             if filter:
-                cmd.extend(["-k", filter])
+                test_files = [f for f in test_files if filter in f.name]
             
-            # Set environment variable for backend detection
+            print(f"Found {len(test_files)} test files to run")
+            
+            file_results = []
+            pytest_exe = venv.path / "bin" / "pytest"
             env = os.environ.copy()
             
-            try:
-                subprocess.run(cmd, env=env, check=True)
-                print(f"\n✓ {backend_name.title()} tests passed")
-            except subprocess.CalledProcessError as e:
-                print(f"\n✗ {backend_name.title()} tests failed: {e}")
-                all_passed = False
+            for test_file in test_files:
+                print(f"\n--- Running {test_file.name} in isolation ---")
+                
+                # Clean state between test files
+                if backend_name == "postgres":
+                    print("Restarting Docker services...")
+                    docker_down(remove_volumes=True)
+                    exit_code = docker_up()
+                    if exit_code != 0:
+                        print(f"✗ Failed to restart Docker for {test_file.name}")
+                        file_results.append((test_file.name, False))
+                        all_passed = False
+                        continue
+                    print("Waiting for postgres to be ready...")
+                    time.sleep(10)
+                
+                if backend_name == "sqlite":
+                    print("Cleaning SQLite database files...")
+                    for db_file in project_root.glob("*.db*"):
+                        try:
+                            db_file.unlink()
+                            print(f"  Removed {db_file.name}")
+                        except FileNotFoundError:
+                            pass
+                
+                # Run single test file
+                cmd = [str(pytest_exe), "--timeout=10", str(test_file), "-v"]
+                if filter:
+                    cmd.extend(["-k", filter])
+                
+                try:
+                    subprocess.run(cmd, env=env, check=True)
+                    print(f"✓ {test_file.name} PASSED")
+                    file_results.append((test_file.name, True))
+                except subprocess.CalledProcessError:
+                    print(f"✗ {test_file.name} FAILED")
+                    file_results.append((test_file.name, False))
+                    all_passed = False
+            
+            # Report results for this backend
+            passed = [name for name, success in file_results if success]
+            failed = [name for name, success in file_results if not success]
+            print(f"\n{backend_name.title()} Results:")
+            print(f"  Passed: {len(passed)} files")
+            print(f"  Failed: {len(failed)} files")
+            if failed:
+                print(f"  Failed files: {failed}")
+            if passed:
+                print(f"  Passed files: {passed}")
 
         except subprocess.CalledProcessError as e:
             print(f"✗ Test setup failed for {backend_name}: {e}")
