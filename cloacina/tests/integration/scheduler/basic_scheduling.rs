@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use cloacina::task_scheduler::TaskScheduler;
 use cloacina::*;
 use serial_test::serial;
+use std::sync::Arc;
 use uuid::Uuid;
 
 // Simple mock task for testing
@@ -59,7 +60,7 @@ async fn test_schedule_workflow_execution() {
     };
     let workflow = Workflow::builder("test-workflow")
         .description("Test workflow for scheduling")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");
@@ -128,7 +129,7 @@ async fn test_workflow_version_tracking() {
     };
     let workflow = Workflow::builder("versioned-workflow")
         .description("Workflow with version tracking")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");

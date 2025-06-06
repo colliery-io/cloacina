@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use cloacina::task_scheduler::TaskScheduler;
 use cloacina::*;
 use serial_test::serial;
+use std::sync::Arc;
 
 // Mock task for testing dependencies
 #[derive(Clone)]
@@ -67,9 +68,9 @@ async fn test_task_dependency_initialization() {
 
     let workflow = Workflow::builder("dependency-test")
         .description("Test workflow with dependencies")
-        .add_task(task1)
+        .add_task(Arc::new(task1))
         .expect("Failed to add task1")
-        .add_task(task2)
+        .add_task(Arc::new(task2))
         .expect("Failed to add task2")
         .build()
         .expect("Failed to build workflow");
@@ -126,9 +127,9 @@ async fn test_dependency_satisfaction_check() {
 
     let workflow = Workflow::builder("dependency-chain")
         .description("Test dependency satisfaction")
-        .add_task(task1)
+        .add_task(Arc::new(task1))
         .expect("Failed to add task1")
-        .add_task(task2)
+        .add_task(Arc::new(task2))
         .expect("Failed to add task2")
         .build()
         .expect("Failed to build workflow");

@@ -999,7 +999,7 @@ fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
                 #description_field
 
                 #(
-                    workflow.add_task(#task_constructors).expect("Failed to add task to workflow");
+                    workflow.add_task(std::sync::Arc::new(#task_constructors)).expect("Failed to add task to workflow");
                 )*
 
                 workflow.validate().expect("Workflow validation failed");
