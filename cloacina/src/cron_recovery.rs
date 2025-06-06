@@ -226,7 +226,12 @@ impl CronRecoveryService {
         );
 
         // Get the schedule to check if it's still active
-        let schedule = match self.dal.cron_schedule().get_by_id(execution.schedule_id).await {
+        let schedule = match self
+            .dal
+            .cron_schedule()
+            .get_by_id(execution.schedule_id)
+            .await
+        {
             Ok(sched) => sched,
             Err(e) => {
                 warn!(
@@ -310,10 +315,15 @@ impl CronRecoveryService {
         {
             Ok(pipeline_result) => {
                 // Update the audit record with the new pipeline execution ID
-                if let Err(e) = self.dal.cron_execution().update_pipeline_execution_id(
-                    execution.id,
-                    crate::database::UniversalUuid(pipeline_result.execution_id),
-                ).await {
+                if let Err(e) = self
+                    .dal
+                    .cron_execution()
+                    .update_pipeline_execution_id(
+                        execution.id,
+                        crate::database::UniversalUuid(pipeline_result.execution_id),
+                    )
+                    .await
+                {
                     error!(
                         "Failed to update audit record for recovered execution {}: {}",
                         execution.id, e

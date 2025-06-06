@@ -85,7 +85,6 @@ pub type DbPool = Pool;
 #[cfg(feature = "sqlite")]
 pub type DbPool = Pool;
 
-
 /// Represents a pool of database connections.
 ///
 /// This struct provides a thread-safe wrapper around a connection pool,
@@ -217,24 +216,29 @@ impl Database {
 
         let schema_name = schema.to_string();
         let schema_name_clone = schema_name.clone();
-        
+
         // Create schema if it doesn't exist
         conn.interact(move |conn| {
             let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
             diesel::sql_query(&create_schema_sql).execute(conn)
-        }).await.map_err(|e| format!("Failed to create schema: {}", e))?
-          .map_err(|e| format!("Failed to create schema: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("Failed to create schema: {}", e))?
+        .map_err(|e| format!("Failed to create schema: {}", e))?;
 
         // Set search path for migrations
         conn.interact(move |conn| {
             let set_search_path_sql = format!("SET search_path TO {}, public", schema_name_clone);
             diesel::sql_query(&set_search_path_sql).execute(conn)
-        }).await.map_err(|e| format!("Failed to set search path: {}", e))?
-          .map_err(|e| format!("Failed to set search path: {}", e))?;
+        })
+        .await
+        .map_err(|e| format!("Failed to set search path: {}", e))?
+        .map_err(|e| format!("Failed to set search path: {}", e))?;
 
         // Run migrations in the schema
         conn.interact(|conn| crate::database::run_migrations(conn))
-            .await.map_err(|e| format!("Failed to run migrations in schema: {}", e))?
+            .await
+            .map_err(|e| format!("Failed to run migrations in schema: {}", e))?
             .map_err(|e| format!("Failed to run migrations in schema: {}", e))?;
 
         info!("Schema '{}' set up successfully", schema);

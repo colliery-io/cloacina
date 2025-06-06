@@ -307,7 +307,10 @@ impl CronScheduler {
         // Execute all scheduled times using guaranteed execution pattern
         for scheduled_time in execution_times {
             // Step 1: Create audit record BEFORE handoff (guaranteed execution)
-            let audit_record_id = match self.create_execution_audit(schedule.id, scheduled_time).await {
+            let audit_record_id = match self
+                .create_execution_audit(schedule.id, scheduled_time)
+                .await
+            {
                 Ok(id) => id,
                 Err(e) => {
                     error!(
@@ -323,8 +326,9 @@ impl CronScheduler {
             match self.execute_workflow(schedule, scheduled_time).await {
                 Ok(pipeline_execution_id) => {
                     // Step 3: Complete audit trail linking
-                    if let Err(e) =
-                        self.complete_execution_audit(audit_record_id, pipeline_execution_id).await
+                    if let Err(e) = self
+                        .complete_execution_audit(audit_record_id, pipeline_execution_id)
+                        .await
                     {
                         error!(
                             "Failed to complete audit trail for schedule {} execution: {}",
@@ -555,7 +559,8 @@ impl CronScheduler {
     ) -> Result<(), ValidationError> {
         self.dal
             .cron_execution()
-            .update_pipeline_execution_id(audit_record_id, pipeline_execution_id).await?;
+            .update_pipeline_execution_id(audit_record_id, pipeline_execution_id)
+            .await?;
 
         debug!(
             "Completed execution audit record {} -> pipeline {}",

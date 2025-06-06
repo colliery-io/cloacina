@@ -183,7 +183,9 @@ impl DAL {
     {
         use diesel::connection::Connection;
         let conn = self.pool.get().await?;
-        conn.interact(move |conn| conn.transaction(f)).await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
+        conn.interact(move |conn| conn.transaction(f))
+            .await
+            .map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 
     /// Returns a ContextDAL instance for context-related database operations.

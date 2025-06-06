@@ -129,10 +129,11 @@ impl TestFixture {
         #[cfg(feature = "postgres")]
         {
             use diesel::Connection;
-            
+
             // Connect to the 'postgres' database to perform admin operations
-            let mut admin_conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/postgres")
-                .expect("Failed to connect to postgres database for admin operations");
+            let mut admin_conn =
+                PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/postgres")
+                    .expect("Failed to connect to postgres database for admin operations");
 
             // Terminate existing connections to 'cloacina'
             diesel::sql_query(
@@ -152,12 +153,12 @@ impl TestFixture {
 
             // Create new connections
             let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-            let mut conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
-                .expect("Failed to connect to PostgreSQL database");
+            let mut conn =
+                PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+                    .expect("Failed to connect to PostgreSQL database");
 
             // Run migrations
-            cloacina::database::run_migrations(&mut conn)
-                .expect("Failed to run migrations");
+            cloacina::database::run_migrations(&mut conn).expect("Failed to run migrations");
 
             // Update the fixture's connections
             self.db = db;
@@ -167,8 +168,7 @@ impl TestFixture {
         #[cfg(feature = "sqlite")]
         {
             // For SQLite, we just need to run migrations
-            cloacina::database::run_migrations(&mut self.conn)
-                .expect("Failed to run migrations");
+            cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
         }
     }
 }
@@ -254,4 +254,3 @@ pub mod fixtures {
         );
     }
 }
-

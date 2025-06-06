@@ -56,12 +56,16 @@ impl DAL {
     /// Executes a closure within a database transaction.
     pub async fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
     where
-        F: FnOnce(&mut SqliteConnection) -> Result<T, crate::error::ValidationError> + Send + 'static,
+        F: FnOnce(&mut SqliteConnection) -> Result<T, crate::error::ValidationError>
+            + Send
+            + 'static,
         T: Send + 'static,
     {
         use diesel::connection::Connection;
         let conn = self.pool.get().await?;
-        conn.interact(move |conn| conn.transaction(f)).await.map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
+        conn.interact(move |conn| conn.transaction(f))
+            .await
+            .map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 
     /// Returns a ContextDAL instance for context-related database operations.

@@ -288,7 +288,11 @@ async fn test_context_merging_latest_wins() {
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = merger_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -411,7 +415,11 @@ async fn test_execution_scope_context_setup() {
 
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = task_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()

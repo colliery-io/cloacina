@@ -1073,11 +1073,13 @@ impl PipelineExecutor for DefaultRunner {
     async fn list_executions(&self) -> Result<Vec<PipelineResult>, PipelineError> {
         let dal = DAL::new(self.database.pool());
 
-        let executions = dal.pipeline_execution().list_recent(100).await.map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let executions = dal
+            .pipeline_execution()
+            .list_recent(100)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to list executions: {}", e),
-            }
-        })?;
+            })?;
 
         let mut results = Vec::new();
         for execution in executions {
@@ -1172,11 +1174,13 @@ impl DefaultRunner {
             next_run_at: UniversalTimestamp(next_run),
         };
 
-        let schedule = dal.cron_schedule().create(new_schedule).await.map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let schedule = dal
+            .cron_schedule()
+            .create(new_schedule)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to create cron schedule: {}", e),
-            }
-        })?;
+            })?;
 
         Ok(schedule.id)
     }
@@ -1326,11 +1330,13 @@ impl DefaultRunner {
         }
 
         // Get current schedule
-        let mut schedule = dal.cron_schedule().get_by_id(schedule_id).await.map_err(|e| {
-            PipelineError::ExecutionFailed {
+        let mut schedule = dal
+            .cron_schedule()
+            .get_by_id(schedule_id)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to get cron schedule: {}", e),
-            }
-        })?;
+            })?;
 
         // Update fields if provided
         if let Some(expr) = cron_expression {

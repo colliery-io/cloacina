@@ -125,7 +125,10 @@ impl DependencyConsumerTask {
 impl Task for DependencyConsumerTask {
     async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
         // Try to load dependency value using lazy loading
-        match context.load_from_dependencies_and_cache(&self.dependency_key).await {
+        match context
+            .load_from_dependencies_and_cache(&self.dependency_key)
+            .await
+        {
             Ok(Some(value)) => {
                 // Add a derived value to show dependency was loaded
                 context
@@ -168,10 +171,10 @@ impl Task for DependencyConsumerTask {
 async fn test_task_executor_basic_execution() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    
+
     // Reset the database to ensure a clean state
     fixture.reset_database().await;
-    
+
     let database = fixture.get_database();
 
     // Create task registry
@@ -310,7 +313,11 @@ async fn test_task_executor_dependency_loading() {
     // Verify the consumer processed the dependency data
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = consumer_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -509,7 +516,11 @@ async fn test_pipeline_engine_unified_mode() {
     match task_metadata {
         Ok(metadata) => {
             if let Some(context_id) = metadata.context_id {
-                let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+                let context = dal
+                    .context()
+                    .read::<serde_json::Value>(context_id)
+                    .await
+                    .unwrap();
                 let context_data = context.data();
                 assert!(
                     context_data.contains_key("result"),
@@ -644,7 +655,11 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .unwrap();
 
     if let Some(context_id) = task_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+        let context = dal
+            .context()
+            .read::<serde_json::Value>(context_id)
+            .await
+            .unwrap();
         let context_data = context.data();
 
         assert!(
@@ -844,7 +859,11 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .unwrap();
 
     if let Some(context_id) = consumer_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).await.unwrap();
+        let context = dal
+            .context()
+            .read::<serde_json::Value>(context_id)
+            .await
+            .unwrap();
         let context_data = context.data();
 
         assert!(

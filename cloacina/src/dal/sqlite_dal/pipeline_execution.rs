@@ -64,12 +64,15 @@ impl<'a> PipelineExecutionDAL<'a> {
                     pipeline_executions::updated_at.eq(&now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Retrieve the inserted record
-        let execution = conn.interact(move |conn| {
-            pipeline_executions::table.find(id).first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution = conn
+            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -84,9 +87,10 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let execution = conn.interact(move |conn| {
-            pipeline_executions::table.find(id).first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution = conn
+            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -98,11 +102,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let executions = conn.interact(move |conn| {
-            pipeline_executions::table
-                .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let executions = conn
+            .interact(move |conn| {
+                pipeline_executions::table
+                    .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }
@@ -115,7 +122,11 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub async fn update_status(&self, id: UniversalUuid, status: &str) -> Result<(), ValidationError> {
+    pub async fn update_status(
+        &self,
+        id: UniversalUuid,
+        status: &str,
+    ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
         let status = status.to_string();
 
@@ -123,7 +134,9 @@ impl<'a> PipelineExecutionDAL<'a> {
             diesel::update(pipeline_executions::table.find(id))
                 .set(pipeline_executions::status.eq(status))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -146,7 +159,9 @@ impl<'a> PipelineExecutionDAL<'a> {
                     pipeline_executions::completed_at.eq(Some(now)),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -158,18 +173,24 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<Option<String>, ValidationError>` - The most recent version string or None if no executions exist
-    pub async fn get_last_version(&self, pipeline_name: &str) -> Result<Option<String>, ValidationError> {
+    pub async fn get_last_version(
+        &self,
+        pipeline_name: &str,
+    ) -> Result<Option<String>, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let pipeline_name = pipeline_name.to_string();
 
-        let version: Option<String> = conn.interact(move |conn| {
-            pipeline_executions::table
-                .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
-                .order(pipeline_executions::started_at.desc())
-                .select(pipeline_executions::pipeline_version)
-                .first(conn)
-                .optional()
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let version: Option<String> = conn
+            .interact(move |conn| {
+                pipeline_executions::table
+                    .filter(pipeline_executions::pipeline_name.eq(pipeline_name))
+                    .order(pipeline_executions::started_at.desc())
+                    .select(pipeline_executions::pipeline_version)
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(version)
     }
@@ -182,7 +203,11 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub async fn mark_failed(&self, id: UniversalUuid, reason: &str) -> Result<(), ValidationError> {
+    pub async fn mark_failed(
+        &self,
+        id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
         let reason = reason.to_string();
 
@@ -196,7 +221,9 @@ impl<'a> PipelineExecutionDAL<'a> {
                     pipeline_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -209,7 +236,10 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
-    pub async fn increment_recovery_attempts(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+    pub async fn increment_recovery_attempts(
+        &self,
+        id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
 
         let now = current_timestamp();
@@ -222,7 +252,9 @@ impl<'a> PipelineExecutionDAL<'a> {
                     pipeline_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -246,7 +278,9 @@ impl<'a> PipelineExecutionDAL<'a> {
                     pipeline_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -261,12 +295,15 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let executions = conn.interact(move |conn| {
-            pipeline_executions::table
-                .order(pipeline_executions::started_at.desc())
-                .limit(limit)
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let executions = conn
+            .interact(move |conn| {
+                pipeline_executions::table
+                    .order(pipeline_executions::started_at.desc())
+                    .limit(limit)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }

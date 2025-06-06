@@ -24,7 +24,6 @@ use serial_test::serial;
 use std::time::Duration;
 use tokio::time::sleep;
 
-
 #[tokio::test]
 #[serial]
 async fn test_cron_evaluator_basic() {
@@ -70,7 +69,7 @@ async fn test_default_runner_cron_integration() {
     // Get test fixture and initialize it
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    
+
     // Reset the database to ensure a clean state
     fixture.reset_database().await;
     fixture.initialize().await;

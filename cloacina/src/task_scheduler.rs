@@ -581,13 +581,16 @@ impl TaskScheduler {
                 task.task_name, pipeline.pipeline_name
             );
 
-            self.dal.task_execution().mark_abandoned(
-                task.id,
-                &format!(
-                    "Workflow '{}' no longer available in registry",
-                    pipeline.pipeline_name
-                ),
-            ).await?;
+            self.dal
+                .task_execution()
+                .mark_abandoned(
+                    task.id,
+                    &format!(
+                        "Workflow '{}' no longer available in registry",
+                        pipeline.pipeline_name
+                    ),
+                )
+                .await?;
 
             // Record abandonment event with clear reason
             self.record_recovery_event(NewRecoveryEvent {
@@ -604,17 +607,21 @@ impl TaskScheduler {
                     })
                     .to_string(),
                 ),
-            }).await?;
+            })
+            .await?;
         }
 
         // Mark pipeline as failed
-        self.dal.pipeline_execution().mark_failed(
-            pipeline.id,
-            &format!(
-                "Workflow '{}' no longer available - abandoned during recovery",
-                pipeline.pipeline_name
-            ),
-        ).await?;
+        self.dal
+            .pipeline_execution()
+            .mark_failed(
+                pipeline.id,
+                &format!(
+                    "Workflow '{}' no longer available - abandoned during recovery",
+                    pipeline.pipeline_name
+                ),
+            )
+            .await?;
 
         // Record pipeline-level recovery event
         self.record_recovery_event(NewRecoveryEvent {
@@ -631,7 +638,8 @@ impl TaskScheduler {
                 })
                 .to_string(),
             ),
-        }).await?;
+        })
+        .await?;
 
         info!(
             "Abandoned {} tasks from unknown workflow '{}'",
@@ -644,7 +652,11 @@ impl TaskScheduler {
 
     /// Processes all active pipeline executions to update task readiness.
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
-        let active_executions = self.dal.pipeline_execution().get_active_executions().await?;
+        let active_executions = self
+            .dal
+            .pipeline_execution()
+            .get_active_executions()
+            .await?;
 
         if active_executions.is_empty() {
             return Ok(());
@@ -726,7 +738,10 @@ impl TaskScheduler {
                 let failed_count = all_tasks.iter().filter(|t| t.status == "Failed").count();
                 let skipped_count = all_tasks.iter().filter(|t| t.status == "Skipped").count();
 
-                self.dal.pipeline_execution().mark_completed(execution.id).await?;
+                self.dal
+                    .pipeline_execution()
+                    .mark_completed(execution.id)
+                    .await?;
                 info!(
                     "Pipeline completed: {} (name: {}, {} completed, {} failed, {} skipped)",
                     execution.id,
@@ -762,7 +777,10 @@ impl TaskScheduler {
                 let trigger_rules_satisfied = self.evaluate_trigger_rules(task_execution).await?;
 
                 if trigger_rules_satisfied {
-                    self.dal.task_execution().mark_ready(task_execution.id).await?;
+                    self.dal
+                        .task_execution()
+                        .mark_ready(task_execution.id)
+                        .await?;
                     info!("Task ready: {} (pipeline: {}, dependencies satisfied, trigger rules passed)",
                           task_execution.task_name, pipeline_execution_id);
                 } else {
@@ -1054,7 +1072,12 @@ impl TaskScheduler {
             {
                 Ok(task_metadata) => {
                     if let Some(context_id) = task_metadata.context_id {
-                        match self.dal.context().read::<serde_json::Value>(context_id).await {
+                        match self
+                            .dal
+                            .context()
+                            .read::<serde_json::Value>(context_id)
+                            .await
+                        {
                             Ok(context) => {
                                 debug!(
                                     "Context loaded: from dependency '{}' ({} keys)",
@@ -1098,8 +1121,11 @@ impl TaskScheduler {
                     .await
                 {
                     if let Some(context_id) = task_metadata.context_id {
-                        if let Ok(dep_context) =
-                            self.dal.context().read::<serde_json::Value>(context_id).await
+                        if let Ok(dep_context) = self
+                            .dal
+                            .context()
+                            .read::<serde_json::Value>(context_id)
+                            .await
                         {
                             sources.push(format!(
                                 "{}({})",
@@ -1341,7 +1367,10 @@ impl TaskScheduler {
         }
 
         // Reset task to "Ready" state for retry
-        self.dal.task_execution().reset_task_for_recovery(task.id).await?;
+        self.dal
+            .task_execution()
+            .reset_task_for_recovery(task.id)
+            .await?;
 
         // Record recovery event
         self.record_recovery_event(NewRecoveryEvent {
@@ -1357,7 +1386,8 @@ impl TaskScheduler {
                 })
                 .to_string(),
             ),
-        }).await?;
+        })
+        .await?;
 
         info!(
             "Recovered orphaned task: {} (attempt {})",
@@ -1384,10 +1414,13 @@ impl TaskScheduler {
             .await?;
 
         if pipeline_failed {
-            self.dal.pipeline_execution().mark_failed(
-                task.pipeline_execution_id,
-                "Task abandonment caused pipeline failure",
-            ).await?;
+            self.dal
+                .pipeline_execution()
+                .mark_failed(
+                    task.pipeline_execution_id,
+                    "Task abandonment caused pipeline failure",
+                )
+                .await?;
         }
 
         // Record abandonment event
@@ -1403,7 +1436,8 @@ impl TaskScheduler {
                 })
                 .to_string(),
             ),
-        }).await?;
+        })
+        .await?;
 
         error!(
             "Abandoned task permanently: {} after {} recovery attempts",

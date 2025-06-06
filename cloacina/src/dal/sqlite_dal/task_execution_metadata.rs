@@ -75,12 +75,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                     task_execution_metadata::updated_at.eq(&now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Retrieve the inserted record
-        let metadata = conn.interact(move |conn| {
-            task_execution_metadata::table.find(id).first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let metadata = conn
+            .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(metadata)
     }
@@ -101,12 +104,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let task_name = task_name.to_string();
 
-        let metadata = conn.interact(move |conn| {
-            task_execution_metadata::table
-                .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
-                .filter(task_execution_metadata::task_name.eq(task_name))
-                .first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let metadata = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::task_name.eq(task_name))
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(metadata)
     }
@@ -124,11 +130,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let metadata = conn.interact(move |conn| {
-            task_execution_metadata::table
-                .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
-                .first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let metadata = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(metadata)
     }
@@ -156,7 +165,9 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                     task_execution_metadata::updated_at.eq(current_timestamp()),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -179,12 +190,18 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         // SQLite doesn't support ON CONFLICT DO UPDATE with RETURNING
         // So we need to check if the record exists first
-        let existing = conn.interact(move |conn| {
-            task_execution_metadata::table
-                .filter(task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id))
-                .first::<TaskExecutionMetadata>(conn)
-                .optional()
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let existing = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .filter(
+                        task_execution_metadata::task_execution_id
+                            .eq(&new_metadata.task_execution_id),
+                    )
+                    .first::<TaskExecutionMetadata>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         match existing {
             Some(_) => {
@@ -200,18 +217,22 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                             task_execution_metadata::updated_at.eq(current_timestamp()),
                         ))
                         .execute(conn)
-                }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
                 // Retrieve the updated record
-                Ok(conn.interact(move |conn| {
-                    task_execution_metadata::table
-                        .filter(
-                            task_execution_metadata::task_execution_id
-                                .eq(&new_metadata.task_execution_id),
-                        )
-                        .first(conn)
-                }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
-                )
+                Ok(conn
+                    .interact(move |conn| {
+                        task_execution_metadata::table
+                            .filter(
+                                task_execution_metadata::task_execution_id
+                                    .eq(&new_metadata.task_execution_id),
+                            )
+                            .first(conn)
+                    })
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
             }
             None => {
                 // Create new record
@@ -232,13 +253,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                             task_execution_metadata::updated_at.eq(&now),
                         ))
                         .execute(conn)
-                }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
                 // Retrieve the inserted record
-                Ok(conn.interact(move |conn| {
-                    task_execution_metadata::table.find(id).first(conn)
-                }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
-                )
+                Ok(conn
+                    .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
             }
         }
     }
@@ -259,12 +282,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let dependency_task_names = dependency_task_names.to_vec();
 
-        let metadata = conn.interact(move |conn| {
-            task_execution_metadata::table
-                .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
-                .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let metadata = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(metadata)
     }
@@ -297,19 +323,23 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let dependency_task_names = dependency_task_names.to_vec();
 
-        let results = conn.interact(move |conn| {
-            task_execution_metadata::table
-                .left_join(
-                    contexts::table.on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
-                )
-                .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
-                .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
-                .select((
-                    task_execution_metadata::all_columns,
-                    contexts::value.nullable(),
-                ))
-                .load::<(TaskExecutionMetadata, Option<String>)>(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let results = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .left_join(
+                        contexts::table
+                            .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
+                    )
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
+                    .select((
+                        task_execution_metadata::all_columns,
+                        contexts::value.nullable(),
+                    ))
+                    .load::<(TaskExecutionMetadata, Option<String>)>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(results)
     }

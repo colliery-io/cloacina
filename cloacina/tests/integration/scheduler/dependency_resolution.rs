@@ -51,10 +51,10 @@ impl Task for MockTask {
 async fn test_task_dependency_initialization() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    
+
     // Reset the database to ensure a clean state
     fixture.reset_database().await;
-    
+
     let database = fixture.get_database();
 
     // Create tasks with dependencies: task2 depends on task1
@@ -114,10 +114,10 @@ async fn test_task_dependency_initialization() {
 async fn test_dependency_satisfaction_check() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    
+
     // Reset the database to ensure a clean state
     fixture.reset_database().await;
-    
+
     let database = fixture.get_database();
 
     // Create tasks with dependencies: task2 depends on task1

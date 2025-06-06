@@ -93,11 +93,14 @@ impl<'a> CronExecutionDAL<'a> {
         new_execution.created_at = None;
         new_execution.updated_at = None;
 
-        let execution: CronExecution = conn.interact(move |conn| {
-            diesel::insert_into(cron_executions::table)
-                .values(&new_execution)
-                .get_result(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution: CronExecution = conn
+            .interact(move |conn| {
+                diesel::insert_into(cron_executions::table)
+                    .values(&new_execution)
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -130,7 +133,9 @@ impl<'a> CronExecutionDAL<'a> {
                     cron_executions::updated_at.eq(now_ts),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
@@ -175,18 +180,21 @@ impl<'a> CronExecutionDAL<'a> {
 
         // Find cron executions that don't have corresponding pipeline executions
         // and were claimed before the cutoff time
-        let lost_executions = conn.interact(move |conn| {
-            cron_executions::table
-                .left_join(
-                    crate::database::schema::pipeline_executions::table
-                        .on(cron_executions::pipeline_execution_id
-                            .eq(crate::database::schema::pipeline_executions::id.nullable())),
-                )
-                .filter(crate::database::schema::pipeline_executions::id.is_null())
-                .filter(cron_executions::claimed_at.lt(cutoff_time))
-                .select(cron_executions::all_columns)
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let lost_executions = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .left_join(
+                        crate::database::schema::pipeline_executions::table
+                            .on(cron_executions::pipeline_execution_id
+                                .eq(crate::database::schema::pipeline_executions::id.nullable())),
+                    )
+                    .filter(crate::database::schema::pipeline_executions::id.is_null())
+                    .filter(cron_executions::claimed_at.lt(cutoff_time))
+                    .select(cron_executions::all_columns)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(lost_executions)
     }
@@ -202,9 +210,10 @@ impl<'a> CronExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = id.into();
 
-        let execution = conn.interact(move |conn| {
-            cron_executions::table.find(uuid_id).first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution = conn
+            .interact(move |conn| cron_executions::table.find(uuid_id).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
         Ok(execution)
     }
 
@@ -229,14 +238,17 @@ impl<'a> CronExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
-        let executions = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::schedule_id.eq(uuid_id))
-                .order(cron_executions::scheduled_time.desc())
-                .limit(limit)
-                .offset(offset)
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let executions = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .order(cron_executions::scheduled_time.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }
@@ -258,12 +270,15 @@ impl<'a> CronExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = pipeline_execution_id.into();
 
-        let execution = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::pipeline_execution_id.eq(uuid_id))
-                .first(conn)
-                .optional()
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::pipeline_execution_id.eq(uuid_id))
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -292,15 +307,18 @@ impl<'a> CronExecutionDAL<'a> {
         let start_ts = UniversalTimestamp(start_time);
         let end_ts = UniversalTimestamp(end_time);
 
-        let executions = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::scheduled_time.ge(start_ts))
-                .filter(cron_executions::scheduled_time.lt(end_ts))
-                .order(cron_executions::scheduled_time.desc())
-                .limit(limit)
-                .offset(offset)
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let executions = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::scheduled_time.ge(start_ts))
+                    .filter(cron_executions::scheduled_time.lt(end_ts))
+                    .order(cron_executions::scheduled_time.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions)
     }
@@ -312,16 +330,22 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<i64, ValidationError>` - Total count of executions
-    pub async fn count_by_schedule(&self, schedule_id: UniversalUuid) -> Result<i64, ValidationError> {
+    pub async fn count_by_schedule(
+        &self,
+        schedule_id: UniversalUuid,
+    ) -> Result<i64, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
-        let count = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::schedule_id.eq(uuid_id))
-                .count()
-                .first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .count()
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(count)
     }
@@ -346,13 +370,16 @@ impl<'a> CronExecutionDAL<'a> {
         let uuid_id: Uuid = schedule_id.into();
         let scheduled_ts = UniversalTimestamp(scheduled_time);
 
-        let count: i64 = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::schedule_id.eq(uuid_id))
-                .filter(cron_executions::scheduled_time.eq(scheduled_ts))
-                .count()
-                .first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let count: i64 = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .filter(cron_executions::scheduled_time.eq(scheduled_ts))
+                    .count()
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(count > 0)
     }
@@ -371,13 +398,16 @@ impl<'a> CronExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let uuid_id: Uuid = schedule_id.into();
 
-        let execution = conn.interact(move |conn| {
-            cron_executions::table
-                .filter(cron_executions::schedule_id.eq(uuid_id))
-                .order(cron_executions::scheduled_time.desc())
-                .first(conn)
-                .optional()
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let execution = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .order(cron_executions::scheduled_time.desc())
+                    .first(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(execution)
     }
@@ -392,15 +422,21 @@ impl<'a> CronExecutionDAL<'a> {
     ///
     /// # Returns
     /// * `Result<usize, ValidationError>` - Number of records deleted
-    pub async fn delete_older_than(&self, older_than: DateTime<Utc>) -> Result<usize, ValidationError> {
+    pub async fn delete_older_than(
+        &self,
+        older_than: DateTime<Utc>,
+    ) -> Result<usize, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let cutoff_ts = UniversalTimestamp(older_than);
 
-        let deleted_count = conn.interact(move |conn| {
-            diesel::delete(cron_executions::table)
-                .filter(cron_executions::scheduled_time.lt(cutoff_ts))
-                .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        let deleted_count = conn
+            .interact(move |conn| {
+                diesel::delete(cron_executions::table)
+                    .filter(cron_executions::scheduled_time.lt(cutoff_ts))
+                    .execute(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(deleted_count)
     }
@@ -423,35 +459,42 @@ impl<'a> CronExecutionDAL<'a> {
         let since_ts = UniversalTimestamp(since);
         let lost_cutoff = UniversalTimestamp(Utc::now() - chrono::Duration::minutes(10));
 
-        let (total_executions, successful_executions, lost_executions) = conn.interact(move |conn| {
-            // Get total executions
-            let total_executions = cron_executions::table
-                .filter(cron_executions::claimed_at.ge(since_ts))
-                .count()
-                .first(conn)?;
+        let (total_executions, successful_executions, lost_executions) = conn
+            .interact(move |conn| {
+                // Get total executions
+                let total_executions = cron_executions::table
+                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .count()
+                    .first(conn)?;
 
-            // Get successful executions (those with pipeline executions)
-            let successful_executions = cron_executions::table
-                .inner_join(crate::database::schema::pipeline_executions::table)
-                .filter(cron_executions::claimed_at.ge(since_ts))
-                .count()
-                .first(conn)?;
+                // Get successful executions (those with pipeline executions)
+                let successful_executions = cron_executions::table
+                    .inner_join(crate::database::schema::pipeline_executions::table)
+                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .count()
+                    .first(conn)?;
 
-            // Get lost executions (no pipeline execution after 10 minutes)
-            let lost_executions = cron_executions::table
-                .left_join(
-                    crate::database::schema::pipeline_executions::table
-                        .on(cron_executions::pipeline_execution_id
-                            .eq(crate::database::schema::pipeline_executions::id.nullable())),
-                )
-                .filter(crate::database::schema::pipeline_executions::id.is_null())
-                .filter(cron_executions::claimed_at.ge(since_ts))
-                .filter(cron_executions::claimed_at.lt(lost_cutoff))
-                .count()
-                .first(conn)?;
+                // Get lost executions (no pipeline execution after 10 minutes)
+                let lost_executions = cron_executions::table
+                    .left_join(
+                        crate::database::schema::pipeline_executions::table
+                            .on(cron_executions::pipeline_execution_id
+                                .eq(crate::database::schema::pipeline_executions::id.nullable())),
+                    )
+                    .filter(crate::database::schema::pipeline_executions::id.is_null())
+                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .filter(cron_executions::claimed_at.lt(lost_cutoff))
+                    .count()
+                    .first(conn)?;
 
-            Ok::<(i64, i64, i64), diesel::result::Error>((total_executions, successful_executions, lost_executions))
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                Ok::<(i64, i64, i64), diesel::result::Error>((
+                    total_executions,
+                    successful_executions,
+                    lost_executions,
+                ))
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(CronExecutionStats {
             total_executions,

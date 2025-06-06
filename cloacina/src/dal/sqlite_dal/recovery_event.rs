@@ -102,7 +102,10 @@ impl<'a> RecoveryEventDAL<'a> {
     /// };
     /// let event = recovery_dal.create(new_event)?;
     /// ```
-    pub async fn create(&self, new_event: NewRecoveryEvent) -> Result<RecoveryEvent, ValidationError> {
+    pub async fn create(
+        &self,
+        new_event: NewRecoveryEvent,
+    ) -> Result<RecoveryEvent, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
         // For SQLite, we need to manually generate the UUID and timestamps
@@ -123,17 +126,18 @@ impl<'a> RecoveryEventDAL<'a> {
                     recovery_events::updated_at.eq(&now),
                 ))
                 .execute(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
-            .map_err(|e| ValidationError::DatabaseQuery {
-                message: format!("Failed to create recovery event: {}", e),
-            })??;
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        .map_err(|e| ValidationError::DatabaseQuery {
+            message: format!("Failed to create recovery event: {}", e),
+        })??;
 
         // Retrieve the inserted record
-        let result = conn.interact(move |conn| {
-            recovery_events::table
-                .find(id)
-                .first(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        let result = conn
+            .interact(move |conn| recovery_events::table.find(id).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to retrieve created recovery event: {}", e),
             })??;
@@ -173,12 +177,15 @@ impl<'a> RecoveryEventDAL<'a> {
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let events = conn.interact(move |conn| {
-            recovery_events::table
-                .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id))
-                .order(recovery_events::recovered_at.desc())
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        let events = conn
+            .interact(move |conn| {
+                recovery_events::table
+                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .order(recovery_events::recovered_at.desc())
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
@@ -218,12 +225,15 @@ impl<'a> RecoveryEventDAL<'a> {
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let events = conn.interact(move |conn| {
-            recovery_events::table
-                .filter(recovery_events::task_execution_id.eq(task_execution_id))
-                .order(recovery_events::recovered_at.desc())
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        let events = conn
+            .interact(move |conn| {
+                recovery_events::table
+                    .filter(recovery_events::task_execution_id.eq(task_execution_id))
+                    .order(recovery_events::recovered_at.desc())
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
@@ -256,16 +266,22 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Workflow unavailable at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub async fn get_by_type(&self, recovery_type: &str) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    pub async fn get_by_type(
+        &self,
+        recovery_type: &str,
+    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let recovery_type = recovery_type.to_string();
 
-        let events = conn.interact(move |conn| {
-            recovery_events::table
-                .filter(recovery_events::recovery_type.eq(recovery_type))
-                .order(recovery_events::recovered_at.desc())
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        let events = conn
+            .interact(move |conn| {
+                recovery_events::table
+                    .filter(recovery_events::recovery_type.eq(recovery_type))
+                    .order(recovery_events::recovered_at.desc())
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
@@ -297,8 +313,11 @@ impl<'a> RecoveryEventDAL<'a> {
     ///     println!("Workflow unavailable at {}: {:?}", event.recovered_at, event.recovery_type);
     /// }
     /// ```
-    pub async fn get_workflow_unavailable_events(&self) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str()).await
+    pub async fn get_workflow_unavailable_events(
+        &self,
+    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
+        self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str())
+            .await
     }
 
     /// Gets recent recovery events for monitoring purposes.
@@ -330,12 +349,15 @@ impl<'a> RecoveryEventDAL<'a> {
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let events = conn.interact(move |conn| {
-            recovery_events::table
-                .order(recovery_events::recovered_at.desc())
-                .limit(limit)
-                .load(conn)
-        }).await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))
+        let events = conn
+            .interact(move |conn| {
+                recovery_events::table
+                    .order(recovery_events::recovered_at.desc())
+                    .limit(limit)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to get recent recovery events: {}", e),
             })??;

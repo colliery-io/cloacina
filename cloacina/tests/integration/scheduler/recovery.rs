@@ -73,7 +73,11 @@ async fn test_orphaned_task_recovery() {
     info!("Verifying task was abandoned due to unavailable workflow");
 
     // With new graceful recovery, task should be abandoned since workflow is not in registry
-    let abandoned_task = dal.task_execution().get_by_id(orphaned_task.id).await.unwrap();
+    let abandoned_task = dal
+        .task_execution()
+        .get_by_id(orphaned_task.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task.status, "Failed");
     assert!(abandoned_task
         .error_details
@@ -374,21 +378,33 @@ async fn test_multiple_orphaned_tasks_recovery() {
     info!("Verifying all tasks were abandoned due to unavailable workflow");
 
     // All tasks should be abandoned due to workflow unavailability
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).await.unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
         .unwrap()
         .contains("Workflow 'multi-recovery-test' no longer available"));
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).await.unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details
         .unwrap()
         .contains("Workflow 'multi-recovery-test' no longer available"));
 
-    let abandoned_task3 = dal.task_execution().get_by_id(max_retry_task.id).await.unwrap();
+    let abandoned_task3 = dal
+        .task_execution()
+        .get_by_id(max_retry_task.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task3.status, "Failed");
     assert!(abandoned_task3
         .error_details
@@ -468,7 +484,11 @@ async fn test_recovery_event_details() {
     info!("Verifying workflow unavailable recovery event details");
 
     // Verify workflow unavailable recovery event details
-    let recovery_events = dal.recovery_event().get_by_task(orphaned_task.id).await.unwrap();
+    let recovery_events = dal
+        .recovery_event()
+        .get_by_task(orphaned_task.id)
+        .await
+        .unwrap();
     assert_eq!(recovery_events.len(), 1);
 
     let event = &recovery_events[0];
@@ -550,7 +570,11 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     info!("Verifying tasks were abandoned gracefully");
 
     // Verify tasks were abandoned
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).await.unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
@@ -558,7 +582,11 @@ async fn test_graceful_recovery_for_unknown_workflow() {
         .contains("Workflow 'unknown-workflow' no longer available"));
     assert!(abandoned_task1.completed_at.is_some());
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).await.unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details
@@ -813,7 +841,11 @@ async fn test_recovery_event_details_unknown_workflow() {
     info!("Verifying graceful handling of unknown workflow");
 
     // Verify tasks were abandoned
-    let abandoned_task1 = dal.task_execution().get_by_id(orphaned_task1.id).await.unwrap();
+    let abandoned_task1 = dal
+        .task_execution()
+        .get_by_id(orphaned_task1.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task1.status, "Failed");
     assert!(abandoned_task1
         .error_details
@@ -821,7 +853,11 @@ async fn test_recovery_event_details_unknown_workflow() {
         .contains("Workflow 'unknown-workflow-test' no longer available"));
     assert!(abandoned_task1.completed_at.is_some());
 
-    let abandoned_task2 = dal.task_execution().get_by_id(orphaned_task2.id).await.unwrap();
+    let abandoned_task2 = dal
+        .task_execution()
+        .get_by_id(orphaned_task2.id)
+        .await
+        .unwrap();
     assert_eq!(abandoned_task2.status, "Failed");
     assert!(abandoned_task2
         .error_details

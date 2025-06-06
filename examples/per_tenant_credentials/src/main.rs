@@ -62,11 +62,13 @@ async fn demonstrate_admin_tenant_creation(
 
     // Scenario A: Admin provides password
     info!("Creating tenant 'acme_corp' with admin-provided password...");
-    let tenant_a_result = admin.create_tenant(TenantConfig {
-        schema_name: "tenant_acme".to_string(),
-        username: "acme_user".to_string(),
-        password: "admin_chosen_password".to_string(),
-    }).await;
+    let tenant_a_result = admin
+        .create_tenant(TenantConfig {
+            schema_name: "tenant_acme".to_string(),
+            username: "acme_user".to_string(),
+            password: "admin_chosen_password".to_string(),
+        })
+        .await;
 
     match tenant_a_result {
         Ok(tenant_a_creds) => {
@@ -88,11 +90,13 @@ async fn demonstrate_admin_tenant_creation(
 
     // Scenario B: Auto-generated secure password
     info!("Creating tenant 'globex_inc' with auto-generated password...");
-    let tenant_b_result = admin.create_tenant(TenantConfig {
-        schema_name: "tenant_globex".to_string(),
-        username: "globex_user".to_string(),
-        password: "".to_string(), // Empty = auto-generate
-    }).await;
+    let tenant_b_result = admin
+        .create_tenant(TenantConfig {
+            schema_name: "tenant_globex".to_string(),
+            username: "globex_user".to_string(),
+            password: "".to_string(), // Empty = auto-generate
+        })
+        .await;
 
     match tenant_b_result {
         Ok(tenant_b_creds) => {

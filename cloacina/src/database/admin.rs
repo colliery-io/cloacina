@@ -128,7 +128,7 @@ mod postgres_impl {
             let schema_name = tenant_config.schema_name.clone();
             let username = tenant_config.username.clone();
             let final_password_clone = final_password.clone();
-            
+
             // Clone again for use after the closure
             let schema_name_result = schema_name.clone();
             let username_result = username.clone();
@@ -171,7 +171,11 @@ mod postgres_impl {
         /// Remove a tenant (user + schema)
         ///
         /// WARNING: This will permanently delete all data in the tenant's schema.
-        pub async fn remove_tenant(&self, _schema_name: &str, _username: &str) -> Result<(), AdminError> {
+        pub async fn remove_tenant(
+            &self,
+            _schema_name: &str,
+            _username: &str,
+        ) -> Result<(), AdminError> {
             // TODO: Temporarily disabled during async migration
             todo!("Admin functions need rework for deadpool-diesel")
             /*

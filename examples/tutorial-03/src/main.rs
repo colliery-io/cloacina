@@ -565,9 +565,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_context = Context::new();
 
     info!("Executing parallel processing workflow");
-    let result = runner
-        .execute("parallel_processing", input_context)
-        .await?;
+    let result = runner.execute("parallel_processing", input_context).await?;
 
     info!("Workflow completed with status: {:?}", result.status);
     info!("Final context: {:?}", result.final_context);

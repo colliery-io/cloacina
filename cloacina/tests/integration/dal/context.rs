@@ -38,7 +38,10 @@ async fn test_save_and_load_context() {
         .expect("Non-empty context should return Some(uuid)");
 
     // Load and verify the context
-    let loaded = context_dal.read::<i32>(id).await.expect("Failed to load context");
+    let loaded = context_dal
+        .read::<i32>(id)
+        .await
+        .expect("Failed to load context");
     assert_eq!(loaded.get("test"), Some(&42));
 }
 
@@ -70,7 +73,10 @@ async fn test_update_context() {
         .expect("Failed to update context");
 
     // Load and verify the update
-    let loaded = context_dal.read::<i32>(id).await.expect("Failed to load context");
+    let loaded = context_dal
+        .read::<i32>(id)
+        .await
+        .expect("Failed to load context");
     assert_eq!(loaded.get("test"), Some(&43));
 }
 
@@ -95,7 +101,10 @@ async fn test_delete_context() {
         .expect("Non-empty context should return Some(uuid)");
 
     // Delete the context
-    context_dal.delete(id).await.expect("Failed to delete context");
+    context_dal
+        .delete(id)
+        .await
+        .expect("Failed to delete context");
 
     // Verify it's gone
     let result = context_dal.read::<i32>(id).await;
