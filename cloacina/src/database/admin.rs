@@ -27,9 +27,9 @@ pub use postgres_impl::*;
 #[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
+    use diesel::connection::Connection;
     use diesel::prelude::*;
     use rand::Rng;
-    use diesel::connection::Connection;
 
     /// Database administrator for tenant provisioning
     #[allow(dead_code)]
@@ -134,73 +134,82 @@ mod postgres_impl {
             let conn = pool.get().await?;
 
             // Execute all tenant setup SQL in a transaction
-            let _ = conn.interact(move |conn| {
-                conn.transaction::<(), AdminError, _>(|conn| {
-                    // 1. Create schema
-                    let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
-                    diesel::sql_query(&sql)
-                        .execute(conn)
-                        .map_err(|e| AdminError::SqlExecution {
-                            message: format!("Failed to create schema '{}': {}", schema_name, e),
+            let _ = conn
+                .interact(move |conn| {
+                    conn.transaction::<(), AdminError, _>(|conn| {
+                        // 1. Create schema
+                        let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!(
+                                    "Failed to create schema '{}': {}",
+                                    schema_name, e
+                                ),
+                            }
                         })?;
 
-                    // 2. Create user with determined password
-                    let sql = format!("CREATE USER {} WITH PASSWORD '{}'", username, final_password_clone);
-                    diesel::sql_query(&sql)
-                        .execute(conn)
-                        .map_err(|e| AdminError::SqlExecution {
-                            message: format!("Failed to create user '{}': {}", username, e),
+                        // 2. Create user with determined password
+                        let sql = format!(
+                            "CREATE USER {} WITH PASSWORD '{}'",
+                            username, final_password_clone
+                        );
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to create user '{}': {}", username, e),
+                            }
                         })?;
 
-                    // 3. Grant permissions
-                    let sqls = vec![
-                        format!("GRANT USAGE ON SCHEMA {} TO {}", schema_name, username),
-                        format!("GRANT CREATE ON SCHEMA {} TO {}", schema_name, username),
-                        format!(
-                            "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} TO {}",
-                            schema_name, username
-                        ),
-                        format!(
-                            "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} TO {}",
-                            schema_name, username
-                        ),
-                        format!(
-                            "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT ALL ON TABLES TO {}",
-                            schema_name, username
-                        ),
-                        format!(
+                        // 3. Grant permissions
+                        let sqls = vec![
+                            format!("GRANT USAGE ON SCHEMA {} TO {}", schema_name, username),
+                            format!("GRANT CREATE ON SCHEMA {} TO {}", schema_name, username),
+                            format!(
+                                "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} TO {}",
+                                schema_name, username
+                            ),
+                            format!(
+                                "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} TO {}",
+                                schema_name, username
+                            ),
+                            format!(
+                                "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT ALL ON TABLES TO {}",
+                                schema_name, username
+                            ),
+                            format!(
                             "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT ALL ON SEQUENCES TO {}",
                             schema_name, username
                         ),
-                    ];
+                        ];
 
-                    for sql in sqls {
-                        diesel::sql_query(&sql)
+                        for sql in sqls {
+                            diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                                AdminError::SqlExecution {
+                                    message: format!("Failed to grant permissions: {}", e),
+                                }
+                            })?;
+                        }
+
+                        // 4. Run migrations in the schema
+                        let set_path_sql = format!("SET search_path TO {}, public", schema_name);
+                        diesel::sql_query(&set_path_sql)
                             .execute(conn)
                             .map_err(|e| AdminError::SqlExecution {
-                                message: format!("Failed to grant permissions: {}", e),
+                                message: format!("Failed to set search_path: {}", e),
                             })?;
-                    }
 
-                    // 4. Run migrations in the schema
-                    let set_path_sql = format!("SET search_path TO {}, public", schema_name);
-                    diesel::sql_query(&set_path_sql)
-                        .execute(conn)
-                        .map_err(|e| AdminError::SqlExecution {
-                            message: format!("Failed to set search_path: {}", e),
+                        crate::database::run_migrations(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to run migrations: {}", e),
+                            }
                         })?;
 
-                    crate::database::run_migrations(conn).map_err(|e| AdminError::SqlExecution {
-                        message: format!("Failed to run migrations: {}", e),
-                    })?;
-
-                    Ok(())
+                        Ok(())
+                    })
                 })
-            })
-            .await
-            .map_err(|e| AdminError::SqlExecution {
-                message: format!("Transaction failed: {}", e),
-            })?;
+                .await
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Transaction failed: {}", e),
+                })?;
 
             // Return credentials for admin to share with tenant
             let connection_string = self.build_connection_string(&username_result, &final_password);
@@ -225,49 +234,50 @@ mod postgres_impl {
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 
-            let _ = conn.interact(move |conn| {
-                conn.transaction::<(), AdminError, _>(|conn| {
-                    // 1. Revoke permissions
-                    let sqls = vec![
-                        format!(
-                            "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} FROM {}",
-                            schema_name, username
-                        ),
-                        format!(
-                            "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}",
-                            schema_name, username
-                        ),
-                        format!("REVOKE ALL ON SCHEMA {} FROM {}", schema_name, username),
-                    ];
+            let _ = conn
+                .interact(move |conn| {
+                    conn.transaction::<(), AdminError, _>(|conn| {
+                        // 1. Revoke permissions
+                        let sqls = vec![
+                            format!(
+                                "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA {} FROM {}",
+                                schema_name, username
+                            ),
+                            format!(
+                                "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA {} FROM {}",
+                                schema_name, username
+                            ),
+                            format!("REVOKE ALL ON SCHEMA {} FROM {}", schema_name, username),
+                        ];
 
-                    for sql in sqls {
-                        // Use unwrap_or to continue even if revoke fails (user might already be gone)
-                        let _ = diesel::sql_query(&sql).execute(conn);
-                    }
+                        for sql in sqls {
+                            // Use unwrap_or to continue even if revoke fails (user might already be gone)
+                            let _ = diesel::sql_query(&sql).execute(conn);
+                        }
 
-                    // 2. Drop user
-                    let sql = format!("DROP USER IF EXISTS {}", username);
-                    diesel::sql_query(&sql)
-                        .execute(conn)
-                        .map_err(|e| AdminError::SqlExecution {
-                            message: format!("Failed to drop user '{}': {}", username, e),
+                        // 2. Drop user
+                        let sql = format!("DROP USER IF EXISTS {}", username);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to drop user '{}': {}", username, e),
+                            }
                         })?;
 
-                    // 3. Drop schema (with CASCADE to remove all objects)
-                    let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
-                    diesel::sql_query(&sql)
-                        .execute(conn)
-                        .map_err(|e| AdminError::SqlExecution {
-                            message: format!("Failed to drop schema '{}': {}", schema_name, e),
+                        // 3. Drop schema (with CASCADE to remove all objects)
+                        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name);
+                        diesel::sql_query(&sql).execute(conn).map_err(|e| {
+                            AdminError::SqlExecution {
+                                message: format!("Failed to drop schema '{}': {}", schema_name, e),
+                            }
                         })?;
 
-                    Ok(())
+                        Ok(())
+                    })
                 })
-            })
-            .await
-            .map_err(|e| AdminError::SqlExecution {
-                message: format!("Transaction failed: {}", e),
-            })?;
+                .await
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Transaction failed: {}", e),
+                })?;
 
             Ok(())
         }
