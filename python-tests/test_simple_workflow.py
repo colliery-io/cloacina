@@ -34,7 +34,7 @@ def test_simple_workflow_execution(shared_runner):
     def create_workflow():
         return workflow
     
-    cloaca.register_workflow_constructor("simple_workflow", create_workflow)
+    cloaca.register_workflow_constructor("simple_workflow", create_workflow())
     
     # Execute workflow using shared runner
     context = cloaca.Context({"input": "test"})

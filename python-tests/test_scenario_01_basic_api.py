@@ -359,6 +359,12 @@ class TestWorkflowBuilder:
         """Test creating WorkflowBuilder with basic configuration."""
         import cloaca
         
+        # Create a simple task for the workflow
+        @cloaca.task(id="basic_test_task")
+        def basic_test_task(context):
+            context.set("basic_executed", True)
+            return context
+        
         builder = cloaca.WorkflowBuilder("test_workflow")
         assert builder is not None
         
@@ -366,8 +372,9 @@ class TestWorkflowBuilder:
         builder.description("Test workflow description")
         builder.tag("environment", "test")
         builder.tag("team", "backend")
+        builder.add_task("basic_test_task")
         
-        # Should be able to build empty workflow
+        # Should be able to build workflow with tasks
         workflow = builder.build()
         assert workflow is not None
         assert workflow.name == "test_workflow"
@@ -461,12 +468,10 @@ class TestWorkflowBuilder:
         """Test workflow validation functionality."""
         import cloaca
         
-        # Empty workflow should fail validation
+        # Empty workflow should fail at build time
         builder = cloaca.WorkflowBuilder("empty_workflow")
-        workflow = builder.build()
-        
         with pytest.raises(ValueError) as exc_info:
-            workflow.validate()
+            workflow = builder.build()
         assert "cannot be empty" in str(exc_info.value)
         
         # Workflow with tasks should validate successfully
@@ -521,11 +526,17 @@ class TestWorkflowBuilder:
         """Test that identical workflows have identical versions."""
         import cloaca
         
+        # Create a task for the workflows
+        @cloaca.task(id="version_test_task")
+        def version_test_task(context):
+            return context
+        
         # Create identical workflows
         def build_identical_workflow(name):
             builder = cloaca.WorkflowBuilder(name)
             builder.description("Identical workflow")
             builder.tag("env", "test")
+            builder.add_task("version_test_task")
             return builder.build()
         
         workflow1 = build_identical_workflow("version_test")
@@ -538,6 +549,7 @@ class TestWorkflowBuilder:
         builder3 = cloaca.WorkflowBuilder("version_test")
         builder3.description("Different description")
         builder3.tag("env", "test")
+        builder3.add_task("version_test_task")
         workflow3 = builder3.build()
         
         assert workflow1.version != workflow3.version
@@ -705,7 +717,7 @@ class TestWorkflowContextManager:
             return builder.build()
         
         # Test manual registration
-        cloaca.register_workflow_constructor("manual_workflow", create_manual_workflow)
+        cloaca.register_workflow_constructor("manual_workflow", create_manual_workflow())
         
         # Function should still work
         workflow = create_manual_workflow()
