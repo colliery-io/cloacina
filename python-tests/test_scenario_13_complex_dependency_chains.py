@@ -4,7 +4,7 @@ Test Complex Dependency Chains
 This test file verifies complex workflow dependency patterns including
 diamond patterns, fan-out/fan-in, and multi-level dependency chains.
 
-Uses clean_runner fixture to ensure clean state between tests.
+Uses shared_runner fixture with global registry for task persistence.
 """
 
 import pytest
@@ -15,6 +15,8 @@ class TestComplexDependencyChains:
     
     def test_comprehensive_complex_dependency_patterns(self, shared_runner):
         """Test comprehensive complex dependency chain patterns including diamond, fan-out, fan-in, and multi-level chains."""
+        import os
+        os.environ['RUST_LOG'] = 'cloacina=debug,cloaca_backend=debug'
         import cloaca
         
         # Test 1: Diamond dependency pattern

@@ -248,7 +248,7 @@ impl TaskScheduler {
     }
     
     /// Creates a new TaskScheduler with custom poll interval (synchronous version).
-    fn with_poll_interval_sync(
+    pub(crate) fn with_poll_interval_sync(
         database: Database,
         poll_interval: Duration,
     ) -> Self {
@@ -273,21 +273,6 @@ impl TaskScheduler {
         Self::with_poll_interval_sync(database, poll_interval)
     }
 
-    /// Creates a new TaskScheduler using workflows from the global registry without recovery.
-    ///
-    /// This method is deprecated. Use `new()` instead for the recommended behavior.
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    ///
-    /// # Returns
-    ///
-    /// A new TaskScheduler instance with all globally registered workflows.
-    #[deprecated(note = "Use TaskScheduler::new() instead")]
-    pub fn with_global_workflows(database: Database) -> Self {
-        Self::with_poll_interval_sync(database, Duration::from_millis(100))
-    }
 
     /// Creates a new TaskScheduler with static workflows and automatic recovery of orphaned tasks.
     ///

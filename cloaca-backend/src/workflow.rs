@@ -16,7 +16,6 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
-use std::sync::Arc;
 
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]

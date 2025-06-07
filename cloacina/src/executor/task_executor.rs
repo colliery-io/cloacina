@@ -38,6 +38,7 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
+use crate::task::get_task;
 use crate::{Context, Database, Task, TaskRegistry};
 
 /// TaskExecutor is the core component responsible for executing pipeline tasks.
@@ -210,10 +211,8 @@ impl TaskExecutor {
                 attempt: claim_result.attempt,
             };
 
-            // Get task from registry to determine dependencies
-            let task = self
-                .task_registry
-                .get_task(&claimed_task.task_name)
+            // Get task from global registry to determine dependencies
+            let task = get_task(&claimed_task.task_name)
                 .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
             let dependencies = task.dependencies().to_vec();
 
@@ -388,10 +387,8 @@ impl TaskExecutor {
         claimed_task: ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        // 1. Resolve task from registry
-        let task = self
-            .task_registry
-            .get_task(&claimed_task.task_name)
+        // 1. Resolve task from global registry
+        let task = get_task(&claimed_task.task_name)
             .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
 
         // 2. Execute task with pre-loaded context (skip context building)
@@ -452,9 +449,7 @@ impl TaskExecutor {
             }
             Err(error) => {
                 // Get task retry policy to determine if we should retry
-                let task = self
-                    .task_registry
-                    .get_task(&claimed_task.task_name)
+                let task = get_task(&claimed_task.task_name)
                     .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
                 let retry_policy = task.retry_policy();
 

@@ -47,17 +47,6 @@ def get_test_db_url():
         raise ValueError(f"Unsupported backend: {backend}")
 
 
-def clear_registries():
-    """Clear all task and workflow registries to prevent test pollution."""
-    try:
-        import cloaca
-        # Force reload cloaca module to get fresh registry state
-        import importlib
-        if 'cloaca' in sys.modules:
-            importlib.reload(sys.modules['cloaca'])
-        print("DEBUG: Cleared registries via module reload")
-    except Exception as e:
-        print(f"WARNING: Failed to clear registries: {e}")
 
 
 @pytest.fixture(scope="session")
@@ -137,9 +126,6 @@ def isolated_db():
     """
     print("DEBUG: Creating isolated database runner")
     
-    # Force fresh module state
-    clear_registries()
-    
     import cloaca
     db_url = get_test_db_url()
     
@@ -199,7 +185,7 @@ def timeout_protection(seconds=15):
 @pytest.fixture(autouse=True)
 def enable_rust_logging():
     """Enable Rust logging for all tests."""
-    os.environ['RUST_LOG'] = 'cloacina=info,cloaca_backend=debug'
+    os.environ['RUST_LOG'] = 'cloacina=debug,cloaca_backend=debug'
 
 
 def pytest_sessionfinish(session, exitstatus):
