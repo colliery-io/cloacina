@@ -39,7 +39,8 @@
 //! - Conditional cleanup that always runs
 //! - Different retry policies for different task types
 
-use cloacina::executor::{PipelineExecutor, UnifiedExecutor};
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{workflow, Context};
 use serde_json::json;
 use tracing::info;
@@ -57,9 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting ETL Example");
 
-    // Initialize executor with SQLite database using WAL mode for better concurrency
-    let executor = UnifiedExecutor::new(
-        "tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
     )
     .await?;
 
@@ -74,10 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     context2.insert("numbers", json!([10, 20, 30, 40, 50]))?;
 
     info!("Submitting first ETL workflow with numbers [1, 2, 3, 4, 5]");
-    let future1 = executor.execute("etl_workflow", context1);
+    let future1 = runner.execute("etl_workflow", context1);
 
     info!("Submitting second ETL workflow with numbers [10, 20, 30, 40, 50]");
-    let future2 = executor.execute("etl_workflow", context2);
+    let future2 = runner.execute("etl_workflow", context2);
 
     info!("Both workflows submitted, waiting for completion...");
 
@@ -94,8 +96,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("First workflow completed with status: {:?}", result1.status);
     info!("First workflow execution took: {:?}", result1.duration);
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     Ok(())
 }

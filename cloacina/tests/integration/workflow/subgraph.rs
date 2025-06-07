@@ -44,7 +44,7 @@ async fn final_task_e(_context: &mut Context<serde_json::Value>) -> Result<(), T
 
 #[test]
 fn test_subgraph_unsupported_operation() {
-    // Current implementation returns UnsupportedOperation
+    // Create a workflow with multiple tasks
     let workflow = workflow! {
         name: "full-workflow",
         tasks: [
@@ -59,14 +59,16 @@ fn test_subgraph_unsupported_operation() {
     // Attempt to create subgraph
     let result = workflow.subgraph(&["root-task-a", "middle-task-c"]);
 
-    // Should return UnsupportedOperation error (as currently implemented)
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        SubgraphError::UnsupportedOperation(msg) => {
-            assert!(msg.contains("Task cloning not supported"));
-        }
-        _ => panic!("Expected UnsupportedOperation error"),
-    }
+    // Should succeed and create a valid subgraph
+    assert!(result.is_ok());
+    let subgraph = result.unwrap();
+    
+    // Verify subgraph contains requested tasks and their dependencies
+    assert!(subgraph.get_task("root-task-a").is_some());
+    assert!(subgraph.get_task("middle-task-c").is_some());
+    
+    // Verify subgraph name is correct
+    assert_eq!(subgraph.name(), "full-workflow-subgraph");
 }
 
 #[test]
@@ -152,18 +154,18 @@ fn test_single_task_subgraph() {
         tasks: [root_task_a]
     };
 
-    // Test subgraph with just one task (should still fail with current implementation)
+    // Test subgraph with just one task
     let result = workflow.subgraph(&["root-task-a"]);
 
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        SubgraphError::UnsupportedOperation(_) => {
-            // Expected with current implementation
-        }
-        SubgraphError::TaskNotFound(_) => {
-            panic!("Task should exist");
-        }
-    }
+    // Should succeed and create a valid subgraph
+    assert!(result.is_ok());
+    let subgraph = result.unwrap();
+    
+    // Verify subgraph contains the requested task
+    assert!(subgraph.get_task("root-task-a").is_some());
+    
+    // Verify subgraph name is correct
+    assert_eq!(subgraph.name(), "single-task-workflow-subgraph");
 }
 
 #[test]
@@ -195,19 +197,26 @@ fn test_empty_subgraph_request() {
 
 #[test]
 fn test_subgraph_with_partial_dependencies() {
-    // This test demonstrates that Workflow validation catches missing dependencies
-    // We expect this to fail at Workflow creation time, not at subgraph creation time
-
-    // Let's create a valid Workflow and test subgraph edge cases instead
+    // Create a valid workflow with dependencies
     let valid_workflow = workflow! {
         name: "valid-workflow",
         tasks: [root_task_a, middle_task_c]
     };
 
-    // Test requesting just the dependent task without its dependency
+    // Test requesting just the dependent task
     let result = valid_workflow.subgraph(&["middle-task-c"]);
-    assert!(result.is_err()); // Should fail due to missing dependency or unsupported op
-
+    
+    // Should succeed and include both the requested task and its dependencies
+    assert!(result.is_ok());
+    let subgraph = result.unwrap();
+    
+    // Verify subgraph contains both the requested task and its dependency
+    assert!(subgraph.get_task("middle-task-c").is_some());
+    assert!(subgraph.get_task("root-task-a").is_some());
+    
+    // Verify subgraph name is correct
+    assert_eq!(subgraph.name(), "valid-workflow-subgraph");
+    
     // Verify the Workflow itself is valid
     assert!(valid_workflow.validate().is_ok());
 }

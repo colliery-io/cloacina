@@ -9,13 +9,13 @@ This example demonstrates Cloacina's multi-tenant capabilities, showing how to a
 For PostgreSQL, Cloacina uses schema-based multi-tenancy for complete data isolation:
 
 ```rust
-// Create tenant-specific executors
-let tenant_a = UnifiedExecutor::with_schema(
+// Create tenant-specific runners
+let tenant_a = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_a"
 ).await?;
 
-let tenant_b = UnifiedExecutor::with_schema(
+let tenant_b = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_b"
 ).await?;
@@ -33,8 +33,14 @@ For SQLite, simply use different database files:
 
 ```rust
 // Each tenant gets their own database file
-let tenant_a = UnifiedExecutor::new("sqlite://./tenant_a.db").await?;
-let tenant_b = UnifiedExecutor::new("sqlite://./tenant_b.db").await?;
+let tenant_a = DefaultRunner::with_config(
+    "sqlite://./tenant_a.db",
+    DefaultRunnerConfig::default()
+).await?;
+let tenant_b = DefaultRunner::with_config(
+    "sqlite://./tenant_b.db",
+    DefaultRunnerConfig::default()
+).await?;
 ```
 
 ## Running the Example
@@ -86,20 +92,20 @@ angreal examples multi-tenant
 let tenant_id = env::var("TENANT_ID")?;
 let database_url = env::var("DATABASE_URL")?;
 
-let executor = UnifiedExecutor::with_schema(&database_url, &tenant_id).await?;
+let runner = DefaultRunner::with_schema(&database_url, &tenant_id).await?;
 ```
 
 ### Service-Based Isolation
 
 ```rust
 // API service
-let api_executor = UnifiedExecutor::with_schema(db_url, "api_service").await?;
+let api_runner = DefaultRunner::with_schema(db_url, "api_service").await?;
 
 // Background job processor
-let batch_executor = UnifiedExecutor::with_schema(db_url, "batch_processor").await?;
+let batch_runner = DefaultRunner::with_schema(db_url, "batch_processor").await?;
 
 // Analytics service
-let analytics_executor = UnifiedExecutor::with_schema(db_url, "analytics").await?;
+let analytics_runner = DefaultRunner::with_schema(db_url, "analytics").await?;
 ```
 
 ## Schema Naming Rules

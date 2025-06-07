@@ -22,7 +22,8 @@
 //! - Different approaches to handling task failures
 //! - Monitoring task execution outcomes
 
-use cloacina::executor::{PipelineExecutor, UnifiedExecutor};
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use rand::Rng;
 use serde_json::json;
@@ -286,9 +287,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Tutorial 04: Error Handling and Retries");
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
-    // Initialize executor with SQLite database using WAL mode for better concurrency
-    let executor = UnifiedExecutor::new(
-        "tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let config = DefaultRunnerConfig::default();
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        config,
     )
     .await?;
 
@@ -312,7 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute the workflow
     info!("Executing resilient pipeline with error handling...");
-    let result = executor
+    let result = runner
         .execute("resilient_pipeline", input_context)
         .await?;
 
@@ -357,5 +360,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Shutdown the runner
+    runner.shutdown().await?;
+
+    info!("Tutorial 04 completed!");
     Ok(())
 }

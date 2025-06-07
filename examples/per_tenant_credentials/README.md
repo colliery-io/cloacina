@@ -7,7 +7,7 @@ This example demonstrates how to use Cloacina's `DatabaseAdmin` to create databa
 1. **Admin Tenant Creation**: How an administrator creates isolated tenant users with dedicated database credentials
 2. **Password Handling**: Both admin-provided and auto-generated secure passwords
 3. **Schema Isolation**: Each tenant gets their own PostgreSQL schema with proper permissions
-4. **API Compatibility**: The same `UnifiedExecutor::with_schema()` API works with both shared and per-tenant credentials
+4. **API Compatibility**: The same `DefaultRunner::with_schema()` API works with both shared and per-tenant credentials
 
 ## Security Benefits
 
@@ -74,7 +74,7 @@ let creds = admin.create_tenant(TenantConfig {
 // (via secrets management, secure communication, etc.)
 
 // 3. Tenant application uses dedicated credentials
-let executor = UnifiedExecutor::with_schema(
+let runner = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
 ).await?;
@@ -86,13 +86,13 @@ Per-tenant credentials are fully backwards compatible:
 
 ```rust
 // Existing code (shared credentials)
-let executor = UnifiedExecutor::with_schema(
+let runner = DefaultRunner::with_schema(
     "postgresql://shared_user:shared_pw@host/db",
     "tenant_a"
 ).await?;
 
 // Enhanced security (per-tenant credentials)
-let executor = UnifiedExecutor::with_schema(
+let runner = DefaultRunner::with_schema(
     "postgresql://tenant_a_user:tenant_a_pw@host/db",
     "tenant_a"
 ).await?;

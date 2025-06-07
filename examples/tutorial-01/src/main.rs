@@ -18,7 +18,8 @@
 //!
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
-use cloacina::executor::{PipelineExecutor, UnifiedExecutor};
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use tracing::info;
@@ -45,9 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Simple Cloacina Example");
 
-    // Initialize executor with SQLite database using WAL mode for better concurrency
-    let executor = UnifiedExecutor::new(
-        "tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
     )
     .await?;
 
@@ -66,13 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Executing workflow");
 
     // Execute the workflow (scheduler and executor managed automatically)
-    let result = executor.execute("simple_workflow", input_context).await?;
+    let result = runner.execute("simple_workflow", input_context).await?;
 
     info!("Workflow completed with status: {:?}", result.status);
     info!("Final context: {:?}", result.final_context);
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     info!("Simple example completed!");
 
