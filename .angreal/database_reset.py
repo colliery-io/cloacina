@@ -49,7 +49,8 @@ def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> boo
     Fast PostgreSQL table reset using TRUNCATE.
     
     This is the fastest method as it only removes data while preserving
-    table structure, indexes, and sequences.
+    table structure, indexes, and sequences. Excludes Diesel's migration
+    tracking table to prevent migration re-runs.
     
     Args:
         container_name: Name of the PostgreSQL container
@@ -63,8 +64,13 @@ def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> boo
             r RECORD;
             table_list TEXT := '';
         BEGIN
-            -- Build comma-separated list of table names
-            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') 
+            -- Build comma-separated list of table names, excluding migration tracking
+            FOR r IN (
+                SELECT tablename 
+                FROM pg_tables 
+                WHERE schemaname = 'public' 
+                AND tablename != '__diesel_schema_migrations'
+            ) 
             LOOP
                 IF table_list != '' THEN
                     table_list := table_list || ', ';
@@ -75,9 +81,9 @@ def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> boo
             -- Truncate all tables if any exist
             IF table_list != '' THEN
                 EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
-                RAISE NOTICE 'Truncated tables: %', table_list;
+                RAISE NOTICE 'Truncated tables (preserving migration tracking): %', table_list;
             ELSE
-                RAISE NOTICE 'No tables found to truncate';
+                RAISE NOTICE 'No data tables found to truncate (migration tracking preserved)';
             END IF;
         END $$;
     """
@@ -169,7 +175,7 @@ def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries:
     Intelligent PostgreSQL reset with multiple fallback strategies.
     
     Attempts reset methods in order of speed:
-    1. Fast table truncation
+    1. Fast table truncation (preserves migration table)
     2. Connection reset + table truncation retry
     3. Schema recreation (requires migration re-run)
     
@@ -182,8 +188,18 @@ def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries:
     """
     print("Attempting smart PostgreSQL reset...")
     
-    # Method 1: Try fast table truncation
+    # Check initial migration status
+    migrations_exist = check_migration_status(container_name)
+    if migrations_exist:
+        print("✓ Migrations detected, will preserve migration table")
+    else:
+        print("⚠ No migrations detected, fresh database")
+    
+    # Method 1: Try fast table truncation (preserves migrations)
     if reset_postgres_tables_fast(container_name):
+        # Verify migrations are still intact
+        if migrations_exist and check_migration_status(container_name):
+            print("✓ Fast reset completed with migration table preserved")
         return True
     
     # Method 2: Reset connections and retry truncation
@@ -198,6 +214,7 @@ def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries:
     # Method 3: Schema recreation as last resort
     print("Truncation retries failed, attempting schema recreation...")
     if reset_postgres_schema(container_name):
+        print("⚠ Schema recreated - migrations will need to be re-run")
         return True
     
     print("✗ All PostgreSQL reset methods failed")
@@ -243,3 +260,26 @@ def get_postgres_table_count(container_name: str = "cloacina-postgres") -> Optio
         return None
     except (DatabaseResetError, ValueError, IndexError):
         return None
+
+
+def check_migration_status(container_name: str = "cloacina-postgres") -> bool:
+    """
+    Check if the Diesel migration table exists and has migration records.
+    
+    Args:
+        container_name: Name of the PostgreSQL container
+        
+    Returns:
+        True if migrations appear to be properly set up, False otherwise
+    """
+    try:
+        # Check if migration table exists and has records
+        result = run_sql_in_postgres_container(
+            "SELECT COUNT(*) FROM __diesel_schema_migrations;"
+        )
+        if result.returncode == 0:
+            count = int(result.stdout.strip().split('\n')[-2].strip())
+            return count > 0
+        return False
+    except (DatabaseResetError, ValueError, IndexError):
+        return False
