@@ -717,7 +717,7 @@ class TestWorkflowContextManager:
             return builder.build()
         
         # Test manual registration
-        cloaca.register_workflow_constructor("manual_workflow", create_manual_workflow())
+        cloaca.register_workflow_constructor("manual_workflow", create_manual_workflow)
         
         # Function should still work
         workflow = create_manual_workflow()
