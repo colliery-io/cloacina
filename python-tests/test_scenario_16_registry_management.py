@@ -26,7 +26,7 @@ class TestRegistryManagement:
             context.set("registry_test_task_1_executed", True)
             return context
         
-        @cloaca.task(id="registry_test_task_2")
+        @cloaca.task(id="registry_test_task_2", dependencies=["registry_test_task_1"])
         def registry_test_task_2(context):
             context.set("registry_test_task_2_executed", True)
             return context
@@ -60,7 +60,7 @@ class TestRegistryManagement:
             context.set("task_registry_test", "task_a_registered")
             return context
         
-        @cloaca.task(id="isolated_task_b")
+        @cloaca.task(id="isolated_task_b", dependencies=["isolated_task_a"])
         def isolated_task_b(context):
             context.set("isolated_task_b_executed", True)
             # Check if previous task's registry info is available
@@ -124,8 +124,8 @@ class TestRegistryManagement:
         
         assert result_a is not None and result_a.status == "Completed"
         assert result_b is not None and result_b.status == "Completed"
-        assert result_a.context.get("consistency_task_1_executed") is True
-        assert result_b.context.get("consistency_task_2_executed") is True
+        assert result_a.final_context.get("consistency_task_1_executed") is True
+        assert result_b.final_context.get("consistency_task_2_executed") is True
         print("✓ Workflow registry consistency works correctly")
         
         # Test 4: Registry pollution prevention

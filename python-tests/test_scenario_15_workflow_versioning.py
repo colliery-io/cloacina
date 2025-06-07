@@ -36,24 +36,17 @@ class TestWorkflowVersioning:
         # Test 1: Identical workflows should have identical versions
         print("Testing identical workflow versioning...")
         
-        def create_identical_workflow_a():
-            builder = cloaca.WorkflowBuilder("version_test_workflow_a")
+        def create_identical_workflow():
+            builder = cloaca.WorkflowBuilder("identical_workflow_test")
             builder.description("Identical workflow for versioning test")
             builder.tag("type", "version_test")
             builder.add_task("version_test_task_1")
             builder.add_task("version_test_task_2")
             return builder.build()
         
-        def create_identical_workflow_b():
-            builder = cloaca.WorkflowBuilder("version_test_workflow_b")
-            builder.description("Identical workflow for versioning test")
-            builder.tag("type", "version_test")
-            builder.add_task("version_test_task_1")
-            builder.add_task("version_test_task_2")
-            return builder.build()
-        
-        workflow_a = create_identical_workflow_a()
-        workflow_b = create_identical_workflow_b()
+        # Create two identical workflows (same name, content, everything)
+        workflow_a = create_identical_workflow()
+        workflow_b = create_identical_workflow()
         
         # Check if workflows have version attributes
         has_version_a = hasattr(workflow_a, 'version')
@@ -90,7 +83,7 @@ class TestWorkflowVersioning:
         # Test 3: Workflow version stability
         print("Testing workflow version stability...")
         
-        workflow_a_recreated = create_identical_workflow_a()
+        workflow_a_recreated = create_identical_workflow()
         
         if has_version_a and hasattr(workflow_a_recreated, 'version'):
             assert workflow_a.version == workflow_a_recreated.version, "Recreated identical workflow should have same version"
@@ -99,7 +92,7 @@ class TestWorkflowVersioning:
         # Test 4: Execute workflows to ensure versioning doesn't break functionality
         print("Testing workflow execution with versioning...")
         
-        cloaca.register_workflow_constructor("version_test_workflow_execution", create_identical_workflow_a)
+        cloaca.register_workflow_constructor("version_test_workflow_execution", create_identical_workflow)
         
         context = cloaca.Context({"test_type": "versioning"})
         result = shared_runner.execute("version_test_workflow_execution", context)

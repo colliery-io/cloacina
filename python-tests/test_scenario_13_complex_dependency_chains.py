@@ -92,30 +92,35 @@ class TestComplexDependencyChains:
         
         @cloaca.task(id="fanout_task_1", dependencies=["fanout_trigger"])
         def fanout_task_1(context):
-            context.set("fanout_task_1_executed", True)
-            count = context.get("fanout_count", 0)
-            context.set("fanout_count", count + 1)
+            context.set("fanout_task_1_completed", True)
             return context
         
         @cloaca.task(id="fanout_task_2", dependencies=["fanout_trigger"])
         def fanout_task_2(context):
-            context.set("fanout_task_2_executed", True)
-            count = context.get("fanout_count", 0)
-            context.set("fanout_count", count + 1)
+            context.set("fanout_task_2_completed", True)
             return context
         
         @cloaca.task(id="fanout_task_3", dependencies=["fanout_trigger"])
         def fanout_task_3(context):
-            context.set("fanout_task_3_executed", True)
-            count = context.get("fanout_count", 0)
-            context.set("fanout_count", count + 1)
+            context.set("fanout_task_3_completed", True)
             return context
         
         @cloaca.task(id="fanout_task_4", dependencies=["fanout_trigger"])
         def fanout_task_4(context):
-            context.set("fanout_task_4_executed", True)
-            count = context.get("fanout_count", 0)
-            context.set("fanout_count", count + 1)
+            context.set("fanout_task_4_completed", True)
+            return context
+        
+        @cloaca.task(id="fanout_collector", dependencies=["fanout_task_1", "fanout_task_2", "fanout_task_3", "fanout_task_4"])
+        def fanout_collector(context):
+            context.set("fanout_collector_completed", True)
+            # Count completed tasks
+            completed_count = sum([
+                1 if context.get("fanout_task_1_completed") else 0,
+                1 if context.get("fanout_task_2_completed") else 0,
+                1 if context.get("fanout_task_3_completed") else 0,
+                1 if context.get("fanout_task_4_completed") else 0,
+            ])
+            context.set("fanout_completed_count", completed_count)
             return context
         
         def create_fanout_workflow():
@@ -126,6 +131,7 @@ class TestComplexDependencyChains:
             builder.add_task("fanout_task_2")
             builder.add_task("fanout_task_3")
             builder.add_task("fanout_task_4")
+            builder.add_task("fanout_collector")
             return builder.build()
         
         cloaca.register_workflow_constructor("fanout_dependency_workflow", create_fanout_workflow)
@@ -136,11 +142,12 @@ class TestComplexDependencyChains:
         assert result is not None
         assert result.status == "Completed"
         assert result.final_context.get("fanout_trigger_executed") is True
-        assert result.final_context.get("fanout_task_1_executed") is True
-        assert result.final_context.get("fanout_task_2_executed") is True
-        assert result.final_context.get("fanout_task_3_executed") is True
-        assert result.final_context.get("fanout_task_4_executed") is True
-        assert result.final_context.get("fanout_count") == 4
+        assert result.final_context.get("fanout_task_1_completed") is True
+        assert result.final_context.get("fanout_task_2_completed") is True
+        assert result.final_context.get("fanout_task_3_completed") is True
+        assert result.final_context.get("fanout_task_4_completed") is True
+        assert result.final_context.get("fanout_collector_completed") is True
+        assert result.final_context.get("fanout_completed_count") == 4
         print("✓ Fan-out dependency pattern works correctly")
         
         # Test 3: Fan-in pattern (many tasks converging to one)

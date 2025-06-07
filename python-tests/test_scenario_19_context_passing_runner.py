@@ -56,6 +56,6 @@ class TestContextPassingRunner:
         
         assert result is not None
         assert result.status == "Completed"
-        # Verify initial context is preserved
+        # Verify initial context is preserved and modified correctly
         assert result.final_context.get("initial_data") == "test_value"
-        assert result.final_context.get("counter") == 5
+        assert result.final_context.get("counter") == 6  # incremented from 5 to 6

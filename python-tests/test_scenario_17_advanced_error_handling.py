@@ -8,7 +8,7 @@ Uses shared_runner fixture for actual workflow execution testing.
 """
 
 import pytest
-from test_utilities import create_test_aggregator
+from utilities import create_test_aggregator
 
 
 class TestAdvancedErrorHandling:

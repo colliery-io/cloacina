@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class TestFailure:
+class FailureRecord:
     """Represents a single test failure."""
     test_name: str
     failure_type: str
@@ -21,7 +21,7 @@ class TestFailure:
 
 
 @dataclass
-class TestSection:
+class SectionRecord:
     """Represents a section of tests within a scenario."""
     section_name: str
     passed: bool = True
@@ -29,13 +29,13 @@ class TestSection:
     details: Optional[str] = None
 
 
-class TestAggregator:
+class ResultsAggregator:
     """Aggregates test results and failures for end-of-test reporting."""
     
     def __init__(self, test_name: str):
         self.test_name = test_name
-        self.failures: List[TestFailure] = []
-        self.sections: List[TestSection] = []
+        self.failures: List[FailureRecord] = []
+        self.sections: List[SectionRecord] = []
         self.total_sections = 0
         self.passed_sections = 0
         
@@ -43,7 +43,7 @@ class TestAggregator:
                    error_message: Optional[str] = None, 
                    details: Optional[str] = None) -> None:
         """Add a test section result."""
-        section = TestSection(
+        section = SectionRecord(
             section_name=section_name,
             passed=passed,
             error_message=error_message,
@@ -57,7 +57,7 @@ class TestAggregator:
     def add_failure(self, test_name: str, failure_type: str, 
                    error_message: str, context: Optional[Dict[str, Any]] = None) -> None:
         """Add a test failure."""
-        failure = TestFailure(
+        failure = FailureRecord(
             test_name=test_name,
             failure_type=failure_type,
             error_message=error_message,
@@ -155,6 +155,6 @@ class TestAggregator:
             raise AssertionError(f"Test aggregation failed: {failure_summary}")
 
 
-def create_test_aggregator(test_name: str) -> TestAggregator:
+def create_test_aggregator(test_name: str) -> ResultsAggregator:
     """Factory function to create a test aggregator."""
-    return TestAggregator(test_name)
+    return ResultsAggregator(test_name)
