@@ -43,7 +43,8 @@
 //! - **Final Convergence**: All processing completes before cleanup
 
 use cloacina::executor::PipelineExecutor;
-use cloacina::runner::DefaultRunner;
+
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -539,8 +540,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Parallel Processing Example");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
-    let runner = DefaultRunner::new(
-        "tutorial-03.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-03.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
     )
     .await?;
 

@@ -19,7 +19,8 @@
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
 use cloacina::executor::PipelineExecutor;
-use cloacina::runner::DefaultRunner;
+
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use tracing::info;
@@ -47,8 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Simple Cloacina Example");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
-    let runner = DefaultRunner::new(
-        "tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
     )
     .await?;
 

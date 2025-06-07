@@ -20,6 +20,7 @@ use cloacina::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, Val
 use cloacina::*;
 use serde_json::json;
 use serial_test::serial;
+use std::sync::Arc;
 
 // Simple mock task for testing
 #[derive(Clone)]
@@ -58,7 +59,7 @@ async fn test_always_trigger_rule() {
     };
     let workflow = Workflow::builder("trigger-test")
         .description("Test Always trigger rule")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");

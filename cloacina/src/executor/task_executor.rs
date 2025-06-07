@@ -106,11 +106,17 @@ impl TaskExecutor {
     ) -> Result<Self, crate::error::RegistrationError> {
         let mut registry = TaskRegistry::new();
         let global_registry = crate::global_task_registry();
-        let global_tasks = global_registry.lock().unwrap();
+        let global_tasks = match global_registry.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Task registry RwLock was poisoned, recovering data");
+                poisoned.into_inner()
+            }
+        };
 
         for (_task_id, constructor) in global_tasks.iter() {
             let task = constructor();
-            registry.register_boxed(task)?;
+            registry.register_arc(task)?;
         }
 
         Ok(Self::new(database, Arc::new(registry), config))
@@ -338,7 +344,7 @@ impl TaskExecutor {
             .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
 
         // 2. Execute task with pre-loaded context (skip context building)
-        let execution_result = self.execute_with_timeout(task, context).await;
+        let execution_result = self.execute_with_timeout(task.as_ref(), context).await;
 
         // 3. Handle result and update database
         self.handle_task_result(claimed_task, execution_result)

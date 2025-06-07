@@ -40,7 +40,7 @@
 //! ```rust
 //! pub struct Workflow {
 //!     name: String,
-//!     tasks: HashMap<String, Box<dyn Task>>,
+//!     tasks: HashMap<String, Arc<dyn Task>>,
 //!     dependency_graph: DependencyGraph,
 //!     metadata: WorkflowMetadata,
 //! }
@@ -81,7 +81,7 @@ use petgraph::{Directed, Graph};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use crate::error::{SubgraphError, ValidationError, WorkflowError};
 use crate::task::Task;
@@ -196,6 +196,25 @@ impl DependencyGraph {
         self.nodes.insert(from.clone());
         self.nodes.insert(to.clone());
         self.edges.entry(from).or_insert_with(Vec::new).push(to);
+    }
+
+    /// Remove a node (task) from the graph
+    /// This also removes all edges involving this node
+    pub fn remove_node(&mut self, node_id: &str) {
+        self.nodes.remove(node_id);
+        self.edges.remove(node_id);
+
+        // Remove all edges pointing to this node
+        for deps in self.edges.values_mut() {
+            deps.retain(|dep| dep != node_id);
+        }
+    }
+
+    /// Remove a specific edge (dependency) from the graph
+    pub fn remove_edge(&mut self, from: &str, to: &str) {
+        if let Some(deps) = self.edges.get_mut(from) {
+            deps.retain(|dep| dep != to);
+        }
     }
 
     /// Get dependencies for a task
@@ -345,7 +364,7 @@ impl Default for DependencyGraph {
 /// # Fields
 ///
 /// * `name`: String - Unique identifier for the workflow
-/// * `tasks`: HashMap<String, Box<dyn Task>> - Map of task IDs to task implementations
+/// * `tasks`: HashMap<String, Arc<dyn Task>> - Map of task IDs to task implementations
 /// * `dependency_graph`: DependencyGraph - Internal representation of task dependencies
 /// * `metadata`: WorkflowMetadata - Versioning and metadata information
 ///
@@ -382,9 +401,10 @@ impl Default for DependencyGraph {
 /// assert!(!workflow.metadata().version.is_empty());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[derive(Clone)]
 pub struct Workflow {
     name: String,
-    tasks: HashMap<String, Box<dyn Task>>,
+    tasks: HashMap<String, Arc<dyn Task>>,
     dependency_graph: DependencyGraph,
     metadata: WorkflowMetadata,
 }
@@ -498,6 +518,29 @@ impl Workflow {
             .insert(key.to_string(), value.to_string());
     }
 
+    /// Remove a tag from the workflow metadata
+    ///
+    /// # Arguments
+    /// * `key` - Tag key to remove
+    ///
+    /// # Returns
+    /// * `Some(String)` - The removed tag value if it existed
+    /// * `None` - If no tag with that key existed
+    ///
+    /// # Examples
+    /// ```
+    /// use cloacina::Workflow;
+    ///
+    /// let mut workflow = Workflow::new("test-workflow");
+    /// workflow.add_tag("environment", "staging");
+    ///
+    /// let removed = workflow.remove_tag("environment");
+    /// assert_eq!(removed, Some("staging".to_string()));
+    /// ```
+    pub fn remove_tag(&mut self, key: &str) -> Option<String> {
+        self.metadata.tags.remove(key)
+    }
+
     /// Add a task to the Workflow
     ///
     /// # Arguments
@@ -528,7 +571,7 @@ impl Workflow {
     /// assert!(workflow.get_task("my_task").is_some());
     /// # Ok::<(), WorkflowError>(())
     /// ```
-    pub fn add_task<T: Task + 'static>(&mut self, task: T) -> Result<(), WorkflowError> {
+    pub fn add_task(&mut self, task: Arc<dyn Task>) -> Result<(), WorkflowError> {
         let task_id = task.id().to_string();
 
         // Check for duplicate task ID
@@ -545,9 +588,69 @@ impl Workflow {
         }
 
         // Store the task
-        self.tasks.insert(task_id, Box::new(task));
+        self.tasks.insert(task_id, task);
 
         Ok(())
+    }
+
+    /// Remove a task from the workflow
+    ///
+    /// This removes the task and all its dependencies from the workflow.
+    /// Returns the removed task if it existed.
+    ///
+    /// # Arguments
+    /// * `task_id` - ID of the task to remove
+    ///
+    /// # Returns
+    /// * `Some(Arc<dyn Task>)` - The removed task if it existed
+    /// * `None` - If no task with that ID existed
+    ///
+    /// # Examples
+    /// ```
+    /// use cloacina::*;
+    /// use std::sync::Arc;
+    ///
+    /// let mut workflow = Workflow::new("test-workflow");
+    /// let task = Arc::new(MockTask::new("task1", vec![]));
+    /// workflow.add_task(task.clone())?;
+    ///
+    /// let removed = workflow.remove_task("task1");
+    /// assert!(removed.is_some());
+    /// assert!(workflow.get_task("task1").is_none());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn remove_task(&mut self, task_id: &str) -> Option<Arc<dyn Task>> {
+        // Remove from dependency graph first
+        self.dependency_graph.remove_node(task_id);
+
+        // Remove and return the task
+        self.tasks.remove(task_id)
+    }
+
+    /// Remove a dependency between two tasks
+    ///
+    /// This removes the dependency edge but keeps both tasks in the workflow.
+    ///
+    /// # Arguments
+    /// * `from_task` - Task that currently depends on `to_task`
+    /// * `to_task` - Task that `from_task` currently depends on
+    ///
+    /// # Examples
+    /// ```
+    /// use cloacina::*;
+    /// use std::sync::Arc;
+    ///
+    /// let mut workflow = Workflow::new("test-workflow");
+    /// // Add tasks with dependency: task2 depends on task1
+    /// workflow.add_task(Arc::new(MockTask::new("task1", vec![])))?;
+    /// workflow.add_task(Arc::new(MockTask::new("task2", vec!["task1"])))?;
+    ///
+    /// // Remove the dependency (task2 no longer depends on task1)
+    /// workflow.remove_dependency("task2", "task1");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn remove_dependency(&mut self, from_task: &str, to_task: &str) {
+        self.dependency_graph.remove_edge(from_task, to_task);
     }
 
     /// Validate the Workflow structure
@@ -630,10 +733,10 @@ impl Workflow {
     ///
     /// # Returns
     ///
-    /// * `Some(&dyn Task)` - If the task exists
+    /// * `Some(Arc<dyn Task>)` - If the task exists
     /// * `None` - If no task with that ID exists
-    pub fn get_task(&self, id: &str) -> Option<&dyn Task> {
-        self.tasks.get(id).map(|task| task.as_ref())
+    pub fn get_task(&self, id: &str) -> Option<Arc<dyn Task>> {
+        self.tasks.get(id).cloned()
     }
 
     /// Get dependencies for a task
@@ -699,13 +802,22 @@ impl Workflow {
         let mut workflow = Workflow::new(&format!("{}-subgraph", self.name));
         workflow.metadata = self.metadata.clone();
 
-        for task_id in subgraph_tasks {
-            if let Some(_task) = self.tasks.get(&task_id) {
-                // Note: This requires cloning tasks, which may not be possible
-                // In practice, we might need a different approach for subgraphs
-                return Err(SubgraphError::UnsupportedOperation(
-                    "Task cloning not supported".to_string(),
-                ));
+        for task_id in &subgraph_tasks {
+            if let Some(task) = self.tasks.get(task_id) {
+                // Clone the Arc<dyn Task> to share between workflows
+                workflow.tasks.insert(task_id.clone(), task.clone());
+
+                // Copy dependency graph edges for this task
+                workflow.dependency_graph.add_node(task_id.clone());
+                for dep in task.dependencies() {
+                    if subgraph_tasks.contains(dep) {
+                        workflow
+                            .dependency_graph
+                            .add_edge(task_id.clone(), dep.clone());
+                    }
+                }
+            } else {
+                return Err(SubgraphError::TaskNotFound(task_id.clone()));
             }
         }
 
@@ -1078,7 +1190,7 @@ impl WorkflowBuilder {
     }
 
     /// Add a task to the workflow
-    pub fn add_task<T: Task + 'static>(mut self, task: T) -> Result<Self, WorkflowError> {
+    pub fn add_task(mut self, task: Arc<dyn Task>) -> Result<Self, WorkflowError> {
         self.workflow.add_task(task)?;
         Ok(self)
     }
@@ -1099,8 +1211,8 @@ impl WorkflowBuilder {
 
 /// Global registry for automatically registering workflows created with the `workflow!` macro
 static GLOBAL_WORKFLOW_REGISTRY: Lazy<
-    Arc<Mutex<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>>,
-> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+    Arc<RwLock<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>>,
+> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 /// Register a workflow constructor function globally
 ///
@@ -1110,7 +1222,13 @@ pub fn register_workflow_constructor<F>(workflow_name: String, constructor: F)
 where
     F: Fn() -> Workflow + Send + Sync + 'static,
 {
-    let mut registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap();
+    let mut registry = match GLOBAL_WORKFLOW_REGISTRY.write() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("Workflow registry RwLock was poisoned, recovering data");
+            poisoned.into_inner()
+        }
+    };
     registry.insert(workflow_name, Box::new(constructor));
 }
 
@@ -1119,7 +1237,7 @@ where
 /// This provides access to the global workflow registry used by the macro system.
 /// Most users won't need to call this directly.
 pub fn global_workflow_registry(
-) -> Arc<Mutex<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>> {
+) -> Arc<RwLock<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>> {
     GLOBAL_WORKFLOW_REGISTRY.clone()
 }
 
@@ -1138,7 +1256,13 @@ pub fn global_workflow_registry(
 /// }
 /// ```
 pub fn get_all_workflows() -> Vec<Workflow> {
-    let registry = GLOBAL_WORKFLOW_REGISTRY.lock().unwrap();
+    let registry = match GLOBAL_WORKFLOW_REGISTRY.read() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("Workflow registry RwLock was poisoned, recovering data");
+            poisoned.into_inner()
+        }
+    };
     registry.values().map(|constructor| constructor()).collect()
 }
 
@@ -1211,7 +1335,7 @@ mod tests {
         let mut workflow = Workflow::new("test-workflow");
         let task = TestTask::new("task1", vec![]);
 
-        assert!(workflow.add_task(task).is_ok());
+        assert!(workflow.add_task(Arc::new(task)).is_ok());
         assert!(workflow.get_task("task1").is_some());
     }
 
@@ -1224,8 +1348,8 @@ mod tests {
         let task1 = TestTask::new("task1", vec![]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        workflow.add_task(task1).unwrap();
-        workflow.add_task(task2).unwrap();
+        workflow.add_task(Arc::new(task1)).unwrap();
+        workflow.add_task(Arc::new(task2)).unwrap();
 
         assert!(workflow.validate().is_ok());
     }
@@ -1239,8 +1363,8 @@ mod tests {
         let task1 = TestTask::new("task1", vec!["task2"]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        workflow.add_task(task1).unwrap();
-        workflow.add_task(task2).unwrap();
+        workflow.add_task(Arc::new(task1)).unwrap();
+        workflow.add_task(Arc::new(task2)).unwrap();
 
         assert!(matches!(
             workflow.validate(),
@@ -1258,9 +1382,9 @@ mod tests {
         let task2 = TestTask::new("task2", vec!["task1"]);
         let task3 = TestTask::new("task3", vec!["task1", "task2"]);
 
-        workflow.add_task(task1).unwrap();
-        workflow.add_task(task2).unwrap();
-        workflow.add_task(task3).unwrap();
+        workflow.add_task(Arc::new(task1)).unwrap();
+        workflow.add_task(Arc::new(task2)).unwrap();
+        workflow.add_task(Arc::new(task3)).unwrap();
 
         let sorted = workflow.topological_sort().unwrap();
 
@@ -1283,9 +1407,9 @@ mod tests {
         let workflow = Workflow::builder("test-workflow")
             .description("Test Workflow with auto-versioning")
             .tag("env", "test")
-            .add_task(task1)
+            .add_task(Arc::new(task1))
             .unwrap()
-            .add_task(task2)
+            .add_task(Arc::new(task2))
             .unwrap()
             .validate()
             .unwrap()
@@ -1317,10 +1441,10 @@ mod tests {
         let task3 = TestTask::new("task3", vec!["task1", "task2"]);
         let task4 = TestTask::new("task4", vec!["task3"]);
 
-        workflow.add_task(task1).unwrap();
-        workflow.add_task(task2).unwrap();
-        workflow.add_task(task3).unwrap();
-        workflow.add_task(task4).unwrap();
+        workflow.add_task(Arc::new(task1)).unwrap();
+        workflow.add_task(Arc::new(task2)).unwrap();
+        workflow.add_task(Arc::new(task3)).unwrap();
+        workflow.add_task(Arc::new(task4)).unwrap();
 
         let levels = workflow.get_execution_levels().unwrap();
 
@@ -1348,9 +1472,9 @@ mod tests {
         // Build same Workflow twice
         let workflow1 = Workflow::builder("test-workflow")
             .description("Test Workflow")
-            .add_task(task1)
+            .add_task(Arc::new(task1))
             .unwrap()
-            .add_task(task2)
+            .add_task(Arc::new(task2))
             .unwrap()
             .build()
             .unwrap();
@@ -1360,9 +1484,9 @@ mod tests {
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Test Workflow")
-            .add_task(task1_copy)
+            .add_task(Arc::new(task1_copy))
             .unwrap()
-            .add_task(task2_copy)
+            .add_task(Arc::new(task2_copy))
             .unwrap()
             .build()
             .unwrap();
@@ -1380,9 +1504,9 @@ mod tests {
 
         let workflow1 = Workflow::builder("test-workflow")
             .description("Original description")
-            .add_task(task1)
+            .add_task(Arc::new(task1))
             .unwrap()
-            .add_task(task2)
+            .add_task(Arc::new(task2))
             .unwrap()
             .build()
             .unwrap();
@@ -1392,9 +1516,9 @@ mod tests {
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Changed description") // Different description
-            .add_task(task1_copy)
+            .add_task(Arc::new(task1_copy))
             .unwrap()
-            .add_task(task2_copy)
+            .add_task(Arc::new(task2_copy))
             .unwrap()
             .build()
             .unwrap();
@@ -1409,7 +1533,7 @@ mod tests {
 
         let mut workflow = Workflow::new("my-workflow");
         let task1 = TestTask::new("task1", vec![]);
-        workflow.add_task(task1).unwrap();
+        workflow.add_task(Arc::new(task1)).unwrap();
 
         // Version is empty before finalization
         assert!(workflow.metadata().version.is_empty());
@@ -1429,9 +1553,9 @@ mod tests {
 
         let workflow1 = Workflow::builder("test-workflow")
             .description("Test workflow")
-            .add_task(task1)
+            .add_task(Arc::new(task1))
             .unwrap()
-            .add_task(task2)
+            .add_task(Arc::new(task2))
             .unwrap()
             .build()
             .unwrap();
@@ -1442,14 +1566,51 @@ mod tests {
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Test workflow")
-            .add_task(task1_diff)
+            .add_task(Arc::new(task1_diff))
             .unwrap()
-            .add_task(task2_same)
+            .add_task(Arc::new(task2_same))
             .unwrap()
             .build()
             .unwrap();
 
         // Versions should be different due to different fingerprints
         assert_ne!(workflow1.metadata().version, workflow2.metadata().version);
+    }
+
+    #[test]
+    fn test_workflow_removal_methods() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+
+        // Add tasks
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec!["task1"]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+
+        // Add tags
+        workflow.add_tag("env", "test");
+        workflow.add_tag("team", "eng");
+
+        // Test task removal
+        assert!(workflow.get_task("task1").is_some());
+        let removed_task = workflow.remove_task("task1");
+        assert!(removed_task.is_some());
+        assert!(workflow.get_task("task1").is_none());
+
+        // Test tag removal
+        assert_eq!(
+            workflow.metadata().tags.get("env"),
+            Some(&"test".to_string())
+        );
+        let removed_tag = workflow.remove_tag("env");
+        assert_eq!(removed_tag, Some("test".to_string()));
+        assert!(workflow.metadata().tags.get("env").is_none());
+
+        // Test dependency removal (task2 should still exist but with no deps)
+        workflow.remove_dependency("task2", "task1");
+        // We can't easily test this without exposing dependency graph methods
+        // but it should not panic
     }
 }

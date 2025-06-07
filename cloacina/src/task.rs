@@ -340,7 +340,7 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 /// Represents the execution state of a task throughout its lifecycle.
 ///
@@ -831,7 +831,7 @@ pub trait Task: Send + Sync {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub struct TaskRegistry {
-    tasks: HashMap<String, Box<dyn Task>>,
+    tasks: HashMap<String, Arc<dyn Task>>,
 }
 
 impl TaskRegistry {
@@ -887,12 +887,12 @@ impl TaskRegistry {
             return Err(RegistrationError::DuplicateTaskId { id });
         }
 
-        self.tasks.insert(id, Box::new(task));
+        self.tasks.insert(id, Arc::new(task));
         Ok(())
     }
 
     /// Register a boxed task in the registry (used internally)
-    pub fn register_boxed(&mut self, task: Box<dyn Task>) -> Result<(), RegistrationError> {
+    pub fn register_arc(&mut self, task: Arc<dyn Task>) -> Result<(), RegistrationError> {
         let id = task.id().to_string();
 
         // Validate task ID
@@ -919,10 +919,10 @@ impl TaskRegistry {
     ///
     /// # Returns
     ///
-    /// * `Some(&dyn Task)` - If the task exists
+    /// * `Some(Arc<dyn Task>)` - If the task exists
     /// * `None` - If no task with that ID is registered
-    pub fn get_task(&self, id: &str) -> Option<&dyn Task> {
-        self.tasks.get(id).map(|task| task.as_ref())
+    pub fn get_task(&self, id: &str) -> Option<Arc<dyn Task>> {
+        self.tasks.get(id).cloned()
     }
 
     /// Get all registered task IDs
@@ -1094,8 +1094,8 @@ impl Default for TaskRegistry {
 
 /// Global registry for automatically registering tasks created with the `#[task]` macro
 static GLOBAL_TASK_REGISTRY: Lazy<
-    Arc<Mutex<HashMap<String, Box<dyn Fn() -> Box<dyn Task> + Send + Sync>>>>,
-> = Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+    Arc<RwLock<HashMap<String, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>>,
+> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 /// Register a task constructor function globally
 ///
@@ -1103,9 +1103,15 @@ static GLOBAL_TASK_REGISTRY: Lazy<
 /// Most users won't call this directly.
 pub fn register_task_constructor<F>(task_id: String, constructor: F)
 where
-    F: Fn() -> Box<dyn Task> + Send + Sync + 'static,
+    F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
 {
-    let mut registry = GLOBAL_TASK_REGISTRY.lock().unwrap();
+    let mut registry = match GLOBAL_TASK_REGISTRY.write() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("Task registry RwLock was poisoned, recovering data");
+            poisoned.into_inner()
+        }
+    };
     registry.insert(task_id, Box::new(constructor));
 }
 
@@ -1114,8 +1120,23 @@ where
 /// This provides access to the global task registry used by the macro system.
 /// Most users won't need to call this directly.
 pub fn global_task_registry(
-) -> Arc<Mutex<HashMap<String, Box<dyn Fn() -> Box<dyn Task> + Send + Sync>>>> {
+) -> Arc<RwLock<HashMap<String, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>> {
     GLOBAL_TASK_REGISTRY.clone()
+}
+
+/// Get a task instance from the global registry by ID
+///
+/// This is a convenience function for getting task instances without
+/// directly accessing the registry.
+pub fn get_task(task_id: &str) -> Option<Arc<dyn Task>> {
+    let registry = match GLOBAL_TASK_REGISTRY.read() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("Task registry RwLock was poisoned, recovering data");
+            poisoned.into_inner()
+        }
+    };
+    registry.get(task_id).map(|constructor| constructor())
 }
 
 #[cfg(test)]

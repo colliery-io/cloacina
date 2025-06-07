@@ -191,7 +191,7 @@ async fn test_task_executor_basic_execution() {
     // Create scheduler and schedule a workflow
     let workflow = Workflow::builder("test_pipeline")
         .description("Test pipeline for executor")
-        .add_task(WorkflowTask::new("test_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("test_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -266,9 +266,9 @@ async fn test_task_executor_dependency_loading() {
     // Create workflow with dependencies
     let workflow = Workflow::builder("dependency_pipeline")
         .description("Test pipeline with dependencies")
-        .add_task(WorkflowTask::new("producer", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
         .unwrap()
-        .add_task(WorkflowTask::new("consumer", vec!["producer"]))
+        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
         .unwrap()
         .build()
         .unwrap();
@@ -390,7 +390,7 @@ async fn test_task_executor_timeout_handling() {
     // Create workflow
     let workflow = Workflow::builder("timeout_pipeline")
         .description("Test pipeline with timeout")
-        .add_task(WorkflowTask::new("timeout_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("timeout_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -460,7 +460,7 @@ async fn test_pipeline_engine_unified_mode() {
     // Create workflow
     let workflow = Workflow::builder("unified_pipeline")
         .description("Test pipeline for unified mode")
-        .add_task(WorkflowTask::new("unified_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -483,7 +483,7 @@ async fn test_pipeline_engine_unified_mode() {
     // Create a separate workflow for scheduling since we can't clone
     let schedule_workflow = Workflow::builder("unified_pipeline")
         .description("Test pipeline for unified mode")
-        .add_task(WorkflowTask::new("unified_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -600,7 +600,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     // Create workflow
     let workflow = Workflow::builder("initial_context_pipeline")
         .description("Test pipeline for initial context loading")
-        .add_task(WorkflowTask::new("initial_context_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("initial_context_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -795,9 +795,9 @@ async fn test_task_executor_context_loading_with_dependencies() {
     // Create workflow with dependency chain
     let workflow = Workflow::builder("dependency_context_pipeline")
         .description("Test pipeline for dependency context loading")
-        .add_task(WorkflowTask::new("producer", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
         .unwrap()
-        .add_task(WorkflowTask::new("consumer", vec!["producer"]))
+        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
         .unwrap()
         .build()
         .unwrap();

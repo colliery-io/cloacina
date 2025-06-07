@@ -234,14 +234,17 @@ async fn test_context_merging_latest_wins() {
     // Create workflow
     let workflow = Workflow::builder("merging_pipeline")
         .description("Test pipeline for context merging")
-        .add_task(WorkflowTask::new("early_producer", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("early_producer", vec![])))
         .unwrap()
-        .add_task(WorkflowTask::new("late_producer", vec!["early_producer"]))
+        .add_task(Arc::new(WorkflowTask::new(
+            "late_producer",
+            vec!["early_producer"],
+        )))
         .unwrap()
-        .add_task(WorkflowTask::new(
+        .add_task(Arc::new(WorkflowTask::new(
             "merger",
             vec!["early_producer", "late_producer"],
-        ))
+        )))
         .unwrap()
         .build()
         .unwrap();
@@ -371,7 +374,7 @@ async fn test_execution_scope_context_setup() {
     // Create workflow
     let workflow = Workflow::builder("scope_pipeline")
         .description("Test pipeline for execution scope")
-        .add_task(WorkflowTask::new("scope_inspector", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("scope_inspector", vec![])))
         .unwrap()
         .build()
         .unwrap();

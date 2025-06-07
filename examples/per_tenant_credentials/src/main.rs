@@ -20,8 +20,7 @@
 //! isolated tenant users with their own database credentials and schemas.
 
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
-use cloacina::executor::PipelineExecutor;
-use cloacina::runner::DefaultRunner;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use std::env;
 use tracing::{error, info, warn};
 
@@ -133,13 +132,13 @@ async fn demonstrate_tenant_isolation(
     info!("      returned by DatabaseAdmin::create_tenant() for each tenant");
 
     // Example of how tenant applications would connect:
-    info!("Creating executor with shared credentials for demonstration...");
-    let tenant_executor_result =
-        DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
 
-    match tenant_executor_result {
-        Ok(tenant_executor) => {
-            info!("✓ Tenant executor created successfully");
+    info!("Creating runner with shared credentials for demonstration...");
+    let tenant_runner_result = DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
+
+    match tenant_runner_result {
+        Ok(tenant_runner) => {
+            info!("✓ Tenant runner created successfully");
             info!("  - Schema isolation: ✓ (each tenant has separate schema)");
             info!("  - Migration isolation: ✓ (migrations run per-schema)");
             info!("  - Data isolation: ✓ (tenant data stored in separate schema)");
@@ -151,10 +150,10 @@ async fn demonstrate_tenant_isolation(
                 "  - Audit trail: ✓ (PostgreSQL logs show which tenant user performed operations)"
             );
 
-            tenant_executor.shutdown().await?;
+            tenant_runner.shutdown().await?;
         }
         Err(e) => {
-            error!("✗ Failed to create tenant executor: {}", e);
+            error!("✗ Failed to create tenant runner: {}", e);
             info!("This might be expected if PostgreSQL isn't running");
         }
     }
@@ -164,13 +163,15 @@ async fn demonstrate_tenant_isolation(
     info!("The same DefaultRunner::with_schema() API works for both:");
     info!("");
     info!("// Shared credentials (current approach)");
-    info!("let executor = DefaultRunner::with_schema(");
+
+    info!("let runner = DefaultRunner::with_schema(");
     info!("    \"postgresql://shared_user:shared_pw@host/db\",");
     info!("    \"tenant_acme\"");
     info!(").await?;");
     info!("");
     info!("// Per-tenant credentials (enhanced security)");
-    info!("let executor = DefaultRunner::with_schema(");
+
+    info!("let runner = DefaultRunner::with_schema(");
     info!("    \"postgresql://acme_user:tenant_pw@host/db\",");
     info!("    \"tenant_acme\"");
     info!(").await?;");
