@@ -1344,9 +1344,9 @@ impl DefaultRunner {
                 message: format!("Failed to calculate next execution: {}", e),
             })?;
 
-        // Update the schedule
+        // Update the schedule with new expression, timezone, and next run time
         dal.cron_schedule()
-            .update_next_run(schedule_id, next_run)
+            .update_expression_and_timezone(schedule_id, cron_expression, timezone, next_run)
             .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to update cron schedule: {}", e),
