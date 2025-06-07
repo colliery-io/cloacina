@@ -23,6 +23,7 @@
 //! - Monitoring task execution outcomes
 
 use cloacina::executor::PipelineExecutor;
+
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use rand::Rng;
@@ -288,6 +289,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
+
     let config = DefaultRunnerConfig::default();
     let runner = DefaultRunner::with_config(
         "sqlite://tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",

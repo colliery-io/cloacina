@@ -86,8 +86,8 @@
 //! when operations complete. The pool size and other connection parameters can be
 //! configured when creating the database instance.
 
+use deadpool_diesel::postgres::Pool;
 use diesel::pg::PgConnection;
-use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 
 pub mod context;
 pub mod cron_execution;
@@ -130,7 +130,7 @@ pub use cron_execution::CronExecutionStats;
 #[derive(Clone)]
 pub struct DAL {
     /// A connection pool for PostgreSQL database connections.
-    pub pool: Pool<ConnectionManager<PgConnection>>,
+    pub pool: Pool,
 }
 
 impl DAL {
@@ -143,7 +143,7 @@ impl DAL {
     /// # Returns
     ///
     /// A new DAL instance ready for database operations.
-    pub fn new(pool: Pool<ConnectionManager<PgConnection>>) -> Self {
+    pub fn new(pool: Pool) -> Self {
         DAL { pool }
     }
 
@@ -176,16 +176,16 @@ impl DAL {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
+    pub async fn transaction<T, F>(&self, f: F) -> Result<T, crate::error::ValidationError>
     where
-        F: FnOnce(
-            &mut PooledConnection<ConnectionManager<PgConnection>>,
-        ) -> Result<T, crate::error::ValidationError>,
+        F: FnOnce(&mut PgConnection) -> Result<T, crate::error::ValidationError> + Send + 'static,
+        T: Send + 'static,
     {
         use diesel::connection::Connection;
-
-        let mut conn = self.pool.get()?;
-        conn.transaction(f)
+        let conn = self.pool.get().await?;
+        conn.interact(move |conn| conn.transaction(f))
+            .await
+            .map_err(|e| crate::error::ValidationError::ConnectionPool(e.to_string()))?
     }
 
     /// Returns a ContextDAL instance for context-related database operations.

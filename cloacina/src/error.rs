@@ -143,7 +143,7 @@ pub enum ContextError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Invalid execution scope: {0}")]
     InvalidScope(String),
@@ -292,10 +292,22 @@ pub enum ValidationError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Context error: {0}")]
     Context(#[from] ContextError),
+}
+
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ValidationError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ValidationError::ConnectionPool(err.to_string())
+    }
+}
+
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ContextError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ContextError::ConnectionPool(err.to_string())
+    }
 }
 
 /// Errors that can occur during task execution.
@@ -305,7 +317,7 @@ pub enum ExecutorError {
     Database(#[from] diesel::result::Error),
 
     #[error("Connection pool error: {0}")]
-    ConnectionPool(#[from] r2d2::Error),
+    ConnectionPool(String),
 
     #[error("Task not found in registry: {0}")]
     TaskNotFound(String),
@@ -333,6 +345,12 @@ pub enum ExecutorError {
 
     #[error("Validation error: {0}")]
     Validation(#[from] ValidationError),
+}
+
+impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for ExecutorError {
+    fn from(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self {
+        ExecutorError::ConnectionPool(err.to_string())
+    }
 }
 
 /// Errors that can occur during workflow construction and management.

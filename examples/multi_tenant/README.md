@@ -33,6 +33,7 @@ For SQLite, simply use different database files:
 
 ```rust
 // Each tenant gets their own database file
+
 let tenant_a = DefaultRunner::with_config(
     "sqlite://./tenant_a.db",
     DefaultRunnerConfig::default()
@@ -41,6 +42,7 @@ let tenant_b = DefaultRunner::with_config(
     "sqlite://./tenant_b.db",
     DefaultRunnerConfig::default()
 ).await?;
+
 ```
 
 ## Running the Example
@@ -99,6 +101,7 @@ let runner = DefaultRunner::with_schema(&database_url, &tenant_id).await?;
 
 ```rust
 // API service
+
 let api_runner = DefaultRunner::with_schema(db_url, "api_service").await?;
 
 // Background job processor

@@ -19,6 +19,7 @@
 //! This example demonstrates how to use Cloacina's multi-tenant capabilities
 //! with PostgreSQL schema-based isolation.
 
+
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::PipelineError;
 use std::env;
@@ -54,6 +55,7 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 
     // Method 1: Using convenience method
     info!("Creating tenant 'acme_corp' using convenience method");
+
     let acme_runner = DefaultRunner::with_schema(database_url, "acme_corp").await?;
 
     // Method 2: Using builder pattern with config

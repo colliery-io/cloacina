@@ -61,11 +61,13 @@ async fn demonstrate_admin_tenant_creation(
 
     // Scenario A: Admin provides password
     info!("Creating tenant 'acme_corp' with admin-provided password...");
-    let tenant_a_result = admin.create_tenant(TenantConfig {
-        schema_name: "tenant_acme".to_string(),
-        username: "acme_user".to_string(),
-        password: "admin_chosen_password".to_string(),
-    });
+    let tenant_a_result = admin
+        .create_tenant(TenantConfig {
+            schema_name: "tenant_acme".to_string(),
+            username: "acme_user".to_string(),
+            password: "admin_chosen_password".to_string(),
+        })
+        .await;
 
     match tenant_a_result {
         Ok(tenant_a_creds) => {
@@ -87,11 +89,13 @@ async fn demonstrate_admin_tenant_creation(
 
     // Scenario B: Auto-generated secure password
     info!("Creating tenant 'globex_inc' with auto-generated password...");
-    let tenant_b_result = admin.create_tenant(TenantConfig {
-        schema_name: "tenant_globex".to_string(),
-        username: "globex_user".to_string(),
-        password: "".to_string(), // Empty = auto-generate
-    });
+    let tenant_b_result = admin
+        .create_tenant(TenantConfig {
+            schema_name: "tenant_globex".to_string(),
+            username: "globex_user".to_string(),
+            password: "".to_string(), // Empty = auto-generate
+        })
+        .await;
 
     match tenant_b_result {
         Ok(tenant_b_creds) => {
@@ -128,6 +132,7 @@ async fn demonstrate_tenant_isolation(
     info!("      returned by DatabaseAdmin::create_tenant() for each tenant");
 
     // Example of how tenant applications would connect:
+
     info!("Creating runner with shared credentials for demonstration...");
     let tenant_runner_result = DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
 
@@ -158,12 +163,14 @@ async fn demonstrate_tenant_isolation(
     info!("The same DefaultRunner::with_schema() API works for both:");
     info!("");
     info!("// Shared credentials (current approach)");
+
     info!("let runner = DefaultRunner::with_schema(");
     info!("    \"postgresql://shared_user:shared_pw@host/db\",");
     info!("    \"tenant_acme\"");
     info!(").await?;");
     info!("");
     info!("// Per-tenant credentials (enhanced security)");
+
     info!("let runner = DefaultRunner::with_schema(");
     info!("    \"postgresql://acme_user:tenant_pw@host/db\",");
     info!("    \"tenant_acme\"");

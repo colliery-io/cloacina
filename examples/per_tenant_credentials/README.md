@@ -74,6 +74,7 @@ let creds = admin.create_tenant(TenantConfig {
 // (via secrets management, secure communication, etc.)
 
 // 3. Tenant application uses dedicated credentials
+
 let runner = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
@@ -86,12 +87,14 @@ Per-tenant credentials are fully backwards compatible:
 
 ```rust
 // Existing code (shared credentials)
+
 let runner = DefaultRunner::with_schema(
     "postgresql://shared_user:shared_pw@host/db",
     "tenant_a"
 ).await?;
 
 // Enhanced security (per-tenant credentials)
+
 let runner = DefaultRunner::with_schema(
     "postgresql://tenant_a_user:tenant_a_pw@host/db",
     "tenant_a"

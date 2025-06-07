@@ -27,7 +27,7 @@ use tracing::debug;
 async fn test_context_db_operations() {
     // Get test fixture and initialize it
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
 
     // Get database connection

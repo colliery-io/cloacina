@@ -33,7 +33,7 @@ Multi-tenancy in Cloacina is **not** a security feature - it's a data organizati
 When you create a tenant-specific executor:
 
 ```rust
-let tenant = UnifiedExecutor::with_schema(db_url, "tenant_acme").await?;
+let tenant = DefaultRunner::with_schema(db_url, "tenant_acme").await?;
 ```
 
 Cloacina performs these operations:
@@ -62,7 +62,7 @@ impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
 ### SQLite File Implementation
 
 ```rust
-let tenant = UnifiedExecutor::new("sqlite://./tenant_acme.db").await?;
+let tenant = DefaultRunner::new("sqlite://./tenant_acme.db").await?;
 ```
 
 Each tenant gets a completely separate SQLite database file, providing physical isolation.
@@ -127,7 +127,7 @@ async fn handle_request(auth: AuthToken, tenant_id: String, req: Request) {
     authorize_tenant_access(&user, &tenant_id)?;
 
     // 3. Create scoped executor
-    let executor = UnifiedExecutor::with_schema(&db_url, &tenant_id).await?;
+    let executor = DefaultRunner::with_schema(&db_url, &tenant_id).await?;
 
     // 4. Process request in isolated context
     executor.handle_request(req).await
@@ -145,7 +145,7 @@ let contexts = executor.get_dal().list_contexts().await?;
 **Schema Validation**: Protection against basic injection
 ```rust
 // This will fail validation
-UnifiedExecutor::with_schema(db_url, "tenant'; DROP TABLE --").await?;
+DefaultRunner::with_schema(db_url, "tenant'; DROP TABLE --").await?;
 // Error: Schema name must contain only alphanumeric characters and underscores
 ```
 
@@ -168,7 +168,7 @@ let creds = admin.create_tenant(TenantConfig {
 })?;
 
 // Each tenant uses their own database credentials
-let executor = UnifiedExecutor::with_schema(
+let executor = DefaultRunner::with_schema(
     &creds.connection_string,  // postgresql://acme_user:***@host/db
     &creds.schema_name
 ).await?;
@@ -251,7 +251,7 @@ let creds = admin.create_tenant(TenantConfig {
 send_credentials_to_tenant(&creds);
 
 // 3. Tenant application uses their specific credentials
-let executor = UnifiedExecutor::with_schema(
+let executor = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
 ).await?;
@@ -275,17 +275,17 @@ The `create_tenant` method performs these operations in a transaction:
 
 ### Zero API Changes
 
-The same `UnifiedExecutor::with_schema()` API works for both approaches:
+The same `DefaultRunner::with_schema()` API works for both approaches:
 
 ```rust
 // Shared credentials (original approach)
-let executor = UnifiedExecutor::with_schema(
+let executor = DefaultRunner::with_schema(
     "postgresql://shared_user:shared_pw@host/db",
     "tenant_acme"
 ).await?;
 
 // Per-tenant credentials (enhanced security)
-let executor = UnifiedExecutor::with_schema(
+let executor = DefaultRunner::with_schema(
     "postgresql://acme_user:tenant_pw@host/db",
     "tenant_acme"
 ).await?;
@@ -297,11 +297,11 @@ You can migrate from shared to per-tenant credentials progressively:
 
 ```rust
 // Phase 1: Some tenants still use shared credentials
-let legacy = UnifiedExecutor::with_schema(shared_url, "old_tenant").await?;
+let legacy = DefaultRunner::with_schema(shared_url, "old_tenant").await?;
 
 // Phase 2: New tenants get their own credentials
 let new_creds = admin.create_tenant(TenantConfig { /* ... */ })?;
-let new_tenant = UnifiedExecutor::with_schema(
+let new_tenant = DefaultRunner::with_schema(
     &new_creds.connection_string,
     "new_tenant"
 ).await?;
@@ -334,15 +334,15 @@ PostgreSQL schema-based multi-tenancy provides the strongest isolation guarantee
 ### Basic Usage
 
 ```rust
-use cloacina::executor::unified_executor::UnifiedExecutor;
+use cloacina::runner::DefaultRunner;
 
 // Create tenant-specific executors
-let tenant_a = UnifiedExecutor::with_schema(
+let tenant_a = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_a"
 ).await?;
 
-let tenant_b = UnifiedExecutor::with_schema(
+let tenant_b = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_b"
 ).await?;
@@ -357,7 +357,7 @@ let result_b = tenant_b.execute("my_workflow", context_b).await?;
 For more complex configurations, use the builder pattern:
 
 ```rust
-let executor = UnifiedExecutor::builder()
+let executor = DefaultRunner::builder()
     .database_url("postgresql://user:pass@localhost/cloacina")
     .schema("production_tenant_123")
     .max_concurrent_tasks(8)
@@ -372,7 +372,7 @@ Schemas are automatically created and migrated on first use:
 
 ```rust
 // First time accessing a schema
-let executor = UnifiedExecutor::with_schema(db_url, "new_tenant").await?;
+let executor = DefaultRunner::with_schema(db_url, "new_tenant").await?;
 // This will:
 // 1. Create the 'new_tenant' schema if it doesn't exist
 // 2. Run all migrations in that schema
@@ -387,16 +387,16 @@ use std::env;
 let tenant_id = env::var("TENANT_ID")?;
 let database_url = env::var("DATABASE_URL")?;
 
-let executor = UnifiedExecutor::with_schema(&database_url, &tenant_id).await?;
+let executor = DefaultRunner::with_schema(&database_url, &tenant_id).await?;
 ```
 
 ### Service-Based Isolation
 
 ```rust
 // Different services can use different schemas for isolation
-let api_executor = UnifiedExecutor::with_schema(db_url, "api_service").await?;
-let batch_executor = UnifiedExecutor::with_schema(db_url, "batch_processor").await?;
-let analytics_executor = UnifiedExecutor::with_schema(db_url, "analytics").await?;
+let api_executor = DefaultRunner::with_schema(db_url, "api_service").await?;
+let batch_executor = DefaultRunner::with_schema(db_url, "batch_processor").await?;
+let analytics_executor = DefaultRunner::with_schema(db_url, "analytics").await?;
 ```
 
 ## SQLite File-Based Multi-Tenancy
@@ -407,9 +407,9 @@ For SQLite deployments, multi-tenancy is achieved through separate database file
 
 ```rust
 // Each tenant gets their own database file
-let tenant_a = UnifiedExecutor::new("sqlite://./data/tenant_a.db").await?;
-let tenant_b = UnifiedExecutor::new("sqlite://./data/tenant_b.db").await?;
-let tenant_c = UnifiedExecutor::new("sqlite://./data/tenant_c.db").await?;
+let tenant_a = DefaultRunner::new("sqlite://./data/tenant_a.db").await?;
+let tenant_b = DefaultRunner::new("sqlite://./data/tenant_b.db").await?;
+let tenant_c = DefaultRunner::new("sqlite://./data/tenant_c.db").await?;
 ```
 
 ### Dynamic File Paths
@@ -417,7 +417,7 @@ let tenant_c = UnifiedExecutor::new("sqlite://./data/tenant_c.db").await?;
 ```rust
 let tenant_id = env::var("TENANT_ID")?;
 let db_path = format!("sqlite://./data/{}.db", tenant_id);
-let executor = UnifiedExecutor::new(&db_path).await?;
+let executor = DefaultRunner::new(&db_path).await?;
 ```
 
 ## Schema Naming Rules
@@ -447,7 +447,7 @@ When using PostgreSQL schemas, names must follow these rules:
 Simply start using schemas from the beginning:
 
 ```rust
-let executor = UnifiedExecutor::with_schema(db_url, "my_tenant").await?;
+let executor = DefaultRunner::with_schema(db_url, "my_tenant").await?;
 ```
 
 ### For Existing Single-Tenant Deployments
@@ -472,21 +472,21 @@ Then update your application:
 
 ```rust
 // Existing data now in 'legacy_tenant' schema
-let legacy_executor = UnifiedExecutor::with_schema(db_url, "legacy_tenant").await?;
+let legacy_executor = DefaultRunner::with_schema(db_url, "legacy_tenant").await?;
 
 // New tenants use their own schemas
-let new_tenant = UnifiedExecutor::with_schema(db_url, "new_customer").await?;
+let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
 ```
 
 #### Option 2: Run Side-by-Side
 
 ```rust
 // Existing single-tenant executor (uses public schema)
-let legacy_executor = UnifiedExecutor::new(db_url).await?;
+let legacy_executor = DefaultRunner::new(db_url).await?;
 
 // New multi-tenant executors use schemas
-let tenant_a = UnifiedExecutor::with_schema(db_url, "tenant_a").await?;
-let tenant_b = UnifiedExecutor::with_schema(db_url, "tenant_b").await?;
+let tenant_a = DefaultRunner::with_schema(db_url, "tenant_a").await?;
+let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 ```
 
 ## Performance Considerations
@@ -514,12 +514,12 @@ let tenant_b = UnifiedExecutor::with_schema(db_url, "tenant_b").await?;
 async fn create_tenant_executor(
     db_url: &str,
     tenant_id: &str
-) -> Result<UnifiedExecutor, AppError> {
+) -> Result<DefaultRunner, AppError> {
     // Validate tenant ID comes from trusted source
     validate_tenant_id(tenant_id)?;
 
     // Create executor with monitoring
-    let executor = UnifiedExecutor::with_schema(db_url, tenant_id)
+    let executor = DefaultRunner::with_schema(db_url, tenant_id)
         .await
         .map_err(|e| AppError::TenantSetup(tenant_id.to_string(), e))?;
 
