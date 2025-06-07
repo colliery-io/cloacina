@@ -738,6 +738,14 @@ impl TaskScheduler {
                 let failed_count = all_tasks.iter().filter(|t| t.status == "Failed").count();
                 let skipped_count = all_tasks.iter().filter(|t| t.status == "Skipped").count();
 
+                // Update the pipeline's final context before marking complete
+                if let Err(e) = self.update_pipeline_final_context(execution.id, &all_tasks).await {
+                    warn!(
+                        "Failed to update final context for pipeline {}: {}",
+                        execution.id, e
+                    );
+                }
+
                 self.dal
                     .pipeline_execution()
                     .mark_completed(execution.id)
@@ -1450,6 +1458,73 @@ impl TaskScheduler {
     /// Records a recovery event for monitoring and debugging.
     async fn record_recovery_event(&self, event: NewRecoveryEvent) -> Result<(), ValidationError> {
         self.dal.recovery_event().create(event).await?;
+        Ok(())
+    }
+
+    /// Updates the pipeline's final context when it completes.
+    ///
+    /// This method finds the context from the final task(s) that produced output 
+    /// and updates the pipeline's context_id to point to that final context,
+    /// ensuring that PipelineResult.final_context returns the correct data.
+    ///
+    /// # Arguments
+    /// * `pipeline_execution_id` - UUID of the pipeline execution
+    /// * `all_tasks` - All task executions for this pipeline
+    ///
+    /// # Returns
+    /// * `Result<(), ValidationError>` - Success or error
+    async fn update_pipeline_final_context(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        all_tasks: &[crate::models::task_execution::TaskExecution],
+    ) -> Result<(), ValidationError> {
+        // Find the final context by looking at the last task that completed with context
+        // Priority order: Completed > Skipped, then by completion time (latest first)
+        let mut final_context_id: Option<UniversalUuid> = None;
+        let mut latest_completion_time: Option<chrono::DateTime<chrono::Utc>> = None;
+
+        for task in all_tasks {
+            // Only consider tasks that have finished execution and might have output context
+            if task.status == "Completed" || task.status == "Skipped" {
+                if let Some(completed_at) = task.completed_at {
+                    // Check if this task has a context stored
+                    if let Ok(task_metadata) = self
+                        .dal
+                        .task_execution_metadata()
+                        .get_by_pipeline_and_task(pipeline_execution_id, &task.task_name)
+                        .await
+                    {
+                        if let Some(context_id) = task_metadata.context_id {
+                            // Use this context if it's the latest completion time or we haven't found one yet
+                            if latest_completion_time.is_none() 
+                                || completed_at.0 > latest_completion_time.unwrap() 
+                            {
+                                final_context_id = Some(context_id);
+                                latest_completion_time = Some(completed_at.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update the pipeline's context_id if we found a final context
+        if let Some(context_id) = final_context_id {
+            debug!(
+                "Updating pipeline {} final context to context_id: {}",
+                pipeline_execution_id, context_id
+            );
+            self.dal
+                .pipeline_execution()
+                .update_final_context(pipeline_execution_id, context_id)
+                .await?;
+        } else {
+            debug!(
+                "No final context found for pipeline {} - keeping initial context",
+                pipeline_execution_id
+            );
+        }
+
         Ok(())
     }
 }

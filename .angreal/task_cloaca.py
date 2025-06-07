@@ -8,6 +8,8 @@ for clean, testable command implementations.
 import os
 import sys
 from pathlib import Path
+from dataclasses import dataclass
+from typing import List, Optional
 
 import angreal  # type: ignore
 from angreal.integrations.venv import VirtualEnv# type: ignore
@@ -29,6 +31,51 @@ from database_reset import smart_postgres_reset, check_postgres_container_health
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
+
+
+@dataclass
+class TestResult:
+    """Represents the result of running a test file."""
+    file_name: str
+    backend: str
+    passed: bool
+    stdout: str = ""
+    stderr: str = ""
+    return_code: Optional[int] = None
+
+
+class TestAggregator:
+    """Aggregates test results across all backends."""
+    
+    def __init__(self):
+        self.results: List[TestResult] = []
+    
+    def add_result(self, result: TestResult):
+        self.results.append(result)
+    
+    def get_failed_results(self) -> List[TestResult]:
+        return [r for r in self.results if not r.passed]
+    
+    def get_summary(self) -> dict:
+        total = len(self.results)
+        failed = len(self.get_failed_results())
+        passed = total - failed
+        
+        backends = {}
+        for result in self.results:
+            if result.backend not in backends:
+                backends[result.backend] = {"passed": 0, "failed": 0}
+            if result.passed:
+                backends[result.backend]["passed"] += 1
+            else:
+                backends[result.backend]["failed"] += 1
+        
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "backends": backends
+        }
 
 
 class FileOperationError(Exception):
@@ -628,6 +675,9 @@ def test(backend=None, filter=None):
 
     all_passed = True
 
+    # Initialize test result aggregator
+    test_aggregator = TestAggregator()
+
     for backend_name in backends_to_test:
         print(f"\n{'='*50}")
         print(f"Testing {backend_name.title()} backend")
@@ -720,11 +770,45 @@ def test(backend=None, filter=None):
                     cmd.extend(["-k", filter])
                 
                 try:
-                    subprocess.run(cmd, env=env, check=True)
-                    print(f"✓ {test_file.name} PASSED")
-                    file_results.append((test_file.name, True))
-                except subprocess.CalledProcessError:
-                    print(f"✗ {test_file.name} FAILED")
+                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                    
+                    if result.returncode == 0:
+                        print(f"✓ {test_file.name} PASSED")
+                        test_result = TestResult(
+                            file_name=test_file.name,
+                            backend=backend_name,
+                            passed=True,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                            return_code=result.returncode
+                        )
+                        file_results.append((test_file.name, True))
+                    else:
+                        print(f"✗ {test_file.name} FAILED")
+                        test_result = TestResult(
+                            file_name=test_file.name,
+                            backend=backend_name,
+                            passed=False,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                            return_code=result.returncode
+                        )
+                        file_results.append((test_file.name, False))
+                        all_passed = False
+                    
+                    test_aggregator.add_result(test_result)
+                    
+                except subprocess.CalledProcessError as e:
+                    print(f"✗ {test_file.name} FAILED (subprocess error)")
+                    test_result = TestResult(
+                        file_name=test_file.name,
+                        backend=backend_name,
+                        passed=False,
+                        stdout=e.stdout or "",
+                        stderr=e.stderr or "",
+                        return_code=e.returncode
+                    )
+                    test_aggregator.add_result(test_result)
                     file_results.append((test_file.name, False))
                     all_passed = False
             
@@ -763,15 +847,61 @@ def test(backend=None, filter=None):
             # Clean up generated files
             scrub()
 
+    # Generate comprehensive final report
+    summary = test_aggregator.get_summary()
+    failed_results = test_aggregator.get_failed_results()
+
+    print(f"\n{'='*70}")
+    print("FINAL TEST REPORT")
+    print(f"{'='*70}")
+
+    # Overall summary
+    print(f"Total tests: {summary['total']}")
+    print(f"Passed: {summary['passed']}")
+    print(f"Failed: {summary['failed']}")
+
+    # Per-backend summary
+    print(f"\nBackend breakdown:")
+    for backend, stats in summary['backends'].items():
+        print(f"  {backend.title()}: {stats['passed']} passed, {stats['failed']} failed")
+
+    # Detailed failure report
+    if failed_results:
+        print(f"\n{'='*70}")
+        print("DETAILED FAILURE REPORT")
+        print(f"{'='*70}")
+        
+        for i, failure in enumerate(failed_results, 1):
+            print(f"\n{i}. {failure.file_name} ({failure.backend})")
+            print(f"   Return code: {failure.return_code}")
+            print(f"   {'-'*50}")
+            
+            if failure.stdout:
+                print("   STDOUT:")
+                # Indent each line of output
+                for line in failure.stdout.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
+            
+            if failure.stderr:
+                print("   STDERR:")
+                for line in failure.stderr.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
+            
+            print(f"   {'-'*50}")
+        
+        print(f"\n{'='*70}")
+        print(f"SUMMARY: {len(failed_results)} test files failed across all backends")
+        print("Scroll up to see detailed failure information for each test")
+        print(f"{'='*70}")
+
     if all_passed:
-        print(f"\n{'='*50}")
-        print("All tests passed!")
-        print(f"{'='*50}")
+        print(f"\nAll tests passed!")
         return 0
     else:
-        print(f"\n{'='*50}")
-        print("Some tests failed!")
-        print(f"{'='*50}")
+        print(f"\n{len(failed_results)} test files failed")
+        print("See detailed failure report above")
         return 1
 
 
