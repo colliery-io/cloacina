@@ -194,7 +194,7 @@ impl PipelineEngine {
         executor_config: ExecutorConfig,
         mode: EngineMode,
     ) -> Self {
-        let scheduler = TaskScheduler::new(database.clone(), workflows);
+        let scheduler = TaskScheduler::with_static_workflows(database.clone(), workflows);
         let executor = TaskExecutor::new(
             database.clone(),
             Arc::clone(&task_registry),
@@ -263,7 +263,7 @@ impl PipelineEngine {
         mode: EngineMode,
     ) -> Result<Self, ExecutorError> {
         // Create scheduler with recovery
-        let scheduler = TaskScheduler::new_with_recovery(database.clone(), workflows)
+        let scheduler = TaskScheduler::with_static_workflows_and_recovery(database.clone(), workflows)
             .await
             .map_err(ExecutorError::Validation)?;
 

@@ -654,7 +654,8 @@ except Exception as e:
 @angreal.command(name="test", about="run tests in isolated test environments")
 @angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
 @angreal.argument(name="filter", short="k", help="Filter tests by expression (pytest -k)")
-def test(backend=None, filter=None):
+@angreal.argument(name="file", long="file", help="Run specific test file (e.g. test_scenario_03_function_based_dag_topology.py)")
+def test(backend=None, filter=None, file=None):
     """Run Python binding tests in isolated virtual environments.
 
     Creates fresh virtual environments for each test run to ensure
@@ -713,12 +714,23 @@ def test(backend=None, filter=None):
             # Step 4: Run tests with file-level isolation
             print("Step 4: Running tests with file-level isolation...")
             
-            # Discover all test files
+            # Discover test files to run
             test_dir = project_root / "python-tests"
-            test_files = list(test_dir.glob("test_*.py"))
             
-            if filter:
-                test_files = [f for f in test_files if filter in f.name]
+            if file:
+                # Run specific file
+                test_file_path = test_dir / file
+                if not test_file_path.exists():
+                    print(f"Error: Test file {file} not found in {test_dir}")
+                    all_passed = False
+                    continue
+                test_files = [test_file_path]
+            else:
+                # Run all test files
+                test_files = list(test_dir.glob("test_*.py"))
+                
+                if filter:
+                    test_files = [f for f in test_files if filter in f.name]
             
             print(f"Found {len(test_files)} test files to run")
             

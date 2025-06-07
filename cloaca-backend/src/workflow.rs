@@ -239,38 +239,25 @@ impl PyWorkflow {
 /// Register a workflow constructor function
 #[pyfunction]
 pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyResult<()> {
-    let constructor_arc = Arc::new(constructor);
-    
-    cloacina::workflow::register_workflow_constructor(
-        name.clone(),
-        {
-            let _name_clone = name.clone();
-            let constructor_clone = constructor_arc.clone();
-            move || {
-                Python::with_gil(|py| {
-                    // Call the Python constructor function
-                    match constructor_clone.call0(py) {
-                        Ok(workflow_obj) => {
-                            // Extract the PyWorkflow wrapper
-                            match workflow_obj.extract::<PyWorkflow>(py) {
-                                Ok(py_workflow) => py_workflow.inner.clone(),
-                                Err(e) => {
-                                    eprintln!("Failed to extract workflow from constructor: {}", e);
-                                    panic!("Workflow constructor must return a Workflow object");
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("Failed to call workflow constructor: {}", e);
-                            panic!("Failed to call workflow constructor");
-                        }
-                    }
-                })
-            }
-        }
-    );
-    
-    Ok(())
+    // Pre-evaluate the constructor immediately while we have the GIL
+    Python::with_gil(|py| {
+        // Call the Python constructor function immediately
+        let workflow_obj = constructor.call0(py)
+            .map_err(|e| PyValueError::new_err(format!("Failed to call workflow constructor: {}", e)))?;
+        
+        // Extract the PyWorkflow wrapper
+        let py_workflow: PyWorkflow = workflow_obj.extract(py)
+            .map_err(|e| PyValueError::new_err(format!("Failed to extract workflow from constructor: {}", e)))?;
+        
+        // Store the pre-built workflow
+        let workflow = py_workflow.inner.clone();
+        cloacina::workflow::register_workflow_constructor(
+            name,
+            move || workflow.clone()
+        );
+        
+        Ok(())
+    })
 }
 
 // Removed workflow decorator - using context manager pattern instead

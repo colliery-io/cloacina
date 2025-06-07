@@ -308,10 +308,14 @@ impl TaskExecutor {
                     if let Some(json_str) = context_json {
                         // Parse the JSON context data
                         if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                            // Merge context data (simple overwrite strategy)
+                            // Merge context data (smart merging strategy)
                             for (key, value) in dep_context.data() {
-                                // Insert only if key doesn't exist (first dependency wins for pre-loaded data)
-                                if context.get(key).is_none() {
+                                if let Some(existing_value) = context.get(key) {
+                                    // Key exists - perform smart merging
+                                    let merged_value = self.merge_context_values(existing_value, value);
+                                    let _ = context.update(key, merged_value);
+                                } else {
+                                    // Key doesn't exist - insert new value
                                     let _ = context.insert(key, value.clone());
                                 }
                             }
@@ -322,6 +326,53 @@ impl TaskExecutor {
         }
 
         Ok(context)
+    }
+
+    /// Merges two context values using smart merging strategy.
+    ///
+    /// For arrays: concatenates unique values maintaining order
+    /// For objects: merges recursively (latest wins for conflicting keys)
+    /// For primitives: latest wins
+    ///
+    /// # Arguments
+    /// * `existing` - The existing value in the context
+    /// * `new` - The new value from dependency context
+    ///
+    /// # Returns
+    /// The merged value
+    fn merge_context_values(
+        &self,
+        existing: &serde_json::Value,
+        new: &serde_json::Value,
+    ) -> serde_json::Value {
+        use serde_json::Value;
+
+        match (existing, new) {
+            // Both are arrays - concatenate and deduplicate
+            (Value::Array(existing_arr), Value::Array(new_arr)) => {
+                let mut merged = existing_arr.clone();
+                for item in new_arr {
+                    if !merged.contains(item) {
+                        merged.push(item.clone());
+                    }
+                }
+                Value::Array(merged)
+            }
+            // Both are objects - merge recursively
+            (Value::Object(existing_obj), Value::Object(new_obj)) => {
+                let mut merged = existing_obj.clone();
+                for (key, value) in new_obj {
+                    if let Some(existing_value) = merged.get(key) {
+                        merged.insert(key.clone(), self.merge_context_values(existing_value, value));
+                    } else {
+                        merged.insert(key.clone(), value.clone());
+                    }
+                }
+                Value::Object(merged)
+            }
+            // For all other cases (different types or primitives), latest wins
+            (_, new_value) => new_value.clone(),
+        }
     }
 
     /// Executes a claimed task with pre-loaded context.

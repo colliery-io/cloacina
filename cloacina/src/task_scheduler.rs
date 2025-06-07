@@ -176,12 +176,16 @@ pub struct TaskScheduler {
 }
 
 impl TaskScheduler {
-    /// Creates a new TaskScheduler with the provided database and compiled workflows.
+    /// Creates a new TaskScheduler instance with default configuration using global workflow registry.
+    ///
+    /// This is the recommended constructor for most use cases. The TaskScheduler will:
+    /// - Use all workflows registered in the global registry  
+    /// - Enable automatic recovery of orphaned tasks
+    /// - Use default poll interval (100ms)
     ///
     /// # Arguments
     ///
     /// * `database` - Database instance for persistence
-    /// * `compiled_workflows` - Vector of compiled Workflow instances to manage
     ///
     /// # Returns
     ///
@@ -190,53 +194,92 @@ impl TaskScheduler {
     /// # Examples
     ///
     /// ```rust
-    /// use cloacina::{Database, TaskScheduler, Workflow};
+    /// use cloacina::{Database, TaskScheduler};
     ///
     /// let database = Database::new("postgresql://localhost/cloacina")?;
-    /// let workflows = vec![Workflow::new("my-workflow")?];
-    /// let scheduler = TaskScheduler::new(database, workflows);
+    /// let scheduler = TaskScheduler::new(database).await?;
     /// ```
     ///
     /// # Errors
     ///
-    /// This constructor does not return errors, but subsequent operations may fail if:
-    /// - The database connection is invalid
-    /// - The workflows contain invalid configurations
-    pub fn new(database: Database, compiled_workflows: Vec<Workflow>) -> Self {
-        Self::with_poll_interval(database, compiled_workflows, Duration::from_millis(100))
+    /// May return ValidationError if recovery operations fail.
+    pub async fn new(database: Database) -> Result<Self, ValidationError> {
+        let scheduler = Self::with_poll_interval(database, Duration::from_millis(100)).await?;
+        Ok(scheduler)
     }
 
-    /// Creates a new TaskScheduler with custom poll interval.
+    /// Creates a new TaskScheduler with the provided database.
+    /// 
+    /// This method is deprecated. Use `new()` instead which provides the same functionality.
     ///
     /// # Arguments
     ///
     /// * `database` - Database instance for persistence
-    /// * `compiled_workflows` - Vector of compiled Workflow instances to manage
+    ///
+    /// # Returns
+    ///
+    /// A new TaskScheduler instance ready to schedule and manage workflow executions.
+    #[deprecated(note = "Use TaskScheduler::new() instead")]
+    pub fn with_static_workflows(database: Database, compiled_workflows: Vec<Workflow>) -> Self {
+        Self::with_static_workflows_and_poll_interval(database, compiled_workflows, Duration::from_millis(100))
+    }
+
+    /// Creates a new TaskScheduler with custom poll interval using global workflow registry.
+    ///
+    /// Uses all workflows registered in the global registry and enables automatic recovery.
+    ///
+    /// # Arguments
+    ///
+    /// * `database` - Database instance for persistence
     /// * `poll_interval` - How often to check for ready tasks
     ///
     /// # Returns
     ///
     /// A new TaskScheduler instance ready to schedule and manage workflow executions.
-    pub fn with_poll_interval(
+    ///
+    /// # Errors
+    ///
+    /// May return ValidationError if recovery operations fail.
+    pub async fn with_poll_interval(
         database: Database,
-        compiled_workflows: Vec<Workflow>,
+        poll_interval: Duration,
+    ) -> Result<Self, ValidationError> {
+        let workflows = crate::workflow::get_all_workflows();
+        let scheduler = Self::with_static_workflows_and_poll_interval(database, workflows, poll_interval);
+        scheduler.recover_orphaned_tasks().await?;
+        Ok(scheduler)
+    }
+    
+    /// Creates a new TaskScheduler with custom poll interval (synchronous version).
+    fn with_poll_interval_sync(
+        database: Database,
         poll_interval: Duration,
     ) -> Self {
         let dal = DAL::new(database.pool());
-        let workflow_registry = compiled_workflows
-            .into_iter()
-            .map(|workflow| (workflow.name().to_string(), workflow))
-            .collect();
 
         Self {
             dal,
-            workflow_registry,
+            workflow_registry: HashMap::new(), // Empty since using global registry
             instance_id: Uuid::new_v4(),
             poll_interval,
         }
     }
 
-    /// Creates a new TaskScheduler using workflows from the global registry.
+    /// Creates a new TaskScheduler with custom poll interval.
+    ///
+    /// This method is deprecated. Use `with_poll_interval()` instead.
+    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
+    pub fn with_static_workflows_and_poll_interval(
+        database: Database,
+        _compiled_workflows: Vec<Workflow>,
+        poll_interval: Duration,
+    ) -> Self {
+        Self::with_poll_interval_sync(database, poll_interval)
+    }
+
+    /// Creates a new TaskScheduler using workflows from the global registry without recovery.
+    ///
+    /// This method is deprecated. Use `new()` instead for the recommended behavior.
     ///
     /// # Arguments
     ///
@@ -245,12 +288,14 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A new TaskScheduler instance with all globally registered workflows.
+    #[deprecated(note = "Use TaskScheduler::new() instead")]
     pub fn with_global_workflows(database: Database) -> Self {
-        let workflows = crate::workflow::get_all_workflows();
-        Self::new(database, workflows)
+        Self::with_poll_interval_sync(database, Duration::from_millis(100))
     }
 
-    /// Creates a new TaskScheduler with automatic recovery of orphaned tasks.
+    /// Creates a new TaskScheduler with static workflows and automatic recovery of orphaned tasks.
+    ///
+    /// This method is deprecated. Use `new()` for the recommended behavior with global workflows.
     ///
     /// This method performs recovery during initialization by:
     /// 1. Detecting tasks stuck in "Running" state from previous system interruptions
@@ -265,19 +310,17 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A TaskScheduler instance with recovery completed.
-    pub async fn new_with_recovery(
+    #[deprecated(note = "Use TaskScheduler::new() instead")]
+    pub async fn with_static_workflows_and_recovery(
         database: Database,
-        compiled_workflows: Vec<Workflow>,
+        _compiled_workflows: Vec<Workflow>,
     ) -> Result<Self, ValidationError> {
-        Self::new_with_recovery_and_poll_interval(
-            database,
-            compiled_workflows,
-            Duration::from_millis(100),
-        )
-        .await
+        Self::new(database).await
     }
 
-    /// Creates a new TaskScheduler with automatic recovery and custom poll interval.
+    /// Creates a new TaskScheduler with static workflows, automatic recovery and custom poll interval.
+    ///
+    /// This method is deprecated. Use `with_poll_interval()` for the recommended behavior with global workflows.
     ///
     /// # Arguments
     ///
@@ -288,20 +331,18 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A TaskScheduler instance with recovery completed.
-    pub async fn new_with_recovery_and_poll_interval(
+    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
+    pub async fn with_static_workflows_and_recovery_and_poll_interval(
         database: Database,
-        compiled_workflows: Vec<Workflow>,
+        _compiled_workflows: Vec<Workflow>,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let scheduler = Self::with_poll_interval(database, compiled_workflows, poll_interval);
-
-        // Perform recovery on startup
-        scheduler.recover_orphaned_tasks().await?;
-
-        Ok(scheduler)
+        Self::with_poll_interval(database, poll_interval).await
     }
 
     /// Creates a new TaskScheduler with automatic recovery using workflows from the global registry.
+    ///
+    /// This method is deprecated. Use `new()` instead for the same behavior.
     ///
     /// # Arguments
     ///
@@ -310,17 +351,16 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A TaskScheduler instance with all globally registered workflows and recovery completed.
+    #[deprecated(note = "Use TaskScheduler::new() instead")]
     pub async fn with_global_workflows_and_recovery(
         database: Database,
     ) -> Result<Self, ValidationError> {
-        Self::with_global_workflows_and_recovery_and_poll_interval(
-            database,
-            Duration::from_millis(100),
-        )
-        .await
+        Self::new(database).await
     }
 
     /// Creates a new TaskScheduler with automatic recovery using global workflows and custom poll interval.
+    ///
+    /// This method is deprecated. Use `with_poll_interval()` instead for the same behavior.
     ///
     /// # Arguments
     ///
@@ -330,12 +370,12 @@ impl TaskScheduler {
     /// # Returns
     ///
     /// A TaskScheduler instance with all globally registered workflows and recovery completed.
+    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
     pub async fn with_global_workflows_and_recovery_and_poll_interval(
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let workflows = crate::workflow::get_all_workflows();
-        Self::new_with_recovery_and_poll_interval(database, workflows, poll_interval).await
+        Self::with_poll_interval(database, poll_interval).await
     }
 
     /// Schedules a new workflow execution with the provided input context.
@@ -387,10 +427,19 @@ impl TaskScheduler {
     ) -> Result<Uuid, ValidationError> {
         info!("Scheduling workflow execution: {}", workflow_name);
 
-        let workflow = self
-            .workflow_registry
-            .get(workflow_name)
-            .ok_or_else(|| ValidationError::WorkflowNotFound(workflow_name.to_string()))?;
+        // Look up workflow in global registry
+        let workflow = {
+            let global_registry = crate::workflow::global_workflow_registry();
+            let registry_guard = global_registry.read().map_err(|e| {
+                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+            })?;
+            
+            if let Some(constructor) = registry_guard.get(workflow_name) {
+                constructor()
+            } else {
+                return Err(ValidationError::WorkflowNotFound(workflow_name.to_string()));
+            }
+        };
 
         let current_version = workflow.metadata().version.clone();
         let last_version = self
@@ -422,7 +471,7 @@ impl TaskScheduler {
         let pipeline_execution = self.dal.pipeline_execution().create(new_execution).await?;
 
         // Initialize task executions
-        self.initialize_task_executions(pipeline_execution.id.into(), workflow)
+        self.initialize_task_executions(pipeline_execution.id.into(), &workflow)
             .await?;
 
         info!("Workflow execution scheduled: {}", pipeline_execution.id);
@@ -571,7 +620,11 @@ impl TaskScheduler {
         pipeline: PipelineExecution,
         tasks: Vec<TaskExecution>,
     ) -> Result<usize, ValidationError> {
-        let mut available_workflows: Vec<String> = self.workflow_registry.keys().cloned().collect();
+        let mut available_workflows: Vec<String> = {
+            let global_registry = crate::workflow::global_workflow_registry();
+            let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+            registry_guard.keys().cloned().collect()
+        };
         available_workflows.sort();
 
         // Mark all tasks as abandoned
@@ -818,10 +871,18 @@ impl TaskScheduler {
             .pipeline_execution()
             .get_by_id(task_execution.pipeline_execution_id)
             .await?;
-        let workflow = self
-            .workflow_registry
-            .get(&pipeline.pipeline_name)
-            .ok_or_else(|| ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()))?;
+        let workflow = {
+            let global_registry = crate::workflow::global_workflow_registry();
+            let registry_guard = global_registry.read().map_err(|e| {
+                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+            })?;
+            
+            if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
+                constructor()
+            } else {
+                return Err(ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()));
+            }
+        };
 
         let dependencies = workflow
             .get_dependencies(&task_execution.task_name)
@@ -1043,10 +1104,18 @@ impl TaskScheduler {
             .pipeline_execution()
             .get_by_id(task_execution.pipeline_execution_id)
             .await?;
-        let workflow = self
-            .workflow_registry
-            .get(&pipeline.pipeline_name)
-            .ok_or_else(|| ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()))?;
+        let workflow = {
+            let global_registry = crate::workflow::global_workflow_registry();
+            let registry_guard = global_registry.read().map_err(|e| {
+                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+            })?;
+            
+            if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
+                constructor()
+            } else {
+                return Err(ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()));
+            }
+        };
 
         let dependencies = workflow
             .get_dependencies(&task_execution.task_name)
@@ -1296,7 +1365,11 @@ impl TaskScheduler {
         let mut recovered_count = 0;
         let mut abandoned_count = 0;
         let mut failed_pipelines = 0;
-        let mut available_workflows: Vec<String> = self.workflow_registry.keys().cloned().collect();
+        let mut available_workflows: Vec<String> = {
+            let global_registry = crate::workflow::global_workflow_registry();
+            let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+            registry_guard.keys().cloned().collect()
+        };
         available_workflows.sort();
 
         debug!(
@@ -1306,7 +1379,13 @@ impl TaskScheduler {
 
         // Process each pipeline's orphaned tasks
         for (pipeline_id, (pipeline, tasks)) in tasks_by_pipeline {
-            if self.workflow_registry.contains_key(&pipeline.pipeline_name) {
+            let workflow_exists = {
+                let global_registry = crate::workflow::global_workflow_registry();
+                let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+                registry_guard.contains_key(&pipeline.pipeline_name)
+            };
+            
+            if workflow_exists {
                 // Known workflow - use existing recovery logic
                 info!(
                     "Recovering {} tasks from known workflow '{}'",

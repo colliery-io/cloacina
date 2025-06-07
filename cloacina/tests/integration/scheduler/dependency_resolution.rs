@@ -78,7 +78,7 @@ async fn test_task_dependency_initialization() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -141,7 +141,7 @@ async fn test_dependency_satisfaction_check() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context

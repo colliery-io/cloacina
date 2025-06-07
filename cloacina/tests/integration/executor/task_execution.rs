@@ -196,7 +196,7 @@ async fn test_task_executor_basic_execution() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
     let mut input_context = Context::new();
@@ -273,7 +273,7 @@ async fn test_task_executor_dependency_loading() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
     let mut input_context = Context::new();
@@ -395,7 +395,7 @@ async fn test_task_executor_timeout_handling() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
     let mut input_context = Context::new();
@@ -489,7 +489,7 @@ async fn test_pipeline_engine_unified_mode() {
         .unwrap();
 
     // Schedule a workflow execution manually (since we're testing the engine, not the API)
-    let scheduler = TaskScheduler::new(database.clone(), vec![schedule_workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![schedule_workflow]);
     let mut input_context = Context::new();
     input_context
         .insert("engine_test", Value::String("unified_mode".to_string()))
@@ -605,7 +605,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution with initial context
     let mut input_context = Context::new();
@@ -802,7 +802,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution with initial context
     let mut input_context = Context::new();

@@ -62,15 +62,6 @@ class TestFunctionBasedDAGTopology:
             builder.add_task("topology_join")
             return builder.build()
         
-        cloaca.register_workflow_constructor("string_based_topology_workflow", create_string_based_workflow)
-        
-        context = cloaca.Context({"test_type": "string_topology"})
-        result = shared_runner.execute("string_based_topology_workflow", context)
-        
-        assert result is not None
-        assert result.status == "Completed"
-        print("✓ String-based DAG topology works correctly")
-        
         # Test 2: Dynamic task addition patterns
         print("Testing dynamic task addition patterns...")
         
@@ -99,15 +90,6 @@ class TestFunctionBasedDAGTopology:
             builder.add_task("dynamic_task_2")  # Add another dependent
             
             return builder.build()
-        
-        cloaca.register_workflow_constructor("dynamic_topology_workflow", create_dynamic_workflow)
-        
-        context = cloaca.Context({"test_type": "dynamic_topology"})
-        result = shared_runner.execute("dynamic_topology_workflow", context)
-        
-        assert result is not None
-        assert result.status == "Completed"
-        print("✓ Dynamic task addition patterns work correctly")
         
         # Test 3: Complex topology validation
         print("Testing complex topology patterns...")
@@ -150,7 +132,27 @@ class TestFunctionBasedDAGTopology:
             
             return builder.build()
         
+        # Register all workflows before executing any of them
+        cloaca.register_workflow_constructor("string_based_topology_workflow", create_string_based_workflow)
+        cloaca.register_workflow_constructor("dynamic_topology_workflow", create_dynamic_workflow)
         cloaca.register_workflow_constructor("complex_topology_workflow", create_complex_workflow)
+        
+        # Now execute the first test
+        context = cloaca.Context({"test_type": "string_topology"})
+        result = shared_runner.execute("string_based_topology_workflow", context)
+        
+        assert result is not None
+        assert result.status == "Completed"
+        print("✓ String-based DAG topology works correctly")
+        
+        context = cloaca.Context({"test_type": "dynamic_topology"})
+        result = shared_runner.execute("dynamic_topology_workflow", context)
+        
+        assert result is not None
+        assert result.status == "Completed"
+        print("✓ Dynamic task addition patterns work correctly")
+        
+        # Execute Test 3: Complex topology validation
         
         context = cloaca.Context({"test_type": "complex_topology"})
         result = shared_runner.execute("complex_topology_workflow", context)

@@ -306,21 +306,12 @@ impl DefaultRunnerBuilder {
                 })?;
         }
 
-        // Create scheduler with recovery if enabled
-        let scheduler = if self.config.enable_recovery {
-            TaskScheduler::with_global_workflows_and_recovery_and_poll_interval(
-                database.clone(),
-                self.config.scheduler_poll_interval,
-            )
-            .await
-        } else {
-            let workflows = crate::workflow::get_all_workflows();
-            Ok(TaskScheduler::with_poll_interval(
-                database.clone(),
-                workflows,
-                self.config.scheduler_poll_interval,
-            ))
-        }
+        // Create scheduler with global workflow registry (always dynamic)
+        let scheduler = TaskScheduler::with_poll_interval(
+            database.clone(),
+            self.config.scheduler_poll_interval,
+        )
+        .await
         .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor
@@ -459,21 +450,12 @@ impl DefaultRunner {
                 })?;
         }
 
-        // Create scheduler with recovery if enabled
-        let scheduler = if config.enable_recovery {
-            TaskScheduler::with_global_workflows_and_recovery_and_poll_interval(
-                database.clone(),
-                config.scheduler_poll_interval,
-            )
-            .await
-        } else {
-            let workflows = crate::workflow::get_all_workflows();
-            Ok(TaskScheduler::with_poll_interval(
-                database.clone(),
-                workflows,
-                config.scheduler_poll_interval,
-            ))
-        }
+        // Create scheduler with global workflow registry (always dynamic)
+        let scheduler = TaskScheduler::with_poll_interval(
+            database.clone(),
+            config.scheduler_poll_interval,
+        )
+        .await
         .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor

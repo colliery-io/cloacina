@@ -155,28 +155,33 @@ impl PyDefaultRunner {
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
-            eprintln!("THREAD: Initializing logging in background thread");
-            if std::env::var("RUST_LOG").is_ok() {
-                eprintln!("THREAD: RUST_LOG found: {:?}", std::env::var("RUST_LOG"));
-                // Try to initialize tracing in this thread
-                let _ = tracing_subscriber::fmt()
-                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                    .try_init();
-            } else {
-                eprintln!("THREAD: No RUST_LOG environment variable found");
-            }
+            use tracing::{info, debug, error};
+            
+            // Initialize tracing subscriber for this thread
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"))
+                )
+                .try_init();
+                
+            info!("Initializing async runtime thread for DefaultRunner");
             
             // Create the tokio runtime in the dedicated thread
+            debug!("Creating tokio runtime");
             let rt = Runtime::new().expect("Failed to create tokio runtime");
+            info!("Tokio runtime created successfully");
             
             // Create the DefaultRunner within the async context
             let runner = rt.block_on(async {
-                eprintln!("THREAD: Creating DefaultRunner and starting background services");
+                info!("Creating DefaultRunner with database_url: {}", database_url);
+                debug!("Calling cloacina::DefaultRunner::new()");
                 let runner = cloacina::DefaultRunner::new(&database_url).await
                     .expect("Failed to create DefaultRunner");
-                eprintln!("THREAD: DefaultRunner created, background services should be running");
+                info!("DefaultRunner created successfully, background services running");
                 runner
             });
+            debug!("DefaultRunner creation completed");
             
             let runner = Arc::new(runner);
             

@@ -114,22 +114,17 @@ def clean_runner(shared_runner):
     """
     Clean slate for each test using shared runner.
     
-    Clears registries to prevent test pollution while reusing the connection pool.
-    This provides test isolation without the cost of runner recreation.
+    Since tests are now isolated to single files and run separately,
+    registry clearing may not be necessary. Testing without it.
     """
-    print("DEBUG: Setting up clean runner (clearing registries)")
+    print("DEBUG: Setting up clean runner (no registry clearing)")
     
-    # Clear registries before test
-    clear_registries()
-    
-    # Return the shared runner
+    # Return the shared runner without clearing registries
     runner = shared_runner
     
     yield runner
     
-    # Clear registries after test
-    print("DEBUG: Cleaning up after test (clearing registries)")
-    clear_registries()
+    print("DEBUG: Cleaning up after test (no registry clearing)")
 
 
 @pytest.fixture(scope="function")
