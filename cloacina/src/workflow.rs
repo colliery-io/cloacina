@@ -203,7 +203,7 @@ impl DependencyGraph {
     pub fn remove_node(&mut self, node_id: &str) {
         self.nodes.remove(node_id);
         self.edges.remove(node_id);
-        
+
         // Remove all edges pointing to this node
         for deps in self.edges.values_mut() {
             deps.retain(|dep| dep != node_id);
@@ -530,10 +530,10 @@ impl Workflow {
     /// # Examples
     /// ```
     /// use cloacina::Workflow;
-    /// 
+    ///
     /// let mut workflow = Workflow::new("test-workflow");
     /// workflow.add_tag("environment", "staging");
-    /// 
+    ///
     /// let removed = workflow.remove_tag("environment");
     /// assert_eq!(removed, Some("staging".to_string()));
     /// ```
@@ -609,11 +609,11 @@ impl Workflow {
     /// ```
     /// use cloacina::*;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let mut workflow = Workflow::new("test-workflow");
     /// let task = Arc::new(MockTask::new("task1", vec![]));
     /// workflow.add_task(task.clone())?;
-    /// 
+    ///
     /// let removed = workflow.remove_task("task1");
     /// assert!(removed.is_some());
     /// assert!(workflow.get_task("task1").is_none());
@@ -622,7 +622,7 @@ impl Workflow {
     pub fn remove_task(&mut self, task_id: &str) -> Option<Arc<dyn Task>> {
         // Remove from dependency graph first
         self.dependency_graph.remove_node(task_id);
-        
+
         // Remove and return the task
         self.tasks.remove(task_id)
     }
@@ -639,12 +639,12 @@ impl Workflow {
     /// ```
     /// use cloacina::*;
     /// use std::sync::Arc;
-    /// 
+    ///
     /// let mut workflow = Workflow::new("test-workflow");
     /// // Add tasks with dependency: task2 depends on task1
     /// workflow.add_task(Arc::new(MockTask::new("task1", vec![])))?;
     /// workflow.add_task(Arc::new(MockTask::new("task2", vec!["task1"])))?;
-    /// 
+    ///
     /// // Remove the dependency (task2 no longer depends on task1)
     /// workflow.remove_dependency("task2", "task1");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -733,7 +733,7 @@ impl Workflow {
     ///
     /// # Returns
     ///
-    /// * `Some(Arc<dyn Task>)` - If the task exists  
+    /// * `Some(Arc<dyn Task>)` - If the task exists
     /// * `None` - If no task with that ID exists
     pub fn get_task(&self, id: &str) -> Option<Arc<dyn Task>> {
         self.tasks.get(id).cloned()
@@ -806,12 +806,14 @@ impl Workflow {
             if let Some(task) = self.tasks.get(task_id) {
                 // Clone the Arc<dyn Task> to share between workflows
                 workflow.tasks.insert(task_id.clone(), task.clone());
-                
+
                 // Copy dependency graph edges for this task
                 workflow.dependency_graph.add_node(task_id.clone());
                 for dep in task.dependencies() {
                     if subgraph_tasks.contains(dep) {
-                        workflow.dependency_graph.add_edge(task_id.clone(), dep.clone());
+                        workflow
+                            .dependency_graph
+                            .add_edge(task_id.clone(), dep.clone());
                     }
                 }
             } else {
@@ -1192,7 +1194,6 @@ impl WorkflowBuilder {
         self.workflow.add_task(task)?;
         Ok(self)
     }
-
 
     /// Validate the workflow structure
     pub fn validate(self) -> Result<Self, ValidationError> {
@@ -1599,7 +1600,10 @@ mod tests {
         assert!(workflow.get_task("task1").is_none());
 
         // Test tag removal
-        assert_eq!(workflow.metadata().tags.get("env"), Some(&"test".to_string()));
+        assert_eq!(
+            workflow.metadata().tags.get("env"),
+            Some(&"test".to_string())
+        );
         let removed_tag = workflow.remove_tag("env");
         assert_eq!(removed_tag, Some("test".to_string()));
         assert!(workflow.metadata().tags.get("env").is_none());

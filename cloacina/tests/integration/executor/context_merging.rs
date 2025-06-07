@@ -234,7 +234,10 @@ async fn test_context_merging_latest_wins() {
         .description("Test pipeline for context merging")
         .add_task(Arc::new(WorkflowTask::new("early_producer", vec![])))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new("late_producer", vec!["early_producer"])))
+        .add_task(Arc::new(WorkflowTask::new(
+            "late_producer",
+            vec!["early_producer"],
+        )))
         .unwrap()
         .add_task(Arc::new(WorkflowTask::new(
             "merger",

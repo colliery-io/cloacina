@@ -62,7 +62,8 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 
     // Method 3: Single-tenant (uses default schema)
     info!("Creating single-tenant runner (default schema)");
-    let single_tenant = DefaultRunner::with_config(database_url, DefaultRunnerConfig::default()).await?;
+    let single_tenant =
+        DefaultRunner::with_config(database_url, DefaultRunnerConfig::default()).await?;
 
     info!("All runners created successfully!");
 

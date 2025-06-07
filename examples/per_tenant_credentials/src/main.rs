@@ -129,8 +129,7 @@ async fn demonstrate_tenant_isolation(
 
     // Example of how tenant applications would connect:
     info!("Creating runner with shared credentials for demonstration...");
-    let tenant_runner_result =
-        DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
+    let tenant_runner_result = DefaultRunner::with_schema(admin_database_url, "demo_tenant").await;
 
     match tenant_runner_result {
         Ok(tenant_runner) => {

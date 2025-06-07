@@ -62,11 +62,11 @@ fn test_subgraph_unsupported_operation() {
     // Should succeed and create a valid subgraph
     assert!(result.is_ok());
     let subgraph = result.unwrap();
-    
+
     // Verify subgraph contains requested tasks and their dependencies
     assert!(subgraph.get_task("root-task-a").is_some());
     assert!(subgraph.get_task("middle-task-c").is_some());
-    
+
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "full-workflow-subgraph");
 }
@@ -160,10 +160,10 @@ fn test_single_task_subgraph() {
     // Should succeed and create a valid subgraph
     assert!(result.is_ok());
     let subgraph = result.unwrap();
-    
+
     // Verify subgraph contains the requested task
     assert!(subgraph.get_task("root-task-a").is_some());
-    
+
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "single-task-workflow-subgraph");
 }
@@ -205,18 +205,18 @@ fn test_subgraph_with_partial_dependencies() {
 
     // Test requesting just the dependent task
     let result = valid_workflow.subgraph(&["middle-task-c"]);
-    
+
     // Should succeed and include both the requested task and its dependencies
     assert!(result.is_ok());
     let subgraph = result.unwrap();
-    
+
     // Verify subgraph contains both the requested task and its dependency
     assert!(subgraph.get_task("middle-task-c").is_some());
     assert!(subgraph.get_task("root-task-a").is_some());
-    
+
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "valid-workflow-subgraph");
-    
+
     // Verify the Workflow itself is valid
     assert!(valid_workflow.validate().is_ok());
 }

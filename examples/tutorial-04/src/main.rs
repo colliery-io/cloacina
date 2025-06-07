@@ -315,9 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute the workflow
     info!("Executing resilient pipeline with error handling...");
-    let result = runner
-        .execute("resilient_pipeline", input_context)
-        .await?;
+    let result = runner.execute("resilient_pipeline", input_context).await?;
 
     info!("Pipeline completed with status: {:?}", result.status);
     info!("Total execution time: {:?}", result.duration);
