@@ -152,6 +152,7 @@ Let's walk through the code in execution order and understand why each component
    ```rust
    use cloacina::{task, workflow, Context, TaskError};
    use cloacina::runner::DefaultRunner;
+   use cloacina::runner::DefaultRunner;
    ```
    These imports are needed because they define the core types and traits we'll use throughout the program. `DefaultRunner` provides the interface for executing workflows and managing task pipelines.
 

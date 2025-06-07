@@ -20,6 +20,7 @@ use cloacina::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, Val
 use cloacina::*;
 use serde_json::json;
 use serial_test::serial;
+use std::sync::Arc;
 
 // Simple mock task for testing
 #[derive(Clone)]
@@ -49,7 +50,7 @@ impl Task for SimpleTask {
 #[serial]
 async fn test_always_trigger_rule() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -58,7 +59,7 @@ async fn test_always_trigger_rule() {
     };
     let workflow = Workflow::builder("trigger-test")
         .description("Test Always trigger rule")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");
@@ -79,6 +80,7 @@ async fn test_always_trigger_rule() {
     let _tasks = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get tasks");
 
     // Since we have an empty workflow, there should be no tasks
@@ -86,6 +88,7 @@ async fn test_always_trigger_rule() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline");
 
     assert_eq!(pipeline.status, "Pending");

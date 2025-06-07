@@ -106,11 +106,17 @@ impl TaskExecutor {
     ) -> Result<Self, crate::error::RegistrationError> {
         let mut registry = TaskRegistry::new();
         let global_registry = crate::global_task_registry();
-        let global_tasks = global_registry.lock().unwrap();
+        let global_tasks = match global_registry.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("Task registry RwLock was poisoned, recovering data");
+                poisoned.into_inner()
+            }
+        };
 
         for (_task_id, constructor) in global_tasks.iter() {
             let task = constructor();
-            registry.register_boxed(task)?;
+            registry.register_arc(task)?;
         }
 
         Ok(Self::new(database, Arc::new(registry), config))
@@ -196,7 +202,7 @@ impl TaskExecutor {
         &self,
     ) -> Result<Option<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
         // Use DAL's atomic claim method
-        if let Some(claim_result) = self.dal.task_execution().claim_ready_task()? {
+        if let Some(claim_result) = self.dal.task_execution().claim_ready_task().await? {
             let claimed_task = ClaimedTask {
                 task_execution_id: claim_result.id,
                 pipeline_execution_id: claim_result.pipeline_execution_id,
@@ -264,10 +270,14 @@ impl TaskExecutor {
                 .dal
                 .pipeline_execution()
                 .get_by_id(claimed_task.pipeline_execution_id)
+                .await
             {
                 if let Some(context_id) = pipeline_execution.context_id {
-                    if let Ok(initial_context) =
-                        self.dal.context().read::<serde_json::Value>(context_id)
+                    if let Ok(initial_context) = self
+                        .dal
+                        .context()
+                        .read::<serde_json::Value>(context_id)
+                        .await
                     {
                         // Merge initial context data
                         for (key, value) in initial_context.data() {
@@ -292,6 +302,7 @@ impl TaskExecutor {
                     claimed_task.pipeline_execution_id,
                     dependencies,
                 )
+                .await
             {
                 for (_task_metadata, context_json) in dep_metadata_with_contexts {
                     if let Some(json_str) = context_json {
@@ -333,7 +344,7 @@ impl TaskExecutor {
             .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
 
         // 2. Execute task with pre-loaded context (skip context building)
-        let execution_result = self.execute_with_timeout(task, context).await;
+        let execution_result = self.execute_with_timeout(task.as_ref(), context).await;
 
         // 3. Handle result and update database
         self.handle_task_result(claimed_task, execution_result)
@@ -438,7 +449,7 @@ impl TaskExecutor {
         use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
 
         // Save context data to the contexts table
-        let context_id = self.dal.context().create(&context)?;
+        let context_id = self.dal.context().create(&context).await?;
 
         // Create task execution metadata record with reference to context
         let task_metadata_record = NewTaskExecutionMetadata {
@@ -450,7 +461,8 @@ impl TaskExecutor {
 
         self.dal
             .task_execution_metadata()
-            .upsert_task_execution_metadata(task_metadata_record)?;
+            .upsert_task_execution_metadata(task_metadata_record)
+            .await?;
 
         let key_count = context.data().len();
         let keys: Vec<_> = context.data().keys().collect();
@@ -473,11 +485,16 @@ impl TaskExecutor {
         task_execution_id: UniversalUuid,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
+        let task = self
+            .dal
+            .task_execution()
+            .get_by_id(task_execution_id)
+            .await?;
 
         self.dal
             .task_execution()
-            .mark_completed(task_execution_id)?;
+            .mark_completed(task_execution_id)
+            .await?;
 
         info!(
             "Task state change: {} -> Completed (task: {}, pipeline: {})",
@@ -526,11 +543,16 @@ impl TaskExecutor {
         error: &ExecutorError,
     ) -> Result<(), ExecutorError> {
         // Get task info for logging before updating
-        let task = self.dal.task_execution().get_by_id(task_execution_id)?;
+        let task = self
+            .dal
+            .task_execution()
+            .get_by_id(task_execution_id)
+            .await?;
 
         self.dal
             .task_execution()
-            .mark_failed(task_execution_id, &error.to_string())?;
+            .mark_failed(task_execution_id, &error.to_string())
+            .await?;
 
         error!(
             "Task state change: {} -> Failed (task: {}, pipeline: {}, error: {})",
@@ -637,11 +659,14 @@ impl TaskExecutor {
         let retry_at = Utc::now() + retry_delay;
 
         // Use DAL to schedule retry
-        self.dal.task_execution().schedule_retry(
-            claimed_task.task_execution_id,
-            crate::database::UniversalTimestamp(retry_at),
-            claimed_task.attempt + 1,
-        )?;
+        self.dal
+            .task_execution()
+            .schedule_retry(
+                claimed_task.task_execution_id,
+                crate::database::UniversalTimestamp(retry_at),
+                claimed_task.attempt + 1,
+            )
+            .await?;
 
         info!(
             "Scheduled retry for task {} in {:?} (attempt {})",

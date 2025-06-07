@@ -145,7 +145,7 @@ let contexts = executor.get_dal().list_contexts().await?;
 **Schema Validation**: Protection against basic injection
 ```rust
 // This will fail validation
-UnifiedExecutor::with_schema(db_url, "tenant'; DROP TABLE --").await?;
+DefaultRunner::with_schema(db_url, "tenant'; DROP TABLE --").await?;
 // Error: Schema name must contain only alphanumeric characters and underscores
 ```
 
@@ -251,7 +251,7 @@ let creds = admin.create_tenant(TenantConfig {
 send_credentials_to_tenant(&creds);
 
 // 3. Tenant application uses their specific credentials
-let executor = UnifiedExecutor::with_schema(
+let executor = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
 ).await?;
@@ -275,7 +275,7 @@ The `create_tenant` method performs these operations in a transaction:
 
 ### Zero API Changes
 
-The same `UnifiedExecutor::with_schema()` API works for both approaches:
+The same `DefaultRunner::with_schema()` API works for both approaches:
 
 ```rust
 // Shared credentials (original approach)
@@ -476,6 +476,7 @@ let legacy_executor = DefaultRunner::with_schema(db_url, "legacy_tenant").await?
 
 // New tenants use their own schemas
 let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
+let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
 ```
 
 #### Option 2: Run Side-by-Side
@@ -514,6 +515,7 @@ let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 async fn create_tenant_runner(
     db_url: &str,
     tenant_id: &str
+) -> Result<DefaultRunner, AppError> {
 ) -> Result<DefaultRunner, AppError> {
     // Validate tenant ID comes from trusted source
     validate_tenant_id(tenant_id)?;

@@ -66,7 +66,7 @@ let workflow = workflow! {
 };
 
 // Initialize executor with database
-let executor = UnifiedExecutor::new("postgresql://user:pass@localhost/dbname").await?;
+let executor = DefaultRunner::new("postgresql://user:pass@localhost/dbname").await?;
 
 // Execute the workflow
 let result = executor.execute("my_workflow", Context::new()).await?;
@@ -80,18 +80,18 @@ Cloacina supports multi-tenant deployments with complete data isolation:
 
 ```rust
 // Each tenant gets their own PostgreSQL schema
-let tenant_a = UnifiedExecutor::with_schema(
+let tenant_a = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_a"
 ).await?;
 
-let tenant_b = UnifiedExecutor::with_schema(
+let tenant_b = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_b"
 ).await?;
 
 // Or using the builder pattern
-let executor = UnifiedExecutor::builder()
+let executor = DefaultRunner::builder()
     .database_url("postgresql://user:pass@localhost/cloacina")
     .schema("my_tenant")
     .build()
@@ -102,8 +102,8 @@ let executor = UnifiedExecutor::builder()
 
 ```rust
 // Each tenant gets their own database file
-let tenant_a = UnifiedExecutor::new("sqlite://./tenant_a.db").await?;
-let tenant_b = UnifiedExecutor::new("sqlite://./tenant_b.db").await?;
+let tenant_a = DefaultRunner::new("sqlite://./tenant_a.db").await?;
+let tenant_b = DefaultRunner::new("sqlite://./tenant_b.db").await?;
 ```
 
 Benefits:

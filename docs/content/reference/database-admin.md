@@ -233,7 +233,9 @@ The method performs these operations in a single transaction:
    ```
 
 ## Integration with DefaultRunner
+## Integration with DefaultRunner
 
+The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 
 ```rust

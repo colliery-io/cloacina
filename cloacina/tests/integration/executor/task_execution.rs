@@ -26,7 +26,7 @@ use crate::fixtures::get_or_init_fixture;
 // Helper for getting database for tests
 async fn get_test_database() -> Database {
     let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap();
+    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     locked_fixture.initialize().await;
     locked_fixture.get_database()
 }
@@ -125,7 +125,10 @@ impl DependencyConsumerTask {
 impl Task for DependencyConsumerTask {
     async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
         // Try to load dependency value using lazy loading
-        match context.load_from_dependencies_and_cache(&self.dependency_key) {
+        match context
+            .load_from_dependencies_and_cache(&self.dependency_key)
+            .await
+        {
             Ok(Some(value)) => {
                 // Add a derived value to show dependency was loaded
                 context
@@ -166,7 +169,13 @@ impl Task for DependencyConsumerTask {
 
 #[tokio::test]
 async fn test_task_executor_basic_execution() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Reset the database to ensure a clean state
+    fixture.reset_database().await;
+
+    let database = fixture.get_database();
 
     // Create task registry
     let mut task_registry = TaskRegistry::new();
@@ -182,7 +191,7 @@ async fn test_task_executor_basic_execution() {
     // Create scheduler and schedule a workflow
     let workflow = Workflow::builder("test_pipeline")
         .description("Test pipeline for executor")
-        .add_task(WorkflowTask::new("test_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("test_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -221,13 +230,17 @@ async fn test_task_executor_basic_execution() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_executions = dal
         .task_execution()
-        .get_pending_tasks(UniversalUuid(pipeline_id))
+        .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+        .await
         .unwrap();
 
-    // Should be no pending tasks (task should be completed)
-    assert_eq!(task_executions.len(), 0, "Task should have been completed");
+    // Verify task execution
+    assert_eq!(task_executions.len(), 1);
+    let task = &task_executions[0];
+    assert_eq!(task.status, "Completed");
+    assert_eq!(task.task_name, "test_task");
 
-    // Abort the executor
+    // Clean up
     executor_handle.abort();
 }
 
@@ -253,9 +266,9 @@ async fn test_task_executor_dependency_loading() {
     // Create workflow with dependencies
     let workflow = Workflow::builder("dependency_pipeline")
         .description("Test pipeline with dependencies")
-        .add_task(WorkflowTask::new("producer", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
         .unwrap()
-        .add_task(WorkflowTask::new("consumer", vec!["producer"]))
+        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
         .unwrap()
         .build()
         .unwrap();
@@ -294,12 +307,17 @@ async fn test_task_executor_dependency_loading() {
     let consumer_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     // Verify the consumer processed the dependency data
     let context_data: std::collections::HashMap<String, Value> =
         if let Some(context_id) = consumer_metadata.context_id {
-            let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+            let context = dal
+                .context()
+                .read::<serde_json::Value>(context_id)
+                .await
+                .unwrap();
             context.data().clone()
         } else {
             std::collections::HashMap::new()
@@ -372,7 +390,7 @@ async fn test_task_executor_timeout_handling() {
     // Create workflow
     let workflow = Workflow::builder("timeout_pipeline")
         .description("Test pipeline with timeout")
-        .add_task(WorkflowTask::new("timeout_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("timeout_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -412,6 +430,7 @@ async fn test_task_executor_timeout_handling() {
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "timeout_task")
+        .await
         .unwrap();
 
     assert_eq!(
@@ -441,7 +460,7 @@ async fn test_pipeline_engine_unified_mode() {
     // Create workflow
     let workflow = Workflow::builder("unified_pipeline")
         .description("Test pipeline for unified mode")
-        .add_task(WorkflowTask::new("unified_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -464,7 +483,7 @@ async fn test_pipeline_engine_unified_mode() {
     // Create a separate workflow for scheduling since we can't clone
     let schedule_workflow = Workflow::builder("unified_pipeline")
         .description("Test pipeline for unified mode")
-        .add_task(WorkflowTask::new("unified_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -490,13 +509,18 @@ async fn test_pipeline_engine_unified_mode() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task");
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task")
+        .await;
 
     // If the task was executed, metadata should exist
     match task_metadata {
         Ok(metadata) => {
             if let Some(context_id) = metadata.context_id {
-                let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+                let context = dal
+                    .context()
+                    .read::<serde_json::Value>(context_id)
+                    .await
+                    .unwrap();
                 let context_data = context.data();
                 assert!(
                     context_data.contains_key("result"),
@@ -512,6 +536,7 @@ async fn test_pipeline_engine_unified_mode() {
             let task_status = dal
                 .task_execution()
                 .get_task_status(UniversalUuid(pipeline_id), "unified_task")
+                .await
                 .unwrap();
             assert_ne!(task_status, "Pending", "Task should have been processed");
         }
@@ -575,7 +600,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     // Create workflow
     let workflow = Workflow::builder("initial_context_pipeline")
         .description("Test pipeline for initial context loading")
-        .add_task(WorkflowTask::new("initial_context_task", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("initial_context_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -615,6 +640,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "initial_context_task")
+        .await
         .unwrap();
     assert_eq!(
         task_status, "Completed",
@@ -625,10 +651,15 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "initial_context_task")
+        .await
         .unwrap();
 
     if let Some(context_id) = task_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+        let context = dal
+            .context()
+            .read::<serde_json::Value>(context_id)
+            .await
+            .unwrap();
         let context_data = context.data();
 
         assert!(
@@ -764,9 +795,9 @@ async fn test_task_executor_context_loading_with_dependencies() {
     // Create workflow with dependency chain
     let workflow = Workflow::builder("dependency_context_pipeline")
         .description("Test pipeline for dependency context loading")
-        .add_task(WorkflowTask::new("producer", vec![]))
+        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
         .unwrap()
-        .add_task(WorkflowTask::new("consumer", vec!["producer"]))
+        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
         .unwrap()
         .build()
         .unwrap();
@@ -803,10 +834,12 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let producer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "producer")
+        .await
         .unwrap();
     let consumer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     assert_eq!(
@@ -822,10 +855,15 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let consumer_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .await
         .unwrap();
 
     if let Some(context_id) = consumer_metadata.context_id {
-        let context = dal.context().read::<serde_json::Value>(context_id).unwrap();
+        let context = dal
+            .context()
+            .read::<serde_json::Value>(context_id)
+            .await
+            .unwrap();
         let context_data = context.data();
 
         assert!(

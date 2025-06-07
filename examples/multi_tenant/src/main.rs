@@ -19,7 +19,8 @@
 //! This example demonstrates how to use Cloacina's multi-tenant capabilities
 //! with PostgreSQL schema-based isolation.
 
-use cloacina::runner::DefaultRunner;
+
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::PipelineError;
 use std::env;
 use tracing::{info, warn};
@@ -54,32 +55,30 @@ async fn demonstrate_multi_tenant_setup(database_url: &str) -> Result<(), Pipeli
 
     // Method 1: Using convenience method
     info!("Creating tenant 'acme_corp' using convenience method");
-    let acme_executor = DefaultRunner::with_schema(database_url, "acme_corp").await?;
 
-    // Method 2: Using builder pattern
-    info!("Creating tenant 'globex_inc' using builder pattern");
-    let globex_executor = DefaultRunner::builder()
-        .database_url(database_url)
-        .schema("globex_inc")
-        .build()
-        .await?;
+    let acme_runner = DefaultRunner::with_schema(database_url, "acme_corp").await?;
 
-    // Method 3: Single-tenant (uses public schema)
-    info!("Creating single-tenant executor (public schema)");
-    let single_tenant = DefaultRunner::new(database_url).await?;
+    // Method 2: Using builder pattern with config
+    info!("Creating tenant 'globex_inc' using config pattern");
+    let globex_runner = DefaultRunner::with_schema(database_url, "globex_inc").await?;
 
-    info!("All executors created successfully!");
+    // Method 3: Single-tenant (uses default schema)
+    info!("Creating single-tenant runner (default schema)");
+    let single_tenant =
+        DefaultRunner::with_config(database_url, DefaultRunnerConfig::default()).await?;
 
-    // In a real application, each executor would be used by different
+    info!("All runners created successfully!");
+
+    // In a real application, each runner would be used by different
     // services or application instances, providing complete data isolation
 
-    // Shutdown all executors
-    info!("Shutting down executors");
-    acme_executor.shutdown().await?;
-    globex_executor.shutdown().await?;
+    // Shutdown all runners
+    info!("Shutting down runners");
+    acme_runner.shutdown().await?;
+    globex_runner.shutdown().await?;
     single_tenant.shutdown().await?;
 
-    info!("All executors shut down successfully");
+    info!("All runners shut down successfully");
     Ok(())
 }
 
@@ -92,27 +91,27 @@ async fn demonstrate_recovery_scenarios(database_url: &str) -> Result<(), Pipeli
     info!("Creating executor for tenant 'persistent_tenant'...");
 
     // First creation - will create schema and run migrations
-    let first_executor = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
-    info!("First executor created - schema and tables initialized");
+    let first_runner = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
+    info!("First runner created - schema and tables initialized");
 
     // Simulate some work would happen here...
     info!("Simulating work in progress...");
 
-    // Shutdown the executor (simulating a crash or restart)
-    first_executor.shutdown().await?;
-    info!("First executor shut down");
+    // Shutdown the runner (simulating a crash or restart)
+    first_runner.shutdown().await?;
+    info!("First runner shut down");
 
-    // Create a new executor for the same tenant
-    info!("Creating new executor for same tenant after shutdown...");
-    let second_executor = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
-    info!("Second executor created successfully!");
+    // Create a new runner for the same tenant
+    info!("Creating new runner for same tenant after shutdown...");
+    let second_runner = DefaultRunner::with_schema(database_url, "persistent_tenant").await?;
+    info!("Second runner created successfully!");
     info!("- Schema was NOT recreated (already exists)");
     info!("- Migrations were NOT re-run (already applied)");
     info!("- Recovery automatically started (enabled by default)");
     info!("- Any orphaned tasks would be recovered");
     info!("- Each tenant's recovery is isolated");
 
-    second_executor.shutdown().await?;
+    second_runner.shutdown().await?;
 
     // Basic migration example
     info!("\nMigration tip: To migrate from single-tenant to multi-tenant:");

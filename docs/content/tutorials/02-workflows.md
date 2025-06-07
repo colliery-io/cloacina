@@ -79,6 +79,7 @@ In Cloacina, a workflow is a collection of tasks that work together to accomplis
 4. **Error Handling**: Failed tasks can affect dependent tasks
 5. **Retry Strategies**: Tasks can be configured to retry on failure
 6. **DefaultRunner**: Manages workflow execution with persistence
+6. **DefaultRunner**: Manages workflow execution with persistence
 
 ### Workflow Structure
 

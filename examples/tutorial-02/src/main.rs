@@ -40,7 +40,8 @@
 //! - Different retry policies for different task types
 
 use cloacina::executor::PipelineExecutor;
-use cloacina::runner::DefaultRunner;
+
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{workflow, Context};
 use serde_json::json;
 use tracing::info;
@@ -59,8 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting ETL Example");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
-    let runner = DefaultRunner::new(
+
+    let runner = DefaultRunner::with_config(
         "sqlite://tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
     )
     .await?;
 
@@ -94,15 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result1 = future1.await?;
     info!("First workflow completed with status: {:?}", result1.status);
     info!("First workflow execution took: {:?}", result1.duration);
-
-    // Check final context values for comparison with Python
-    println!("Checking final context values...");
-    let final_context = &result1.final_context;
-    println!("Final context keys: {:?}", final_context.data().keys().collect::<Vec<_>>());
-    println!("extracted_numbers: {:?}", final_context.get("extracted_numbers"));
-    println!("transformed_numbers: {:?}", final_context.get("transformed_numbers"));
-    println!("loaded_numbers: {:?}", final_context.get("loaded_numbers"));
-    println!("load_status: {:?}", final_context.get("load_status"));
 
     // Shutdown the runner
     runner.shutdown().await?;

@@ -188,6 +188,7 @@ Let's implement these tasks in our workflow. Create `src/main.rs` with the follo
 
 use cloacina::{task, workflow, Context, TaskError};
 use cloacina::runner::DefaultRunner;
+use cloacina::runner::DefaultRunner;
 use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn, error};

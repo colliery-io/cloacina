@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use cloacina::task_scheduler::TaskScheduler;
 use cloacina::*;
 use serial_test::serial;
+use std::sync::Arc;
 use uuid::Uuid;
 
 // Simple mock task for testing
@@ -49,7 +50,7 @@ impl Task for SimpleTask {
 #[serial]
 async fn test_schedule_workflow_execution() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -59,7 +60,7 @@ async fn test_schedule_workflow_execution() {
     };
     let workflow = Workflow::builder("test-workflow")
         .description("Test workflow for scheduling")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");
@@ -82,6 +83,7 @@ async fn test_schedule_workflow_execution() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline execution");
 
     assert_eq!(pipeline.pipeline_name, "test-workflow");
@@ -92,7 +94,7 @@ async fn test_schedule_workflow_execution() {
 #[serial]
 async fn test_schedule_nonexistent_workflow() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -118,7 +120,7 @@ async fn test_schedule_nonexistent_workflow() {
 #[serial]
 async fn test_workflow_version_tracking() {
     let fixture = get_or_init_fixture().await;
-    let mut fixture = fixture.lock().unwrap();
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
     let database = fixture.get_database();
 
@@ -128,7 +130,7 @@ async fn test_workflow_version_tracking() {
     };
     let workflow = Workflow::builder("versioned-workflow")
         .description("Workflow with version tracking")
-        .add_task(simple_task)
+        .add_task(Arc::new(simple_task))
         .expect("Failed to add task")
         .build()
         .expect("Failed to build workflow");
@@ -149,6 +151,7 @@ async fn test_workflow_version_tracking() {
     let pipeline = dal
         .pipeline_execution()
         .get_by_id(UniversalUuid(execution_id))
+        .await
         .expect("Failed to get pipeline execution");
 
     // Since we're using auto-versioning, just verify a version was set
