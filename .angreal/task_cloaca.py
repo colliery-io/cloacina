@@ -24,6 +24,9 @@ import time
 # Import docker utilities for postgres backend
 from utils import docker_up, docker_down
 
+# Import database reset utilities
+from database_reset import smart_postgres_reset, check_postgres_container_health
+
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
@@ -649,6 +652,10 @@ def test(backend=None, filter=None):
                     raise Exception("Failed to start Docker services")
                 print("Waiting for services to be ready...")
                 time.sleep(10)
+                
+                # Verify container health
+                if not check_postgres_container_health():
+                    raise Exception("PostgreSQL container is not healthy")
 
             # Step 3: Build and install cloaca backend in test environment
             venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
@@ -674,16 +681,29 @@ def test(backend=None, filter=None):
                 
                 # Clean state between test files
                 if backend_name == "postgres":
-                    print("Restarting Docker services...")
-                    docker_down(remove_volumes=True)
-                    exit_code = docker_up()
-                    if exit_code != 0:
-                        print(f"✗ Failed to restart Docker for {test_file.name}")
-                        file_results.append((test_file.name, False))
-                        all_passed = False
-                        continue
-                    print("Waiting for postgres to be ready...")
-                    time.sleep(10)
+                    print(f"Resetting PostgreSQL state for {test_file.name}...")
+                    
+                    # Try smart reset first (much faster)
+                    if smart_postgres_reset():
+                        print("✓ Fast PostgreSQL reset completed")
+                    else:
+                        print("Fast reset failed, falling back to Docker restart...")
+                        docker_down(remove_volumes=True)
+                        exit_code = docker_up()
+                        if exit_code != 0:
+                            print(f"✗ Failed to restart Docker for {test_file.name}")
+                            file_results.append((test_file.name, False))
+                            all_passed = False
+                            continue
+                        print("Waiting for postgres to be ready...")
+                        time.sleep(10)
+                        
+                        # Verify container health after restart
+                        if not check_postgres_container_health():
+                            print(f"✗ PostgreSQL container unhealthy after restart for {test_file.name}")
+                            file_results.append((test_file.name, False))
+                            all_passed = False
+                            continue
                 
                 if backend_name == "sqlite":
                     print("Cleaning SQLite database files...")

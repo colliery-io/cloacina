@@ -1,8 +1,9 @@
 """
 Test Multi-Task Workflow Execution
 
-This test file verifies multi-task workflows with dependencies.
-Tests include sequential execution, parallel execution, and complex dependency patterns.
+This test file verifies a comprehensive multi-task workflow that demonstrates
+sequential execution, parallel execution, and diamond dependency patterns 
+all combined in a single complex DAG.
 
 Uses shared_runner fixture for actual workflow execution.
 """
@@ -11,121 +12,96 @@ import pytest
 
 
 class TestMultiTaskWorkflowExecution:
-    """Test multi-task workflows with dependencies."""
+    """Test comprehensive multi-task workflow with complex dependencies."""
     
-    def test_sequential_task_execution(self, shared_runner):
-        """Test sequential execution of dependent tasks."""
+    def test_comprehensive_multi_pattern_workflow(self, shared_runner):
+        """Test a comprehensive workflow combining sequential, parallel, and diamond patterns."""
         import cloaca
         
-        @cloaca.task(id="first_task")
-        def first_task(context):
-            context.set("first_executed", True)
-            context.set("step", 1)
+        # Sequential start
+        @cloaca.task(id="init_task")
+        def init_task(context):
+            context.set("workflow_started", True)
+            context.set("init_step", "completed")
             return context
         
-        @cloaca.task(id="second_task", dependencies=["first_task"])
-        def second_task(context):
-            context.set("second_executed", True)
-            context.set("step", 2)
+        @cloaca.task(id="prepare_task", dependencies=["init_task"])
+        def prepare_task(context):
+            context.set("preparation_done", True)
+            context.set("prepare_step", "completed")
             return context
         
-        @cloaca.task(id="third_task", dependencies=["second_task"])
-        def third_task(context):
-            context.set("third_executed", True)
-            context.set("step", 3)
-            return context
-        
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("sequential_workflow")
-            builder.description("Sequential task execution")
-            builder.add_task("first_task")
-            builder.add_task("second_task")
-            builder.add_task("third_task")
-            return builder.build()
-        
-        cloaca.register_workflow_constructor("sequential_workflow", create_workflow)
-        
-        # Execute workflow
-        context = cloaca.Context({"test_type": "sequential"})
-        result = shared_runner.execute("sequential_workflow", context)
-        
-        assert result is not None
-        assert result.status == "Completed"
-    
-    def test_parallel_task_execution(self, shared_runner):
-        """Test parallel execution of independent tasks."""
-        import cloaca
-        
-        @cloaca.task(id="parallel_task_a")
+        # Parallel fan-out from prepare_task
+        @cloaca.task(id="parallel_task_a", dependencies=["prepare_task"])
         def parallel_task_a(context):
-            context.set("task_a_executed", True)
+            context.set("parallel_a_executed", True)
             return context
         
-        @cloaca.task(id="parallel_task_b")
+        @cloaca.task(id="parallel_task_b", dependencies=["prepare_task"])
         def parallel_task_b(context):
-            context.set("task_b_executed", True)
+            context.set("parallel_b_executed", True)
             return context
         
-        @cloaca.task(id="parallel_task_c")
+        @cloaca.task(id="parallel_task_c", dependencies=["prepare_task"])
         def parallel_task_c(context):
-            context.set("task_c_executed", True)
+            context.set("parallel_c_executed", True)
+            return context
+        
+        # Diamond pattern: convergence to processing, then split, then join
+        @cloaca.task(id="process_task", dependencies=["parallel_task_a", "parallel_task_b", "parallel_task_c"])
+        def process_task(context):
+            context.set("processing_done", True)
+            context.set("diamond_root", "completed")
+            return context
+        
+        # Diamond split
+        @cloaca.task(id="analyze_left", dependencies=["process_task"])
+        def analyze_left(context):
+            context.set("left_analysis", True)
+            return context
+        
+        @cloaca.task(id="analyze_right", dependencies=["process_task"])
+        def analyze_right(context):
+            context.set("right_analysis", True)
+            return context
+        
+        # Diamond join and final sequential steps
+        @cloaca.task(id="combine_results", dependencies=["analyze_left", "analyze_right"])
+        def combine_results(context):
+            context.set("results_combined", True)
+            context.set("diamond_join", "completed")
+            return context
+        
+        @cloaca.task(id="finalize_task", dependencies=["combine_results"])
+        def finalize_task(context):
+            context.set("workflow_complete", True)
+            context.set("final_step", "completed")
             return context
         
         def create_workflow():
-            builder = cloaca.WorkflowBuilder("parallel_workflow")
-            builder.description("Parallel task execution")
+            builder = cloaca.WorkflowBuilder("comprehensive_multi_pattern_workflow")
+            builder.description("Comprehensive workflow with sequential, parallel, and diamond patterns")
+            
+            # Add all tasks to the workflow
+            builder.add_task("init_task")
+            builder.add_task("prepare_task")
             builder.add_task("parallel_task_a")
             builder.add_task("parallel_task_b")
             builder.add_task("parallel_task_c")
+            builder.add_task("process_task")
+            builder.add_task("analyze_left")
+            builder.add_task("analyze_right")
+            builder.add_task("combine_results")
+            builder.add_task("finalize_task")
+            
             return builder.build()
         
-        cloaca.register_workflow_constructor("parallel_workflow", create_workflow)
+        cloaca.register_workflow_constructor("comprehensive_multi_pattern_workflow", create_workflow)
         
-        # Execute workflow
-        context = cloaca.Context({"test_type": "parallel"})
-        result = shared_runner.execute("parallel_workflow", context)
+        # Execute the comprehensive workflow
+        context = cloaca.Context({"test_type": "comprehensive_multi_pattern"})
+        result = shared_runner.execute("comprehensive_multi_pattern_workflow", context)
         
         assert result is not None
         assert result.status == "Completed"
-    
-    def test_diamond_dependency_pattern(self, shared_runner):
-        """Test diamond dependency pattern (fork-join)."""
-        import cloaca
-        
-        @cloaca.task(id="root_task")
-        def root_task(context):
-            context.set("root_executed", True)
-            return context
-        
-        @cloaca.task(id="branch_left", dependencies=["root_task"])
-        def branch_left(context):
-            context.set("left_executed", True)
-            return context
-        
-        @cloaca.task(id="branch_right", dependencies=["root_task"])
-        def branch_right(context):
-            context.set("right_executed", True)
-            return context
-        
-        @cloaca.task(id="join_task", dependencies=["branch_left", "branch_right"])
-        def join_task(context):
-            context.set("join_executed", True)
-            return context
-        
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("diamond_workflow")
-            builder.description("Diamond dependency pattern")
-            builder.add_task("root_task")
-            builder.add_task("branch_left")
-            builder.add_task("branch_right")
-            builder.add_task("join_task")
-            return builder.build()
-        
-        cloaca.register_workflow_constructor("diamond_workflow", create_workflow)
-        
-        # Execute workflow
-        context = cloaca.Context({"test_type": "diamond"})
-        result = shared_runner.execute("diamond_workflow", context)
-        
-        assert result is not None
-        assert result.status == "Completed"
+        assert result.error_message is None
