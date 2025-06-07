@@ -1141,7 +1141,7 @@ impl Workflow {
         
         // Get the task registry
         let registry = crate::task::global_task_registry();
-        let guard = registry.lock().map_err(|e| {
+        let guard = registry.write().map_err(|e| {
             WorkflowError::RegistryError(format!("Failed to access task registry: {}", e))
         })?;
         
@@ -1158,7 +1158,7 @@ impl Workflow {
             let task = constructor();
             
             // Add the task to the new workflow
-            new_workflow.add_boxed_task(task).map_err(|e| {
+            new_workflow.add_task(task).map_err(|e| {
                 WorkflowError::TaskError(format!("Failed to add task '{}' during recreation: {}", task_id, e))
             })?;
         }
@@ -1247,6 +1247,7 @@ impl Workflow {
 /// assert!(!workflow.metadata().version.is_empty());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[derive(Clone)]
 pub struct WorkflowBuilder {
     workflow: Workflow,
 }
@@ -1257,6 +1258,11 @@ impl WorkflowBuilder {
         Self {
             workflow: Workflow::new(name),
         }
+    }
+
+    /// Get the workflow name
+    pub fn name(&self) -> &str {
+        self.workflow.name()
     }
 
     /// Set the workflow description

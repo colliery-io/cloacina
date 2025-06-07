@@ -209,12 +209,12 @@ impl TaskDecorator {
                 let function_arc = shared_function.clone();
                 move || {
                     let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
-                    Box::new(PythonTaskWrapper {
+                    Arc::new(PythonTaskWrapper {
                         id: task_id_clone.clone(),
                         dependencies: deps_clone.clone(),
                         retry_policy: policy_clone.clone(),
                         python_function: function_clone,
-                    }) as Box<dyn cloacina::Task>
+                    }) as Arc<dyn cloacina::Task>
                 }
             }
         );

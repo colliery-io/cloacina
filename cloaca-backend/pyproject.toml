@@ -3,9 +3,9 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "cloaca-sqlite"
+name = "cloaca-postgres"
 version = "0.1.0"
-description = "Sqlite backend for Cloaca - Python bindings for Cloacina workflow orchestration"
+description = "Postgres backend for Cloaca - Python bindings for Cloacina workflow orchestration"
 readme = "README.md"
 authors = [
     {name = "Cloacina Team", email = "team@cloacina.dev"}
@@ -36,8 +36,8 @@ Documentation = "https://cloacina.dev"
 Issues = "https://github.com/dstorey/cloacina/issues"
 
 [tool.maturin]
-features = ["sqlite"]
-module-name = "cloaca_sqlite"
+features = ["postgres"]
+module-name = "cloaca_postgres"
 python-source = "python"
 strip = true
 

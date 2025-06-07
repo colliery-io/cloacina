@@ -9,7 +9,7 @@ and environment configuration.
 import importlib
 from typing import Any, Optional
 
-__version__ = "0.1.0"
+
 __backend__: Optional[str] = None
 
 
@@ -100,6 +100,12 @@ try:
         DefaultRunner = _backend_module.DefaultRunner
     if hasattr(_backend_module, "PipelineResult"):
         PipelineResult = _backend_module.PipelineResult
+    if hasattr(_backend_module, "WorkflowBuilder"):
+        WorkflowBuilder = _backend_module.WorkflowBuilder
+    if hasattr(_backend_module, "Workflow"):
+        Workflow = _backend_module.Workflow
+    if hasattr(_backend_module, "register_workflow_constructor"):
+        register_workflow_constructor = _backend_module.register_workflow_constructor
 
 
 except ImportError as import_error:

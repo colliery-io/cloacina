@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow};
 
-#[task(id = "simple-task", dependencies = [])]
-async fn simple_task(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+#[task(id = "basic-workflow-task", dependencies = [])]
+async fn simple_task(_context: &mut cloacina::Context<serde_json::Value>) -> Result<(), cloacina::TaskError> {
     Ok(())
 }
 
@@ -29,5 +29,5 @@ fn test_simple_workflow_creation() {
     };
 
     assert_eq!(simple_workflow.name(), "simple-pipeline");
-    assert!(simple_workflow.get_task("simple-task").is_some());
+    assert!(simple_workflow.get_task("basic-workflow-task").is_some());
 }

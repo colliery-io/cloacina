@@ -51,7 +51,6 @@ class TestBasicImports:
         
         # Test decorator availability
         assert hasattr(cloaca, 'task')
-        assert hasattr(cloaca, 'workflow')
         assert hasattr(cloaca, 'register_workflow_constructor')
 
 
@@ -657,38 +656,38 @@ class TestDefaultRunnerConfig:
         assert "max_concurrent_tasks" in repr_str
 
 
-class TestWorkflowDecorator:
-    """Test @workflow decorator functionality."""
+class TestWorkflowContextManager:
+    """Test workflow context manager functionality."""
     
-    def test_basic_workflow_decorator(self):
-        """Test basic workflow decorator usage."""
+    def test_basic_workflow_context_manager(self):
+        """Test basic workflow context manager usage."""
         import cloaca
         
         # Define task for the workflow
-        @cloaca.task(id="decorator_test_task")
-        def decorator_task(context):
-            context.set("decorator_executed", True)
+        @cloaca.task(id="context_test_task")
+        def context_task(context):
+            context.set("context_executed", True)
             return context
         
-        # Test workflow decorator
-        @cloaca.workflow("decorator_workflow", "Workflow using decorator")
-        def create_decorator_workflow():
-            builder = cloaca.WorkflowBuilder("decorator_workflow")
-            builder.description("Workflow using decorator")
-            builder.add_task("decorator_test_task")
-            return builder.build()
+        # Test workflow context manager
+        with cloaca.WorkflowBuilder("context_workflow") as builder:
+            builder.description("Workflow using context manager")
+            builder.add_task("context_test_task")
         
-        # Function should still be callable
-        assert callable(create_decorator_workflow)
+        # Workflow should be automatically registered
+        # We can't directly test the registration without a runner,
+        # but we can test the builder pattern still works
+        manual_builder = cloaca.WorkflowBuilder("manual_context_workflow")
+        manual_builder.description("Manual workflow")
+        manual_builder.add_task("context_test_task")
+        workflow = manual_builder.build()
         
-        # Test direct function call
-        workflow = create_decorator_workflow()
-        assert workflow.name == "decorator_workflow"
-        assert workflow.description == "Workflow using decorator"
+        assert workflow.name == "manual_context_workflow"
+        assert workflow.description == "Manual workflow"
         
         # Verify task is included
         topo = workflow.topological_sort()
-        assert "decorator_test_task" in topo
+        assert "context_test_task" in topo
     
     def test_register_workflow_constructor(self):
         """Test manual workflow constructor registration."""

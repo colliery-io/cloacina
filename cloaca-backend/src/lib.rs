@@ -19,10 +19,12 @@ use pyo3::prelude::*;
 mod context;
 mod task;
 mod runner;
+mod workflow;
 
 use context::{PyContext, PyDefaultRunnerConfig};
 use task::task as task_decorator;
 use runner::{PyDefaultRunner, PyPipelineResult};
+use workflow::{PyWorkflowBuilder, PyWorkflow, register_workflow_constructor};
 
 /// A simple hello world class for testing
 #[pyclass]
@@ -93,6 +95,10 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Task decorator function
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
 
+    // Workflow classes and functions
+    m.add_class::<PyWorkflowBuilder>()?;
+    m.add_class::<PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
 
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;
@@ -123,6 +129,10 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Task decorator function
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
 
+    // Workflow classes and functions
+    m.add_class::<PyWorkflowBuilder>()?;
+    m.add_class::<PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
 
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;
