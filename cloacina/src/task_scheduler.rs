@@ -114,7 +114,6 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 use tracing::{debug, error, info, warn};
@@ -170,7 +169,6 @@ use crate::{Context, Database, Workflow};
 /// ```
 pub struct TaskScheduler {
     dal: DAL,
-    workflow_registry: HashMap<String, Workflow>,
     instance_id: Uuid,
     poll_interval: Duration,
 }
@@ -220,8 +218,8 @@ impl TaskScheduler {
     ///
     /// A new TaskScheduler instance ready to schedule and manage workflow executions.
     #[deprecated(note = "Use TaskScheduler::new() instead")]
-    pub fn with_static_workflows(database: Database, compiled_workflows: Vec<Workflow>) -> Self {
-        Self::with_static_workflows_and_poll_interval(database, compiled_workflows, Duration::from_millis(100))
+    pub fn with_static_workflows(database: Database, _compiled_workflows: Vec<Workflow>) -> Self {
+        Self::with_poll_interval_sync(database, Duration::from_millis(100))
     }
 
     /// Creates a new TaskScheduler with custom poll interval using global workflow registry.
@@ -244,8 +242,7 @@ impl TaskScheduler {
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let workflows = crate::workflow::get_all_workflows();
-        let scheduler = Self::with_static_workflows_and_poll_interval(database, workflows, poll_interval);
+        let scheduler = Self::with_poll_interval_sync(database, poll_interval);
         scheduler.recover_orphaned_tasks().await?;
         Ok(scheduler)
     }
@@ -259,7 +256,6 @@ impl TaskScheduler {
 
         Self {
             dal,
-            workflow_registry: HashMap::new(), // Empty since using global registry
             instance_id: Uuid::new_v4(),
             poll_interval,
         }
