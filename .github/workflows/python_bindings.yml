@@ -1,5 +1,5 @@
 ---
-name: Python Bindings Tests
+name: Cloaca - Python Bindings Tests
 on:
   workflow_call:
 
@@ -7,8 +7,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  python-binding-tests:
-    name: Python Binding Tests
+  cloaca-binding-tests:
+    name: Cloaca - Binding Tests
     strategy:
       matrix:
         python-version: ['3.9', '3.12']
@@ -46,12 +46,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: Set up PostgreSQL (if needed)
-        if: matrix.backend == 'postgres'
-        run: |
-          # PostgreSQL will be set up automatically by angreal commands
-          echo "PostgreSQL setup will be handled by angreal commands"
-
       - name: Run comprehensive Python binding tests
         run: |
           # Run the full test suite for this backend
@@ -62,106 +56,8 @@ jobs:
           # Additional smoke test verification
           angreal cloaca smoke --backend ${{ matrix.backend }}
 
-  python-tutorial-tests:
-    name: Python Tutorial Tests
-    strategy:
-      matrix:
-        tutorial: ['01', '02', '03', '04', '05']
-        backend: [postgres, sqlite]
-        include:
-          # Tutorial 05 (multi-tenancy) only runs with postgres
-          - tutorial: '05'
-            backend: postgres
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-tutorial-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-tutorial-
-            ${{ runner.os }}-cargo-
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Run tutorial ${{ matrix.tutorial }}
-        run: |
-          # Determine backend based on tutorial
-          if [ "${{ matrix.tutorial }}" = "05" ]; then
-            backend="postgres"
-          else
-            backend="sqlite"
-          fi
-
-          # Run the specific tutorial
-          angreal cloaca tutorial --tutorial ${{ matrix.tutorial }} --backend $backend
-
-  python-tutorial-all:
-    name: All Python Tutorials
-    strategy:
-      matrix:
-        backend: [postgres, sqlite]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-all-tutorials-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-all-tutorials-
-            ${{ runner.os }}-cargo-
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Run all tutorials for ${{ matrix.backend }}
-        run: |
-          # Run all applicable tutorials for this backend
-          angreal cloaca tutorial --backend ${{ matrix.backend }}
-
-  python-binding-performance:
-    name: Python Binding Performance Tests
+  cloaca-performance:
+    name: Cloaca - Performance Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -197,8 +93,8 @@ jobs:
           # Run performance-focused tests
           angreal cloaca test --backend sqlite -k "performance"
 
-  python-binding-compatibility:
-    name: Python Version Compatibility
+  cloaca-compatibility:
+    name: Cloaca - Python Version Compatibility
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']

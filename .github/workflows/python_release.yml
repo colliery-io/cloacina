@@ -1,5 +1,5 @@
 ---
-name: Python Release
+name: Cloaca - Release
 on:
   release:
     types: [published]
@@ -19,8 +19,8 @@ concurrency:
 
 jobs:
   # Build wheels for all platforms and Python versions
-  build-release-wheels:
-    name: Build Release Wheels
+  cloaca-release-wheels:
+    name: Cloaca - Build Release Wheels
     strategy:
       fail-fast: false
       matrix:
@@ -65,8 +65,8 @@ jobs:
           path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
 
   # Build dispatcher source distribution
-  build-dispatcher-sdist:
-    name: Build Dispatcher Sdist
+  cloaca-dispatcher-sdist:
+    name: Cloaca - Build Dispatcher Sdist
     runs-on: ubuntu-latest
 
     steps:
@@ -93,9 +93,9 @@ jobs:
           path: cloaca/dist/*.tar.gz
 
   # Verify all wheels work correctly
-  verify-release:
-    name: Verify Release
-    needs: [build-release-wheels, build-dispatcher-sdist]
+  cloaca-verify-release:
+    name: Cloaca - Verify Release
+    needs: [cloaca-release-wheels, cloaca-dispatcher-sdist]
     strategy:
       matrix:
         backend: [postgres, sqlite]
@@ -144,9 +144,9 @@ jobs:
         shell: bash
 
   # Publish to PyPI (only on tagged releases)
-  publish-pypi:
-    name: Publish to PyPI
-    needs: [verify-release]
+  cloaca-publish-pypi:
+    name: Cloaca - Publish to PyPI
+    needs: [cloaca-verify-release]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment:
@@ -186,9 +186,9 @@ jobs:
           verbose: true
 
   # Create GitHub release assets
-  create-release-assets:
-    name: Create Release Assets
-    needs: [build-release-wheels, build-dispatcher-sdist]
+  cloaca-release-assets:
+    name: Cloaca - Create Release Assets
+    needs: [cloaca-release-wheels, cloaca-dispatcher-sdist]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 

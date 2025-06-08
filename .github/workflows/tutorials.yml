@@ -1,10 +1,11 @@
 ---
-name: Tutorials
+name: Tutorials - All Projects
 on:
   workflow_call:
 
 jobs:
-  tutorials:
+  all-tutorials:
+    name: All Project Tutorials
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

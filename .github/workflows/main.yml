@@ -61,9 +61,5 @@ jobs:
     uses: ./.github/workflows/python_wheels.yml
 
   python_bindings:
-    needs: smoke_tests
+    needs: python_wheels
     uses: ./.github/workflows/python_bindings.yml
-
-  python_tutorials:
-    needs: smoke_tests
-    uses: ./.github/workflows/python_tutorials.yml

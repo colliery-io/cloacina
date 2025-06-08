@@ -1,10 +1,11 @@
 ---
-name: Unit Tests
+name: Cloacina - SQLite Unit Tests
 on:
   workflow_call:
 
 jobs:
-  unit_tests:
+  cloacina-sqlite-unit:
+    name: Cloacina - SQLite Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

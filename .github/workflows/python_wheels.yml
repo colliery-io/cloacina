@@ -1,5 +1,5 @@
 ---
-name: Python Wheels
+name: Cloaca - Wheels
 on:
   workflow_call:
 
@@ -7,8 +7,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-wheels:
-    name: Build Python Wheels
+  cloaca-build-wheels:
+    name: Cloaca - Build Wheels
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12']
@@ -68,46 +68,9 @@ jobs:
           path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
           retention-days: 30
 
-  test-wheels:
-    name: Test Python Wheels
-    needs: build-wheels
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.12']  # Test oldest and newest supported versions
-        backend: [postgres, sqlite]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: wheel-${{ matrix.backend }}-py${{ matrix.python-version }}
-          path: wheels/
-
-      - name: Run Python integration tests
-        run: |
-          # Use new angreal command to run comprehensive tests
-          angreal cloaca test --backend ${{ matrix.backend }}
-        shell: bash
-
   # Build source distributions (sdist) for dispatcher package
-  build-sdist:
-    name: Build Source Distribution
+  cloaca-build-sdist:
+    name: Cloaca - Build Source Distribution
     runs-on: ubuntu-latest
 
     steps:
@@ -137,37 +100,3 @@ jobs:
           name: sdist-dispatcher
           path: cloaca/dist/*.tar.gz
           retention-days: 30
-
-  # Comprehensive smoke test across all wheels
-  smoke-test-matrix:
-    name: Smoke Test Matrix
-    needs: build-wheels
-    strategy:
-      matrix:
-        backend: [postgres, sqlite]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Download wheel artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: wheel-${{ matrix.backend }}-py3.11
-          path: wheels/
-
-      - name: Run angreal smoke tests
-        run: |
-          # Run angreal smoke test for this backend
-          angreal cloaca smoke --backend ${{ matrix.backend }}
-        shell: bash
