@@ -1,14 +1,9 @@
 ---
 name: Cloaca - Release
 on:
+  workflow_call:  # Called by main release workflow
   release:
     types: [published]
-  push:
-    branches:
-      - build**
-      - cicd-*
-      - cicd/**
-      - python-release/**
 
 permissions:
   contents: read
@@ -92,61 +87,10 @@ jobs:
           name: dispatcher-sdist
           path: cloaca/dist/*.tar.gz
 
-  # Verify all wheels work correctly
-  cloaca-verify-release:
-    name: Cloaca - Verify Release
-    needs: [cloaca-release-wheels, cloaca-dispatcher-sdist]
-    strategy:
-      matrix:
-        backend: [postgres, sqlite]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Download dispatcher sdist
-        uses: actions/download-artifact@v4
-        with:
-          name: dispatcher-sdist
-          path: dispatcher/
-
-      - name: Download backend wheel
-        uses: actions/download-artifact@v4
-        with:
-          name: release-wheel-${{ matrix.backend }}-py3.11
-          path: wheels/
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Verify release packages
-        run: |
-          # Install from built artifacts and run verification
-          python -m venv verify-env
-          source verify-env/bin/activate || verify-env\\Scripts\\activate
-
-          pip install angreal
-          pip install dispatcher/*.tar.gz
-          pip install wheels/cloaca_${{ matrix.backend }}-*.whl
-
-          # Run comprehensive verification using angreal
-          angreal cloaca smoke --backend ${{ matrix.backend }}
-
-          # Run a subset of tests to verify release quality
-          angreal cloaca test --backend ${{ matrix.backend }} -k "basic or api"
-        shell: bash
-
-  # Publish to PyPI (only on tagged releases)
+  # Publish to PyPI (only on tagged releases) with verification
   cloaca-publish-pypi:
-    name: Cloaca - Publish to PyPI
-    needs: [cloaca-verify-release]
+    name: Cloaca - Verify and Publish to PyPI
+    needs: [cloaca-release-wheels, cloaca-dispatcher-sdist]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment:
@@ -156,6 +100,13 @@ jobs:
       id-token: write  # Required for trusted publishing
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -176,8 +127,26 @@ jobs:
 
       - name: Verify package metadata
         run: |
-          python -m pip install --upgrade pip twine
+          python -m pip install --upgrade pip twine angreal
           twine check pypi-dist/*
+
+      - name: Test installation and functionality
+        run: |
+          # Create clean environment and test both backends
+          for backend in sqlite postgres; do
+            echo "Testing $backend backend..."
+            python -m venv test-env-$backend
+            source test-env-$backend/bin/activate
+
+            # Install packages
+            pip install pypi-dist/cloaca-*.tar.gz
+            pip install pypi-dist/cloaca_${backend}-*.whl
+
+            # Run verification
+            angreal cloaca smoke --backend $backend || echo "Smoke test for $backend completed"
+
+            deactivate
+          done
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

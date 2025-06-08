@@ -62,7 +62,7 @@ jobs:
 
   release-python:
     name: Release Python Packages
-    needs: [build-check]
+    needs: [release-cargo]  # Python releases after Rust
     uses: ./.github/workflows/python_release.yml
     permissions:
       contents: read

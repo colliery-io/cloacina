@@ -61,12 +61,6 @@ jobs:
           angreal cloaca smoke --backend ${{ matrix.backend }}
         shell: bash
 
-      - name: Upload wheel artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheel-${{ matrix.backend }}-py${{ matrix.python-version }}
-          path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
-          retention-days: 30
 
   # Build source distributions (sdist) for dispatcher package
   cloaca-build-sdist:
@@ -93,10 +87,3 @@ jobs:
       - name: Check sdist
         working-directory: cloaca
         run: twine check dist/*
-
-      - name: Upload sdist artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sdist-dispatcher
-          path: cloaca/dist/*.tar.gz
-          retention-days: 30
