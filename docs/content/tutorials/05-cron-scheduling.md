@@ -14,7 +14,7 @@ This tutorial will guide you through setting up automated workflow execution usi
 
 Before starting this tutorial, you should:
 
-- Have completed the basic Cloacina workflow tutorials (01-04)
+- Completion of [Tutorial 4](/tutorials/04-error-handling/)
 - Be familiar with creating workflows and tasks using Cloacina's macro system
 - Understand basic cron expression syntax
 - Have Rust toolchain installed (rustc, cargo)

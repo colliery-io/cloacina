@@ -1,7 +1,7 @@
 ---
-title: "03 - Error Handling and Recovery"
+title: "04 - Error Handling and Recovery"
 description: "Build resilient workflows with comprehensive error handling strategies"
-weight: 13
+weight: 14
 reviewer: "automation"
 review_date: "2025-01-07"
 ---
@@ -21,7 +21,7 @@ Welcome to the third tutorial in our Python Cloacina series! In this tutorial, y
 
 ## Prerequisites
 
-- Completion of [Tutorial 2](/python-bindings/tutorials/02-context-handling/)
+- Completion of [Tutorial 3](/python-bindings/tutorials/03-complex-workflows/)
 - Understanding of Python exception handling
 - Basic knowledge of error handling patterns
 

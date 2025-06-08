@@ -1,7 +1,7 @@
 ---
-title: "04 - Complex Workflows"
+title: "03 - Complex Workflows"
 description: "Build sophisticated workflows with advanced dependency patterns"
-weight: 14
+weight: 13
 reviewer: "automation"
 review_date: "2025-01-07"
 ---
@@ -21,7 +21,7 @@ Welcome to the fourth tutorial in our Python Cloacina series! In this tutorial, 
 
 ## Prerequisites
 
-- Completion of [Tutorial 3](/python-bindings/tutorials/03-error-handling/)
+- Completion of [Tutorial 2](/python-bindings/tutorials/02-context-handling/)
 - Understanding of dependency management
 - Familiarity with parallel processing concepts
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cloacina Python Tutorial 03: Error Handling and Recovery
+Cloacina Python Tutorial 04: Error Handling and Recovery
 
 This example demonstrates building resilient workflows with comprehensive
 error handling strategies, retry mechanisms, fallback patterns,
@@ -15,7 +15,7 @@ Learning objectives:
 - Monitor and respond to workflow failures
 
 Usage:
-    python python_tutorial_03_error_handling.py
+    python python_tutorial_04_error_handling.py
 
 Prerequisites:
     pip install cloaca[sqlite]

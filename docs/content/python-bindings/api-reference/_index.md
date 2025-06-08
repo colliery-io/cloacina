@@ -40,8 +40,33 @@ result = runner.execute("my_workflow", context)
 runner.shutdown()
 ```
 
+### Multi-Tenant Admin (PostgreSQL only)
+```python
+import cloaca
+
+# Create database admin
+admin = cloaca.DatabaseAdmin("postgresql://admin:password@localhost/db")
+
+# Provision new tenant
+config = cloaca.TenantConfig(
+    schema_name="tenant_acme",
+    username="acme_user",
+    password=""  # Auto-generate secure password
+)
+credentials = admin.create_tenant(config)
+
+# Use tenant-specific runner
+runner = cloaca.DefaultRunner(credentials.connection_string)
+```
+
 ## Module Functions
 
 - **`cloaca.task()`** - Decorator for defining workflow tasks
 - **`cloaca.register_workflow_constructor()`** - Register workflow constructor
 - **`cloaca.get_backend()`** - Get compiled backend ("sqlite" or "postgres")
+
+## Admin Classes (PostgreSQL only)
+
+- **`cloaca.DatabaseAdmin`** - Database administration for multi-tenant deployments
+- **`cloaca.TenantConfig`** - Configuration for new tenant provisioning
+- **`cloaca.TenantCredentials`** - Returned credentials for tenant access

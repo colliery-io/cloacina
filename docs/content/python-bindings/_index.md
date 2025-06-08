@@ -42,6 +42,7 @@ Cloaca provides Python bindings for Cloacina's workflow execution engine:
 | SQLite Backend | ✅ | ✅ | Same database schema |
 | PostgreSQL Backend | ✅ | ✅ | Same database schema |
 | Multi-tenancy | ✅ | ✅ | PostgreSQL schema isolation |
+| Database Admin | ✅ | ✅ | Tenant provisioning |
 | Cron Scheduling | ✅ | ✅ | Expression parsing |
 | Recovery Mechanisms | ✅ | ✅ | Configurable retry logic |
 

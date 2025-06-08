@@ -1,6 +1,6 @@
 ---
-title: "04 - Resilient Workflows"
-description: "Creating complex, fault-tolerant workflows with Cloacina"
+title: "04 - Error Handling"
+description: "Build resilient workflows with comprehensive error handling strategies"
 weight: 14
 reviewer: "dstorey"
 review_date: "2024-03-19"
@@ -11,7 +11,7 @@ In this tutorial, you'll learn how to build sophisticated workflows that can han
 
 ## Prerequisites
 
-- Completion of [Tutorial 3](/tutorials/03-parallel-processing/)
+- Completion of [Tutorial 3](/tutorials/03-complex-workflows/)
 - Basic understanding of Rust
 - Rust toolchain installed (rustc, cargo)
 - A code editor of your choice
