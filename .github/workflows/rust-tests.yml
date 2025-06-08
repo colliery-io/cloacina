@@ -2,11 +2,7 @@
 name: Rust Tests
 
 on:
-  workflow_call:  # Called by ci.yml
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_call:  # Only called by ci.yml
 
 concurrency:
   group: rust-tests-${{ github.ref }}
@@ -50,8 +46,22 @@ jobs:
             ${{ runner.os }}-rust-${{ matrix.backend }}-
             ${{ runner.os }}-rust-
 
+      - name: Docker Compose Cache
+        if: matrix.backend == 'postgres'
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        if: matrix.backend == 'postgres'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
       - name: Run ${{ matrix.test-type }} tests (${{ matrix.backend }})
         run: angreal cloacina ${{ matrix.test-type }} --backend ${{ matrix.backend }}
+
 
   smoke-tests:
     name: Smoke Tests
@@ -85,5 +95,16 @@ jobs:
             ${{ runner.os }}-rust-smoke-
             ${{ runner.os }}-rust-
 
+      - name: Docker Compose Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
       - name: Run smoke tests
-        run: angreal cloacina smoke
+        run: angreal cloacina all

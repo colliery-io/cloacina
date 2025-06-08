@@ -2,11 +2,7 @@
 name: Examples & Documentation
 
 on:
-  workflow_call:  # Called by ci.yml
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_call:  # Only called by ci.yml
 
 concurrency:
   group: examples-docs-${{ github.ref }}
@@ -46,7 +42,7 @@ jobs:
             ${{ runner.os }}-rust-
 
       - name: Run tutorial tests
-        run: angreal cloacina tutorial
+        run: angreal tutorials all
 
   examples:
     name: Example Tests
@@ -80,8 +76,22 @@ jobs:
             ${{ runner.os }}-rust-examples-
             ${{ runner.os }}-rust-
 
+      - name: Docker Compose Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
       - name: Run example tests
-        run: angreal cloacina example
+        run: |
+          angreal examples cron-scheduling
+          angreal examples multi-tenant
+          angreal examples per-tenant-credentials
 
   documentation:
     name: Build Documentation
@@ -120,7 +130,7 @@ jobs:
             ${{ runner.os }}-rust-
 
       - name: Build documentation
-        run: angreal cloacina docs
+        run: angreal docs build
 
   python-tutorials:
     name: Python Tutorial Tests
@@ -160,6 +170,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install angreal
+
+      - name: Docker Compose Cache
+        if: matrix.backend == 'postgres'
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        if: matrix.backend == 'postgres'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run Python tutorial tests
         run: |
