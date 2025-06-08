@@ -1,4 +1,27 @@
-# This file is generated automatically during build
-# Template: .angreal/templates/backend_cargo.toml.j2
-# DO NOT EDIT - Any changes will be overwritten
-# To make changes, edit the template file above
+[package]
+name = "cloaca-backend"
+version = "0.2.0-alpha.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Python bindings for Cloacina workflow orchestration engine"
+
+[lib]
+name = "cloaca_sqlite"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
+cloacina = { path = "../cloacina", default-features = false, features = ["sqlite"] }
+serde_json = "1.0"
+pythonize = "0.25"
+async-trait = "0.1"
+chrono = "0.4"
+tokio = { version = "1", features = ["rt", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
+
+[features]
+default = []
+postgres = []
+sqlite = []

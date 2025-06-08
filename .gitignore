@@ -36,6 +36,9 @@ __pycache__/
 
 # Python egg-info directories (generated during development installs)
 *.egg-info/
+# Python build directories
+build/
+dist/
 .cursorignore
 
 # SQLite database files created by tests and tutorials

@@ -28,6 +28,18 @@ pip install cloaca[postgres]
 {{< /tab >}}
 {{< /tabs >}}
 
+{{< hint type="important" title="Platform Support" >}}
+Cloaca provides pre-built wheels for **Linux** and **macOS** on Python 3.9-3.12.
+
+For other platforms or architectures, Cloaca will build from source, which requires:
+- **Rust toolchain** (install from [rustup.rs](https://rustup.rs/))
+- **System dependencies** for your chosen backend:
+  - PostgreSQL: `libpq-dev` (Ubuntu/Debian) or `postgresql-devel` (RHEL/CentOS)
+  - SQLite: Usually included with Python
+
+If you encounter build issues, ensure you have the latest Rust toolchain: `rustup update`
+{{< /hint >}}
+
 ## Your First Workflow
 
 Let's create a simple data processing workflow that demonstrates task dependencies, context passing, and error handling.
