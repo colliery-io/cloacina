@@ -9,7 +9,7 @@ Welcome to the Cloacina documentation. This documentation is organized to help y
 
 ## About Cloacina
 
-Cloacina is a Rust library that helps you build resilient task pipelines directly within your Rust applications. Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with:
+Cloacina is a workflow orchestration engine that helps you build resilient task pipelines directly within your applications. Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with:
 
 - Automatic retries and failure recovery
 - State persistence
@@ -18,4 +18,13 @@ Cloacina is a Rust library that helps you build resilient task pipelines directl
 - Async-first design
 - Content versioning
 
-Whether you're building data processing applications, background job systems, or complex integration workflows, Cloacina provides the tools you need to make your task pipelines reliable, maintainable, and scalable - all within your Rust application.
+Whether you're building data processing applications, background job systems, or complex integration workflows, Cloacina provides the tools you need to make your task pipelines reliable, maintainable, and scalable.
+
+## Available Libraries
+
+Cloacina provides libraries for multiple programming languages:
+
+- **[Cloacina](/tutorials/)**: Native Rust library for maximum performance and type safety
+- **[Cloaca](/python-bindings/)**: Python bindings providing the same powerful features with a Pythonic interface
+
+Both libraries share the same core engine and can even share the same database, allowing you to use the best tool for each part of your system.
