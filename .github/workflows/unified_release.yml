@@ -84,9 +84,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install maturin[patchelf] build twine angreal
 
-      - name: Build backend wheel
+      - name: Build release wheel
         run: |
-          angreal cloaca package --backend ${{ matrix.backend }}
+          angreal cloaca release --backend ${{ matrix.backend }}
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
