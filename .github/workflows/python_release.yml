@@ -49,22 +49,21 @@ jobs:
             target
           key: release-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
-      - name: Install maturin
+      - name: Install angreal
         run: |
           python -m pip install --upgrade pip
-          pip install maturin[patchelf]
+          pip install angreal
 
       - name: Build release wheel
-        working-directory: cloaca-backend
         run: |
-          cp pyproject-${{ matrix.backend }}.toml pyproject.toml
-          maturin build --release --no-default-features --features ${{ matrix.backend }}
+          # Use angreal release command for production builds
+          angreal cloaca release --backend ${{ matrix.backend }}
 
       - name: Upload release wheel
         uses: actions/upload-artifact@v4
         with:
           name: release-wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: cloaca-backend/target/wheels/cloaca_${{ matrix.backend }}-*.whl
+          path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
 
   # Build dispatcher source distribution
   build-dispatcher-sdist:
@@ -131,24 +130,19 @@ jobs:
 
       - name: Verify release packages
         run: |
-          # Create clean test environment
+          # Install from built artifacts and run verification
           python -m venv verify-env
           source verify-env/bin/activate || verify-env\\Scripts\\activate
-
-          # Install from built artifacts
+          
+          pip install angreal
           pip install dispatcher/*.tar.gz
           pip install wheels/cloaca_${{ matrix.backend }}-*.whl
 
-          # Run comprehensive verification
+          # Run comprehensive verification using angreal
           angreal cloaca smoke --backend ${{ matrix.backend }}
-
-          # Test import and basic functionality
-          python -c "
-          import cloaca
-          assert cloaca.get_backend() == '${{ matrix.backend }}'
-          assert cloaca.hello_world() == 'Hello from Cloaca backend!'
-          print('✓ Release verification passed for ${{ matrix.backend }}')
-          "
+          
+          # Run a subset of tests to verify release quality
+          angreal cloaca test --backend ${{ matrix.backend }} -k "basic or api"
         shell: bash
 
   # Publish to PyPI (only on tagged releases)

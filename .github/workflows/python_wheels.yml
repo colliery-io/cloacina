@@ -51,51 +51,22 @@ jobs:
         run: pip install angreal
 
       - name: Build wheel for ${{ matrix.backend }}
-        working-directory: cloaca-backend
         run: |
-          # Copy the appropriate pyproject file
-          cp pyproject-${{ matrix.backend }}.toml pyproject.toml
-
-          # Build the wheel
-          maturin build --release --no-default-features --features ${{ matrix.backend }} --compatibility linux
+          # Use new angreal command to build wheel
+          angreal cloaca package --backend ${{ matrix.backend }}
         shell: bash
 
       - name: Test wheel installation and basic functionality
-        working-directory: cloaca-backend
         run: |
-          # Find the built wheel
-          wheel_file=$(find target/wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
-          if [ -z "$wheel_file" ]; then
-            echo "No wheel found for cloaca_${{ matrix.backend }}"
-            exit 1
-          fi
-
-          echo "Testing wheel: $wheel_file"
-
-          # Install the wheel in a temporary venv
-          python -m venv test-venv
-          source test-venv/bin/activate || test-venv\\Scripts\\activate
-
-          # Install dispatcher and backend wheel
-          pip install ../cloaca
-          pip install "$wheel_file"
-
-          # Test basic functionality
-          python -c "
-          import os
-          os.environ['CLOACA_BACKEND'] = '${{ matrix.backend }}'
-          import cloaca
-          print(f'Backend: {cloaca.get_backend()}')
-          print(f'Hello: {cloaca.hello_world()}')
-          print('✓ Basic functionality test passed')
-          "
+          # Use new angreal smoke test command
+          angreal cloaca smoke --backend ${{ matrix.backend }}
         shell: bash
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: cloaca-backend/target/wheels/cloaca_${{ matrix.backend }}-*.whl
+          path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
           retention-days: 30
 
   test-wheels:
@@ -132,27 +103,8 @@ jobs:
 
       - name: Run Python integration tests
         run: |
-          # Set up test environment with the built wheel
-          wheel_file=$(find wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
-          if [ -z "$wheel_file" ]; then
-            echo "No wheel found for cloaca_${{ matrix.backend }}"
-            exit 1
-          fi
-
-          # Create test environment
-          python -m venv test-env
-          source test-env/bin/activate || test-env\\Scripts\\activate
-
-          # Install packages
-          pip install cloaca/
-          pip install "$wheel_file"
-          pip install pytest pytest-asyncio
-
-          # Set backend environment variable
-          export CLOACA_BACKEND=${{ matrix.backend }}
-
-          # Run Python tests
-          pytest python-tests/tests/ -v --tb=short
+          # Use new angreal command to run comprehensive tests
+          angreal cloaca test --backend ${{ matrix.backend }}
         shell: bash
 
   # Build source distributions (sdist) for dispatcher package
@@ -219,14 +171,6 @@ jobs:
 
       - name: Run angreal smoke tests
         run: |
-          # Install the wheel
-          wheel_file=$(find wheels -name "cloaca_${{ matrix.backend }}-*.whl" | head -1)
-          python -m venv smoke-test
-          source smoke-test/bin/activate || smoke-test\\Scripts\\activate
-
-          pip install cloaca-dispatcher/
-          pip install "$wheel_file"
-
           # Run angreal smoke test for this backend
           angreal cloaca smoke --backend ${{ matrix.backend }}
         shell: bash
