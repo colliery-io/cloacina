@@ -12,6 +12,16 @@ Complete reference documentation for all Cloaca classes, methods, and functions.
 
 ## Core Classes
 
+- **[Context](context/)** - Data flow container for workflows
+- **[DefaultRunner](runner/)** - Execute workflows and manage scheduling
+- **[WorkflowBuilder](workflow-builder/)** - Build complex workflows with dependencies
+- **[Workflow](workflow/)** - Executable workflow objects
+- **[Task Decorator](task/)** - Define workflow tasks
+- **[Configuration](configuration/)** - Runner and system configuration
+- **[PipelineResult](pipeline-result/)** - Workflow execution results
+- **[Exceptions](exceptions/)** - Error handling and exception types
+- **[DatabaseAdmin](database-admin/)** - Multi-tenant database administration
+
 {{< toc-tree >}}
 
 ## Quick Reference

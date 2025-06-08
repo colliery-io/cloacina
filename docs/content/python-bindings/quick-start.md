@@ -313,8 +313,10 @@ Now that you have a working workflow, explore more advanced features:
 
 1. **[Tutorial 01: First Python Workflow](/python-bindings/tutorials/01-first-python-workflow/)** - Deep dive into workflow basics
 2. **[Tutorial 02: Context Handling](/python-bindings/tutorials/02-context-handling/)** - Master data passing between tasks
-3. **[Tutorial 03: Error Handling](/python-bindings/tutorials/03-error-handling/)** - Build resilient workflows
-4. **[Tutorial 04: Async Workflows](/python-bindings/tutorials/04-async-workflows/)** - Leverage Python's async capabilities
+3. **[Tutorial 03: Complex Workflows](/python-bindings/tutorials/03-complex-workflows/)** - Build sophisticated dependency patterns
+4. **[Tutorial 04: Error Handling](/python-bindings/tutorials/04-error-handling/)** - Build resilient workflows
+5. **[Tutorial 05: Cron Scheduling](/python-bindings/tutorials/05-cron-scheduling/)** - Automate workflow execution
+6. **[Tutorial 06: Multi-Tenancy](/python-bindings/tutorials/06-multi-tenancy/)** - Deploy isolated tenant workflows
 
 ### Common Next Tasks
 
