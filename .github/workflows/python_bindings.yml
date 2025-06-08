@@ -69,6 +69,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         tutorial: ['01', '02', '03', '04', '05']
+        backend: [postgres, sqlite]
         include:
           # Tutorial 05 (multi-tenancy) only runs with postgres
           - tutorial: '05'
