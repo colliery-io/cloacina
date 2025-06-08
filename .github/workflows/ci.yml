@@ -1,0 +1,26 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # All test suites run in parallel - no artificial dependencies
+  rust-tests:
+    name: Rust Tests
+    uses: ./.github/workflows/rust-tests.yml
+
+  python-tests:
+    name: Python Tests
+    uses: ./.github/workflows/python-tests.yml
+
+  examples-docs:
+    name: Examples & Documentation
+    uses: ./.github/workflows/examples-docs.yml
