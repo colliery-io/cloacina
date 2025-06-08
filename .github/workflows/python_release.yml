@@ -135,8 +135,6 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/project/cloaca/
-    permissions:
-      id-token: write  # Required for trusted publishing
 
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +193,7 @@ jobs:
         with:
           packages-dir: pypi-dist/
           verbose: true
+          password: ${{ secrets.PYPI_TOKEN }}
 
   # Create GitHub release assets
   cloaca-release-assets:
