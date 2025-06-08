@@ -74,10 +74,6 @@ jobs:
           # Tutorial 05 (multi-tenancy) only runs with postgres
           - tutorial: '05'
             backend: postgres
-        exclude:
-          # Tutorial 05 doesn't work with sqlite
-          - tutorial: '05'
-            backend: sqlite
     runs-on: ${{ matrix.os }}
 
     steps:
