@@ -50,7 +50,7 @@ config.max_concurrent_tasks = 8
 config.task_timeout_seconds = 600
 
 runner = cloaca.DefaultRunner.with_config(
-    "postgresql://user:pass@localhost:5432/dbname", 
+    "postgresql://user:pass@localhost:5432/dbname",
     config
 )
 ```
@@ -326,7 +326,7 @@ import cloaca
 with cloaca.DefaultRunner("sqlite:///app.db") as runner:
     context = cloaca.Context({"key": "value"})
     result = runner.execute("my_workflow", context)
-    
+
     if result.status == "Completed":
         print("Success!")
 # runner.shutdown() called automatically
@@ -482,13 +482,13 @@ def execute_workflow_safely(runner, workflow_name, context):
     """Execute workflow with comprehensive error handling."""
     try:
         result = runner.execute(workflow_name, context)
-        
+
         if result.status == "Completed":
             return result.final_context
         else:
             print(f"Workflow failed: {result.error_message}")
             return None
-            
+
     except Exception as e:
         print(f"Execution error: {e}")
         return None
@@ -499,21 +499,21 @@ def execute_workflow_safely(runner, workflow_name, context):
 def monitor_cron_schedules(runner):
     """Monitor cron schedule health."""
     schedules = runner.list_cron_schedules(enabled_only=True)
-    
+
     for schedule in schedules:
         # Check recent execution history
         history = runner.get_cron_execution_history(
-            schedule['id'], 
+            schedule['id'],
             limit=5
         )
-        
+
         if not history:
             print(f"Warning: No recent executions for {schedule['workflow_name']}")
-        
+
         # Check execution stats
         since = (datetime.now() - timedelta(days=1)).isoformat()
         stats = runner.get_cron_execution_stats(since)
-        
+
         if stats['success_rate'] < 0.9:
             print(f"Warning: Low success rate: {stats['success_rate']:.2%}")
 ```

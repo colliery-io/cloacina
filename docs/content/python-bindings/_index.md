@@ -24,7 +24,7 @@ Cloaca provides Python bindings for Cloacina's workflow execution engine:
 ## Key Features
 
 - **Python decorators** for task definition
-- **Builder pattern** for workflow construction  
+- **Builder pattern** for workflow construction
 - **Context objects** for data flow between tasks
 - **SQLite and PostgreSQL** backend support
 - **Multi-tenant** PostgreSQL schema isolation
@@ -99,7 +99,7 @@ This documentation is organized following the [Diátaxis framework](https://diat
 Python and Rust implementations can coexist:
 
 - **Shared database**: Both can use the same PostgreSQL/SQLite database
-- **Gradual adoption**: Migrate workflows incrementally  
+- **Gradual adoption**: Migrate workflows incrementally
 - **Same concepts**: Tasks, workflows, context, and runners work similarly
 
 ## Community and Support

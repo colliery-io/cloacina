@@ -1133,41 +1133,44 @@ impl Workflow {
     /// ```
     pub fn recreate_from_registry(&self) -> Result<Workflow, WorkflowError> {
         let mut new_workflow = Workflow::new(&self.name);
-        
+
         // Copy metadata (except version which will be recalculated)
         new_workflow.metadata.description = self.metadata.description.clone();
         new_workflow.metadata.tags = self.metadata.tags.clone();
         new_workflow.metadata.created_at = self.metadata.created_at;
-        
+
         // Get the task registry
         let registry = crate::task::global_task_registry();
         let guard = registry.write().map_err(|e| {
             WorkflowError::RegistryError(format!("Failed to access task registry: {}", e))
         })?;
-        
+
         // Recreate all tasks from the registry
         for task_id in self.get_task_ids() {
             let constructor = guard.get(&task_id).ok_or_else(|| {
                 WorkflowError::TaskNotFound(format!(
-                    "Task '{}' not found in global registry during workflow recreation", 
+                    "Task '{}' not found in global registry during workflow recreation",
                     task_id
                 ))
             })?;
-            
+
             // Create a new task instance
             let task = constructor();
-            
+
             // Add the task to the new workflow
             new_workflow.add_task(task).map_err(|e| {
-                WorkflowError::TaskError(format!("Failed to add task '{}' during recreation: {}", task_id, e))
+                WorkflowError::TaskError(format!(
+                    "Failed to add task '{}' during recreation: {}",
+                    task_id, e
+                ))
             })?;
         }
-        
+
         // Validate the recreated workflow
         new_workflow.validate().map_err(|e| {
             WorkflowError::ValidationError(format!("Recreated workflow validation failed: {}", e))
         })?;
-        
+
         // Finalize and return
         Ok(new_workflow.finalize())
     }

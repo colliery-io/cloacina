@@ -16,8 +16,8 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pythonize::{depythonize, pythonize};
 use serde_json;
-use pythonize::{pythonize, depythonize};
 
 /// PyContext - Python wrapper for Rust Context<serde_json::Value>
 ///
@@ -51,18 +51,20 @@ impl PyContext {
     #[pyo3(signature = (data = None))]
     pub fn new(data: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut context = cloacina::Context::new();
-        
+
         if let Some(dict) = data {
             for (key, value) in dict.iter() {
                 let key_str: String = key.extract()?;
                 let json_value: serde_json::Value = depythonize(&value)?;
-                context.insert(key_str, json_value)
-                    .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        format!("Failed to insert key: {}", e)
-                    ))?;
+                context.insert(key_str, json_value).map_err(|e| {
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "Failed to insert key: {}",
+                        e
+                    ))
+                })?;
             }
         }
-        
+
         Ok(PyContext { inner: context })
     }
 
@@ -77,17 +79,11 @@ impl PyContext {
     #[pyo3(signature = (key, default = None))]
     pub fn get(&self, key: &str, default: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
         match self.inner.get(key) {
-            Some(value) => {
-                Python::with_gil(|py| {
-                    Ok(pythonize(py, value)?.into())
-                })
-            }
-            None => {
-                match default {
-                    Some(default_value) => Ok(default_value.clone().into()),
-                    None => Python::with_gil(|py| Ok(py.None())),
-                }
-            }
+            Some(value) => Python::with_gil(|py| Ok(pythonize(py, value)?.into())),
+            None => match default {
+                Some(default_value) => Ok(default_value.clone().into()),
+                None => Python::with_gil(|py| Ok(py.None())),
+            },
         }
     }
 
@@ -102,15 +98,19 @@ impl PyContext {
     /// This matches Python dict behavior and is more convenient than separate insert/update.
     pub fn set(&mut self, key: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let json_value: serde_json::Value = depythonize(value)?;
-        
+
         // Check if key exists and use appropriate method
         if self.inner.get(key).is_some() {
             self.inner.update(key, json_value)
         } else {
             self.inner.insert(key, json_value)
-        }.map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            format!("Failed to set key '{}': {}", key, e)
-        ))
+        }
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Failed to set key '{}': {}",
+                key, e
+            ))
+        })
     }
 
     /// Updates an existing value in the context
@@ -123,10 +123,9 @@ impl PyContext {
     /// KeyError if the key doesn't exist
     pub fn update(&mut self, key: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let json_value: serde_json::Value = depythonize(value)?;
-        self.inner.update(key, json_value)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyKeyError, _>(
-                format!("Key not found: {}", e)
-            ))
+        self.inner.update(key, json_value).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!("Key not found: {}", e))
+        })
     }
 
     /// Inserts a new value into the context
@@ -139,10 +138,9 @@ impl PyContext {
     /// ValueError if the key already exists
     pub fn insert(&mut self, key: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let json_value: serde_json::Value = depythonize(value)?;
-        self.inner.insert(key, json_value)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Key already exists: {}", e)
-            ))
+        self.inner.insert(key, json_value).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Key already exists: {}", e))
+        })
     }
 
     /// Removes and returns a value from the context
@@ -154,12 +152,8 @@ impl PyContext {
     /// The removed value if it existed, None otherwise
     pub fn remove(&mut self, key: &str) -> PyResult<Option<PyObject>> {
         match self.inner.remove(key) {
-            Some(value) => {
-                Python::with_gil(|py| {
-                    Ok(Some(pythonize(py, &value)?.into()))
-                })
-            }
-            None => Ok(None)
+            Some(value) => Python::with_gil(|py| Ok(Some(pythonize(py, &value)?.into()))),
+            None => Ok(None),
         }
     }
 
@@ -179,15 +173,19 @@ impl PyContext {
         for (key, value) in data.iter() {
             let key_str: String = key.extract()?;
             let json_value: serde_json::Value = depythonize(&value)?;
-            
+
             // Use set behavior (insert or update)
             if self.inner.get(&key_str).is_some() {
                 self.inner.update(key_str, json_value)
             } else {
                 self.inner.insert(key_str, json_value)
-            }.map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Failed to update from dict: {}", e)
-            ))?;
+            }
+            .map_err(|e| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "Failed to update from dict: {}",
+                    e
+                ))
+            })?;
         }
         Ok(())
     }
@@ -197,10 +195,12 @@ impl PyContext {
     /// # Returns
     /// JSON string representation of the context
     pub fn to_json(&self) -> PyResult<String> {
-        self.inner.to_json()
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Failed to serialize to JSON: {}", e)
+        self.inner.to_json().map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Failed to serialize to JSON: {}",
+                e
             ))
+        })
     }
 
     /// Creates a context from a JSON string
@@ -212,10 +212,12 @@ impl PyContext {
     /// A new PyContext instance
     #[staticmethod]
     pub fn from_json(json_str: &str) -> PyResult<Self> {
-        let context = cloacina::Context::from_json(json_str.to_string())
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Failed to deserialize from JSON: {}", e)
-            ))?;
+        let context = cloacina::Context::from_json(json_str.to_string()).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Failed to deserialize from JSON: {}",
+                e
+            ))
+        })?;
         Ok(PyContext { inner: context })
     }
 
@@ -242,9 +244,10 @@ impl PyContext {
         let result = self.get(key, None)?;
         Python::with_gil(|py| {
             if result.is_none(py) {
-                Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
-                    format!("Key not found: '{}'", key)
-                ))
+                Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!(
+                    "Key not found: '{}'",
+                    key
+                )))
             } else {
                 Ok(result)
             }
@@ -260,9 +263,10 @@ impl PyContext {
     pub fn __delitem__(&mut self, key: &str) -> PyResult<()> {
         match self.remove(key)? {
             Some(_) => Ok(()),
-            None => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(
-                format!("Key not found: '{}'", key)
-            ))
+            None => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!(
+                "Key not found: '{}'",
+                key
+            ))),
         }
     }
 }
@@ -272,12 +276,12 @@ impl PyContext {
     pub(crate) fn from_rust_context(context: cloacina::Context<serde_json::Value>) -> Self {
         PyContext { inner: context }
     }
-    
+
     /// Extract the inner Rust Context (for internal use)
     pub(crate) fn into_inner(self) -> cloacina::Context<serde_json::Value> {
         self.inner
     }
-    
+
     /// Clone the inner Rust Context (for internal use)
     pub(crate) fn clone_inner(&self) -> cloacina::Context<serde_json::Value> {
         self.inner.clone_data()
@@ -290,14 +294,14 @@ impl Clone for PyContext {
     fn clone(&self) -> Self {
         // Get the data from the inner context
         let data = self.inner.data();
-        
+
         // Create a new context and populate it
         let mut new_context = cloacina::Context::new();
         for (key, value) in data.iter() {
             // This should never fail since we're cloning existing valid data
             new_context.insert(key.clone(), value.clone()).unwrap();
         }
-        
+
         PyContext { inner: new_context }
     }
 }
@@ -311,7 +315,7 @@ impl Clone for PyContext {
 /// ```python
 /// # Use defaults
 /// config = DefaultRunnerConfig()
-/// 
+///
 /// # Custom configuration
 /// config = DefaultRunnerConfig(
 ///     max_concurrent_tasks=8,
@@ -367,9 +371,9 @@ impl PyDefaultRunnerConfig {
         cron_max_recovery_attempts: Option<usize>,
     ) -> Self {
         use std::time::Duration;
-        
+
         let mut config = cloacina::runner::DefaultRunnerConfig::default();
-        
+
         // Apply any provided overrides
         if let Some(val) = max_concurrent_tasks {
             config.max_concurrent_tasks = val;
@@ -416,7 +420,7 @@ impl PyDefaultRunnerConfig {
         if let Some(val) = cron_max_recovery_attempts {
             config.cron_max_recovery_attempts = val;
         }
-        
+
         PyDefaultRunnerConfig { inner: config }
     }
 
@@ -426,13 +430,13 @@ impl PyDefaultRunnerConfig {
     /// A new PyDefaultRunnerConfig instance with all default values
     #[staticmethod]
     pub fn default() -> Self {
-        PyDefaultRunnerConfig { 
-            inner: cloacina::runner::DefaultRunnerConfig::default() 
+        PyDefaultRunnerConfig {
+            inner: cloacina::runner::DefaultRunnerConfig::default(),
         }
     }
 
     // Getters for all fields
-    
+
     #[getter]
     pub fn max_concurrent_tasks(&self) -> usize {
         self.inner.max_concurrent_tasks
@@ -509,7 +513,7 @@ impl PyDefaultRunnerConfig {
     }
 
     // Setters for all fields
-    
+
     #[setter]
     pub fn set_max_concurrent_tasks(&mut self, value: usize) {
         self.inner.max_concurrent_tasks = value;
@@ -591,24 +595,50 @@ impl PyDefaultRunnerConfig {
     /// A Python dict containing all configuration values with friendly names
     pub fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
-        
+
         dict.set_item("max_concurrent_tasks", self.inner.max_concurrent_tasks)?;
-        dict.set_item("executor_poll_interval_ms", self.inner.executor_poll_interval.as_millis())?;
-        dict.set_item("scheduler_poll_interval_ms", self.inner.scheduler_poll_interval.as_millis())?;
+        dict.set_item(
+            "executor_poll_interval_ms",
+            self.inner.executor_poll_interval.as_millis(),
+        )?;
+        dict.set_item(
+            "scheduler_poll_interval_ms",
+            self.inner.scheduler_poll_interval.as_millis(),
+        )?;
         dict.set_item("task_timeout_seconds", self.inner.task_timeout.as_secs())?;
-        dict.set_item("pipeline_timeout_seconds", 
-                     self.inner.pipeline_timeout.map(|d| d.as_secs()))?;
+        dict.set_item(
+            "pipeline_timeout_seconds",
+            self.inner.pipeline_timeout.map(|d| d.as_secs()),
+        )?;
         dict.set_item("db_pool_size", self.inner.db_pool_size)?;
         dict.set_item("enable_recovery", self.inner.enable_recovery)?;
         dict.set_item("enable_cron_scheduling", self.inner.enable_cron_scheduling)?;
-        dict.set_item("cron_poll_interval_seconds", self.inner.cron_poll_interval.as_secs())?;
-        dict.set_item("cron_max_catchup_executions", self.inner.cron_max_catchup_executions)?;
+        dict.set_item(
+            "cron_poll_interval_seconds",
+            self.inner.cron_poll_interval.as_secs(),
+        )?;
+        dict.set_item(
+            "cron_max_catchup_executions",
+            self.inner.cron_max_catchup_executions,
+        )?;
         dict.set_item("cron_enable_recovery", self.inner.cron_enable_recovery)?;
-        dict.set_item("cron_recovery_interval_seconds", self.inner.cron_recovery_interval.as_secs())?;
-        dict.set_item("cron_lost_threshold_minutes", self.inner.cron_lost_threshold_minutes)?;
-        dict.set_item("cron_max_recovery_age_seconds", self.inner.cron_max_recovery_age.as_secs())?;
-        dict.set_item("cron_max_recovery_attempts", self.inner.cron_max_recovery_attempts)?;
-        
+        dict.set_item(
+            "cron_recovery_interval_seconds",
+            self.inner.cron_recovery_interval.as_secs(),
+        )?;
+        dict.set_item(
+            "cron_lost_threshold_minutes",
+            self.inner.cron_lost_threshold_minutes,
+        )?;
+        dict.set_item(
+            "cron_max_recovery_age_seconds",
+            self.inner.cron_max_recovery_age.as_secs(),
+        )?;
+        dict.set_item(
+            "cron_max_recovery_attempts",
+            self.inner.cron_max_recovery_attempts,
+        )?;
+
         Ok(dict.into())
     }
 

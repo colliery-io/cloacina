@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 
 __backend__: Optional[str] = None
+__version__ = ...
 
 
 def _validate_backend_version(module: Any, backend_name: str) -> None:
@@ -107,6 +108,7 @@ try:
     if hasattr(_backend_module, "register_workflow_constructor"):
         register_workflow_constructor = _backend_module.register_workflow_constructor
 
+    print(__version__)
 
 except ImportError as import_error:
     # If no backend is available, provide helpful error message

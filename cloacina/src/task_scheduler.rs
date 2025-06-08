@@ -177,7 +177,7 @@ impl TaskScheduler {
     /// Creates a new TaskScheduler instance with default configuration using global workflow registry.
     ///
     /// This is the recommended constructor for most use cases. The TaskScheduler will:
-    /// - Use all workflows registered in the global registry  
+    /// - Use all workflows registered in the global registry
     /// - Enable automatic recovery of orphaned tasks
     /// - Use default poll interval (100ms)
     ///
@@ -207,7 +207,7 @@ impl TaskScheduler {
     }
 
     /// Creates a new TaskScheduler with the provided database.
-    /// 
+    ///
     /// This method is deprecated. Use `new()` instead which provides the same functionality.
     ///
     /// # Arguments
@@ -246,12 +246,9 @@ impl TaskScheduler {
         scheduler.recover_orphaned_tasks().await?;
         Ok(scheduler)
     }
-    
+
     /// Creates a new TaskScheduler with custom poll interval (synchronous version).
-    pub(crate) fn with_poll_interval_sync(
-        database: Database,
-        poll_interval: Duration,
-    ) -> Self {
+    pub(crate) fn with_poll_interval_sync(database: Database, poll_interval: Duration) -> Self {
         let dal = DAL::new(database.pool());
 
         Self {
@@ -272,7 +269,6 @@ impl TaskScheduler {
     ) -> Self {
         Self::with_poll_interval_sync(database, poll_interval)
     }
-
 
     /// Creates a new TaskScheduler with static workflows and automatic recovery of orphaned tasks.
     ///
@@ -412,9 +408,12 @@ impl TaskScheduler {
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
             let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+                ValidationError::WorkflowNotFound(format!(
+                    "Failed to access global workflow registry: {}",
+                    e
+                ))
             })?;
-            
+
             if let Some(constructor) = registry_guard.get(workflow_name) {
                 constructor()
             } else {
@@ -773,7 +772,10 @@ impl TaskScheduler {
                 let skipped_count = all_tasks.iter().filter(|t| t.status == "Skipped").count();
 
                 // Update the pipeline's final context before marking complete
-                if let Err(e) = self.update_pipeline_final_context(execution.id, &all_tasks).await {
+                if let Err(e) = self
+                    .update_pipeline_final_context(execution.id, &all_tasks)
+                    .await
+                {
                     warn!(
                         "Failed to update final context for pipeline {}: {}",
                         execution.id, e
@@ -855,13 +857,18 @@ impl TaskScheduler {
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
             let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+                ValidationError::WorkflowNotFound(format!(
+                    "Failed to access global workflow registry: {}",
+                    e
+                ))
             })?;
-            
+
             if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
                 constructor()
             } else {
-                return Err(ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()));
+                return Err(ValidationError::WorkflowNotFound(
+                    pipeline.pipeline_name.clone(),
+                ));
             }
         };
 
@@ -1088,13 +1095,18 @@ impl TaskScheduler {
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
             let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!("Failed to access global workflow registry: {}", e))
+                ValidationError::WorkflowNotFound(format!(
+                    "Failed to access global workflow registry: {}",
+                    e
+                ))
             })?;
-            
+
             if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
                 constructor()
             } else {
-                return Err(ValidationError::WorkflowNotFound(pipeline.pipeline_name.clone()));
+                return Err(ValidationError::WorkflowNotFound(
+                    pipeline.pipeline_name.clone(),
+                ));
             }
         };
 
@@ -1365,7 +1377,7 @@ impl TaskScheduler {
                 let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
                 registry_guard.contains_key(&pipeline.pipeline_name)
             };
-            
+
             if workflow_exists {
                 // Known workflow - use existing recovery logic
                 info!(
@@ -1523,7 +1535,7 @@ impl TaskScheduler {
 
     /// Updates the pipeline's final context when it completes.
     ///
-    /// This method finds the context from the final task(s) that produced output 
+    /// This method finds the context from the final task(s) that produced output
     /// and updates the pipeline's context_id to point to that final context,
     /// ensuring that PipelineResult.final_context returns the correct data.
     ///
@@ -1556,8 +1568,8 @@ impl TaskScheduler {
                     {
                         if let Some(context_id) = task_metadata.context_id {
                             // Use this context if it's the latest completion time or we haven't found one yet
-                            if latest_completion_time.is_none() 
-                                || completed_at.0 > latest_completion_time.unwrap() 
+                            if latest_completion_time.is_none()
+                                || completed_at.0 > latest_completion_time.unwrap()
                             {
                                 final_context_id = Some(context_id);
                                 latest_completion_time = Some(completed_at.0);

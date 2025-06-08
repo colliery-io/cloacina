@@ -42,12 +42,12 @@ import cloaca
 def fetch_data(context):
     """Simulate fetching data from an external source."""
     print("Fetching data...")
-    
+
     # Simulate some data
     data = [1, 2, 3, 4, 5]
     context.set("raw_data", data)
     context.set("fetch_timestamp", "2025-01-07T10:00:00Z")
-    
+
     print(f"Fetched {len(data)} items")
     return context
 
@@ -55,14 +55,14 @@ def fetch_data(context):
 def process_data(context):
     """Process the fetched data."""
     print("Processing data...")
-    
+
     # Get data from previous task
     raw_data = context.get("raw_data")
-    
+
     # Process the data (double each value)
     processed_data = [x * 2 for x in raw_data]
     context.set("processed_data", processed_data)
-    
+
     print(f"Processed {len(processed_data)} items")
     return context
 
@@ -70,18 +70,18 @@ def process_data(context):
 def save_results(context):
     """Save the processed results."""
     print("Saving results...")
-    
+
     # Get processed data
     processed_data = context.get("processed_data")
     fetch_timestamp = context.get("fetch_timestamp")
-    
+
     # Simulate saving to a file or database
     result_summary = {
         "total_items": len(processed_data),
         "sum": sum(processed_data),
         "processed_at": fetch_timestamp
     }
-    
+
     context.set("result_summary", result_summary)
     print(f"Results saved: {result_summary}")
     return context
@@ -91,17 +91,17 @@ def create_data_processing_workflow():
     """Build and return the workflow."""
     builder = cloaca.WorkflowBuilder("data_processing_workflow")
     builder.description("A simple data processing pipeline")
-    
+
     # Add tasks to the workflow
     builder.add_task("fetch_data")
-    builder.add_task("process_data") 
+    builder.add_task("process_data")
     builder.add_task("save_results")
-    
+
     return builder.build()
 
 # Register the workflow
 cloaca.register_workflow_constructor(
-    "data_processing_workflow", 
+    "data_processing_workflow",
     create_data_processing_workflow
 )
 
@@ -109,28 +109,28 @@ cloaca.register_workflow_constructor(
 if __name__ == "__main__":
     # Create a runner (using SQLite for this example)
     runner = cloaca.DefaultRunner("sqlite:///workflow.db")
-    
+
     # Create initial context
     context = cloaca.Context({"job_id": "job_001", "user": "demo"})
-    
+
     # Execute the workflow
     print("Starting workflow execution...")
     result = runner.execute("data_processing_workflow", context)
-    
+
     # Check results
     if result.status == "Completed":
         print("✅ Workflow completed successfully!")
-        
+
         # Access the final context
         final_context = result.final_context
         summary = final_context.get("result_summary")
         print(f"Final results: {summary}")
-        
+
     else:
         print(f"❌ Workflow failed with status: {result.status}")
         if hasattr(result, 'error'):
             print(f"Error: {result.error}")
-    
+
     # Clean up
     runner.shutdown()
 ```
@@ -200,7 +200,7 @@ def process_data(context):
 # Set data in one task
 context.set("raw_data", [1, 2, 3])
 
-# Get data in another task  
+# Get data in another task
 raw_data = context.get("raw_data")
 ```
 
@@ -285,7 +285,7 @@ def robust_task(context):
         context.set("error", str(e))
         # Re-raise to mark task as failed
         raise
-    
+
     return context
 ```
 
@@ -307,7 +307,7 @@ Now that you have a working workflow, explore more advanced features:
 ### Common Next Tasks
 
 - **Add retry logic**: Learn about automatic retry mechanisms
-- **Schedule workflows**: Set up cron-based scheduling  
+- **Schedule workflows**: Set up cron-based scheduling
 - **Handle errors gracefully**: Implement recovery strategies
 - **Scale with PostgreSQL**: Move to production database
 - **Multi-tenancy**: Isolate workflows by tenant

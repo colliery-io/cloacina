@@ -36,17 +36,17 @@ pub struct YourClass {
     // fields
 }
 
-// Function example  
+// Function example
 #[pyfunction]
-fn your_function() -> String { 
-    "result".to_string() 
+fn your_function() -> String {
+    "result".to_string()
 }
 
 // Enum example
 #[pyenum]
-enum YourEnum { 
-    Variant1, 
-    Variant2 
+enum YourEnum {
+    Variant1,
+    Variant2
 }
 ```
 
@@ -57,17 +57,17 @@ enum YourEnum {
 #[cfg(feature = "postgres")]
 fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<YourClass>()?;        // Classes
-    m.add_function(wrap_pyfunction!(your_function, m)?)?;  // Functions  
+    m.add_function(wrap_pyfunction!(your_function, m)?)?;  // Functions
     m.add("YOUR_CONSTANT", 42)?;       // Constants
     // ... rest
 }
 
-#[pymodule] 
+#[pymodule]
 #[cfg(feature = "sqlite")]
 fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<YourClass>()?;        // Classes
     m.add_function(wrap_pyfunction!(your_function, m)?)?;  // Functions
-    m.add("YOUR_CONSTANT", 42)?;       // Constants  
+    m.add("YOUR_CONSTANT", 42)?;       // Constants
     // ... rest
 }
 ```
@@ -81,10 +81,10 @@ Add imports from the extension module (around line 6):
 ```python
 # Import from the extension module built by maturin
 from .cloaca_{{backend}} import (
-    hello_world, 
-    get_backend, 
+    hello_world,
+    get_backend,
     YourClass,      # <- ADD classes
-    your_function,  # <- ADD functions  
+    your_function,  # <- ADD functions
     YOUR_CONSTANT,  # <- ADD constants
     __backend__
 )
@@ -92,7 +92,7 @@ from .cloaca_{{backend}} import (
 # Add to __all__ exports (around line 10-15)
 __all__ = [
     "hello_world",
-    "get_backend", 
+    "get_backend",
     "YourClass",      # <- ADD classes
     "your_function",  # <- ADD functions
     "YOUR_CONSTANT",  # <- ADD constants
@@ -115,7 +115,7 @@ if hasattr(_backend_module, "get_backend"):
 if hasattr(_backend_module, "YourClass"):      # <- ADD classes
     YourClass = _backend_module.YourClass
 if hasattr(_backend_module, "your_function"):  # <- ADD functions
-    your_function = _backend_module.your_function  
+    your_function = _backend_module.your_function
 if hasattr(_backend_module, "YOUR_CONSTANT"):  # <- ADD constants
     YOUR_CONSTANT = _backend_module.YOUR_CONSTANT
 ```
@@ -130,15 +130,15 @@ Add test cases to the `TestBackendFunctionality` class:
 def test_your_symbol_basic(self):
     """Test basic functionality of your new symbol."""
     import cloaca
-    
+
     # Test class
     obj = cloaca.YourClass()
     assert obj is not None
-    
+
     # Test function
     result = cloaca.your_function()
     assert result == "result"
-    
+
     # Test constant
     assert cloaca.YOUR_CONSTANT == 42
 ```
@@ -163,7 +163,7 @@ crate-type = ["cdylib"]
 
 Ensure the module name matches (around line 38-42):
 
-```toml  
+```toml
 [tool.maturin]
 features = ["{{backend}}"]
 module-name = "cloaca_{{backend}}"  # <- MUST match Cargo.toml lib name
@@ -172,7 +172,7 @@ python-source = "python"
 
 ## Build Script Configuration
 
-### Wheel Location 
+### Wheel Location
 
 **File**: `./.angreal/task_cloaca.py`
 
@@ -204,7 +204,7 @@ angreal cloaca scrub
 
 This ensures:
 - ✅ Template generation works
-- ✅ Rust compilation works  
+- ✅ Rust compilation works
 - ✅ Python wrapper imports work
 - ✅ Dispatcher re-exports work
 - ✅ End-to-end functionality works
@@ -214,7 +214,7 @@ This ensures:
 ### 1. Class compiles but not available in Python
 **Symptoms**: Rust compiles successfully, but `import cloaca; cloaca.YourClass` fails
 
-**Solution**: 
+**Solution**:
 - Check backend wrapper template imports the class
 - Check dispatcher re-exports the class
 

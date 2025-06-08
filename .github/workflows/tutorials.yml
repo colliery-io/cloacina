@@ -46,9 +46,9 @@ jobs:
 
       - name: Run Rust tutorials
         run: angreal tutorials all
-        
+
       - name: Run Python tutorials (SQLite)
         run: angreal cloaca tutorial --backend sqlite
-        
+
       - name: Run Python tutorials (PostgreSQL)
         run: angreal cloaca tutorial --backend postgres

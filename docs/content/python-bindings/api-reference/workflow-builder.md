@@ -113,7 +113,7 @@ Build the workflow and validate its structure.
 
 **Returns:** Workflow object ready for execution
 
-**Raises:** 
+**Raises:**
 - `ValueError`: If workflow has structural problems
 - `KeyError`: If referenced tasks don't exist
 
@@ -185,11 +185,11 @@ def validate_users(context):
     """Validate user data."""
     users = context.get("users", [])
     valid_users = []
-    
+
     for user in users:
         if user.get("email") and "@" in user["email"]:
             valid_users.append(user)
-    
+
     context.set("valid_users", valid_users)
     context.set("validation_count", len(valid_users))
     return context
@@ -198,7 +198,7 @@ def validate_users(context):
 def process_users(context):
     """Process validated users."""
     valid_users = context.get("valid_users", [])
-    
+
     processed_users = []
     for user in valid_users:
         processed_user = {
@@ -207,7 +207,7 @@ def process_users(context):
             "status": "active"
         }
         processed_users.append(processed_user)
-    
+
     context.set("processed_users", processed_users)
     return context
 
@@ -215,7 +215,7 @@ def process_users(context):
 def save_results(context):
     """Save processed results."""
     processed_users = context.get("processed_users", [])
-    
+
     # Simulate saving to database
     context.set("saved_count", len(processed_users))
     context.set("save_time", datetime.now().isoformat())
@@ -226,43 +226,43 @@ def save_results(context):
 def create_user_processing_workflow():
     """Create and return the user processing workflow."""
     builder = cloaca.WorkflowBuilder("user_processing_workflow")
-    
+
     # Configure workflow
     builder.description("Fetch, validate, process, and save user data")
     builder.tag("category", "data_processing")
     builder.tag("frequency", "hourly")
     builder.tag("department", "engineering")
-    
+
     # Add tasks in any order (dependencies determine execution order)
     builder.add_task("save_results")      # Can add in any order
     builder.add_task("fetch_users")
     builder.add_task("process_users")
     builder.add_task("validate_users")
-    
+
     return builder.build()
 
 # Register workflow
 cloaca.register_workflow_constructor(
-    "user_processing_workflow", 
+    "user_processing_workflow",
     create_user_processing_workflow
 )
 
 # Execute workflow
 if __name__ == "__main__":
     runner = cloaca.DefaultRunner("sqlite:///users.db")
-    
+
     context = cloaca.Context({
         "batch_id": "batch_001",
         "requested_by": "scheduler"
     })
-    
+
     result = runner.execute("user_processing_workflow", context)
-    
+
     if result.status == "Completed":
         final_context = result.final_context
         print(f"Processed {final_context.get('saved_count')} users")
         print(f"Completed at: {final_context.get('save_time')}")
-    
+
     runner.shutdown()
 ```
 
@@ -275,24 +275,24 @@ def create_dynamic_workflow(task_count):
     """Create workflow with dynamic number of tasks."""
     builder = cloaca.WorkflowBuilder(f"dynamic_workflow_{task_count}")
     builder.description(f"Dynamic workflow with {task_count} parallel tasks")
-    
+
     # Add initial task
     builder.add_task("initialize")
-    
+
     # Add dynamic parallel tasks
     for i in range(task_count):
         builder.add_task(f"parallel_task_{i}")
-    
+
     # Add final aggregation task
     builder.add_task("aggregate_results")
-    
+
     return builder.build()
 
 # Register multiple variants
 for count in [2, 4, 8]:
     workflow_name = f"dynamic_workflow_{count}"
     cloaca.register_workflow_constructor(
-        workflow_name, 
+        workflow_name,
         lambda c=count: create_dynamic_workflow(c)
     )
 ```
@@ -304,11 +304,11 @@ def create_environment_specific_workflow(environment):
     """Create workflow adapted for specific environment."""
     builder = cloaca.WorkflowBuilder(f"deploy_workflow_{environment}")
     builder.tag("environment", environment)
-    
+
     # Common tasks
     builder.add_task("prepare_deployment")
     builder.add_task("run_tests")
-    
+
     # Environment-specific tasks
     if environment == "production":
         builder.add_task("backup_database")
@@ -317,11 +317,11 @@ def create_environment_specific_workflow(environment):
     elif environment == "staging":
         builder.add_task("load_test_data")
         builder.add_task("run_integration_tests")
-    
+
     # Common final tasks
     builder.add_task("deploy_application")
     builder.add_task("verify_deployment")
-    
+
     return builder.build()
 ```
 
@@ -332,25 +332,25 @@ def create_composite_workflow():
     """Create workflow that combines multiple sub-workflows."""
     builder = cloaca.WorkflowBuilder("composite_workflow")
     builder.description("Composite workflow combining multiple processes")
-    
+
     # Data ingestion phase
     builder.add_task("ingest_customer_data")
     builder.add_task("ingest_product_data")
     builder.add_task("ingest_order_data")
-    
+
     # Processing phase (depends on ingestion)
     builder.add_task("process_customers")     # depends on ingest_customer_data
     builder.add_task("process_products")      # depends on ingest_product_data
     builder.add_task("process_orders")        # depends on ingest_order_data
-    
+
     # Analysis phase (depends on processing)
     builder.add_task("analyze_sales_trends")  # depends on all processing tasks
     builder.add_task("analyze_customer_behavior")
-    
+
     # Reporting phase (depends on analysis)
     builder.add_task("generate_executive_report")
     builder.add_task("generate_detailed_reports")
-    
+
     return builder.build()
 ```
 
@@ -364,22 +364,22 @@ def validate_workflow_structure(builder):
     try:
         workflow = builder.build()
         print("✓ Workflow validation passed")
-        
+
         # Check workflow properties
         print(f"Workflow name: {workflow.name}")
         print(f"Description: {workflow.description}")
-        
+
         # Analyze structure
         roots = workflow.get_roots()
         leaves = workflow.get_leaves()
         levels = workflow.get_execution_levels()
-        
+
         print(f"Root tasks: {roots}")
         print(f"Leaf tasks: {leaves}")
         print(f"Execution levels: {len(levels)}")
-        
+
         return workflow
-        
+
     except Exception as e:
         print(f"✗ Workflow validation failed: {e}")
         return None
@@ -400,17 +400,17 @@ def inspect_workflow(workflow):
     print(f"Workflow: {workflow.name}")
     print(f"Version: {workflow.version}")
     print(f"Description: {workflow.description}")
-    
+
     # Show topological order
     topo_order = workflow.topological_sort()
     print(f"Execution order: {' → '.join(topo_order)}")
-    
+
     # Show execution levels (parallel groups)
     levels = workflow.get_execution_levels()
     print("\nExecution levels:")
     for i, level in enumerate(levels):
         print(f"  Level {i}: {level}")
-    
+
     # Check parallelism opportunities
     print("\nParallelism analysis:")
     for i, task1 in enumerate(topo_order):
@@ -459,10 +459,10 @@ def build_workflow_safely(name, task_list, description=None):
     """Build workflow with comprehensive error handling."""
     try:
         builder = cloaca.WorkflowBuilder(name)
-        
+
         if description:
             builder.description(description)
-        
+
         # Add tasks with validation
         for task in task_list:
             try:
@@ -470,12 +470,12 @@ def build_workflow_safely(name, task_list, description=None):
             except Exception as e:
                 print(f"Warning: Failed to add task {task}: {e}")
                 continue
-        
+
         # Build with validation
         workflow = builder.build()
         print(f"✓ Successfully built workflow: {name}")
         return workflow
-        
+
     except Exception as e:
         print(f"✗ Failed to build workflow {name}: {e}")
         return None
@@ -483,8 +483,8 @@ def build_workflow_safely(name, task_list, description=None):
 # Usage
 tasks = ["fetch_data", "process_data", "save_results"]
 workflow = build_workflow_safely(
-    "safe_workflow", 
-    tasks, 
+    "safe_workflow",
+    tasks,
     "Safely built workflow"
 )
 ```
@@ -532,13 +532,13 @@ class WorkflowFactory:
 def create_workflow_from_config(config):
     builder = cloaca.WorkflowBuilder(config["name"])
     builder.description(config["description"])
-    
+
     for tag_key, tag_value in config.get("tags", {}).items():
         builder.tag(tag_key, tag_value)
-    
+
     for task in config["tasks"]:
         builder.add_task(task)
-    
+
     return builder.build()
 ```
 
@@ -554,7 +554,7 @@ def register_all_workflows():
         "data_cleanup": create_data_cleanup_workflow,
         "backup_process": create_backup_workflow
     }
-    
+
     for name, constructor in workflows.items():
         cloaca.register_workflow_constructor(name, constructor)
         print(f"Registered workflow: {name}")

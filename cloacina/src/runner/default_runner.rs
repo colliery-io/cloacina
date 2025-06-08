@@ -451,12 +451,10 @@ impl DefaultRunner {
         }
 
         // Create scheduler with global workflow registry (always dynamic)
-        let scheduler = TaskScheduler::with_poll_interval(
-            database.clone(),
-            config.scheduler_poll_interval,
-        )
-        .await
-        .map_err(|e| PipelineError::Executor(e.into()))?;
+        let scheduler =
+            TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval)
+                .await
+                .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor
         let executor_config = ExecutorConfig {

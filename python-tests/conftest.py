@@ -8,7 +8,7 @@ This module implements the new fixture strategy to solve connection pool exhaust
 
 Design principles:
 1. Single connection pool shared across tests
-2. Registry cleanup between tests to prevent workflow/task pollution  
+2. Registry cleanup between tests to prevent workflow/task pollution
 3. Fast cleanup avoiding slow runner.shutdown() calls
 4. Selective isolation for critical tests
 """
@@ -17,8 +17,6 @@ import os
 import pytest
 import tempfile
 import threading
-import time
-import sys
 import signal
 from contextlib import contextmanager
 
@@ -35,7 +33,7 @@ def get_test_db_url():
         backend = cloaca.get_backend()
     except ImportError:
         raise SystemError("cloaca not available")
-    
+
     if backend == "postgres":
         return "postgresql://cloacina:cloacina@localhost:5432/cloacina"
     elif backend == "sqlite":
@@ -53,25 +51,25 @@ def get_test_db_url():
 def shared_runner():
     """
     Single shared runner for the entire test session.
-    
+
     This prevents connection pool exhaustion by reusing the same connection pool
     across all tests. The runner is created once and shutdown at session end.
     """
     global _shared_runner
-    
+
     with _runner_lock:
         if _shared_runner is None:
             print("DEBUG: Creating shared runner for session")
-            
+
             import cloaca
             db_url = get_test_db_url()
-            
+
             print(f"DEBUG: Creating shared runner with URL: {db_url}")
             _shared_runner = cloaca.DefaultRunner(db_url)
             print("DEBUG: Shared runner created successfully")
-    
+
     yield _shared_runner
-    
+
     # Cleanup at session end
     if _shared_runner is not None:
         print("DEBUG: Shutting down shared runner at session end")
@@ -80,10 +78,10 @@ def shared_runner():
             def timeout_handler(signum, frame):
                 print("WARNING: Shared runner shutdown timed out")
                 raise TimeoutError("Shutdown timeout")
-            
+
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(10)  # 10 second timeout
-            
+
             try:
                 _shared_runner.shutdown()
                 signal.alarm(0)  # Cancel timeout
@@ -91,10 +89,10 @@ def shared_runner():
             except TimeoutError:
                 print("WARNING: Forced shutdown due to timeout")
                 signal.alarm(0)
-                
+
         except Exception as e:
             print(f"WARNING: Error during shared runner shutdown: {e}")
-        
+
         _shared_runner = None
 
 
@@ -102,17 +100,17 @@ def shared_runner():
 def clean_runner(shared_runner):
     """
     Clean slate for each test using shared runner.
-    
+
     Since tests are now isolated to single files and run separately,
     registry clearing may not be necessary. Testing without it.
     """
     print("DEBUG: Setting up clean runner (no registry clearing)")
-    
+
     # Return the shared runner without clearing registries
     runner = shared_runner
-    
+
     yield runner
-    
+
     print("DEBUG: Cleaning up after test (no registry clearing)")
 
 
@@ -120,30 +118,30 @@ def clean_runner(shared_runner):
 def isolated_db():
     """
     Completely isolated database per test.
-    
+
     For tests that need true isolation from shared state.
     Creates a new runner with fresh database connection.
     """
     print("DEBUG: Creating isolated database runner")
-    
+
     import cloaca
     db_url = get_test_db_url()
-    
+
     # Create isolated runner
     runner = cloaca.DefaultRunner(db_url)
     print("DEBUG: Isolated runner created")
-    
+
     yield runner
-    
+
     # Cleanup isolated runner
     print("DEBUG: Shutting down isolated runner")
     try:
         def timeout_handler(signum, frame):
             raise TimeoutError("Isolated runner shutdown timeout")
-        
+
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(5)  # 5 second timeout
-        
+
         try:
             runner.shutdown()
             signal.alarm(0)
@@ -151,10 +149,10 @@ def isolated_db():
         except TimeoutError:
             print("WARNING: Isolated runner shutdown timed out")
             signal.alarm(0)
-            
+
     except Exception as e:
         print(f"WARNING: Error during isolated runner shutdown: {e}")
-    
+
     # Clean up database if SQLite
     if db_url.startswith("sqlite://"):
         db_path = db_url.split("://")[1].split("?")[0]
@@ -171,10 +169,10 @@ def timeout_protection(seconds=15):
     """Context manager to protect against hanging operations."""
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Operation timed out after {seconds} seconds")
-    
+
     old_handler = signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(seconds)
-    
+
     try:
         yield
     finally:
@@ -192,7 +190,7 @@ def pytest_sessionfinish(session, exitstatus):
     """Final cleanup at session end."""
     print("DEBUG: Test session finished, performing final cleanup")
     global _shared_runner
-    
+
     # Ensure shared runner is cleaned up
     if _shared_runner is not None:
         print("DEBUG: Final shared runner cleanup")

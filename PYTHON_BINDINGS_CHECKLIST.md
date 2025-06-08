@@ -6,7 +6,7 @@ When adding ANY new symbol (class, function, constant, enum, etc.) to the Rust b
 
 **TL;DR: 4 places to update for EVERY new symbol: Rust → Python wrapper template → Dispatcher → Tests**
 
-### 1. Rust Implementation 
+### 1. Rust Implementation
 **File**: `./cloaca-backend/src/lib.rs` (relative to project root)
 
 ```rust
@@ -16,7 +16,7 @@ When adding ANY new symbol (class, function, constant, enum, etc.) to the Rust b
 #[pyclass]
 pub struct YourClass { /* fields */ }
 
-// Function  
+// Function
 #[pyfunction]
 fn your_function() -> String { "result".to_string() }
 
@@ -29,17 +29,17 @@ enum YourEnum { Variant1, Variant2 }
 #[cfg(feature = "postgres")]
 fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<YourClass>()?;        // <- ADD THIS for classes
-    m.add_function(wrap_pyfunction!(your_function, m)?)?;  // <- ADD THIS for functions  
+    m.add_function(wrap_pyfunction!(your_function, m)?)?;  // <- ADD THIS for functions
     m.add("YOUR_CONSTANT", 42)?;       // <- ADD THIS for constants
     // ... rest
 }
 
-#[pymodule] 
+#[pymodule]
 #[cfg(feature = "sqlite")]
 fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<YourClass>()?;        // <- ADD THIS for classes
     m.add_function(wrap_pyfunction!(your_function, m)?)?;  // <- ADD THIS for functions
-    m.add("YOUR_CONSTANT", 42)?;       // <- ADD THIS for constants  
+    m.add("YOUR_CONSTANT", 42)?;       // <- ADD THIS for constants
     // ... rest
 }
 ```
@@ -50,10 +50,10 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ```python
 # Import from the extension module built by maturin - around line 6
 from .cloaca_{{backend}} import (
-    hello_world, 
-    get_backend, 
+    hello_world,
+    get_backend,
     YourClass,      # <- ADD classes
-    your_function,  # <- ADD functions  
+    your_function,  # <- ADD functions
     YOUR_CONSTANT,  # <- ADD constants
     __backend__
 )
@@ -61,7 +61,7 @@ from .cloaca_{{backend}} import (
 # Around line 10-15
 __all__ = [
     "hello_world",
-    "get_backend", 
+    "get_backend",
     "YourClass",      # <- ADD classes
     "your_function",  # <- ADD functions
     "YOUR_CONSTANT",  # <- ADD constants
@@ -69,7 +69,7 @@ __all__ = [
 ]
 ```
 
-### 3. Dispatcher Package  
+### 3. Dispatcher Package
 **File**: `./cloaca/src/cloaca/__init__.py` (relative to project root)
 
 ```python
@@ -81,12 +81,12 @@ if hasattr(_backend_module, "get_backend"):
 if hasattr(_backend_module, "YourClass"):      # <- ADD classes
     YourClass = _backend_module.YourClass
 if hasattr(_backend_module, "your_function"):  # <- ADD functions
-    your_function = _backend_module.your_function  
+    your_function = _backend_module.your_function
 if hasattr(_backend_module, "YOUR_CONSTANT"):  # <- ADD constants
     YOUR_CONSTANT = _backend_module.YOUR_CONSTANT
 ```
 
-### 4. Add Tests 
+### 4. Add Tests
 **File**: `./python-tests/test_basic.py` (relative to project root)
 
 ```python
@@ -94,15 +94,15 @@ if hasattr(_backend_module, "YOUR_CONSTANT"):  # <- ADD constants
 def test_your_symbol_basic(self):
     """Test basic functionality of your new symbol."""
     import cloaca
-    
+
     # Test class
     obj = cloaca.YourClass()
     assert obj is not None
-    
+
     # Test function
     result = cloaca.your_function()
     assert result == "result"
-    
+
     # Test constant
     assert cloaca.YOUR_CONSTANT == 42
 ```
@@ -120,7 +120,7 @@ crate-type = ["cdylib"]
 
 ### PyProject.toml Template
 **File**: `./.angreal/templates/backend_pyproject.toml.j2` (relative to project root)
-```toml  
+```toml
 # Around line 38-42
 [tool.maturin]
 features = ["{{backend}}"]
@@ -130,7 +130,7 @@ python-source = "python"
 
 ## Build Script Configuration
 
-### Wheel Location 
+### Wheel Location
 **File**: `./.angreal/task_cloaca.py` (relative to project root)
 ```python
 # Around line 159-161 in _build_and_install_cloaca_backend()
@@ -165,7 +165,7 @@ angreal cloaca test --backend sqlite -k "your_class"
 
 This ensures:
 - Template generation works
-- Rust compilation works  
+- Rust compilation works
 - Python wrapper imports work
 - Dispatcher re-exports work
 - End-to-end functionality works
@@ -174,15 +174,14 @@ This ensures:
 
 The Python bindings use a **dispatcher pattern**:
 1. Templates generate backend-specific packages (`cloaca_sqlite`, `cloaca_postgres`)
-2. Each package has Rust extension + Python wrapper 
+2. Each package has Rust extension + Python wrapper
 3. Main `cloaca` package imports from whichever backend is installed
 4. User imports from `cloaca` and gets the right backend automatically
 
 This means every class needs to be:
 1. Exported from Rust ✅
-2. Imported by Python wrapper ✅  
+2. Imported by Python wrapper ✅
 3. Re-exported by dispatcher ✅
 4. Tested end-to-end ✅
 
 **Missing ANY step = class won't work for users.**
-

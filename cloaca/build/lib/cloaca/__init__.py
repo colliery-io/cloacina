@@ -111,11 +111,11 @@ try:
     def workflow(name: str, description: str = None):
         """
         Decorator for creating and automatically registering workflows.
-        
+
         Args:
             name: Unique name for the workflow
             description: Optional description of the workflow
-            
+
         Example:
             @workflow("my_pipeline", "Data processing pipeline")
             def create_my_pipeline():
@@ -123,27 +123,27 @@ try:
                 if description:
                     builder.description(description)
                 builder.add_task("task1")
-                builder.add_task("task2") 
+                builder.add_task("task2")
                 return builder.build()
         """
         def decorator(func):
             def wrapper():
                 # Create the workflow using the decorated function
                 workflow_instance = func()
-                
+
                 # Ensure the workflow has the correct name and description
                 if hasattr(workflow_instance, 'name') and workflow_instance.name != name:
                     raise ValueError(f"Workflow function returned workflow with name '{workflow_instance.name}' but decorator specified '{name}'")
-                
+
                 return workflow_instance
-            
+
             # Auto-register the workflow constructor
             if hasattr(_backend_module, "register_workflow_constructor"):
                 register_workflow_constructor(name, wrapper)
-            
+
             # Return the original function (not the wrapper) so it can still be called directly
             return func
-        
+
         return decorator
 
 except ImportError as import_error:

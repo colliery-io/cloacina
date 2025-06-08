@@ -133,14 +133,14 @@ jobs:
           # Install from built artifacts and run verification
           python -m venv verify-env
           source verify-env/bin/activate || verify-env\\Scripts\\activate
-          
+
           pip install angreal
           pip install dispatcher/*.tar.gz
           pip install wheels/cloaca_${{ matrix.backend }}-*.whl
 
           # Run comprehensive verification using angreal
           angreal cloaca smoke --backend ${{ matrix.backend }}
-          
+
           # Run a subset of tests to verify release quality
           angreal cloaca test --backend ${{ matrix.backend }} -k "basic or api"
         shell: bash

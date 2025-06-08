@@ -17,14 +17,14 @@
 use pyo3::prelude::*;
 
 mod context;
-mod task;
 mod runner;
+mod task;
 mod workflow;
 
 use context::{PyContext, PyDefaultRunnerConfig};
-use task::task as task_decorator;
 use runner::{PyDefaultRunner, PyPipelineResult};
-use workflow::{PyWorkflowBuilder, PyWorkflow, register_workflow_constructor};
+use task::task as task_decorator;
+use workflow::{register_workflow_constructor, PyWorkflow, PyWorkflowBuilder};
 
 /// A simple hello world class for testing
 #[pyclass]
@@ -40,11 +40,11 @@ impl HelloClass {
             message: "Hello from HelloClass!".to_string(),
         }
     }
-    
+
     pub fn get_message(&self) -> String {
         self.message.clone()
     }
-    
+
     pub fn __repr__(&self) -> String {
         format!("HelloClass(message='{}')", self.message)
     }

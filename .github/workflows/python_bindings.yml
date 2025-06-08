@@ -115,7 +115,7 @@ jobs:
           else
             backend="sqlite"
           fi
-          
+
           # Run the specific tutorial
           angreal cloaca tutorial --tutorial ${{ matrix.tutorial }} --backend $backend
 
@@ -240,6 +240,6 @@ jobs:
         run: |
           # Run basic compatibility tests
           angreal cloaca smoke --backend ${{ matrix.backend }}
-          
+
           # Run a subset of tests for compatibility verification
           angreal cloaca test --backend ${{ matrix.backend }} -k "basic or api"

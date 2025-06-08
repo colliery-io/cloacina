@@ -17,7 +17,9 @@
 use cloacina::{task, workflow};
 
 #[task(id = "basic-workflow-task", dependencies = [])]
-async fn simple_task(_context: &mut cloacina::Context<serde_json::Value>) -> Result<(), cloacina::TaskError> {
+async fn simple_task(
+    _context: &mut cloacina::Context<serde_json::Value>,
+) -> Result<(), cloacina::TaskError> {
     Ok(())
 }
 

@@ -326,11 +326,11 @@ def safe_task(context):
     # Safe access with defaults
     user_id = context.get("user_id", 0)
     preferences = context.get("preferences", {})
-    
+
     # Validate required data
     if not user_id:
         raise ValueError("user_id is required")
-    
+
     # Process data
     context.set("processed", True)
     return context
@@ -343,7 +343,7 @@ def safe_task(context):
 def transform_data(context):
     # Get input data
     raw_data = context.get("raw_data", [])
-    
+
     # Transform
     processed_data = []
     for item in raw_data:
@@ -353,11 +353,11 @@ def transform_data(context):
             "processed_at": datetime.now().isoformat()
         }
         processed_data.append(processed_item)
-    
+
     # Store results
     context.set("processed_data", processed_data)
     context.set("transformation_complete", True)
-    
+
     return context
 ```
 
@@ -368,15 +368,15 @@ def transform_data(context):
 def accumulate_results(context):
     # Get existing results
     all_results = context.get("all_results", [])
-    
+
     # Add new results
     new_results = context.get("batch_results", [])
     all_results.extend(new_results)
-    
+
     # Update context
     context.set("all_results", all_results)
     context.set("total_count", len(all_results))
-    
+
     return context
 ```
 
@@ -456,19 +456,19 @@ def robust_task(context):
         for field in required_fields:
             if field not in context:
                 raise ValueError(f"Missing required field: {field}")
-        
+
         # Process data
         result = process_operation(context)
         context.set("result", result)
         context.set("success", True)
-        
+
     except Exception as e:
         # Store error information
         context.set("success", False)
         context.set("error_message", str(e))
         context.set("error_type", type(e).__name__)
         raise  # Re-raise to mark task as failed
-    
+
     return context
 ```
 {{< /tab >}}

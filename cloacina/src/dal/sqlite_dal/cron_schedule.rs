@@ -225,7 +225,7 @@ impl<'a> CronScheduleDAL<'a> {
         // Build the update values dynamically based on what's provided
         conn.interact(move |conn| {
             let query = diesel::update(cron_schedules::table.find(id));
-            
+
             if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
                 // Update both expression and timezone
                 query

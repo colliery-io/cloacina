@@ -194,7 +194,10 @@ impl PipelineEngine {
         executor_config: ExecutorConfig,
         mode: EngineMode,
     ) -> Self {
-        let scheduler = TaskScheduler::with_poll_interval_sync(database.clone(), std::time::Duration::from_millis(100));
+        let scheduler = TaskScheduler::with_poll_interval_sync(
+            database.clone(),
+            std::time::Duration::from_millis(100),
+        );
         let executor = TaskExecutor::new(
             database.clone(),
             Arc::clone(&task_registry),

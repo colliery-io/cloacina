@@ -19,7 +19,7 @@ Cloacina is organized as a multi-language workspace supporting both Rust and Pyt
 - **`cloaca-backend/`** - Python bindings (PyO3/Maturin) with multi-backend support
 - **`cloaca/`** - Python dispatcher package providing unified API
 
-### Development Infrastructure  
+### Development Infrastructure
 - **`.angreal/`** - Complete development automation system with templated build pipeline
 - **`python-tests/`** - Comprehensive Python binding test suite (28+ scenario files)
 - **`examples/`** - Example projects showcasing various features and patterns
@@ -40,7 +40,7 @@ cloaca (Python dispatcher)
     ├── Unified API surface
     └── Optional dependencies per backend
 
-cloaca-backend (PyO3/Maturin implementation)  
+cloaca-backend (PyO3/Maturin implementation)
     ├── Feature-gated compilation (postgres/sqlite)
     ├── Template-driven configuration
     └── Shared Rust implementation with backend-specific features
@@ -138,7 +138,7 @@ The Python bindings use a sophisticated template-driven build system that enable
 ```
 .angreal/templates/
 ├── dispatcher_pyproject.toml.j2      # Cloaca dispatcher package config
-├── backend_cargo.toml.j2             # PyO3/Maturin Cargo configuration  
+├── backend_cargo.toml.j2             # PyO3/Maturin Cargo configuration
 └── backend_pyproject.toml.j2         # Backend wheel metadata
 ```
 
@@ -176,7 +176,7 @@ The repository includes comprehensive development tooling:
 - **Volume persistence** for data between test runs
 - **Automatic cleanup** with `remove_volumes=True` for fresh state
 
-#### Virtual Environment Management  
+#### Virtual Environment Management
 - **Isolated test environments** created per test run
 - **Automatic cleanup** to prevent disk space accumulation
 - **Backend-specific environments** with appropriate dependencies
@@ -217,7 +217,7 @@ cloacina/                              # Core workflow engine (existing)
 │   ├── database_reset.py             # PostgreSQL state management
 │   └── docker-compose.yaml           # PostgreSQL test container
 ├── debug-env-{backend}/              # Generated debug environments
-├── test-env-{backend}/               # Generated test environments  
+├── test-env-{backend}/               # Generated test environments
 └── target/wheels/                    # Release wheel artifacts
 ```
 
@@ -252,7 +252,7 @@ For detailed information about documentation standards and practices, please ref
 
 ### Python Binding Development
 1. **Always use `angreal cloaca generate`** before testing to ensure configuration files are current
-2. **Run `angreal cloaca scrub`** after development sessions to clean up generated files  
+2. **Run `angreal cloaca scrub`** after development sessions to clean up generated files
 3. **Test both backends** unless focusing on backend-specific features
 4. **Use file-level test isolation** for reliable test results
 5. **Inspect `debug-env-{backend}/`** environments for debugging issues
@@ -264,7 +264,7 @@ For detailed information about documentation standards and practices, please ref
 
 ### Testing Strategy
 - **Unit tests**: Test individual components in isolation
-- **Integration tests**: Test component interactions within language boundaries  
+- **Integration tests**: Test component interactions within language boundaries
 - **Python scenario tests**: Test complete workflows through Python API
 - **End-to-end tests**: Test real-world usage patterns via examples
 

@@ -14,8 +14,8 @@
  *  limitations under the License.
  */
 
-use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]
@@ -52,21 +52,24 @@ impl PyWorkflowBuilder {
             let guard = registry.read().map_err(|e| {
                 PyValueError::new_err(format!("Failed to access task registry: {}", e))
             })?;
-            
+
             let constructor = guard.get(&task_id).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
                 ))
             })?;
-            
+
             // Create the task instance
             let task_instance = constructor();
-            
+
             // Add to workflow builder
-            self.inner = self.inner.clone().add_task(task_instance)
+            self.inner = self
+                .inner
+                .clone()
+                .add_task(task_instance)
                 .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
-                
+
             Ok(())
         } else {
             // Try to get function name from the object
@@ -81,21 +84,21 @@ impl PyWorkflowBuilder {
                                     let guard = registry.read().map_err(|e| {
                                         PyValueError::new_err(format!("Failed to access task registry: {}", e))
                                     })?;
-                                    
+
                                     let constructor = guard.get(&func_name).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
-                                    
+
                                     // Create the task instance
                                     let task_instance = constructor();
-                                    
+
                                     // Add to workflow builder
                                     self.inner = self.inner.clone().add_task(task_instance)
                                         .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
-                                        
+
                                     Ok(())
                                 },
                                 Err(e) => {
@@ -131,7 +134,10 @@ impl PyWorkflowBuilder {
 
     /// Build the workflow
     pub fn build(&self) -> PyResult<PyWorkflow> {
-        let workflow = self.inner.clone().build()
+        let workflow = self
+            .inner
+            .clone()
+            .build()
             .map_err(|e| PyValueError::new_err(format!("Failed to build workflow: {}", e)))?;
         Ok(PyWorkflow { inner: workflow })
     }
@@ -149,17 +155,17 @@ impl PyWorkflowBuilder {
         _traceback: Option<&Bound<PyAny>>,
     ) -> PyResult<bool> {
         // Build the workflow
-        let workflow = self.inner.clone().build()
+        let workflow = self
+            .inner
+            .clone()
+            .build()
             .map_err(|e| PyValueError::new_err(format!("Failed to build workflow: {}", e)))?;
-        
+
         // Register it automatically
         let workflow_name = workflow.name().to_string();
-        
-        cloacina::workflow::register_workflow_constructor(
-            workflow_name,
-            move || workflow.clone()
-        );
-        
+
+        cloacina::workflow::register_workflow_constructor(workflow_name, move || workflow.clone());
+
         Ok(false) // Don't suppress exceptions
     }
 
@@ -187,7 +193,11 @@ impl PyWorkflow {
     /// Get workflow description
     #[getter]
     pub fn description(&self) -> String {
-        self.inner.metadata().description.clone().unwrap_or_default()
+        self.inner
+            .metadata()
+            .description
+            .clone()
+            .unwrap_or_default()
     }
 
     /// Get workflow version
@@ -198,13 +208,15 @@ impl PyWorkflow {
 
     /// Get topological sort of tasks
     pub fn topological_sort(&self) -> PyResult<Vec<String>> {
-        self.inner.topological_sort()
+        self.inner
+            .topological_sort()
             .map_err(|e| PyValueError::new_err(format!("Failed to sort tasks: {}", e)))
     }
 
     /// Get execution levels (tasks that can run in parallel)
     pub fn get_execution_levels(&self) -> PyResult<Vec<Vec<String>>> {
-        self.inner.get_execution_levels()
+        self.inner
+            .get_execution_levels()
             .map_err(|e| PyValueError::new_err(format!("Failed to get execution levels: {}", e)))
     }
 
@@ -225,13 +237,18 @@ impl PyWorkflow {
 
     /// Validate the workflow
     pub fn validate(&self) -> PyResult<()> {
-        self.inner.validate()
+        self.inner
+            .validate()
             .map_err(|e| PyValueError::new_err(format!("Workflow validation failed: {}", e)))
     }
 
     /// String representation
     pub fn __repr__(&self) -> String {
-        format!("Workflow(name='{}', tasks={})", self.inner.name(), self.inner.get_task_ids().len())
+        format!(
+            "Workflow(name='{}', tasks={})",
+            self.inner.name(),
+            self.inner.get_task_ids().len()
+        )
     }
 }
 
@@ -241,20 +258,22 @@ pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyR
     // Pre-evaluate the constructor immediately while we have the GIL
     Python::with_gil(|py| {
         // Call the Python constructor function immediately
-        let workflow_obj = constructor.call0(py)
-            .map_err(|e| PyValueError::new_err(format!("Failed to call workflow constructor: {}", e)))?;
-        
+        let workflow_obj = constructor.call0(py).map_err(|e| {
+            PyValueError::new_err(format!("Failed to call workflow constructor: {}", e))
+        })?;
+
         // Extract the PyWorkflow wrapper
-        let py_workflow: PyWorkflow = workflow_obj.extract(py)
-            .map_err(|e| PyValueError::new_err(format!("Failed to extract workflow from constructor: {}", e)))?;
-        
+        let py_workflow: PyWorkflow = workflow_obj.extract(py).map_err(|e| {
+            PyValueError::new_err(format!(
+                "Failed to extract workflow from constructor: {}",
+                e
+            ))
+        })?;
+
         // Store the pre-built workflow
         let workflow = py_workflow.inner.clone();
-        cloacina::workflow::register_workflow_constructor(
-            name,
-            move || workflow.clone()
-        );
-        
+        cloacina::workflow::register_workflow_constructor(name, move || workflow.clone());
+
         Ok(())
     })
 }

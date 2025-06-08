@@ -19,15 +19,15 @@ class DatabaseResetError(Exception):
 def run_sql_in_postgres_container(sql: str, database: str = "cloacina", container_name: str = "cloacina-postgres") -> subprocess.CompletedProcess:
     """
     Execute SQL command in the PostgreSQL container.
-    
+
     Args:
         sql: SQL command to execute
         database: Database name to connect to
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         CompletedProcess result from subprocess.run
-        
+
     Raises:
         DatabaseResetError: If the container is not accessible
     """
@@ -35,7 +35,7 @@ def run_sql_in_postgres_container(sql: str, database: str = "cloacina", containe
         "docker", "exec", container_name,
         "psql", "-U", "cloacina", "-d", database, "-c", sql
     ]
-    
+
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
@@ -47,37 +47,37 @@ def run_sql_in_postgres_container(sql: str, database: str = "cloacina", containe
 def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> bool:
     """
     Fast PostgreSQL table reset using TRUNCATE.
-    
+
     This is the fastest method as it only removes data while preserving
     table structure, indexes, and sequences. Excludes Diesel's migration
     tracking table to prevent migration re-runs.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         True if successful, False otherwise
     """
     truncate_sql = """
-        DO $$ 
-        DECLARE 
+        DO $$
+        DECLARE
             r RECORD;
             table_list TEXT := '';
         BEGIN
             -- Build comma-separated list of table names, excluding migration tracking
             FOR r IN (
-                SELECT tablename 
-                FROM pg_tables 
-                WHERE schemaname = 'public' 
+                SELECT tablename
+                FROM pg_tables
+                WHERE schemaname = 'public'
                 AND tablename != '__diesel_schema_migrations'
-            ) 
+            )
             LOOP
                 IF table_list != '' THEN
                     table_list := table_list || ', ';
                 END IF;
                 table_list := table_list || quote_ident(r.tablename);
             END LOOP;
-            
+
             -- Truncate all tables if any exist
             IF table_list != '' THEN
                 EXECUTE 'TRUNCATE TABLE ' || table_list || ' RESTART IDENTITY CASCADE';
@@ -87,7 +87,7 @@ def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> boo
             END IF;
         END $$;
     """
-    
+
     try:
         result = run_sql_in_postgres_container(truncate_sql)
         if result.returncode == 0:
@@ -104,23 +104,23 @@ def reset_postgres_tables_fast(container_name: str = "cloacina-postgres") -> boo
 def reset_postgres_connections(container_name: str = "cloacina-postgres") -> bool:
     """
     Terminate all active connections to the cloacina database.
-    
+
     This can help resolve lock issues that prevent table truncation.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         True if successful, False otherwise
     """
     terminate_sql = """
         SELECT pg_terminate_backend(pid)
-        FROM pg_stat_activity 
-        WHERE datname = 'cloacina' 
+        FROM pg_stat_activity
+        WHERE datname = 'cloacina'
         AND pid <> pg_backend_pid()
         AND state = 'active';
     """
-    
+
     try:
         result = run_sql_in_postgres_container(terminate_sql, database="postgres")
         if result.returncode == 0:
@@ -139,12 +139,12 @@ def reset_postgres_connections(container_name: str = "cloacina-postgres") -> boo
 def reset_postgres_schema(container_name: str = "cloacina-postgres") -> bool:
     """
     Reset PostgreSQL by dropping and recreating the public schema.
-    
+
     This is more thorough than truncation but requires re-running migrations.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -155,7 +155,7 @@ def reset_postgres_schema(container_name: str = "cloacina-postgres") -> bool:
         GRANT ALL ON SCHEMA public TO public;
         COMMENT ON SCHEMA public IS 'standard public schema';
     """
-    
+
     try:
         result = run_sql_in_postgres_container(schema_reset_sql)
         if result.returncode == 0:
@@ -173,35 +173,35 @@ def reset_postgres_schema(container_name: str = "cloacina-postgres") -> bool:
 def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries: int = 2) -> bool:
     """
     Intelligent PostgreSQL reset with multiple fallback strategies.
-    
+
     Attempts reset methods in order of speed:
     1. Fast table truncation (preserves migration table)
     2. Connection reset + table truncation retry
     3. Schema recreation (requires migration re-run)
-    
+
     Args:
         container_name: Name of the PostgreSQL container
         max_retries: Maximum number of truncation retries after connection reset
-        
+
     Returns:
         True if any method succeeded, False if all failed
     """
     print("Attempting smart PostgreSQL reset...")
-    
+
     # Check initial migration status
     migrations_exist = check_migration_status(container_name)
     if migrations_exist:
         print("✓ Migrations detected, will preserve migration table")
     else:
         print("⚠ No migrations detected, fresh database")
-    
+
     # Method 1: Try fast table truncation (preserves migrations)
     if reset_postgres_tables_fast(container_name):
         # Verify migrations are still intact
         if migrations_exist and check_migration_status(container_name):
             print("✓ Fast reset completed with migration table preserved")
         return True
-    
+
     # Method 2: Reset connections and retry truncation
     print("Fast truncation failed, trying connection reset...")
     if reset_postgres_connections(container_name):
@@ -210,13 +210,13 @@ def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries:
             if reset_postgres_tables_fast(container_name):
                 return True
             time.sleep(0.5)  # Brief pause between retries
-    
+
     # Method 3: Schema recreation as last resort
     print("Truncation retries failed, attempting schema recreation...")
     if reset_postgres_schema(container_name):
         print("⚠ Schema recreated - migrations will need to be re-run")
         return True
-    
+
     print("✗ All PostgreSQL reset methods failed")
     return False
 
@@ -224,10 +224,10 @@ def smart_postgres_reset(container_name: str = "cloacina-postgres", max_retries:
 def check_postgres_container_health(container_name: str = "cloacina-postgres") -> bool:
     """
     Check if the PostgreSQL container is running and accessible.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         True if container is healthy, False otherwise
     """
@@ -242,12 +242,12 @@ def check_postgres_container_health(container_name: str = "cloacina-postgres") -
 def get_postgres_table_count(container_name: str = "cloacina-postgres") -> Optional[int]:
     """
     Get the number of tables in the public schema.
-    
+
     Useful for verifying reset operations.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         Number of tables, or None if query failed
     """
@@ -265,10 +265,10 @@ def get_postgres_table_count(container_name: str = "cloacina-postgres") -> Optio
 def check_migration_status(container_name: str = "cloacina-postgres") -> bool:
     """
     Check if the Diesel migration table exists and has migration records.
-    
+
     Args:
         container_name: Name of the PostgreSQL container
-        
+
     Returns:
         True if migrations appear to be properly set up, False otherwise
     """

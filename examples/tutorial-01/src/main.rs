@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("*** EXECUTION COMPLETED ***");
     info!("Status: {:?}", result.status);
     info!("Result type: {}", std::any::type_name_of_val(&result));
-    
+
     // Check if our task actually set the message
     if let Some(message) = result.final_context.get("message") {
         info!("Message found in final context: {}", message);

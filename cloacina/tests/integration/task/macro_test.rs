@@ -87,8 +87,14 @@ async fn test_task_registry_with_macro_tasks() {
 
     // Test topological sort
     let sorted = registry.topological_sort().unwrap();
-    let simple_pos = sorted.iter().position(|x| x == "macro-test-simple-task").unwrap();
-    let dependent_pos = sorted.iter().position(|x| x == "macro-test-dependent-task").unwrap();
+    let simple_pos = sorted
+        .iter()
+        .position(|x| x == "macro-test-simple-task")
+        .unwrap();
+    let dependent_pos = sorted
+        .iter()
+        .position(|x| x == "macro-test-dependent-task")
+        .unwrap();
 
     assert!(simple_pos < dependent_pos);
 }
