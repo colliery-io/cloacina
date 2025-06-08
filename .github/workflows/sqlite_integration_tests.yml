@@ -1,5 +1,5 @@
 ---
-name: Integration Tests
+name: Cloacina - SQLite Integration Tests
 on:
   workflow_call:
 
@@ -7,7 +7,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  integration_tests:
+  cloacina-sqlite-integration:
+    name: Cloacina - SQLite Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -52,4 +53,4 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run integration tests
-        run: angreal tests integration --backend sqlite
+        run: angreal cloacina integration --backend sqlite

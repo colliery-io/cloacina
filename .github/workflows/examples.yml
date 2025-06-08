@@ -1,10 +1,11 @@
 ---
-name: Examples
+name: Cloacina - Examples
 on:
   workflow_call:
 
 jobs:
-  examples:
+  cloacina-examples:
+    name: Cloacina - Examples
     runs-on: ubuntu-latest
     strategy:
       matrix:

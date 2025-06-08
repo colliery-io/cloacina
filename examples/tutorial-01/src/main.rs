@@ -42,7 +42,7 @@ async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), Tas
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("simple_example=debug,cloacina=debug")
+        .with_env_filter("tutorial_01=info,cloacina=debug")
         .init();
 
     info!("Starting Simple Cloacina Example");
@@ -72,8 +72,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Execute the workflow (scheduler and executor managed automatically)
     let result = runner.execute("simple_workflow", input_context).await?;
 
-    info!("Workflow completed with status: {:?}", result.status);
-    info!("Final context: {:?}", result.final_context);
+    info!("*** EXECUTION COMPLETED ***");
+    info!("Status: {:?}", result.status);
+    info!("Result type: {}", std::any::type_name_of_val(&result));
+
+    // Check if our task actually set the message
+    if let Some(message) = result.final_context.get("message") {
+        info!("Message found in final context: {}", message);
+    } else {
+        info!("No message found in final context!");
+    }
 
     // Shutdown the runner
     runner.shutdown().await?;

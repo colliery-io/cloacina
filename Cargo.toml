@@ -1,6 +1,6 @@
 [workspace]
 members = ["cloacina", "cloacina-macros"]
-exclude = ["examples/*"]
+exclude = ["examples/*", "cloaca-backend"]
 resolver = "2"
 
 [workspace.package]

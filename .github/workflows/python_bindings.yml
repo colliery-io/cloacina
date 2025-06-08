@@ -1,0 +1,138 @@
+---
+name: Cloaca - Python Bindings Tests
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cloaca-binding-tests:
+    name: Cloaca - Binding Tests
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12']
+        backend: [postgres, sqlite]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-python-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-python-
+            ${{ runner.os }}-cargo-
+
+      - name: Install angreal and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Run comprehensive Python binding tests
+        run: |
+          # Run the full test suite for this backend
+          angreal cloaca test --backend ${{ matrix.backend }}
+
+      - name: Run smoke tests
+        run: |
+          # Additional smoke test verification
+          angreal cloaca smoke --backend ${{ matrix.backend }}
+
+  cloaca-performance:
+    name: Cloaca - Performance Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-cargo-perf-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Run performance tests
+        run: |
+          # Run performance-focused tests
+          angreal cloaca test --backend sqlite -k "performance"
+
+  cloaca-compatibility:
+    name: Cloaca - Python Version Compatibility
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        backend: [sqlite]  # Use sqlite for faster compatibility testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-latest-cargo-compat-py${{ matrix.python-version }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Test Python ${{ matrix.python-version }} compatibility
+        run: |
+          # Run basic compatibility tests
+          angreal cloaca smoke --backend ${{ matrix.backend }}
+
+          # Run a subset of tests for compatibility verification
+          angreal cloaca test --backend ${{ matrix.backend }} -k "basic or api"

@@ -72,12 +72,12 @@ let workflow = workflow! {
 // Execute the workflow
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize executor with database connection
-    let executor = DefaultRunner::new("postgresql://user:pass@localhost/mydb").await?;
+    // Initialize runner with database connection
+    let runner = DefaultRunner::new("postgresql://user:pass@localhost/mydb").await?;
 
     // Execute workflow with automatic state persistence
     let context = Context::new();
-    let result = executor.execute("simple_pipeline", context).await?;
+    let result = runner.execute("simple_pipeline", context).await?;
 
     println!("Pipeline completed: {:?}", result.status);
     Ok(())

@@ -1113,6 +1113,7 @@ where
         }
     };
     registry.insert(task_id, Box::new(constructor));
+    tracing::debug!("Successfully registered task constructor");
 }
 
 /// Get the global task registry

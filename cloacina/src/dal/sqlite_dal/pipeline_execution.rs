@@ -285,6 +285,35 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Updates the final context ID for a pipeline execution.
+    ///
+    /// This method should be called when a pipeline completes to update the pipeline's
+    /// context_id to point to the final context from the last completed task.
+    ///
+    /// # Arguments
+    /// * `id` - The UUID of the pipeline execution to update
+    /// * `final_context_id` - The context ID of the final context
+    ///
+    /// # Returns
+    /// * `Result<(), ValidationError>` - Success or error
+    pub async fn update_final_context(
+        &self,
+        id: UniversalUuid,
+        final_context_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        let conn = self.dal.pool.get().await?;
+
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id))
+                .set(pipeline_executions::context_id.eq(Some(final_context_id)))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
     /// Retrieves a list of recent pipeline executions, ordered by start time.
     ///
     /// # Arguments

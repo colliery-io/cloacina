@@ -1,0 +1,1292 @@
+"""
+Python binding test tasks for Cloaca.
+
+Uses composable functions from file_generation, build_operations, and file_operations
+for clean, testable command implementations.
+"""
+
+import os
+from pathlib import Path
+from dataclasses import dataclass
+from typing import List, Optional
+
+import angreal  # type: ignore
+from angreal.integrations.venv import VirtualEnv# type: ignore
+
+# Import only what we need
+
+from angreal import render_template# type: ignore
+
+import re
+import subprocess
+import shutil
+import time
+
+# Import docker utilities for postgres backend
+from utils import docker_up, docker_down
+
+# Import database reset utilities
+from database_reset import smart_postgres_reset, check_postgres_container_health
+
+# Define command group
+cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
+
+
+@dataclass
+class TestResult:
+    """Represents the result of running a test file."""
+    file_name: str
+    backend: str
+    passed: bool
+    stdout: str = ""
+    stderr: str = ""
+    return_code: Optional[int] = None
+
+
+class TestAggregator:
+    """Aggregates test results across all backends."""
+
+    def __init__(self):
+        self.results: List[TestResult] = []
+
+    def add_result(self, result: TestResult):
+        self.results.append(result)
+
+    def get_failed_results(self) -> List[TestResult]:
+        return [r for r in self.results if not r.passed]
+
+    def get_summary(self) -> dict:
+        total = len(self.results)
+        failed = len(self.get_failed_results())
+        passed = total - failed
+
+        backends = {}
+        for result in self.results:
+            if result.backend not in backends:
+                backends[result.backend] = {"passed": 0, "failed": 0}
+            if result.passed:
+                backends[result.backend]["passed"] += 1
+            else:
+                backends[result.backend]["failed"] += 1
+
+        return {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "backends": backends
+        }
+
+
+class FileOperationError(Exception):
+    """Raised when file operations fail."""
+    pass
+
+
+def write_file_safe(path: Path, content: str, encoding: str = "utf-8", backup: bool = False):
+    """Safely write a file with error handling.
+
+    Args:
+        path: File path to write
+        content: Content to write
+        encoding: File encoding
+        backup: Whether to backup existing file
+
+    Returns:
+        Path to backup file if backup=True and file existed, None otherwise
+
+    Raises:
+        FileOperationError: If file cannot be written
+    """
+    try:
+        backup_path = None
+
+        if backup and path.exists():
+            backup_path = path.with_suffix(path.suffix + ".backup")
+            shutil.copy2(path, backup_path)
+
+        # Ensure parent directory exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        path.write_text(content, encoding=encoding)
+        return backup_path
+
+    except (OSError, UnicodeEncodeError) as e:
+        raise FileOperationError(f"Failed to write file {path}: {e}")
+
+def get_workspace_version() -> str:
+    """Extract version from workspace Cargo.toml.
+
+    Returns:
+        Version string from workspace configuration
+
+    Raises:
+        ValueError: If version cannot be found in workspace Cargo.toml
+    """
+    project_root = Path(angreal.get_root()).parent
+    cargo_toml = project_root / "Cargo.toml"
+
+    if not cargo_toml.exists():
+        raise FileNotFoundError(f"Workspace Cargo.toml not found at {cargo_toml}")
+
+    content = cargo_toml.read_text()
+    match = re.search(r'\[workspace\.package\].*?version\s*=\s*"([^"]+)"', content, re.DOTALL)
+
+    if match:
+        return match.group(1)
+
+    raise ValueError("Could not find version in workspace Cargo.toml")
+
+
+def _build_and_install_cloaca_backend(backend_name, venv_name):
+    """Build cloaca backend wheel and install it in a test environment with dispatcher.
+
+    Assumes files are already generated and docker is set up if needed.
+    Only handles virtual environment creation and building.
+    Returns the VirtualEnv object and paths to executables.
+    """
+    project_root = Path(angreal.get_root()).parent
+    venv_path = project_root / venv_name
+
+    # Create test environment
+    print("Creating test environment...")
+    venv = VirtualEnv(path=str(venv_path), now=True)
+
+    python_exe = venv.path / "bin" / "python"
+    pip_exe = venv.path / "bin" / "pip3"
+
+    # Install pip and dependencies
+    print("Installing dependencies...")
+    subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+    subprocess.run([str(pip_exe), "install", "maturin", "pytest", "pytest-asyncio", "psycopg2", "pytest-timeout"], check=True, capture_output=True)
+
+    # Install dispatcher package
+    print("Installing dispatcher package...")
+    subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca")], check=True, capture_output=True)
+
+    # Build and install backend wheel
+    print(f"Building and installing {backend_name} wheel...")
+    backend_dir = project_root / "cloaca-backend"
+
+    # Clean existing extensions
+    for pattern in ["*.so", "*.pyd"]:
+        for artifact in backend_dir.rglob(pattern):
+            artifact.unlink()
+
+    # Build wheel
+    maturin_exe = venv.path / "bin" / "maturin"
+    maturin_cmd = [
+        str(maturin_exe), "build",
+        "--no-default-features",
+        "--features", backend_name,
+        "--release"
+    ]
+
+    subprocess.run(
+        maturin_cmd,
+        cwd=str(backend_dir),
+        capture_output=True,
+        text=True,
+        check=True
+    )
+
+    # Find and install the wheel
+    wheel_pattern = f"cloaca_{backend_name}-*.whl"
+    wheel_dir = backend_dir / "target" / "wheels"
+    wheel_files = list(wheel_dir.glob(wheel_pattern))
+
+    if not wheel_files:
+        raise FileNotFoundError(f"No wheel found matching {wheel_pattern} in {wheel_dir}")
+
+    wheel_file = wheel_files[0]
+    print(f"Installing wheel: {wheel_file.name}")
+    subprocess.run([str(pip_exe), "install", str(wheel_file)], check=True, capture_output=True)
+
+    return venv, python_exe, pip_exe
+
+
+
+@cloaca()
+@angreal.command(name="generate", about="generate all configuration files from templates")
+@angreal.argument(name="backend", long="backend", help="Backend to generate for: postgres or sqlite", required=True)
+def generate(backend):
+    """Generate all configuration files from templates."""
+
+    try:
+        version = get_workspace_version()
+
+        print(f"Using version: {version}")
+        print(f"Generating files for {backend} backend...")
+
+        project_root = Path(angreal.get_root()).parent
+        template_dir = Path(angreal.get_root()) / "templates"
+
+        # Generate dispatcher pyproject.toml
+        dispatcher_template = template_dir / "dispatcher_pyproject.toml.j2"
+        dispatcher_content = render_template(dispatcher_template.read_text(), {"version": version})
+        dispatcher_path = project_root / "cloaca" / "pyproject.toml"
+
+        # Generate backend Cargo.toml
+        backend_template = template_dir / "backend_cargo.toml.j2"
+        backend_content = render_template(backend_template.read_text(), {"backend": backend, "version": version})
+        backend_path = project_root / "cloaca-backend" / "Cargo.toml"
+
+        # Generate backend pyproject.toml
+        backend_pyproject_template = template_dir / "backend_pyproject.toml.j2"
+        backend_pyproject_content = render_template(backend_pyproject_template.read_text(), {"backend": backend, "version": version})
+        backend_pyproject_path = project_root / "cloaca-backend" / "pyproject.toml"
+
+        # Write files
+        files_to_write = {
+            dispatcher_path: dispatcher_content,
+            backend_path: backend_content,
+            backend_pyproject_path: backend_pyproject_content
+        }
+
+        print(f"Writing {len(files_to_write)} files...")
+        for file_path, content in files_to_write.items():
+            write_file_safe(file_path, content, backup=False)
+            print(f"  {file_path}")
+
+        # Generate backend Python directory from template
+        print("Generating Python backend directory...")
+        backend_python_src = project_root / "cloaca-backend" / "python" / "cloaca_{{backend}}"
+        backend_python_dst = project_root / "cloaca-backend" / "python" / f"cloaca_{backend}"
+
+        if backend_python_src.exists():
+            context = {"backend": backend, "version": version}
+
+            # Remove existing destination directory if it exists
+            if backend_python_dst.exists():
+                shutil.rmtree(backend_python_dst)
+
+            # Create destination directory structure
+            rendered_dirs = angreal.render_directory(
+                src=str(backend_python_src),
+                dst=str(backend_python_dst),
+                force=True,
+                context=context
+            )
+            print(f"  Created directory structure: {len(rendered_dirs)} directories")
+
+            # Walk template directory and render each file
+            rendered_files = []
+            for template_file in backend_python_src.rglob("*"):
+                if template_file.is_file():
+                    # Calculate relative path from template source
+                    rel_path = template_file.relative_to(backend_python_src)
+
+                    # Render the relative path with context (for directory names)
+                    rendered_rel_path = render_template(str(rel_path), context)
+
+                    # Create destination file path
+                    dst_file = backend_python_dst / rendered_rel_path
+
+                    # Ensure destination directory exists
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Read template content and render it
+                    template_content = template_file.read_text()
+                    rendered_content = render_template(template_content, context)
+
+                    # Write rendered file
+                    dst_file.write_text(rendered_content)
+                    rendered_files.append(dst_file)
+
+            print(f"  Rendered {len(rendered_files)} files")
+            for f in rendered_files:
+                print(f"    {f}")
+        else:
+            print(f"  Warning: Template directory not found: {backend_python_src}")
+
+        # Create debug virtual environment with backend installed
+        print("Creating debug virtual environment...")
+        venv_name = f"debug-env-{backend}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Remove existing debug environment if it exists
+            if venv_path.exists():
+                print(f"  Removing existing debug environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+            # Build and install backend explicitly (files already generated above)
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
+
+            print(f"✓ Debug environment ready: {venv_name}")
+            print(f"  Usage: {venv_path}/bin/python your_debug_script.py")
+
+        except Exception as e:
+            print(f"  Warning: Failed to create debug environment: {e}")
+            print("  You can still use the generated files manually")
+
+        print(f"Successfully generated files for {backend} backend!")
+        return 0
+
+    except (FileOperationError, ValueError) as e:
+        print(f"Generation failed: {e}")
+        return 1
+
+
+@cloaca()
+@angreal.command(name="scrub", about="replace generated files with placeholder content and clean build artifacts")
+def scrub():
+    """Replace generated files with placeholder content and clean build artifacts."""
+    try:
+        project_root = Path(angreal.get_root()).parent
+
+        # Clean debug environments
+        print("Cleaning debug environments...")
+        debug_envs_cleaned = 0
+        for backend in ["postgres", "sqlite"]:
+            debug_env = project_root / f"debug-env-{backend}"
+            if debug_env.exists():
+                shutil.rmtree(debug_env)
+                debug_envs_cleaned += 1
+                print(f"  Removed debug environment: {debug_env}")
+
+        if debug_envs_cleaned > 0:
+            print(f"Cleaned {debug_envs_cleaned} debug environments")
+        else:
+            print("No debug environments to clean")
+
+        # Clean build artifacts from cloaca crates only
+        print("Cleaning cloaca build artifacts...")
+        artifacts_cleaned = 0
+
+        # Define cloaca-specific directories
+        cloaca_dirs = [
+            project_root / "cloaca-backend",
+            project_root / "cloaca"
+        ]
+
+        for cloaca_dir in cloaca_dirs:
+            if not cloaca_dir.exists():
+                continue
+
+            # Remove compiled extensions
+            for pattern in ["*.so", "*.pyd"]:
+                for artifact in cloaca_dir.rglob(pattern):
+                    artifact.unlink()
+                    artifacts_cleaned += 1
+                    print(f"  Removed {artifact}")
+
+            # Remove Python cache directories
+            for cache_dir in cloaca_dir.rglob("__pycache__"):
+                shutil.rmtree(cache_dir)
+                artifacts_cleaned += 1
+                print(f"  Removed {cache_dir}")
+
+            # Remove target directories
+            for target_dir in cloaca_dir.rglob("target"):
+                if target_dir.is_dir():
+                    shutil.rmtree(target_dir)
+                    artifacts_cleaned += 1
+                    print(f"  Removed {target_dir}")
+
+        if artifacts_cleaned > 0:
+            print(f"Cleaned {artifacts_cleaned} build artifacts")
+        else:
+            print("No build artifacts to clean")
+
+        # Replace generated files with placeholders
+        placeholder_template = """# This file is generated automatically during build
+# Template: {template_path}
+# DO NOT EDIT - Any changes will be overwritten
+# To make changes, edit the template file above
+"""
+
+        # Files to clean with their template paths
+        files_to_clean = {
+            project_root / "cloaca" / "pyproject.toml": ".angreal/templates/dispatcher_pyproject.toml.j2",
+            project_root / "cloaca-backend" / "Cargo.toml": ".angreal/templates/backend_cargo.toml.j2",
+            project_root / "cloaca-backend" / "pyproject.toml": ".angreal/templates/backend_pyproject.toml.j2",
+            project_root / "cloaca-backend" / "python" / "cloaca_postgres" / "__init__.py": "cloaca-backend/python/cloaca_{{backend}}/__init__.py",
+            project_root / "cloaca-backend" / "python" / "cloaca_sqlite" / "__init__.py": "cloaca-backend/python/cloaca_{{backend}}/__init__.py"
+        }
+
+        print(f"Cleaning {len(files_to_clean)} generated files...")
+        for file_path, template_path in files_to_clean.items():
+            if file_path.name == "__init__.py":
+                # Skip individual __init__.py files - we'll handle directories below
+                continue
+            placeholder_content = placeholder_template.format(template_path=template_path)
+            write_file_safe(file_path, placeholder_content, backup=False)
+            print(f"  {file_path}")
+
+        # Clean entire backend Python directories
+        print("Cleaning backend Python directories...")
+        python_base_dir = project_root / "cloaca-backend" / "python"
+
+        for backend in ["postgres", "sqlite"]:
+            backend_dir = python_base_dir / f"cloaca_{backend}"
+            if backend_dir.exists():
+                # Remove the entire directory
+                shutil.rmtree(backend_dir)
+                print(f"  Removed directory: {backend_dir}")
+
+                # Create directory with placeholder file
+                backend_dir.mkdir()
+                placeholder_file = backend_dir / "__init__.py"
+                placeholder_content = f"""# This entire directory is generated automatically during build
+# Template directory: cloaca-backend/python/cloaca_{{{{backend}}}}
+# DO NOT EDIT - Any changes will be overwritten
+# The entire cloaca_{backend} directory is re-rendered from the template during 'angreal cloaca generate'
+# To make changes, edit the template directory above
+"""
+                write_file_safe(placeholder_file, placeholder_content, backup=False)
+                print(f"  Created placeholder: {placeholder_file}")
+
+        print("Successfully cleaned generated files and build artifacts!")
+        return 0
+
+    except FileOperationError as e:
+        print(f"Clean failed: {e}")
+        return 1
+
+
+@cloaca()
+@angreal.command(name="package", about="generate files, build wheel, then clean")
+@angreal.argument(name="backend", long="backend", help="Backend to build: postgres or sqlite")
+def package(backend):
+    """Generate files, build the wheel, then clean up generated files."""
+    try:
+        # Step 1: Generate files
+        print("Step 1: Generating files...")
+        result = generate(backend)
+        if result != 0:
+            return result
+
+        # Step 2: Build wheel
+        print("Step 2: Building wheel...")
+        project_root = Path(angreal.get_root()).parent
+        backend_dir = project_root / "cloaca-backend"
+
+        # Create temporary virtual environment for building
+        venv_name = f"build-env-{backend}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Create virtual environment
+            print(f"Creating build environment: {venv_name}")
+            venv = VirtualEnv(path=str(venv_path), now=True)
+
+            # Install pip and maturin
+            python_exe = venv.path / "bin" / "python"
+            print("Installing build dependencies...")
+            subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+
+            pip_exe = venv.path / "bin" / "pip3"
+            subprocess.run([str(pip_exe), "install", "maturin"], check=True, capture_output=True)
+
+            # Clean up any existing .so files to avoid conflicts
+            print("Cleaning existing compiled extensions...")
+            for pattern in ["*.so", "*.pyd"]:
+                for artifact in backend_dir.rglob(pattern):
+                    artifact.unlink()
+                    print(f"  Removed {artifact.name}")
+
+            # Build the wheel using maturin
+            print(f"Building {backend} wheel...")
+            maturin_exe = venv.path / "bin" / "maturin"
+            maturin_cmd = [
+                str(maturin_exe), "build",
+                "--no-default-features",
+                "--features", backend,
+                "--release"
+            ]
+
+            result = subprocess.run(
+                maturin_cmd,
+                cwd=str(backend_dir),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print("  Build completed successfully")
+
+            # Find the built wheel
+            wheel_pattern = f"cloaca_{backend}-*.whl"
+            wheel_dir = project_root / "target" / "wheels"
+            wheel_files = list(wheel_dir.glob(wheel_pattern))
+
+            if wheel_files:
+                wheel_file = wheel_files[0]
+                print(f"  Built wheel: {wheel_file.name}")
+            else:
+                print(f"  Warning: No wheel found matching {wheel_pattern} in {wheel_dir}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"  Build failed with exit code {e.returncode}")
+            if e.stdout:
+                print(f"  STDOUT: {e.stdout}")
+            if e.stderr:
+                print(f"  STDERR: {e.stderr}")
+            return 1
+        except Exception as e:
+            print(f"  Build failed: {e}")
+            return 1
+        finally:
+            # Clean up the build environment
+            if venv_path.exists():
+                print(f"Cleaning up build environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+        # Step 3: Clean up
+        print("Step 3: Cleaning generated files...")
+        result = scrub()
+        if result != 0:
+            return result
+
+        print(f"Successfully built {backend} backend!")
+        return 0
+
+    except Exception as e:
+        print(f"Build failed: {e}")
+        return 1
+
+
+@cloaca()
+@angreal.command(name="smoke", about="run basic smoke tests to verify Python bindings work")
+@angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
+def smoke(backend=None):
+    """Run basic smoke tests to verify Python bindings work."""
+
+    # Define backend configurations
+    backends_to_test = []
+    if backend == "postgres":
+        backends_to_test = ["postgres"]
+    elif backend == "sqlite":
+        backends_to_test = ["sqlite"]
+    elif backend is None:
+        backends_to_test = ["postgres", "sqlite"]
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
+        return 1
+
+    all_passed = True
+
+    for backend_name in backends_to_test:
+        print(f"\n{'='*50}")
+        print(f"Smoke testing {backend_name.title()} backend")
+        print(f"{'='*50}")
+
+        project_root = Path(angreal.get_root()).parent
+        venv_name = f"smoke-test-{backend_name}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Step 1: Generate files
+            print("Step 1: Generating files...")
+            result = generate(backend_name)
+            if result != 0:
+                raise Exception(f"Failed to generate files for {backend_name}")
+
+            # Step 2: Setup Docker for postgres backend
+            if backend_name == "postgres":
+                print("Step 2: Setting up Docker services for postgres...")
+                exit_code = docker_up()
+                if exit_code != 0:
+                    raise Exception("Failed to start Docker services")
+                print("Waiting for services to be ready...")
+                time.sleep(10)
+
+            # Step 3: Build and install cloaca backend in test environment
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
+
+            # Step 4: Run smoke test
+            print("Step 4: Running smoke test...")
+            test_script = f'''
+try:
+    import cloaca_{backend_name}
+    print("✓ Successfully imported cloaca_{backend_name}")
+    print("✓ Smoke test passed!")
+except Exception as e:
+    print(f"✗ Smoke test failed: {{e}}")
+    import traceback
+    traceback.print_exc()
+    exit(1)
+'''
+
+            result = subprocess.run([
+                str(python_exe), "-c", test_script
+            ], check=True, capture_output=True, text=True)
+            print(result.stdout)
+            print(f"✓ {backend_name.title()} smoke test passed")
+
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Smoke test failed for {backend_name}: {e}")
+            if e.stdout:
+                print("STDOUT:", e.stdout)
+            if e.stderr:
+                print("STDERR:", e.stderr)
+            all_passed = False
+        except Exception as e:
+            print(f"✗ Failed to setup {backend_name} test environment: {e}")
+            all_passed = False
+        finally:
+            # Clean up Docker services for postgres backend
+            if backend_name == "postgres":
+                print("Cleaning up Docker services...")
+                docker_down(remove_volumes=True)
+
+            # Clean up test environment
+            if venv_path.exists():
+                print(f"Cleaning up test environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+            # Clean up generated files
+            scrub()
+
+    if all_passed:
+        print(f"\n{'='*50}")
+        print("All smoke tests passed!")
+        print(f"{'='*50}")
+        return 0
+    else:
+        print(f"\n{'='*50}")
+        print("Some smoke tests failed!")
+        print(f"{'='*50}")
+        return 1
+
+
+@cloaca()
+@angreal.command(name="test", about="run tests in isolated test environments")
+@angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
+@angreal.argument(name="filter", short="k", help="Filter tests by expression (pytest -k)")
+@angreal.argument(name="file", long="file", help="Run specific test file (e.g. test_scenario_03_function_based_dag_topology.py)")
+def test(backend=None, filter=None, file=None):
+    """Run Python binding tests in isolated virtual environments.
+
+    Creates fresh virtual environments for each test run to ensure
+    no cross-contamination between test cycles.
+    """
+
+    # Define backend configurations
+    backends_to_test = []
+    if backend == "postgres":
+        backends_to_test = ["postgres"]
+    elif backend == "sqlite":
+        backends_to_test = ["sqlite"]
+    elif backend is None:
+        backends_to_test = ["postgres", "sqlite"]
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
+        return 1
+
+    all_passed = True
+
+    # Initialize test result aggregator
+    test_aggregator = TestAggregator()
+
+    for backend_name in backends_to_test:
+        print(f"\n{'='*50}")
+        print(f"Testing {backend_name.title()} backend")
+        print(f"{'='*50}")
+
+        project_root = Path(angreal.get_root()).parent
+        venv_name = f"test-env-{backend_name}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Step 1: Generate files
+            print("Step 1: Generating files...")
+            result = generate(backend_name)
+            if result != 0:
+                raise Exception(f"Failed to generate files for {backend_name}")
+
+            # Step 2: Setup Docker for postgres backend
+            if backend_name == "postgres":
+                print("Step 2: Setting up Docker services for postgres...")
+                exit_code = docker_up()
+                if exit_code != 0:
+                    raise Exception("Failed to start Docker services")
+                print("Waiting for services to be ready...")
+                time.sleep(10)
+
+                # Verify container health
+                if not check_postgres_container_health():
+                    raise Exception("PostgreSQL container is not healthy")
+
+            # Step 3: Build and install cloaca backend in test environment
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
+
+            # Step 4: Run tests with file-level isolation
+            print("Step 4: Running tests with file-level isolation...")
+
+            # Discover test files to run
+            test_dir = project_root / "python-tests"
+
+            if file:
+                # Run specific file
+                test_file_path = test_dir / file
+                if not test_file_path.exists():
+                    print(f"Error: Test file {file} not found in {test_dir}")
+                    all_passed = False
+                    continue
+                test_files = [test_file_path]
+            else:
+                # Run all test files
+                test_files = list(test_dir.glob("test_*.py"))
+
+                if filter:
+                    test_files = [f for f in test_files if filter in f.name]
+
+            print(f"Found {len(test_files)} test files to run")
+
+            file_results = []
+            pytest_exe = venv.path / "bin" / "pytest"
+            env = os.environ.copy()
+
+            for test_file in test_files:
+                print(f"\n--- Running {test_file.name} in isolation ---")
+
+                # Clean state between test files
+                if backend_name == "postgres":
+                    print(f"Resetting PostgreSQL state for {test_file.name}...")
+
+                    # Try smart reset first (much faster)
+                    if smart_postgres_reset():
+                        print("✓ Fast PostgreSQL reset completed")
+                    else:
+                        print("Fast reset failed, falling back to Docker restart...")
+                        docker_down(remove_volumes=True)
+                        exit_code = docker_up()
+                        if exit_code != 0:
+                            print(f"✗ Failed to restart Docker for {test_file.name}")
+                            file_results.append((test_file.name, False))
+                            all_passed = False
+                            continue
+                        print("Waiting for postgres to be ready...")
+                        time.sleep(10)
+
+                        # Verify container health after restart
+                        if not check_postgres_container_health():
+                            print(f"✗ PostgreSQL container unhealthy after restart for {test_file.name}")
+                            file_results.append((test_file.name, False))
+                            all_passed = False
+                            continue
+
+                if backend_name == "sqlite":
+                    print("Cleaning SQLite database files...")
+                    for db_file in project_root.glob("*.db*"):
+                        try:
+                            db_file.unlink()
+                            print(f"  Removed {db_file.name}")
+                        except FileNotFoundError:
+                            pass
+
+                # Run single test file
+                cmd = [str(pytest_exe), "--timeout=10", str(test_file), "-v"]
+                if filter:
+                    cmd.extend(["-k", filter])
+
+                try:
+                    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+                    if result.returncode == 0:
+                        print(f"✓ {test_file.name} PASSED")
+                        test_result = TestResult(
+                            file_name=test_file.name,
+                            backend=backend_name,
+                            passed=True,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                            return_code=result.returncode
+                        )
+                        file_results.append((test_file.name, True))
+                    else:
+                        print(f"✗ {test_file.name} FAILED")
+                        test_result = TestResult(
+                            file_name=test_file.name,
+                            backend=backend_name,
+                            passed=False,
+                            stdout=result.stdout,
+                            stderr=result.stderr,
+                            return_code=result.returncode
+                        )
+                        file_results.append((test_file.name, False))
+                        all_passed = False
+
+                    test_aggregator.add_result(test_result)
+
+                except subprocess.CalledProcessError as e:
+                    print(f"✗ {test_file.name} FAILED (subprocess error)")
+                    test_result = TestResult(
+                        file_name=test_file.name,
+                        backend=backend_name,
+                        passed=False,
+                        stdout=e.stdout or "",
+                        stderr=e.stderr or "",
+                        return_code=e.returncode
+                    )
+                    test_aggregator.add_result(test_result)
+                    file_results.append((test_file.name, False))
+                    all_passed = False
+
+            # Report results for this backend
+            passed = [name for name, success in file_results if success]
+            failed = [name for name, success in file_results if not success]
+            print(f"\n{backend_name.title()} Results:")
+            print(f"  Passed: {len(passed)} files")
+            print(f"  Failed: {len(failed)} files")
+            if failed:
+                print(f"  Failed files: {failed}")
+            if passed:
+                print(f"  Passed files: {passed}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Test setup failed for {backend_name}: {e}")
+            if e.stdout:
+                print("STDOUT:", e.stdout)
+            if e.stderr:
+                print("STDERR:", e.stderr)
+            all_passed = False
+        except Exception as e:
+            print(f"✗ Failed to setup {backend_name} test environment: {e}")
+            all_passed = False
+        finally:
+            # Clean up Docker services for postgres backend
+            if backend_name == "postgres":
+                print("Cleaning up Docker services...")
+                docker_down(remove_volumes=True)
+
+            # Clean up test environment
+            if venv_path.exists():
+                print(f"Cleaning up test environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+            # Clean up generated files
+            scrub()
+
+    # Generate comprehensive final report
+    summary = test_aggregator.get_summary()
+    failed_results = test_aggregator.get_failed_results()
+
+    print(f"\n{'='*70}")
+    print("FINAL TEST REPORT")
+    print(f"{'='*70}")
+
+    # Overall summary
+    print(f"Total tests: {summary['total']}")
+    print(f"Passed: {summary['passed']}")
+    print(f"Failed: {summary['failed']}")
+
+    # Per-backend summary
+    print("\nBackend breakdown:")
+    for backend, stats in summary['backends'].items():
+        print(f"  {backend.title()}: {stats['passed']} passed, {stats['failed']} failed")
+
+    # Detailed failure report
+    if failed_results:
+        print(f"\n{'='*70}")
+        print("DETAILED FAILURE REPORT")
+        print(f"{'='*70}")
+
+        for i, failure in enumerate(failed_results, 1):
+            print(f"\n{i}. {failure.file_name} ({failure.backend})")
+            print(f"   Return code: {failure.return_code}")
+            print(f"   {'-'*50}")
+
+            if failure.stdout:
+                print("   STDOUT:")
+                # Indent each line of output
+                for line in failure.stdout.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
+
+            if failure.stderr:
+                print("   STDERR:")
+                for line in failure.stderr.split('\n'):
+                    if line.strip():
+                        print(f"   {line}")
+
+            print(f"   {'-'*50}")
+
+        print(f"\n{'='*70}")
+        print(f"SUMMARY: {len(failed_results)} test files failed across all backends")
+        print("Scroll up to see detailed failure information for each test")
+        print(f"{'='*70}")
+
+    if all_passed:
+        print("\nAll tests passed!")
+        return 0
+    else:
+        print(f"\n{len(failed_results)} test files failed")
+        print("See detailed failure report above")
+        return 1
+
+
+@cloaca()
+@angreal.command(name="tutorial", about="run Python tutorial examples with isolated environments")
+@angreal.argument(name="tutorial", long="tutorial", help="Run specific tutorial: 01, 02, 03, 04, 05, or 'all' (default: all)", required=False)
+@angreal.argument(name="backend", long="backend", help="Backend to use: postgres or sqlite (default: sqlite)", required=False)
+def tutorial(tutorial=None, backend=None):
+    """Run Python tutorial examples in isolated environments.
+
+    Creates fresh virtual environments for each tutorial to demonstrate
+    the Python bindings with real database backends.
+    """
+
+    # Set defaults
+    if backend is None:
+        backend = "sqlite"
+    if tutorial is None:
+        tutorial = "all"
+
+    # Validate backend
+    if backend not in ["postgres", "sqlite"]:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
+        return 1
+
+    # Define available tutorials
+    available_tutorials = {
+        "01": "python_tutorial_01_first_workflow.py",
+        "02": "python_tutorial_02_context_handling.py",
+        "03": "python_tutorial_03_error_handling.py",
+        "04": "python_tutorial_04_complex_workflows.py",
+        "05": "python_tutorial_05_multi_tenancy.py"
+    }
+
+    # Determine which tutorials to run
+    if tutorial == "all":
+        tutorials_to_run = list(available_tutorials.items())
+    elif tutorial in available_tutorials:
+        tutorials_to_run = [(tutorial, available_tutorials[tutorial])]
+    else:
+        print(f"Error: Invalid tutorial '{tutorial}'. Available: {', '.join(available_tutorials.keys())}, 'all'")
+        return 1
+
+    # Special handling for tutorial 05 (multi-tenancy)
+    if any(t[0] == "05" for t in tutorials_to_run) and backend == "sqlite":
+        print("Warning: Tutorial 05 (multi-tenancy) requires PostgreSQL backend")
+        print("Either:")
+        print("  1. Use --backend postgres to run with PostgreSQL")
+        print("  2. Skip tutorial 05 by specifying a different tutorial")
+
+        # Remove tutorial 05 from the list if running all with sqlite
+        if tutorial == "all":
+            tutorials_to_run = [(t, f) for t, f in tutorials_to_run if t != "05"]
+            print("Skipping tutorial 05 for SQLite backend")
+        else:
+            return 1
+
+    project_root = Path(angreal.get_root()).parent
+    examples_dir = project_root / "examples"
+
+    print(f"Running {len(tutorials_to_run)} tutorial(s) with {backend} backend")
+    print("=" * 60)
+
+    tutorial_results = []
+    overall_success = True
+
+    for tutorial_num, tutorial_file in tutorials_to_run:
+        print(f"\nRunning Tutorial {tutorial_num}: {tutorial_file}")
+        print("-" * 50)
+
+        tutorial_path = examples_dir / tutorial_file
+        if not tutorial_path.exists():
+            print(f"ERROR: Tutorial file not found: {tutorial_path}")
+            tutorial_results.append({
+                "tutorial": tutorial_num,
+                "status": "file_not_found",
+                "file": tutorial_file
+            })
+            overall_success = False
+            continue
+
+        # Create tutorial-specific environment
+        venv_name = f"tutorial-{tutorial_num}-{backend}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Step 1: Generate files for the backend
+            print(f"Step 1: Generating files for {backend} backend...")
+            result = generate(backend)
+            if result != 0:
+                raise Exception(f"Failed to generate files for {backend}")
+
+            # Step 2: Setup Docker for postgres backend
+            if backend == "postgres":
+                print("Step 2: Setting up PostgreSQL container...")
+                exit_code = docker_up()
+                if exit_code != 0:
+                    raise Exception("Failed to start PostgreSQL container")
+                print("Waiting for PostgreSQL to be ready...")
+                time.sleep(10)
+
+                # Verify container health
+                if not check_postgres_container_health():
+                    raise Exception("PostgreSQL container is not healthy")
+                print("PostgreSQL ready")
+
+            # Step 3: Build and install cloaca backend
+            print("Step 3: Setting up tutorial environment...")
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
+
+            # Step 4: Run the tutorial
+            print(f"Step 4: Executing tutorial {tutorial_num}...")
+
+            # Clean any existing database files for this tutorial
+            if backend == "sqlite":
+                db_pattern = f"python_tutorial_{tutorial_num}.db*"
+                for db_file in project_root.glob(db_pattern):
+                    try:
+                        db_file.unlink()
+                        print(f"  Cleaned existing database: {db_file.name}")
+                    except FileNotFoundError:
+                        pass
+            elif backend == "postgres":
+                # Reset postgres state for clean tutorial run
+                if smart_postgres_reset():
+                    print("  PostgreSQL state reset for clean tutorial run")
+
+            # Execute the tutorial
+            cmd = [str(python_exe), str(tutorial_path)]
+
+            print(f"  Running: {' '.join(cmd)}")
+            result = subprocess.run(
+                cmd,
+                cwd=str(examples_dir),
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+
+            if result.returncode == 0:
+                print(f"SUCCESS: Tutorial {tutorial_num} completed successfully!")
+                print("\nTutorial Output:")
+                print("-" * 30)
+                print(result.stdout)
+
+                tutorial_results.append({
+                    "tutorial": tutorial_num,
+                    "status": "success",
+                    "file": tutorial_file,
+                    "output_lines": len(result.stdout.split('\n'))
+                })
+            else:
+                print(f"FAILED: Tutorial {tutorial_num} failed!")
+                print("\nError Output:")
+                print("-" * 30)
+                print(result.stderr)
+                if result.stdout:
+                    print("\nStandard Output:")
+                    print("-" * 30)
+                    print(result.stdout)
+
+                tutorial_results.append({
+                    "tutorial": tutorial_num,
+                    "status": "failed",
+                    "file": tutorial_file,
+                    "error": result.stderr,
+                    "return_code": result.returncode
+                })
+                overall_success = False
+
+        except subprocess.TimeoutExpired:
+            print(f"TIMEOUT: Tutorial {tutorial_num} timed out after 5 minutes")
+            tutorial_results.append({
+                "tutorial": tutorial_num,
+                "status": "timeout",
+                "file": tutorial_file
+            })
+            overall_success = False
+
+        except Exception as e:
+            print(f"ERROR: Tutorial {tutorial_num} setup failed: {e}")
+            tutorial_results.append({
+                "tutorial": tutorial_num,
+                "status": "setup_failed",
+                "file": tutorial_file,
+                "error": str(e)
+            })
+            overall_success = False
+
+        finally:
+            # Cleanup for this tutorial
+            print(f"Cleaning up tutorial {tutorial_num} environment...")
+
+            # Clean up PostgreSQL for postgres backend
+            if backend == "postgres":
+                print("  Cleaning PostgreSQL state...")
+                smart_postgres_reset()
+
+            # Clean up virtual environment
+            if venv_path.exists():
+                print(f"  Removing virtual environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+            # Clean up generated files
+            print("  Cleaning generated files...")
+            scrub()
+
+    # Final summary
+    print(f"\n{'=' * 60}")
+    print("TUTORIAL SUMMARY")
+    print(f"{'=' * 60}")
+
+    successful = len([r for r in tutorial_results if r["status"] == "success"])
+    total = len(tutorial_results)
+
+    print(f"Results: {successful}/{total} tutorials completed successfully")
+    print(f"Backend: {backend}")
+    print()
+
+    # Show individual results
+    for result in tutorial_results:
+        status_indicator = {
+            "success": "[PASS]",
+            "failed": "[FAIL]",
+            "timeout": "[TIMEOUT]",
+            "setup_failed": "[SETUP_FAILED]",
+            "file_not_found": "[NOT_FOUND]"
+        }.get(result["status"], "[UNKNOWN]")
+
+        print(f"{status_indicator} Tutorial {result['tutorial']}: {result['status']}")
+        if result["status"] == "success":
+            print(f"    Output lines: {result.get('output_lines', 'unknown')}")
+        elif result["status"] in ["failed", "setup_failed"]:
+            error = result.get("error", "Unknown error")
+            # Show first line of error for brevity
+            error_summary = error.split('\n')[0] if error else "Unknown error"
+            print(f"    Error: {error_summary}")
+
+    print()
+    if overall_success:
+        print("All tutorials completed successfully!")
+        print("Ready to explore Cloacina Python bindings!")
+    else:
+        print("Some tutorials failed - check individual results above")
+        print("Common issues:")
+        print("  - PostgreSQL not running (try: docker-compose up -d)")
+        print("  - Missing dependencies (check pip install)")
+        print("  - Database permission issues")
+
+    return 0 if overall_success else 1
+
+
+@cloaca()
+@angreal.command(name="release", about="build release wheels for distribution (leaves artifacts for inspection)")
+@angreal.argument(name="backend", long="backend", help="Build specific backend: postgres or sqlite (default: both)", required=False)
+def release(backend=None):
+    """Build release wheels for distribution without cleanup.
+
+    Generates files, builds wheels, but leaves all artifacts for inspection.
+    Use 'scrub' command to clean up afterward.
+    """
+
+    # Define backend configurations
+    backends_to_build = []
+    if backend == "postgres":
+        backends_to_build = ["postgres"]
+    elif backend == "sqlite":
+        backends_to_build = ["sqlite"]
+    elif backend is None:
+        backends_to_build = ["postgres", "sqlite"]
+    else:
+        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
+        return 1
+
+    all_passed = True
+    built_wheels = []
+
+    for backend_name in backends_to_build:
+        print(f"\n{'='*50}")
+        print(f"Building {backend_name.title()} release wheel")
+        print(f"{'='*50}")
+
+        project_root = Path(angreal.get_root()).parent
+        venv_name = f"release-build-{backend_name}"
+        venv_path = project_root / venv_name
+
+        try:
+            # Step 1: Generate files
+            print("Step 1: Generating files...")
+            result = generate(backend_name)
+            if result != 0:
+                all_passed = False
+                continue
+
+            # Step 2: Create build environment
+            print("Step 2: Creating build environment...")
+            venv = VirtualEnv(path=str(venv_path), now=True)
+
+            python_exe = venv.path / "bin" / "python"
+            pip_exe = venv.path / "bin" / "pip3"
+
+            # Install pip and maturin
+            print("Installing build dependencies...")
+            subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+            subprocess.run([str(pip_exe), "install", "maturin"], check=True, capture_output=True)
+
+            # Step 3: Build wheel
+            print(f"Step 3: Building {backend_name} release wheel...")
+            backend_dir = project_root / "cloaca-backend"
+
+            # Clean existing extensions
+            for pattern in ["*.so", "*.pyd"]:
+                for artifact in backend_dir.rglob(pattern):
+                    artifact.unlink()
+
+            # Build wheel
+            maturin_exe = venv.path / "bin" / "maturin"
+            maturin_cmd = [
+                str(maturin_exe), "build",
+                "--no-default-features",
+                "--features", backend_name,
+                "--release"
+            ]
+
+            result = subprocess.run(
+                maturin_cmd,
+                cwd=str(backend_dir),
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Find the built wheel
+            wheel_pattern = f"cloaca_{backend_name}-*.whl"
+            wheel_dir = project_root / "target" / "wheels"
+            wheel_files = list(wheel_dir.glob(wheel_pattern))
+
+            if wheel_files:
+                wheel_file = wheel_files[0]
+                built_wheels.append(wheel_file)
+                print(f"✓ Built release wheel: {wheel_file.name}")
+            else:
+                print(f"✗ No wheel found matching {wheel_pattern} in {wheel_dir}")
+                all_passed = False
+
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Release build failed for {backend_name}: {e}")
+            if e.stdout:
+                print("STDOUT:", e.stdout)
+            if e.stderr:
+                print("STDERR:", e.stderr)
+            all_passed = False
+        except Exception as e:
+            print(f"✗ Failed to build {backend_name} release: {e}")
+            all_passed = False
+        finally:
+            # Clean up build environment (but leave generated files and wheels)
+            if venv_path.exists():
+                print(f"Cleaning up build environment: {venv_name}")
+                shutil.rmtree(venv_path)
+
+    # Summary
+    if all_passed:
+        print(f"\n{'='*50}")
+        print("Release build completed successfully!")
+        print(f"{'='*50}")
+        print("Built wheels:")
+        for wheel in built_wheels:
+            print(f"  {wheel}")
+        print("\nGenerated files and wheels preserved for inspection.")
+        print("Run 'angreal cloaca scrub' to clean up when ready.")
+        return 0
+    else:
+        print(f"\n{'='*50}")
+        print("Some release builds failed!")
+        print(f"{'='*50}")
+        return 1

@@ -336,7 +336,7 @@ PostgreSQL schema-based multi-tenancy provides the strongest isolation guarantee
 ```rust
 use cloacina::runner::DefaultRunner;
 
-// Create tenant-specific executors
+// Create tenant-specific runners
 let tenant_a = DefaultRunner::with_schema(
     "postgresql://user:pass@localhost/cloacina",
     "tenant_a"
@@ -476,15 +476,16 @@ let legacy_executor = DefaultRunner::with_schema(db_url, "legacy_tenant").await?
 
 // New tenants use their own schemas
 let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
+let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
 ```
 
 #### Option 2: Run Side-by-Side
 
 ```rust
-// Existing single-tenant executor (uses public schema)
+// Existing single-tenant runner (uses public schema)
 let legacy_executor = DefaultRunner::new(db_url).await?;
 
-// New multi-tenant executors use schemas
+// New multi-tenant runners use schemas
 let tenant_a = DefaultRunner::with_schema(db_url, "tenant_a").await?;
 let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 ```
@@ -511,22 +512,23 @@ let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 
 ```rust
 // Production setup with proper error handling
-async fn create_tenant_executor(
+async fn create_tenant_runner(
     db_url: &str,
     tenant_id: &str
+) -> Result<DefaultRunner, AppError> {
 ) -> Result<DefaultRunner, AppError> {
     // Validate tenant ID comes from trusted source
     validate_tenant_id(tenant_id)?;
 
-    // Create executor with monitoring
-    let executor = DefaultRunner::with_schema(db_url, tenant_id)
+    // Create runner with monitoring
+    let runner = DefaultRunner::with_schema(db_url, tenant_id)
         .await
         .map_err(|e| AppError::TenantSetup(tenant_id.to_string(), e))?;
 
     // Log tenant creation for audit trail
-    audit_log!("Tenant executor created: {}", tenant_id);
+    audit_log!("Tenant runner created: {}", tenant_id);
 
-    Ok(executor)
+    Ok(runner)
 }
 ```
 

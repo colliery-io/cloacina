@@ -197,6 +197,79 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    /// Updates the cron expression, timezone, and next run time for a schedule.
+    ///
+    /// # Arguments
+    /// * `id` - UUID of the cron schedule
+    /// * `cron_expression` - Optional new cron expression
+    /// * `timezone` - Optional new timezone
+    /// * `next_run` - New next run time (calculated from updated expression/timezone)
+    ///
+    /// # Returns
+    /// * `Result<(), ValidationError>` - Success or error
+    pub async fn update_expression_and_timezone(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let conn = self.dal.pool.get().await?;
+        let next_run_ts = UniversalTimestamp(next_run);
+        let now_ts = UniversalTimestamp::now();
+
+        // Convert optional references to owned strings for the closure
+        let cron_expr_owned = cron_expression.map(|s| s.to_string());
+        let timezone_owned = timezone.map(|s| s.to_string());
+
+        // Build the update values dynamically based on what's provided
+        conn.interact(move |conn| {
+            let query = diesel::update(cron_schedules::table.find(id));
+
+            if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
+                // Update both expression and timezone
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref expr) = &cron_expr_owned {
+                // Update only expression
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref tz) = &timezone_owned {
+                // Update only timezone
+                query
+                    .set((
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn)
+            } else {
+                // Update only next run time
+                query
+                    .set((
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now_ts),
+                    ))
+                    .execute(conn)
+            }
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
     /// Enables a cron schedule.
     ///
     /// # Arguments

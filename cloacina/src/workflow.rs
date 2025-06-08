@@ -1090,6 +1090,91 @@ impl Workflow {
             .and_then(|task| task.code_fingerprint())
     }
 
+    /// Get all task IDs in the workflow
+    ///
+    /// # Returns
+    ///
+    /// Vector of all task IDs currently in the workflow
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use cloacina::*;
+    /// # let workflow = Workflow::new("test");
+    /// let task_ids = workflow.get_task_ids();
+    /// println!("Tasks in workflow: {:?}", task_ids);
+    /// ```
+    pub fn get_task_ids(&self) -> Vec<String> {
+        self.tasks.keys().cloned().collect()
+    }
+
+    /// Create a new workflow instance from the same data as this workflow
+    ///
+    /// This method recreates a workflow by fetching tasks from the global task registry
+    /// and rebuilding the workflow structure. This is useful for workflow registration
+    /// scenarios where you need to create a fresh workflow instance.
+    ///
+    /// # Returns
+    ///
+    /// A new workflow instance with the same structure and metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any tasks cannot be found in the global registry
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use cloacina::*;
+    /// # let original_workflow = Workflow::new("test");
+    /// let recreated_workflow = original_workflow.recreate_from_registry()?;
+    /// assert_eq!(original_workflow.name(), recreated_workflow.name());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn recreate_from_registry(&self) -> Result<Workflow, WorkflowError> {
+        let mut new_workflow = Workflow::new(&self.name);
+
+        // Copy metadata (except version which will be recalculated)
+        new_workflow.metadata.description = self.metadata.description.clone();
+        new_workflow.metadata.tags = self.metadata.tags.clone();
+        new_workflow.metadata.created_at = self.metadata.created_at;
+
+        // Get the task registry
+        let registry = crate::task::global_task_registry();
+        let guard = registry.write().map_err(|e| {
+            WorkflowError::RegistryError(format!("Failed to access task registry: {}", e))
+        })?;
+
+        // Recreate all tasks from the registry
+        for task_id in self.get_task_ids() {
+            let constructor = guard.get(&task_id).ok_or_else(|| {
+                WorkflowError::TaskNotFound(format!(
+                    "Task '{}' not found in global registry during workflow recreation",
+                    task_id
+                ))
+            })?;
+
+            // Create a new task instance
+            let task = constructor();
+
+            // Add the task to the new workflow
+            new_workflow.add_task(task).map_err(|e| {
+                WorkflowError::TaskError(format!(
+                    "Failed to add task '{}' during recreation: {}",
+                    task_id, e
+                ))
+            })?;
+        }
+
+        // Validate the recreated workflow
+        new_workflow.validate().map_err(|e| {
+            WorkflowError::ValidationError(format!("Recreated workflow validation failed: {}", e))
+        })?;
+
+        // Finalize and return
+        Ok(new_workflow.finalize())
+    }
+
     /// Finalize Workflow and calculate version.
     ///
     /// This method calculates the content-based version hash and sets it
@@ -1165,6 +1250,7 @@ impl Workflow {
 /// assert!(!workflow.metadata().version.is_empty());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[derive(Clone)]
 pub struct WorkflowBuilder {
     workflow: Workflow,
 }
@@ -1175,6 +1261,11 @@ impl WorkflowBuilder {
         Self {
             workflow: Workflow::new(name),
         }
+    }
+
+    /// Get the workflow name
+    pub fn name(&self) -> &str {
+        self.workflow.name()
     }
 
     /// Set the workflow description
@@ -1230,6 +1321,7 @@ where
         }
     };
     registry.insert(workflow_name, Box::new(constructor));
+    tracing::debug!("Successfully registered workflow constructor");
 }
 
 /// Get the global workflow registry

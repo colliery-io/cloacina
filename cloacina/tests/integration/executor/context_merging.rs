@@ -249,7 +249,7 @@ async fn test_context_merging_latest_wins() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
     let input_context = Arc::new(tokio::sync::Mutex::new(Context::new()));
@@ -379,7 +379,7 @@ async fn test_execution_scope_context_setup() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     // Schedule workflow execution
     let mut input_context = Context::new();

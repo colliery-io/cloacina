@@ -1,5 +1,8 @@
 """
-Test tasks for Cloacina.
+Cloacina core engine test tasks.
+
+These tasks specifically test the Cloacina workflow orchestration engine itself,
+separate from the Python bindings (which are tested via the cloaca command group).
 """
 
 import subprocess
@@ -15,10 +18,10 @@ from utils import docker_up, docker_down, docker_clean
 PROJECT_ROOT = Path(angreal.get_root()).parent
 
 # Define command group
-tests = angreal.command_group(name="tests", about="commands for test suites")
+cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
 
 
-@tests()
+@cloacina()
 @angreal.command(name="unit", about="run unit tests")
 @angreal.argument(
     name="filter",
@@ -73,7 +76,7 @@ def unit(filter=None, backend=None):
     return 0
 
 
-@tests()
+@cloacina()
 @angreal.command(name="integration", about="run integration tests with backing services")
 @angreal.argument(
     name="filter",
@@ -183,7 +186,7 @@ def integration(filter=None, skip_docker=False, backend=None):
         return 1
 
 
-@tests()
+@cloacina()
 @angreal.command(name="macros", about="run tests for macro validation system")
 @angreal.argument(
     name="backend",
@@ -191,7 +194,7 @@ def integration(filter=None, skip_docker=False, backend=None):
     help="Run tests for specific backend: postgres or sqlite (default: both)",
     required=False
 )
-def macro(backend=None):
+def macros(backend=None):
     """Run tests for macro validation system for PostgreSQL and/or SQLite."""
 
     # Define backend test configurations
@@ -265,10 +268,10 @@ def macro(backend=None):
     return 0
 
 
-@tests()
-@angreal.command(name="all", about="run all tests (unit, integration, and macro tests)")
+@cloacina()
+@angreal.command(name="all", about="run all cloacina core tests (unit, integration, and macro tests)")
 def all():
-    """Run all tests (unit, integration, and macro tests)."""
+    """Run all cloacina core tests (unit, integration, and macro tests)."""
     # Run unit tests first
     print("=== Running Unit Tests ===")
     unit_result = unit()
@@ -277,9 +280,9 @@ def all():
 
     # Run macro tests
     print("\n=== Running Macro Tests ===")
-    macro_result = macro()
-    if macro_result != 0:
-        return macro_result
+    macros_result = macros()
+    if macros_result != 0:
+        return macros_result
 
     # Run integration tests last
     print("\n=== Running Integration Tests ===")
@@ -287,5 +290,5 @@ def all():
     if integration_result != 0:
         return integration_result
 
-    print("\nAll tests passed!")
+    print("\nAll cloacina core tests passed!")
     return 0

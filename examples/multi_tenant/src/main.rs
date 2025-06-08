@@ -19,7 +19,6 @@
 //! This example demonstrates how to use Cloacina's multi-tenant capabilities
 //! with PostgreSQL schema-based isolation.
 
-
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::PipelineError;
 use std::env;

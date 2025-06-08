@@ -306,21 +306,12 @@ impl DefaultRunnerBuilder {
                 })?;
         }
 
-        // Create scheduler with recovery if enabled
-        let scheduler = if self.config.enable_recovery {
-            TaskScheduler::with_global_workflows_and_recovery_and_poll_interval(
-                database.clone(),
-                self.config.scheduler_poll_interval,
-            )
-            .await
-        } else {
-            let workflows = crate::workflow::get_all_workflows();
-            Ok(TaskScheduler::with_poll_interval(
-                database.clone(),
-                workflows,
-                self.config.scheduler_poll_interval,
-            ))
-        }
+        // Create scheduler with global workflow registry (always dynamic)
+        let scheduler = TaskScheduler::with_poll_interval(
+            database.clone(),
+            self.config.scheduler_poll_interval,
+        )
+        .await
         .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor
@@ -459,22 +450,11 @@ impl DefaultRunner {
                 })?;
         }
 
-        // Create scheduler with recovery if enabled
-        let scheduler = if config.enable_recovery {
-            TaskScheduler::with_global_workflows_and_recovery_and_poll_interval(
-                database.clone(),
-                config.scheduler_poll_interval,
-            )
-            .await
-        } else {
-            let workflows = crate::workflow::get_all_workflows();
-            Ok(TaskScheduler::with_poll_interval(
-                database.clone(),
-                workflows,
-                config.scheduler_poll_interval,
-            ))
-        }
-        .map_err(|e| PipelineError::Executor(e.into()))?;
+        // Create scheduler with global workflow registry (always dynamic)
+        let scheduler =
+            TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval)
+                .await
+                .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -1362,9 +1342,9 @@ impl DefaultRunner {
                 message: format!("Failed to calculate next execution: {}", e),
             })?;
 
-        // Update the schedule
+        // Update the schedule with new expression, timezone, and next run time
         dal.cron_schedule()
-            .update_next_run(schedule_id, next_run)
+            .update_expression_and_timezone(schedule_id, cron_expression, timezone, next_run)
             .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to update cron schedule: {}", e),

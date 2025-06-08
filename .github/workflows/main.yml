@@ -54,3 +54,12 @@ jobs:
   examples:
     needs: smoke_tests
     uses: ./.github/workflows/examples.yml
+
+  # Python bindings tests
+  python_wheels:
+    needs: smoke_tests
+    uses: ./.github/workflows/python_wheels.yml
+
+  python_bindings:
+    needs: python_wheels
+    uses: ./.github/workflows/python_bindings.yml

@@ -372,6 +372,15 @@ pub enum WorkflowError {
 
     #[error("Unreachable task: {0}")]
     UnreachableTask(String),
+
+    #[error("Registry error: {0}")]
+    RegistryError(String),
+
+    #[error("Task error: {0}")]
+    TaskError(String),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 /// Errors that can occur when creating Workflow subgraphs.

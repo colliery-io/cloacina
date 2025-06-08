@@ -32,6 +32,10 @@ enableRobotsTXT = true
     url = "/quick-start/"
     weight = 10
   [[menu.main]]
+    name = "Cloaca"
+    url = "/python-bindings/"
+    weight = 15
+  [[menu.main]]
     name = "Tutorials"
     url = "/tutorials/"
     weight = 20

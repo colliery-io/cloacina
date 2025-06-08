@@ -190,11 +190,14 @@ impl PipelineEngine {
     pub fn new(
         database: Database,
         task_registry: Arc<TaskRegistry>,
-        workflows: Vec<crate::Workflow>,
+        _workflows: Vec<crate::Workflow>,
         executor_config: ExecutorConfig,
         mode: EngineMode,
     ) -> Self {
-        let scheduler = TaskScheduler::new(database.clone(), workflows);
+        let scheduler = TaskScheduler::with_poll_interval_sync(
+            database.clone(),
+            std::time::Duration::from_millis(100),
+        );
         let executor = TaskExecutor::new(
             database.clone(),
             Arc::clone(&task_registry),
@@ -258,12 +261,12 @@ impl PipelineEngine {
     pub async fn new_with_recovery(
         database: Database,
         task_registry: Arc<TaskRegistry>,
-        workflows: Vec<crate::Workflow>,
+        _workflows: Vec<crate::Workflow>,
         executor_config: ExecutorConfig,
         mode: EngineMode,
     ) -> Result<Self, ExecutorError> {
         // Create scheduler with recovery
-        let scheduler = TaskScheduler::new_with_recovery(database.clone(), workflows)
+        let scheduler = TaskScheduler::new(database.clone())
             .await
             .map_err(ExecutorError::Validation)?;
 

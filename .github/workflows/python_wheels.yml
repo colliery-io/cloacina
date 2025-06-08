@@ -1,0 +1,89 @@
+---
+name: Cloaca - Wheels
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cloaca-build-wheels:
+    name: Cloaca - Build Wheels
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        backend: [postgres, sqlite]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-python-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-python-
+            ${{ runner.os }}-cargo-
+
+      - name: Install maturin and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin[patchelf] build twine
+
+      - name: Install angreal
+        run: pip install angreal
+
+      - name: Build wheel for ${{ matrix.backend }}
+        run: |
+          # Use new angreal command to build wheel
+          angreal cloaca package --backend ${{ matrix.backend }}
+        shell: bash
+
+      - name: Test wheel installation and basic functionality
+        run: |
+          # Use new angreal smoke test command
+          angreal cloaca smoke --backend ${{ matrix.backend }}
+        shell: bash
+
+
+  # Build source distributions (sdist) for dispatcher package
+  cloaca-build-sdist:
+    name: Cloaca - Build Source Distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build dispatcher sdist
+        working-directory: cloaca
+        run: python -m build --sdist
+
+      - name: Check sdist
+        working-directory: cloaca
+        run: twine check dist/*

@@ -79,6 +79,7 @@ In Cloacina, a workflow is a collection of tasks that work together to accomplis
 4. **Error Handling**: Failed tasks can affect dependent tasks
 5. **Retry Strategies**: Tasks can be configured to retry on failure
 6. **DefaultRunner**: Manages workflow execution with persistence
+6. **DefaultRunner**: Manages workflow execution with persistence
 
 ### Workflow Structure
 
@@ -233,8 +234,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting ETL Example");
 
-    // Initialize executor with SQLite database
-    let executor = DefaultRunner::new("workflow_etl.db").await?;
+    // Initialize runner with SQLite database
+    let runner = DefaultRunner::new("workflow_etl.db").await?;
 
     // Create the ETL workflow
     let _pipeline = create_etl_workflow()?;
@@ -248,10 +249,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute the same workflow with different inputs
     info!("Submitting first ETL workflow with numbers [1, 2, 3, 4, 5]");
-    let future1 = executor.execute("etl_workflow", context1);
+    let future1 = runner.execute("etl_workflow", context1);
 
     info!("Submitting second ETL workflow with numbers [10, 20, 30, 40, 50]");
-    let future2 = executor.execute("etl_workflow", context2);
+    let future2 = runner.execute("etl_workflow", context2);
 
     info!("Both workflows submitted, waiting for completion...");
 
@@ -259,8 +260,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result2 = future2.await?;
     let result1 = future1.await?;
 
-    // Shutdown the executor
-    executor.shutdown().await?;
+    // Shutdown the runner
+    runner.shutdown().await?;
 
     Ok(())
 }
@@ -300,8 +301,8 @@ Let's walk through the code in execution order and understand why each component
        .with_env_filter("etl_example=debug,cloacina=info")
        .init();
 
-   // 2. Create the executor
-   let executor = DefaultRunner::new("workflow_etl.db").await?;
+   // 2. Create the runner
+   let runner = DefaultRunner::new("workflow_etl.db").await?;
 
    // 3. Define the workflow
    let workflow = workflow! {
@@ -322,10 +323,10 @@ Let's walk through the code in execution order and understand why each component
 
    // Execute the same workflow with different inputs
    info!("Submitting first ETL workflow with numbers [1, 2, 3, 4, 5]");
-   let future1 = executor.execute("etl_workflow", context1);
+   let future1 = runner.execute("etl_workflow", context1);
 
    info!("Submitting second ETL workflow with numbers [10, 20, 30, 40, 50]");
-   let future2 = executor.execute("etl_workflow", context2);
+   let future2 = runner.execute("etl_workflow", context2);
 
    info!("Both workflows submitted, waiting for completion...");
 

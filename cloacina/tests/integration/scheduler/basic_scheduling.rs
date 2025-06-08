@@ -65,7 +65,7 @@ async fn test_schedule_workflow_execution() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -98,7 +98,7 @@ async fn test_schedule_nonexistent_workflow() {
     fixture.initialize().await;
     let database = fixture.get_database();
 
-    let scheduler = TaskScheduler::new(database, vec![]);
+    let scheduler = TaskScheduler::with_static_workflows(database, vec![]);
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -135,7 +135,7 @@ async fn test_workflow_version_tracking() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::new(database.clone(), vec![workflow]);
+    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context

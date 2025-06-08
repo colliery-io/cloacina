@@ -233,7 +233,9 @@ The method performs these operations in a single transaction:
    ```
 
 ## Integration with DefaultRunner
+## Integration with DefaultRunner
 
+The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 
 ```rust
@@ -241,13 +243,13 @@ The credentials returned by `DatabaseAdmin` are designed to work seamlessly with
 let creds = admin.create_tenant(config)?;
 
 // Use credentials with DefaultRunner
-let executor = DefaultRunner::with_schema(
+let runner = DefaultRunner::with_schema(
     &creds.connection_string,
     &creds.schema_name
 ).await?;
 
 // Execute workflows with full isolation
-executor.execute(workflow).await?;
+runner.execute(workflow).await?;
 ```
 
 ## Best Practices

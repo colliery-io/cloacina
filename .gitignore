@@ -30,11 +30,12 @@ Cargo.lock
 /docs/.hugo_build.lock
 /docs/static/api/
 
-# Add .pyc files to gitignore
+# Python files
 *.pyc
-
-# Add __pycache__ directory to gitignore
 __pycache__/
+
+# Python egg-info directories (generated during development installs)
+*.egg-info/
 .cursorignore
 
 # SQLite database files created by tests and tutorials

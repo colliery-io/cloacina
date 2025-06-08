@@ -17,25 +17,25 @@
 use cloacina::{task, Context, Task, TaskError, TaskRegistry};
 use serde_json::Value;
 
-#[task(id = "simple-task", dependencies = [])]
+#[task(id = "macro-test-simple-task", dependencies = [])]
 async fn simple_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     context
         .insert("processed", Value::Bool(true))
         .map_err(|e| TaskError::ExecutionFailed {
             message: format!("Context error: {:?}", e),
-            task_id: "simple-task".to_string(),
+            task_id: "macro-test-simple-task".to_string(),
             timestamp: chrono::Utc::now(),
         })?;
     Ok(())
 }
 
-#[task(id = "dependent-task", dependencies = ["simple-task"])]
+#[task(id = "macro-test-dependent-task", dependencies = ["macro-test-simple-task"])]
 async fn dependent_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     let _processed = context
         .get("processed")
         .ok_or_else(|| TaskError::ExecutionFailed {
             message: "Missing 'processed' key".to_string(),
-            task_id: "dependent-task".to_string(),
+            task_id: "macro-test-dependent-task".to_string(),
             timestamp: chrono::Utc::now(),
         })?;
 
@@ -43,7 +43,7 @@ async fn dependent_task(context: &mut Context<Value>) -> Result<(), TaskError> {
         .insert("dependent_processed", Value::Bool(true))
         .map_err(|e| TaskError::ExecutionFailed {
             message: format!("Context error: {:?}", e),
-            task_id: "dependent-task".to_string(),
+            task_id: "macro-test-dependent-task".to_string(),
             timestamp: chrono::Utc::now(),
         })?;
     Ok(())
@@ -54,7 +54,7 @@ async fn test_macro_generated_task() {
     // Test that the macro generates the correct task struct
     let task = simple_task_task();
 
-    assert_eq!(task.id(), "simple-task");
+    assert_eq!(task.id(), "macro-test-simple-task");
     assert_eq!(task.dependencies(), &[] as &[String]);
 
     // Test execution
@@ -70,8 +70,8 @@ async fn test_macro_generated_task() {
 async fn test_macro_with_dependencies() {
     let task = dependent_task_task();
 
-    assert_eq!(task.id(), "dependent-task");
-    assert_eq!(task.dependencies(), &["simple-task".to_string()]);
+    assert_eq!(task.id(), "macro-test-dependent-task");
+    assert_eq!(task.dependencies(), &["macro-test-simple-task".to_string()]);
 }
 
 #[tokio::test]
@@ -87,8 +87,14 @@ async fn test_task_registry_with_macro_tasks() {
 
     // Test topological sort
     let sorted = registry.topological_sort().unwrap();
-    let simple_pos = sorted.iter().position(|x| x == "simple-task").unwrap();
-    let dependent_pos = sorted.iter().position(|x| x == "dependent-task").unwrap();
+    let simple_pos = sorted
+        .iter()
+        .position(|x| x == "macro-test-simple-task")
+        .unwrap();
+    let dependent_pos = sorted
+        .iter()
+        .position(|x| x == "macro-test-dependent-task")
+        .unwrap();
 
     assert!(simple_pos < dependent_pos);
 }

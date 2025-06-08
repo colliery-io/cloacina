@@ -1,10 +1,11 @@
 ---
-name: Macro Tests
+name: Cloacina - PostgreSQL Macro Tests
 on:
   workflow_call:
 
 jobs:
-  macro_tests:
+  cloacina-postgres-macro:
+    name: Cloacina - PostgreSQL Macro Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,4 +35,4 @@ jobs:
             ${{ runner.os }}-rust-build-
 
       - name: Run macro tests
-        run: angreal tests macros --backend postgres
+        run: angreal cloacina macros --backend postgres
