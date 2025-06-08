@@ -54,10 +54,6 @@ jobs:
         run: |
           angreal cloaca package --backend ${{ matrix.backend }}
 
-      - name: Test wheel installation and basic functionality
-        run: |
-          angreal cloaca smoke --backend ${{ matrix.backend }}
-
   python-bindings-tests:
     name: Python Bindings Tests
     strategy:

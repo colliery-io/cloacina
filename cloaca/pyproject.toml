@@ -1,35 +1,4 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "cloaca"
-version = "0.2.0-alpha.1"
-description = "Python bindings for Cloacina - a robust workflow orchestration engine"
-readme = "README.md"
-authors = [
-    {name = "Cloacina Team", email = "team@cloacina.dev"}
-]
-license = {text = "MIT OR Apache-2.0"}
-classifiers = [
-
-]
-requires-python = ">=3.9"
-dependencies = []
-
-[project.optional-dependencies]
-postgres = ["cloaca-postgres==0.2.0-alpha.1"]
-sqlite = ["cloaca-sqlite==0.2.0-alpha.1"]
-
-
-[project.urls]
-Homepage = "https://github.com/dstorey/cloacina"
-Repository = "https://github.com/dstorey/cloacina"
-Documentation = "https://cloacina.dev"
-Issues = "https://github.com/dstorey/cloacina/issues"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-cloaca = ["py.typed"]
+# This file is generated automatically during build
+# Template: .angreal/templates/dispatcher_pyproject.toml.j2
+# DO NOT EDIT - Any changes will be overwritten
+# To make changes, edit the template file above

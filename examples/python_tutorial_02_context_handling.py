@@ -20,6 +20,7 @@ Prerequisites:
     pip install cloaca[sqlite]
 """
 
+import sys
 import cloaca
 from datetime import datetime
 
@@ -256,7 +257,7 @@ if __name__ == "__main__":
     print()
 
     # Create runner
-    runner = cloaca.DefaultRunner("sqlite:///python_tutorial_02.db")
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Create initial context with metadata
     context = cloaca.Context({
@@ -302,6 +303,11 @@ if __name__ == "__main__":
         print(f"Pipeline failed with status: {result.status}")
         if hasattr(result, 'error'):
             print(f"Error: {result.error}")
+
+        # Clean up before exiting
+        print("\nCleaning up...")
+        runner.shutdown()
+        sys.exit(1)
 
     # Cleanup
     print("\nCleaning up...")

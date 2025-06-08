@@ -19,6 +19,7 @@ Prerequisites:
     pip install cloaca[sqlite]
 """
 
+import sys
 import cloaca
 
 # Define tasks using the @task decorator
@@ -106,8 +107,8 @@ if __name__ == "__main__":
     print("- Basic execution and result handling")
     print()
 
-    # Create a runner with SQLite database
-    runner = cloaca.DefaultRunner("sqlite:///python_tutorial_01.db")
+    # Create a runner with in-memory SQLite database
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Create initial context
     context = cloaca.Context({"tutorial": "01", "user": "learner"})
@@ -133,6 +134,11 @@ if __name__ == "__main__":
         print(f"Workflow failed with status: {result.status}")
         if hasattr(result, 'error'):
             print(f"Error: {result.error}")
+
+        # Clean up before exiting
+        print("\nCleaning up...")
+        runner.shutdown()
+        sys.exit(1)
 
     # Clean up
     print("\nCleaning up...")

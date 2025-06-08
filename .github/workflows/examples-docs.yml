@@ -116,6 +116,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: '0.147.0'
+          extended: true
+
       - name: Cache Rust build
         uses: actions/cache@v4
         with:
@@ -124,6 +130,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-rust-docs-
             ${{ runner.os }}-rust-
+
+      - name: Cache Hugo modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/hugo
+            resources
+          key: ${{ runner.os }}-hugo-${{ hashFiles('**/go.mod', '**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-hugo-
 
       - name: Build documentation
         run: angreal docs build

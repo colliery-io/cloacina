@@ -22,6 +22,7 @@ Prerequisites:
     PostgreSQL database running (see docker-compose.yaml in project root)
 """
 
+import sys
 import cloaca
 import random
 from datetime import datetime
@@ -183,11 +184,9 @@ class TenantManager:
         """Create a tenant-specific runner with schema isolation."""
         print(f"Creating runner for tenant: {tenant_id}")
 
-        # Create PostgreSQL connection URL with tenant schema
-        tenant_url = f"{self.postgres_url}?search_path={tenant_id}"
-
-        # Create runner for this tenant
-        runner = cloaca.DefaultRunner(tenant_url)
+        # Create runner with schema-based tenant isolation
+        # This uses PostgreSQL schemas for complete data isolation
+        runner = cloaca.DefaultRunner.with_schema(self.postgres_url, tenant_id)
         self.tenant_runners[tenant_id] = runner
 
         print(f"Runner created for tenant {tenant_id} with schema isolation")
@@ -424,6 +423,7 @@ if __name__ == "__main__":
         print("- Wrong connection URL (check postgres_url variable)")
         print("- Missing cloaca[postgres] installation")
         print("- Database permissions issues")
+        sys.exit(1)
 
     print()
     print("Key concepts demonstrated:")
