@@ -123,20 +123,23 @@ jobs:
           cd cloaca
           python -m build --sdist
 
-      # Build backend sdists
+      # Build backend sdists (each in separate directory)
       - name: Build postgres backend sdist
         run: |
           angreal cloaca generate --backend postgres
           cd cloaca-backend
           python -m build --sdist
-          mv dist/cloaca_postgres-*.tar.gz dist/cloaca_postgres-sdist.tar.gz
+          mkdir -p ../dist-postgres
+          mv dist/cloaca_postgres-*.tar.gz ../dist-postgres/
 
       - name: Build sqlite backend sdist
         run: |
+          angreal cloaca scrub  # Clean up previous backend files
           angreal cloaca generate --backend sqlite
           cd cloaca-backend
           python -m build --sdist
-          mv dist/cloaca_sqlite-*.tar.gz dist/cloaca_sqlite-sdist.tar.gz
+          mkdir -p ../dist-sqlite
+          mv dist/cloaca_sqlite-*.tar.gz ../dist-sqlite/
 
       - name: Upload sdist artifacts
         uses: actions/upload-artifact@v4
@@ -144,7 +147,8 @@ jobs:
           name: python-sdists
           path: |
             cloaca/dist/*.tar.gz
-            cloaca-backend/dist/*-sdist.tar.gz
+            dist-postgres/*.tar.gz
+            dist-sqlite/*.tar.gz
 
   # Publish to PyPI
   python-publish:
@@ -169,9 +173,9 @@ jobs:
           # Move dispatcher sdist
           find dist -name "cloaca-*.tar.gz" -exec mv {} pypi-dist/ \;
 
-          # Move backend sdists (rename back)
-          find dist -name "cloaca_postgres-sdist.tar.gz" -exec sh -c 'mv "$1" "pypi-dist/$(basename "$1" -sdist.tar.gz).tar.gz"' _ {} \;
-          find dist -name "cloaca_sqlite-sdist.tar.gz" -exec sh -c 'mv "$1" "pypi-dist/$(basename "$1" -sdist.tar.gz).tar.gz"' _ {} \;
+          # Move backend sdists
+          find dist -name "cloaca_postgres-*.tar.gz" -exec mv {} pypi-dist/ \;
+          find dist -name "cloaca_sqlite-*.tar.gz" -exec mv {} pypi-dist/ \;
 
           # Move all wheels
           find dist -name "*.whl" -exec mv {} pypi-dist/ \;
