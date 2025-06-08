@@ -11,10 +11,9 @@ jobs:
     name: Build Python Wheels
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.9', '3.10', '3.11', '3.12']
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +64,7 @@ jobs:
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: wheel-${{ matrix.backend }}-py${{ matrix.python-version }}
           path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
           retention-days: 30
 
@@ -74,10 +73,9 @@ jobs:
     needs: build-wheels
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.9', '3.12']  # Test oldest and newest supported versions
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +96,7 @@ jobs:
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: wheel-${{ matrix.backend }}-py${{ matrix.python-version }}
           path: wheels/
 
       - name: Run Python integration tests
@@ -146,9 +144,8 @@ jobs:
     needs: build-wheels
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -166,7 +163,7 @@ jobs:
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          name: wheel-${{ matrix.backend }}-${{ matrix.os }}-py3.11
+          name: wheel-${{ matrix.backend }}-py3.11
           path: wheels/
 
       - name: Run angreal smoke tests

@@ -52,4 +52,4 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run integration tests
-        run: angreal tests integration --backend postgres
+        run: angreal cloacina integration --backend postgres

@@ -34,4 +34,4 @@ jobs:
             ${{ runner.os }}-rust-build-
 
       - name: Run unit tests
-        run: angreal tests unit --backend sqlite
+        run: angreal cloacina unit --backend sqlite

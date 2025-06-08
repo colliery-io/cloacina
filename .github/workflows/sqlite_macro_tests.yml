@@ -34,4 +34,4 @@ jobs:
             ${{ runner.os }}-rust-build-
 
       - name: Run macro tests
-        run: angreal tests macros --backend sqlite
+        run: angreal cloacina macros --backend sqlite

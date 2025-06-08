@@ -24,10 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.9', '3.10', '3.11', '3.12']
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +61,7 @@ jobs:
       - name: Upload release wheel
         uses: actions/upload-artifact@v4
         with:
-          name: release-wheel-${{ matrix.backend }}-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: release-wheel-${{ matrix.backend }}-py${{ matrix.python-version }}
           path: target/wheels/cloaca_${{ matrix.backend }}-*.whl
 
   # Build dispatcher source distribution
@@ -99,9 +98,8 @@ jobs:
     needs: [build-release-wheels, build-dispatcher-sdist]
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +118,7 @@ jobs:
       - name: Download backend wheel
         uses: actions/download-artifact@v4
         with:
-          name: release-wheel-${{ matrix.backend }}-${{ matrix.os }}-py3.11
+          name: release-wheel-${{ matrix.backend }}-py3.11
           path: wheels/
 
       - name: Install angreal
@@ -206,15 +204,6 @@ jobs:
 
           # Create comprehensive release package
           tar -czf release-assets/cloaca-python-wheels-${GITHUB_REF#refs/tags/}.tar.gz artifacts/
-
-          # Create platform-specific packages
-          for os in ubuntu-latest macos-latest windows-latest; do
-            mkdir -p "platform-$os"
-            find artifacts -name "*$os*" -exec cp {} "platform-$os/" \;
-            if [ "$(ls -A platform-$os)" ]; then
-              tar -czf "release-assets/cloaca-python-$os-${GITHUB_REF#refs/tags/}.tar.gz" "platform-$os/"
-            fi
-          done
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4

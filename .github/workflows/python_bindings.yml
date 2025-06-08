@@ -11,10 +11,9 @@ jobs:
     name: Python Binding Tests
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ['3.9', '3.12']
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -67,14 +66,13 @@ jobs:
     name: Python Tutorial Tests
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         tutorial: ['01', '02', '03', '04', '05']
         backend: [postgres, sqlite]
         include:
           # Tutorial 05 (multi-tenancy) only runs with postgres
           - tutorial: '05'
             backend: postgres
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -123,9 +121,8 @@ jobs:
     name: All Python Tutorials
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4

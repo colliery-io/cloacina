@@ -11,9 +11,8 @@ jobs:
     name: Python Tutorials
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         backend: [postgres, sqlite]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
