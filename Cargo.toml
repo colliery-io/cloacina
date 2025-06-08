@@ -4,7 +4,7 @@ exclude = ["examples/*", "cloaca-backend"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "v0.2.0-alpha.1"
 authors = ["Dylan Storey <dylan.storey@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/colliery-io/cloacina"
@@ -19,4 +19,4 @@ async-trait = { version = "0.1" }
 ctor = { version = "0.2" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
-cloacina-macros = { version = "0.1.0", path = "cloacina-macros" }
+cloacina-macros = { version = "v0.2.0-alpha.1", path = "cloacina-macros" }
