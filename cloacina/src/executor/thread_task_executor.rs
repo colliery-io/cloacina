@@ -33,6 +33,7 @@ use tokio::sync::Semaphore;
 use tokio::time;
 use tracing::{debug, error, info, warn};
 
+use super::traits::TaskExecutorTrait;
 use super::types::{ClaimedTask, DependencyLoader, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
@@ -40,10 +41,11 @@ use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
 use crate::task::get_task;
 use crate::{Context, Database, Task, TaskRegistry};
+use async_trait::async_trait;
 
-/// TaskExecutor is the core component responsible for executing pipeline tasks.
+/// ThreadTaskExecutor is a thread-based implementation of task execution.
 ///
-/// It manages the lifecycle of task execution including:
+/// This executor runs tasks in the current thread/process and manages:
 /// - Task claiming and execution
 /// - Context management and dependency resolution
 /// - Error handling and retry logic
@@ -51,7 +53,7 @@ use crate::{Context, Database, Task, TaskRegistry};
 ///
 /// The executor maintains its own instance ID for tracking and logging purposes
 /// and uses a task registry to resolve task implementations.
-pub struct TaskExecutor {
+pub struct ThreadTaskExecutor {
     /// Database connection pool for task state persistence
     database: Database,
     /// Data Access Layer for database operations
@@ -64,8 +66,8 @@ pub struct TaskExecutor {
     config: ExecutorConfig,
 }
 
-impl TaskExecutor {
-    /// Creates a new TaskExecutor instance.
+impl ThreadTaskExecutor {
+    /// Creates a new ThreadTaskExecutor instance.
     ///
     /// # Arguments
     /// * `database` - Database connection pool for task state persistence
@@ -729,7 +731,7 @@ impl TaskExecutor {
     }
 }
 
-impl Clone for TaskExecutor {
+impl Clone for ThreadTaskExecutor {
     fn clone(&self) -> Self {
         Self {
             database: self.database.clone(),
@@ -738,5 +740,16 @@ impl Clone for TaskExecutor {
             instance_id: self.instance_id,
             config: self.config.clone(),
         }
+    }
+}
+
+#[async_trait]
+impl TaskExecutorTrait for ThreadTaskExecutor {
+    async fn run(&self) -> Result<(), ExecutorError> {
+        info!(
+            "Starting thread task executor (instance: {})",
+            self.instance_id
+        );
+        self.run_execution_loop().await
     }
 }

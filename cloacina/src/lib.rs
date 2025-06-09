@@ -475,7 +475,8 @@ pub use error::{
 };
 pub use executor::{
     EngineMode, ExecutionScope, ExecutorConfig, PipelineEngine, PipelineError, PipelineExecution,
-    PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutor, TaskResult,
+    PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutorTrait, TaskResult,
+    ThreadTaskExecutor,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 #[cfg(feature = "postgres")]

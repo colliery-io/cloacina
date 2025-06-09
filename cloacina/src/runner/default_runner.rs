@@ -22,10 +22,12 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::executor::pipeline_executor::*;
+use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
+use crate::executor::ThreadTaskExecutor;
 use crate::task::TaskState;
 use crate::UniversalUuid;
-use crate::{Context, Database, TaskExecutor, TaskScheduler};
+use crate::{Context, Database, TaskScheduler};
 use crate::{CronScheduler, CronSchedulerConfig};
 
 /// Configuration for the default runner
@@ -138,7 +140,7 @@ pub struct DefaultRunner {
     /// Task scheduler for managing workflow execution scheduling
     scheduler: Arc<TaskScheduler>,
     /// Task executor for running individual tasks
-    executor: Arc<TaskExecutor>,
+    executor: Arc<dyn TaskExecutorTrait>,
     /// Runtime handles for managing background services
     runtime_handles: Arc<RwLock<RuntimeHandles>>,
     /// Optional cron scheduler for time-based workflow execution
@@ -321,7 +323,7 @@ impl DefaultRunnerBuilder {
             task_timeout: self.config.task_timeout,
         };
 
-        let executor = TaskExecutor::with_global_registry(database.clone(), executor_config)
+        let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
             .map_err(|e| PipelineError::Configuration {
                 message: e.to_string(),
             })?;
@@ -330,7 +332,7 @@ impl DefaultRunnerBuilder {
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
-            executor: Arc::new(executor),
+            executor: Arc::new(executor) as Arc<dyn TaskExecutorTrait>,
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
@@ -463,7 +465,7 @@ impl DefaultRunner {
             task_timeout: config.task_timeout,
         };
 
-        let executor = TaskExecutor::with_global_registry(database.clone(), executor_config)
+        let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
             .map_err(|e| PipelineError::Configuration {
                 message: e.to_string(),
             })?;
@@ -472,7 +474,7 @@ impl DefaultRunner {
             database,
             config,
             scheduler: Arc::new(scheduler),
-            executor: Arc::new(executor),
+            executor: Arc::new(executor) as Arc<dyn TaskExecutorTrait>,
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,

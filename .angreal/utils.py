@@ -17,6 +17,48 @@ DOCKER_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yaml"
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+class FileOperationError(Exception):
+    """Raised when file operations fail."""
+    pass
+
+def write_file_safe(file_path: Path, content: str, backup: bool = True) -> None:
+    """Safely write content to a file, optionally backing up existing content.
+
+    Args:
+        file_path: Path to write to
+        content: Content to write
+        backup: Whether to backup existing file
+    """
+    try:
+        if backup and file_path.exists():
+            backup_path = file_path.with_suffix(file_path.suffix + ".bak")
+            file_path.rename(backup_path)
+
+        file_path.write_text(content)
+    except Exception as e:
+        raise FileOperationError(f"Failed to write file {file_path}: {e}")
+
+def get_workspace_version() -> str:
+    """Get version from workspace's Cargo.toml.
+
+    Returns:
+        Version string from Cargo.toml
+
+    Raises:
+        FileOperationError: If Cargo.toml not found or version cannot be extracted
+    """
+    cargo_toml = Path("Cargo.toml")
+    if not cargo_toml.exists():
+        raise FileOperationError("Cargo.toml not found")
+
+    try:
+        content = cargo_toml.read_text()
+        version_line = next(line for line in content.splitlines() if line.startswith("version ="))
+        version = version_line.split("=")[1].strip().strip('"')
+        return version
+    except Exception as e:
+        raise FileOperationError(f"Failed to extract version from Cargo.toml: {e}")
+
 def docker_up():
     """Start docker containers for local development."""
     try:
@@ -173,3 +215,57 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
             project_root / example_dir,
             cmd
         )
+
+def check_postgres_container_health() -> bool:
+    """Check if PostgreSQL container is healthy.
+
+    Returns:
+        True if container is healthy, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=postgres", "--format", "{{.Status}}"],
+            capture_output=True,
+            text=True
+        )
+        return "healthy" in result.stdout
+    except Exception:
+        return False
+
+def smart_postgres_reset() -> bool:
+    """Reset PostgreSQL state.
+
+    This function will:
+    1. Try to reset using SQL if possible
+    2. Fall back to container restart if needed
+
+    Returns:
+        True if reset was successful, False otherwise
+    """
+    try:
+        # First try SQL reset
+        result = subprocess.run(
+            [
+                "docker", "exec", "postgres",
+                "psql", "-U", "postgres", "-d", "postgres",
+                "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            return True
+
+        # If SQL reset fails, try container restart
+        print("SQL reset failed, trying container restart...")
+        docker_down()
+        time.sleep(2)  # Wait for container to fully stop
+        if docker_up() != 0:
+            return False
+        time.sleep(10)  # Wait for container to be ready
+        return check_postgres_container_health()
+
+    except Exception as e:
+        print(f"Error during PostgreSQL reset: {e}")
+        return False

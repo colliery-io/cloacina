@@ -26,7 +26,7 @@
 //! - **Database**: Provides persistence for task state and workflow definitions
 //! - **TaskRegistry**: Maintains a registry of available tasks and their implementations
 //! - **TaskScheduler**: Manages workflow scheduling and task queuing
-//! - **TaskExecutor**: Executes tasks and manages their lifecycle
+//! - **ThreadTaskExecutor**: Executes tasks and manages their lifecycle
 //!
 //! ## Deployment Modes
 //!
@@ -60,7 +60,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use super::{EngineMode, ExecutorConfig, TaskExecutor};
+use super::{EngineMode, ExecutorConfig, ThreadTaskExecutor};
 use crate::error::ExecutorError;
 use crate::{Database, TaskRegistry, TaskScheduler};
 
@@ -75,7 +75,7 @@ use crate::{Database, TaskRegistry, TaskScheduler};
 /// - **Database**: Provides persistence for task state and workflow definitions
 /// - **TaskRegistry**: Maintains a registry of available tasks and their implementations
 /// - **TaskScheduler**: Manages workflow scheduling and task queuing
-/// - **TaskExecutor**: Executes tasks and manages their lifecycle
+/// - **ThreadTaskExecutor**: Executes tasks and manages their lifecycle
 ///
 /// # Deployment Modes
 ///
@@ -143,7 +143,7 @@ pub struct PipelineEngine {
     database: Database,
     task_registry: Arc<TaskRegistry>,
     scheduler: TaskScheduler,
-    executor: TaskExecutor,
+    executor: ThreadTaskExecutor,
     mode: EngineMode,
 }
 
@@ -198,7 +198,7 @@ impl PipelineEngine {
             database.clone(),
             std::time::Duration::from_millis(100),
         );
-        let executor = TaskExecutor::new(
+        let executor = ThreadTaskExecutor::new(
             database.clone(),
             Arc::clone(&task_registry),
             executor_config,
@@ -270,7 +270,7 @@ impl PipelineEngine {
             .await
             .map_err(ExecutorError::Validation)?;
 
-        let executor = TaskExecutor::new(
+        let executor = ThreadTaskExecutor::new(
             database.clone(),
             Arc::clone(&task_registry),
             executor_config,

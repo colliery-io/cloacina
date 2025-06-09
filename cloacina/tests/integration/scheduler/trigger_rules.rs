@@ -64,7 +64,13 @@ async fn test_always_trigger_rule() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
+    // Register workflow in global registry for scheduler to find
+    register_workflow_constructor("trigger-test".to_string(), {
+        let workflow = workflow.clone();
+        move || workflow.clone()
+    });
+
+    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
