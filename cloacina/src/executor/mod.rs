@@ -32,14 +32,14 @@
 //!
 //! The executor module consists of several key components:
 //!
-//! - `TaskExecutor`: The core executor that handles individual task execution
+//! - `ThreadTaskExecutor`: Thread-based executor for individual task execution
 //! - `PipelineEngine`: Manages pipeline-based task execution workflows
 //! - `PipelineExecutor`: Handles the execution of task pipelines with dependency management
 //!
 //! ## Usage
 //!
 //! ```rust
-//! use cloacina::executor::{TaskExecutor, ExecutorConfig};
+//! use cloacina::executor::{ThreadTaskExecutor, ExecutorConfig, TaskExecutorTrait};
 //! use cloacina::{Database, TaskRegistry};
 //! use std::sync::Arc;
 //!
@@ -48,7 +48,7 @@
 //! let task_registry = Arc::new(TaskRegistry::new());
 //! let config = ExecutorConfig::default();
 //!
-//! let executor = TaskExecutor::new(database, task_registry, config);
+//! let executor = ThreadTaskExecutor::new(database, task_registry, config);
 //! executor.run().await?;
 //! # Ok(())
 //! # }
@@ -83,12 +83,14 @@
 
 pub mod pipeline_engine;
 pub mod pipeline_executor;
-pub mod task_executor;
+pub mod thread_task_executor;
+pub mod traits;
 pub mod types;
 
 pub use pipeline_engine::PipelineEngine;
 pub use pipeline_executor::{
     PipelineError, PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus, TaskResult,
 };
-pub use task_executor::TaskExecutor;
+pub use thread_task_executor::ThreadTaskExecutor;
+pub use traits::TaskExecutorTrait;
 pub use types::{ClaimedTask, DependencyLoader, EngineMode, ExecutionScope, ExecutorConfig};

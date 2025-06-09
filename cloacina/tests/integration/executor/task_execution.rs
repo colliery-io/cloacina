@@ -218,7 +218,7 @@ async fn test_task_executor_basic_execution() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
 
     // Run executor for a short time to process the task
     let executor_handle = tokio::spawn(async move { executor.run().await });
@@ -292,7 +292,7 @@ async fn test_task_executor_dependency_loading() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
 
     // Run scheduling and execution loop
     let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
@@ -417,7 +417,7 @@ async fn test_task_executor_timeout_handling() {
         task_timeout: Duration::from_millis(500), // Short timeout
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
 
     // Run executor briefly
     let executor_handle = tokio::spawn(async move { executor.run().await });
@@ -629,7 +629,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
     // Give time for execution
@@ -823,7 +823,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
     // Give time for both tasks to execute

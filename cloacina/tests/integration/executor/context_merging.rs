@@ -271,7 +271,7 @@ async fn test_context_merging_latest_wins() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
 
     // Run scheduling and execution
     let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
@@ -401,7 +401,7 @@ async fn test_execution_scope_context_setup() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = TaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
 
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
