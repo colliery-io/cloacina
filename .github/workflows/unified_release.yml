@@ -50,7 +50,7 @@ jobs:
   # Build dispatcher package
   dispatcher-build:
     name: Build Dispatcher Package
-    needs: [rust-release]
+    needs: [cloaca-backend-publish]  # Wait for backend packages to be published first
     runs-on: ubuntu-latest
 
     steps:
@@ -84,7 +84,7 @@ jobs:
   # Publish dispatcher package
   dispatcher-publish:
     name: Publish Dispatcher to PyPI
-    needs: [dispatcher-build]
+    needs: [dispatcher-build, python-publish]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment:
@@ -111,8 +111,8 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
 
   # Build Python wheels and sdists
-  python-build:
-    name: Build Python Packages
+  cloaca-backend-build:
+    name: Build Cloaca Backend Packages
     needs: [rust-release]
     strategy:
       fail-fast: false
@@ -158,8 +158,8 @@ jobs:
           path: cloaca-backend/target/wheels/cloaca_${{ matrix.backend }}-*.whl
 
   # Build source distributions (only need one of each)
-  python-sdists:
-    name: Build Python Source Distributions
+  cloaca-backend-sdists:
+    name: Build Cloaca Backend Source Distributions
     needs: [rust-release]
     runs-on: ubuntu-latest
 
@@ -200,15 +200,15 @@ jobs:
       - name: Upload sdist artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: python-sdists
+          name: cloaca-backend-sdists
           path: |
             dist-postgres/*.tar.gz
             dist-sqlite/*.tar.gz
 
   # Publish to PyPI
-  python-publish:
-    name: Publish Backend Packages to PyPI
-    needs: [python-build, python-sdists]
+  cloaca-backend-publish:
+    name: Publish Cloaca Backend Packages to PyPI
+    needs: [cloaca-backend-build, cloaca-backend-sdists]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment:
