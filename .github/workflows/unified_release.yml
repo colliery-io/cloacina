@@ -84,7 +84,7 @@ jobs:
   # Publish dispatcher package
   dispatcher-publish:
     name: Publish Dispatcher to PyPI
-    needs: [dispatcher-build, python-publish]
+    needs: [dispatcher-build]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     environment:
