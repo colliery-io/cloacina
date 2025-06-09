@@ -249,7 +249,13 @@ async fn test_context_merging_latest_wins() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
+    // Register workflow in global registry for scheduler to find
+    register_workflow_constructor("merging_pipeline".to_string(), {
+        let workflow = workflow.clone();
+        move || workflow.clone()
+    });
+
+    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
 
     // Schedule workflow execution
     let input_context = Arc::new(tokio::sync::Mutex::new(Context::new()));
@@ -379,7 +385,13 @@ async fn test_execution_scope_context_setup() {
         .build()
         .unwrap();
 
-    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
+    // Register workflow in global registry for scheduler to find
+    register_workflow_constructor("scope_pipeline".to_string(), {
+        let workflow = workflow.clone();
+        move || workflow.clone()
+    });
+
+    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
 
     // Schedule workflow execution
     let mut input_context = Context::new();
