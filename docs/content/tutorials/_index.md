@@ -40,13 +40,13 @@ cd cloacina
 
 3. Run the tutorial using angreal:
 ```bash
-angreal tutorial <tutorial-number>
+angreal demos tutorial-<tutorial-number>
 ```
 
 For example, to run the "First Task" tutorial:
 
 ```bash
-angreal tutorial 01
+angreal demos tutorial-01
 ```
 
 {{< hint type=tip >}}

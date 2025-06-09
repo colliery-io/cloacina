@@ -232,7 +232,7 @@ If you're following along with the Cloacina repository, you can use angreal to r
 
 ```bash
 # From the Cloacina repository root
-angreal tutorials 01
+angreal demos tutorial-01
 ```
 
 This will run the tutorial code with all necessary dependencies.

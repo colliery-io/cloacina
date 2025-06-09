@@ -75,7 +75,7 @@ cd examples/multi_tenant
 cargo run
 
 # Or using angreal (from project root)
-angreal examples multi-tenant
+angreal demos multi-tenant
 ```
 
 ## Key Benefits

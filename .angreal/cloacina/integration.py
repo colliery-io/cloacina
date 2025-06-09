@@ -1,17 +1,19 @@
-"""
-Integration test tasks for Cloacina core engine.
-"""
-
 import subprocess
 import sys
 import time
-
 import angreal  # type: ignore
+
+from utils import docker_up, docker_down, docker_clean
+
+from .cloacina_utils import (
+    validate_backend,
+    print_section_header,
+    print_final_success
+)
 
 # Define command group
 cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
 
-from utils import docker_up, docker_down, docker_clean
 
 @cloacina()
 @angreal.command(name="integration", about="run integration tests with backing services")
@@ -37,8 +39,7 @@ def integration(filter=None, skip_docker=False, backend=None):
     """Run integration tests with backing services for PostgreSQL and/or SQLite."""
 
     # Validate backend selection
-    if backend and backend not in ["postgres", "sqlite"]:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+    if not validate_backend(backend):
         return 1
 
     # Determine which backends to run
@@ -50,9 +51,7 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     # Run PostgreSQL integration tests
     if run_postgres:
-        print(f"\n{'='*50}")
-        print("Running integration tests for PostgreSQL")
-        print(f"{'='*50}")
+        print_section_header("Running integration tests for PostgreSQL")
 
         if not skip_docker:
             # Start Docker services for PostgreSQL
@@ -86,9 +85,7 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     # Run SQLite integration tests (no Docker needed)
     if run_sqlite:
-        print(f"\n{'='*50}")
-        print("Running integration tests for SQLite")
-        print(f"{'='*50}")
+        print_section_header("Running integration tests for SQLite")
 
         try:
             cmd = ["cargo", "test", "--test", "integration", "--no-default-features", "--features", "sqlite,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
@@ -103,18 +100,16 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     # Summary
     if (not run_postgres or postgresql_success) and (not run_sqlite or sqlite_success):
-        print(f"\n{'='*50}")
         backends_run = []
         if run_postgres:
             backends_run.append("PostgreSQL")
         if run_sqlite:
             backends_run.append("SQLite")
         backends_str = " and ".join(backends_run)
-        print(f"All integration tests passed for {backends_str}!")
-        print(f"{'='*50}")
+        print_final_success(f"All integration tests passed for {backends_str}!")
         return 0
     else:
-        print(f"\n{'='*50}")
+        print_section_header("INTEGRATION TEST FAILURES")
         if run_postgres and not postgresql_success:
             print("PostgreSQL integration tests failed")
         if run_sqlite and not sqlite_success:

@@ -246,8 +246,8 @@ def smart_postgres_reset() -> bool:
         # First try SQL reset
         result = subprocess.run(
             [
-                "docker", "exec", "postgres",
-                "psql", "-U", "postgres", "-d", "postgres",
+                "docker", "exec", "cloacina-postgres",
+                "psql", "-U", "cloacina", "-d", "cloacina",
                 "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
             ],
             capture_output=True,
@@ -257,8 +257,14 @@ def smart_postgres_reset() -> bool:
         if result.returncode == 0:
             return True
 
-        # If SQL reset fails, try container restart
-        print("SQL reset failed, trying container restart...")
+        # If SQL reset fails, log the error and try container restart
+        print(f"SQL reset failed with return code {result.returncode}")
+        if result.stdout:
+            print("STDOUT:", result.stdout)
+        if result.stderr:
+            print("STDERR:", result.stderr)
+        print("Falling back to container restart...")
+
         docker_down()
         time.sleep(2)  # Wait for container to fully stop
         if docker_up() != 0:

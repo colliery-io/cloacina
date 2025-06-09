@@ -1,14 +1,17 @@
-"""
-Unit test tasks for Cloacina core engine.
-"""
-
 import subprocess
 import sys
-
 import angreal  # type: ignore
+
+from .cloacina_utils import (
+    validate_backend,
+    get_backends_to_test,
+    print_section_header,
+    print_final_success
+)
 
 # Define command group
 cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
+
 
 @cloacina()
 @angreal.command(name="unit", about="run unit tests")
@@ -26,27 +29,17 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 def unit(filter=None, backend=None):
     """Run unit tests (tests embedded in src/ modules only) for PostgreSQL and/or SQLite."""
 
-    # Define backend test configurations
-    all_backends = [
-        ("PostgreSQL", ["cargo", "test", "--lib", "--no-default-features", "--features", "postgres,macros"]),
-        ("SQLite", ["cargo", "test", "--lib", "--no-default-features", "--features", "sqlite,macros"])
-    ]
+    # Validate backend selection
+    if not validate_backend(backend):
+        return 1
 
-    # Filter backends based on selection
-    if backend == "postgres":
-        backends = [all_backends[0]]  # PostgreSQL only
-    elif backend == "sqlite":
-        backends = [all_backends[1]]  # SQLite only
-    elif backend is None:
-        backends = all_backends  # Both (default)
-    else:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+    # Get backend configurations
+    backends = get_backends_to_test(backend)
+    if backends is None:
         return 1
 
     for backend_name, cmd_base in backends:
-        print(f"\n{'='*50}")
-        print(f"Running unit tests for {backend_name}")
-        print(f"{'='*50}")
+        print_section_header(f"Running unit tests for {backend_name}")
 
         cmd = cmd_base.copy()
         if filter:
@@ -59,7 +52,5 @@ def unit(filter=None, backend=None):
             print(f"{backend_name} unit tests failed with error: {e}", file=sys.stderr)
             return e.returncode
 
-    print(f"\n{'='*50}")
-    print("All unit tests passed for both backends!")
-    print(f"{'='*50}")
+    print_final_success("All unit tests passed for both backends!")
     return 0

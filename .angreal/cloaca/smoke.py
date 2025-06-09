@@ -1,21 +1,20 @@
-"""
-Smoke testing tasks for Cloaca.
-"""
-
-import time
-import subprocess
+import angreal # type: ignore
 import shutil
 from pathlib import Path
+import subprocess
+import time
 
-import angreal  # type: ignore
+from .cloaca_utils import _build_and_install_cloaca_backend
+from utils import docker_up, docker_down
+from .generate import generate
+from .scrub import scrub
+
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
-from .generate import generate
-from .build import build_and_install_cloaca_backend
-from .scrub import scrub
-from utils import docker_up, docker_down
+
+
 
 @cloaca()
 @angreal.command(name="smoke", about="run basic smoke tests to verify Python bindings work")
@@ -63,7 +62,7 @@ def smoke(backend=None):
                 time.sleep(10)
 
             # Step 3: Build and install cloaca backend in test environment
-            venv, python_exe, pip_exe = build_and_install_cloaca_backend(backend_name, venv_name)
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
 
             # Step 4: Run smoke test
             print("Step 4: Running smoke test...")

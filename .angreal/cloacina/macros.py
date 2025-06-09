@@ -1,18 +1,17 @@
-"""
-Macro validation test tasks for Cloacina core engine.
-"""
-
 import subprocess
-import sys
-from pathlib import Path
-
 import angreal  # type: ignore
+
+from .cloacina_utils import (
+    PROJECT_ROOT,
+    validate_backend,
+    get_check_backends,
+    print_section_header,
+    print_final_success
+)
 
 # Define command group
 cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
 
-# Project root for accessing examples, cloacina, etc. (one level up from .angreal)
-PROJECT_ROOT = Path(angreal.get_root()).parent
 
 @cloacina()
 @angreal.command(name="macros", about="run tests for macro validation system")
@@ -25,21 +24,13 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 def macros(backend=None):
     """Run tests for macro validation system for PostgreSQL and/or SQLite."""
 
-    # Define backend test configurations
-    all_backends = [
-        ("PostgreSQL", ["cargo", "check", "--no-default-features", "--features", "postgres,macros"]),
-        ("SQLite", ["cargo", "check", "--no-default-features", "--features", "sqlite,macros"])
-    ]
+    # Validate backend selection
+    if not validate_backend(backend):
+        return 1
 
-    # Filter backends based on selection
-    if backend == "postgres":
-        backends = [all_backends[0]]  # PostgreSQL only
-    elif backend == "sqlite":
-        backends = [all_backends[1]]  # SQLite only
-    elif backend is None:
-        backends = all_backends  # Both (default)
-    else:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.", file=sys.stderr)
+    # Get backend configurations for cargo check
+    backends = get_check_backends(backend)
+    if backends is None:
         return 1
 
     # Test that invalid examples fail to compile as expected
@@ -50,9 +41,7 @@ def macros(backend=None):
     ]
 
     for backend_name, cmd_base in backends:
-        print(f"\n{'='*50}")
-        print(f"Running macro tests for {backend_name}")
-        print(f"{'='*50}")
+        print_section_header(f"Running macro tests for {backend_name}")
         print("\nTesting macro validation failure examples...")
 
         all_passed = True
@@ -79,20 +68,16 @@ def macros(backend=None):
                         print("   → Circular dependency error message generated")
                     elif "Duplicate task ID" in result.stderr:
                         print("   → Duplicate task ID error message generated")
-                    else:
-                        print("   → Unknown error message generated")
 
-            except Exception as e:
-                print(f"ERROR: Failed to test {example}: {e}")
+            except subprocess.CalledProcessError as e:
+                print(f"Error testing {example}: {e}")
                 all_passed = False
 
-        if all_passed:
-            print(f"\nAll macro validation tests passed for {backend_name}!")
-        else:
-            print(f"\nSome macro validation tests failed for {backend_name}")
+        if not all_passed:
+            print(f"\n{backend_name} macro tests failed!")
             return 1
+        else:
+            print(f"\n{backend_name} macro tests passed")
 
-    print(f"\n{'='*50}")
-    print("All macro validation tests passed for both backends!")
-    print(f"{'='*50}")
+    print_final_success("All macro tests passed for both backends!")
     return 0

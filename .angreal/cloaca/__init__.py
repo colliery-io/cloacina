@@ -1,5 +1,0 @@
-"""
-Cloaca package initialization.
-
-
-"""
