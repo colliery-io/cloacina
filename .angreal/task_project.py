@@ -10,7 +10,7 @@ from cloaca.generate import *  # noqa: F403
 from cloaca.scrub import *  # noqa: F403
 from cloaca.smoke import *  # noqa: F403
 from cloaca.test import *  # noqa: F403
-
+from cloaca.package import * # noqa: F403
 from cloaca.release import * # noqa: F403
 
 # Import all command modules to register the commands

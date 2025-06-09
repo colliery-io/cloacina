@@ -1,12 +1,13 @@
 import angreal # type: ignore
 import shutil
 from pathlib import Path
-from .cloaca_utils import generate  # noqa: F821
+
 from angreal.integrations.venv import VirtualEnv  # type: ignore
 import subprocess  # noqa: F821
 from .scrub import scrub  # noqa: F821
 
 
+from .generate import generate
 
 
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
@@ -14,8 +15,8 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 @cloaca()
 @angreal.command(name="package", about="generate files, build wheel, then clean")
-@angreal.argument(name="backend", long="backend", help="Backend to build: postgres or sqlite")
-def package(backend):
+@angreal.argument(name="backend", long="backend", required=True, help="Backend to build: postgres or sqlite")
+def package(backend=None):
     """Generate files, build the wheel, then clean up generated files."""
     try:
         # Step 1: Generate files
