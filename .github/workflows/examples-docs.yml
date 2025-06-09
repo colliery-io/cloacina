@@ -9,8 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tutorials:
-    name: Tutorial Tests
+  rust-tutorials:
+    name: Rust Tutorial Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        tutorial: ["01", "02", "03", "04", "05", "06"]
     runs-on: ubuntu-latest
 
     steps:
@@ -41,11 +45,15 @@ jobs:
             ${{ runner.os }}-rust-tutorials-
             ${{ runner.os }}-rust-
 
-      - name: Run tutorial tests
-        run: angreal demos all --tutorials --rust
+      - name: Run tutorial ${{ matrix.tutorial }}
+        run: angreal demos tutorial-${{ matrix.tutorial }}
 
-  examples:
-    name: Example Tests
+  rust-examples:
+    name: Rust Example Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials"]
     runs-on: ubuntu-latest
 
     steps:
@@ -87,11 +95,88 @@ jobs:
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
-      - name: Run example tests
+      - name: Run ${{ matrix.example }} example
+        run: angreal demos ${{ matrix.example }}
+
+  python-tutorials:
+    name: Python Tutorial Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # SQLite tutorials (01-04, 06) - tutorial 05 requires PostgreSQL
+          - tutorial: "01"
+            backend: sqlite
+          - tutorial: "02"
+            backend: sqlite
+          - tutorial: "03"
+            backend: sqlite
+          - tutorial: "04"
+            backend: sqlite
+          - tutorial: "06"
+            backend: sqlite
+          # PostgreSQL tutorials (01-06, including 05 which requires postgres)
+          - tutorial: "01"
+            backend: postgres
+          - tutorial: "02"
+            backend: postgres
+          - tutorial: "03"
+            backend: postgres
+          - tutorial: "04"
+            backend: postgres
+          - tutorial: "05"
+            backend: postgres
+          - tutorial: "06"
+            backend: postgres
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-py-tutorials-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-py-tutorials-
+            ${{ runner.os }}-cargo-
+
+      - name: Install angreal
         run: |
-          angreal demos cron-scheduling
-          angreal demos multi-tenant
-          angreal demos per-tenant-credentials
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Docker Compose Cache
+        if: matrix.backend == 'postgres'
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        if: matrix.backend == 'postgres'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
+      - name: Run Python tutorial ${{ matrix.tutorial }} (${{ matrix.backend }})
+        run: |
+          angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
 
   documentation:
     name: Build Documentation
@@ -143,59 +228,3 @@ jobs:
 
       - name: Build documentation
         run: angreal docs build
-
-  python-tutorials:
-    name: Python Tutorial Tests
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [postgres, sqlite]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-py-tutorials-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-py-tutorials-
-            ${{ runner.os }}-cargo-
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services
-        if: matrix.backend == 'postgres'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
-      - name: Run Python tutorial tests
-        run: |
-          angreal demos all --python --backend ${{ matrix.backend }}
