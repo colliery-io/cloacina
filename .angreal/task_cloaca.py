@@ -115,13 +115,13 @@ def write_file_safe(path: Path, content: str, encoding: str = "utf-8", backup: b
 
 def normalize_version_for_python(cargo_version: str) -> str:
     """Convert Cargo SemVer to PEP 440 compliant version.
-    
+
     Args:
         cargo_version: Version string from Cargo.toml (e.g., "0.2.0-alpha.4")
-        
+
     Returns:
         PEP 440 compliant version string (e.g., "0.2.0a4")
-        
+
     Examples:
         >>> normalize_version_for_python("0.2.0-alpha.4")
         "0.2.0a4"
@@ -132,10 +132,10 @@ def normalize_version_for_python(cargo_version: str) -> str:
     """
     # Convert alpha pre-releases: 0.2.0-alpha.4 -> 0.2.0a4
     version = re.sub(r'-alpha\.(\d+)', r'a\1', cargo_version)
-    
+
     # Convert beta pre-releases: 0.2.0-beta.3 -> 0.2.0b3
     version = re.sub(r'-beta\.(\d+)', r'b\1', version)
-    
+
     return version
 
 
