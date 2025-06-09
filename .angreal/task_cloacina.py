@@ -20,12 +20,6 @@ PROJECT_ROOT = Path(angreal.get_root()).parent
 # Define command group
 cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
 
-# Import command implementations
-from cloacina.unit import unit
-from cloacina.integration import integration
-from cloacina.macros import macros
-from cloacina.all import all
-
 
 @cloacina()
 @angreal.command(name="unit", about="run unit tests")

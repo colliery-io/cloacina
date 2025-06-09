@@ -5,115 +5,32 @@ Uses composable functions from file_generation, build_operations, and file_opera
 for clean, testable command implementations.
 """
 
-import angreal  # type: ignore
 import os
-import re
-import shutil
-import subprocess
-import sys
-import time
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
 from typing import List, Optional
-from virtualenv import VirtualEnv
 
-PROJECT_ROOT = Path(angreal.get_root()).parent
+import angreal  # type: ignore
+from angreal.integrations.venv import VirtualEnv# type: ignore
+
+# Import only what we need
+
+from angreal import render_template# type: ignore
+
+import re
+import subprocess
+import shutil
+import time
+
+# Import docker utilities for postgres backend
+from utils import docker_up, docker_down
+
+# Import database reset utilities
+from database_reset import smart_postgres_reset, check_postgres_container_health
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
-def render_template(template_content: str, context: dict) -> str:
-    """Simple template rendering using string replacement.
-
-    Replaces {{key}} placeholders in template_content with values from context.
-    """
-    result = template_content
-    for key, value in context.items():
-        placeholder = "{{" + key + "}}"
-        result = result.replace(placeholder, str(value))
-    return result
-
-def docker_up():
-    """Start docker containers for local development."""
-    try:
-        # Try docker compose first (newer), then fall back to docker-compose
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", str(PROJECT_ROOT / "docker-compose.yaml"), "up", "-d"],
-                check=True
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            subprocess.run(
-                ["docker-compose", "-f", str(PROJECT_ROOT / "docker-compose.yaml"), "up", "-d"],
-                check=True
-            )
-        print("Docker services started successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error starting Docker services: {e}", file=sys.stderr)
-        return 1
-    return 0
-
-def docker_down(remove_volumes=False):
-    """Stop docker containers for local development."""
-    try:
-        # Try docker compose first (newer), then fall back to docker-compose
-        cmd_docker = ["docker", "compose", "-f", str(PROJECT_ROOT / "docker-compose.yaml"), "down"]
-        cmd_docker_compose = ["docker-compose", "-f", str(PROJECT_ROOT / "docker-compose.yaml"), "down"]
-        if remove_volumes:
-            cmd_docker.append("-v")
-            cmd_docker_compose.append("-v")
-
-        try:
-            subprocess.run(cmd_docker, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            subprocess.run(cmd_docker_compose, check=True)
-        print("Docker services stopped successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error stopping Docker services: {e}", file=sys.stderr)
-        return 1
-    return 0
-
-def check_postgres_container_health() -> bool:
-    """Check if PostgreSQL container is healthy."""
-    try:
-        result = subprocess.run(
-            ["docker", "ps", "--filter", "name=postgres", "--format", "{{.Status}}"],
-            capture_output=True,
-            text=True
-        )
-        return "healthy" in result.stdout
-    except Exception:
-        return False
-
-def smart_postgres_reset() -> bool:
-    """Reset PostgreSQL state."""
-    try:
-        # First try SQL reset
-        result = subprocess.run(
-            [
-                "docker", "exec", "postgres",
-                "psql", "-U", "postgres", "-d", "postgres",
-                "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-            ],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode == 0:
-            return True
-
-        # If SQL reset fails, try container restart
-        print("SQL reset failed, trying container restart...")
-        docker_down()
-        time.sleep(2)  # Wait for container to fully stop
-        if docker_up() != 0:
-            return False
-        time.sleep(10)  # Wait for container to be ready
-        return check_postgres_container_health()
-
-    except Exception as e:
-        print(f"Error during PostgreSQL reset: {e}")
-        return False
 
 @dataclass
 class TestResult:
