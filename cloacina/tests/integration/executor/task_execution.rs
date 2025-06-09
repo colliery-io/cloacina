@@ -49,7 +49,10 @@ impl WorkflowTask {
 
 #[async_trait]
 impl Task for WorkflowTask {
-    async fn execute(&self, context: Context<Value>) -> Result<Context<Value>, TaskError> {
+    async fn execute(
+        &self,
+        context: Context<serde_json::Value>,
+    ) -> Result<Context<serde_json::Value>, TaskError> {
         Ok(context) // No-op for workflow building
     }
 
@@ -62,109 +65,69 @@ impl Task for WorkflowTask {
     }
 }
 
-#[derive(Debug)]
-struct SimpleExecutorTask {
-    id: String,
-    dependencies: Vec<String>,
-    output_key: String,
-    output_value: Value,
+#[task(
+    id = "test_task",
+    dependencies = []
+)]
+async fn test_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Add test output to the context
+    context.insert("result", Value::String("success".to_string()))?;
+    Ok(())
 }
 
-impl SimpleExecutorTask {
-    fn new(id: &str, deps: Vec<&str>, output_key: &str, output_value: Value) -> Self {
-        Self {
-            id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
-            output_key: output_key.to_string(),
-            output_value,
+#[task(
+    id = "producer_task",
+    dependencies = []
+)]
+async fn producer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Add shared data to the context
+    context.insert("shared_data", Value::String("important_value".to_string()))?;
+    Ok(())
+}
+
+#[task(
+    id = "consumer_task",
+    dependencies = ["producer_task"]
+)]
+async fn consumer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Try to load dependency value using lazy loading
+    match context
+        .load_from_dependencies_and_cache("shared_data")
+        .await
+    {
+        Ok(Some(value)) => {
+            // Add a derived value to show dependency was loaded
+            context.insert(
+                "derived_from_shared_data",
+                Value::String(format!("Processed: {}", value)),
+            )?;
+        }
+        Ok(None) => {
+            return Err(TaskError::Unknown {
+                task_id: "consumer_task".to_string(),
+                message: "Dependency key 'shared_data' not found".to_string(),
+            });
+        }
+        Err(e) => {
+            return Err(TaskError::Unknown {
+                task_id: "consumer_task".to_string(),
+                message: format!("Failed to load dependency: {}", e),
+            });
         }
     }
+
+    Ok(())
 }
 
-#[async_trait]
-impl Task for SimpleExecutorTask {
-    async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-        // Add our output to the context
-        context
-            .insert(&self.output_key, self.output_value.clone())
-            .map_err(|e| TaskError::Unknown {
-                task_id: self.id.clone(),
-                message: format!("Failed to insert output: {}", e),
-            })?;
-
-        Ok(context)
-    }
-
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn dependencies(&self) -> &[String] {
-        &self.dependencies
-    }
-}
-
-#[derive(Debug)]
-struct DependencyConsumerTask {
-    id: String,
-    dependencies: Vec<String>,
-    dependency_key: String,
-}
-
-impl DependencyConsumerTask {
-    fn new(id: &str, deps: Vec<&str>, dependency_key: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
-            dependency_key: dependency_key.to_string(),
-        }
-    }
-}
-
-#[async_trait]
-impl Task for DependencyConsumerTask {
-    async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-        // Try to load dependency value using lazy loading
-        match context
-            .load_from_dependencies_and_cache(&self.dependency_key)
-            .await
-        {
-            Ok(Some(value)) => {
-                // Add a derived value to show dependency was loaded
-                context
-                    .insert(
-                        &format!("derived_from_{}", self.dependency_key),
-                        Value::String(format!("Processed: {}", value)),
-                    )
-                    .map_err(|e| TaskError::Unknown {
-                        task_id: self.id.clone(),
-                        message: format!("Failed to insert derived value: {}", e),
-                    })?;
-            }
-            Ok(None) => {
-                return Err(TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: format!("Dependency key '{}' not found", self.dependency_key),
-                });
-            }
-            Err(e) => {
-                return Err(TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: format!("Failed to load dependency: {}", e),
-                });
-            }
-        }
-
-        Ok(context)
-    }
-
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn dependencies(&self) -> &[String] {
-        &self.dependencies
-    }
+#[task(
+    id = "timeout_task_test",
+    dependencies = [],
+    retry_attempts = 1
+)]
+async fn timeout_task_test(_context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Sleep longer than the timeout
+    time::sleep(Duration::from_secs(10)).await;
+    Ok(())
 }
 
 #[tokio::test]
@@ -177,19 +140,8 @@ async fn test_task_executor_basic_execution() {
 
     let database = fixture.get_database();
 
-    // Create task registry
-    let mut task_registry = TaskRegistry::new();
-    let task = SimpleExecutorTask::new(
-        "test_task",
-        vec![],
-        "result",
-        Value::String("success".to_string()),
-    );
-    task_registry.register(task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create scheduler and schedule a workflow
-    let workflow = Workflow::builder("test_pipeline")
+    // Create scheduler and schedule a workflow using the #[task] function
+    let workflow = Workflow::builder("test_pipeline_basic")
         .description("Test pipeline for executor")
         .add_task(Arc::new(WorkflowTask::new("test_task", vec![])))
         .unwrap()
@@ -197,7 +149,7 @@ async fn test_task_executor_basic_execution() {
         .unwrap();
 
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("test_pipeline".to_string(), {
+    register_workflow_constructor("test_pipeline_basic".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -210,21 +162,21 @@ async fn test_task_executor_basic_execution() {
         .insert("test_data", Value::String("test_value".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("test_pipeline", input_context)
+        .schedule_workflow_execution("test_pipeline_basic", input_context)
         .await
         .unwrap();
 
     // Process scheduling to mark task as ready
     scheduler.process_active_pipelines().await.unwrap();
 
-    // Create and run executor briefly
+    // Create and run executor using global registry
     let config = ExecutorConfig {
         max_concurrent_tasks: 1,
         poll_interval: Duration::from_millis(100),
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
 
     // Run executor for a short time to process the task
     let executor_handle = tokio::spawn(async move { executor.run().await });
@@ -254,27 +206,15 @@ async fn test_task_executor_basic_execution() {
 async fn test_task_executor_dependency_loading() {
     let database = get_test_database().await;
 
-    // Create task registry with dependency chain
-    let mut task_registry = TaskRegistry::new();
-
-    let producer_task = SimpleExecutorTask::new(
-        "producer",
-        vec![],
-        "shared_data",
-        Value::String("important_value".to_string()),
-    );
-    let consumer_task = DependencyConsumerTask::new("consumer", vec!["producer"], "shared_data");
-
-    task_registry.register(producer_task).unwrap();
-    task_registry.register(consumer_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow with dependencies
-    let workflow = Workflow::builder("dependency_pipeline")
+    // Create workflow with dependencies using the #[task] functions
+    let workflow = Workflow::builder("dependency_pipeline_test")
         .description("Test pipeline with dependencies")
-        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("producer_task", vec![])))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
+        .add_task(Arc::new(WorkflowTask::new(
+            "consumer_task",
+            vec!["producer_task"],
+        )))
         .unwrap()
         .build()
         .unwrap();
@@ -293,18 +233,18 @@ async fn test_task_executor_dependency_loading() {
         .insert("initial_data", Value::String("test_value".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("dependency_pipeline", input_context)
+        .schedule_workflow_execution("dependency_pipeline_test", input_context)
         .await
         .unwrap();
 
-    // Create and run executor
+    // Create and run executor using global registry
     let config = ExecutorConfig {
         max_concurrent_tasks: 2,
         poll_interval: Duration::from_millis(100),
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
 
     // Run scheduling and execution loop
     let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
@@ -318,7 +258,7 @@ async fn test_task_executor_dependency_loading() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer_task")
         .await
         .unwrap();
 
@@ -357,52 +297,10 @@ async fn test_task_executor_dependency_loading() {
 async fn test_task_executor_timeout_handling() {
     let database = get_test_database().await;
 
-    // Create a task that will timeout
-    #[derive(Debug)]
-    struct TimeoutTask {
-        id: String,
-    }
-
-    #[async_trait]
-    impl Task for TimeoutTask {
-        async fn execute(&self, context: Context<Value>) -> Result<Context<Value>, TaskError> {
-            // Sleep longer than the timeout
-            time::sleep(Duration::from_secs(10)).await;
-            Ok(context)
-        }
-
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn dependencies(&self) -> &[String] {
-            &[]
-        }
-
-        fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
-            // For this test, we want the task to fail immediately without retries
-            cloacina::retry::RetryPolicy {
-                max_attempts: 1,
-                backoff_strategy: cloacina::retry::BackoffStrategy::Fixed,
-                initial_delay: std::time::Duration::from_millis(1000),
-                max_delay: std::time::Duration::from_millis(1000),
-                jitter: false,
-                retry_conditions: vec![cloacina::retry::RetryCondition::Never],
-            }
-        }
-    }
-
-    let mut task_registry = TaskRegistry::new();
-    let timeout_task = TimeoutTask {
-        id: "timeout_task".to_string(),
-    };
-    task_registry.register(timeout_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow
-    let workflow = Workflow::builder("timeout_pipeline")
+    // Create workflow with timeout task
+    let workflow = Workflow::builder("timeout_pipeline_test")
         .description("Test pipeline with timeout")
-        .add_task(Arc::new(WorkflowTask::new("timeout_task", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("timeout_task_test", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -421,21 +319,21 @@ async fn test_task_executor_timeout_handling() {
         .insert("test_data", Value::String("timeout_test".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("timeout_pipeline", input_context)
+        .schedule_workflow_execution("timeout_pipeline_test", input_context)
         .await
         .unwrap();
 
     // Process scheduling
     scheduler.process_active_pipelines().await.unwrap();
 
-    // Create executor with short timeout
+    // Create executor with short timeout using global registry
     let config = ExecutorConfig {
         max_concurrent_tasks: 1,
         poll_interval: Duration::from_millis(100),
         task_timeout: Duration::from_millis(500), // Short timeout
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
 
     // Run executor briefly
     let executor_handle = tokio::spawn(async move { executor.run().await });
@@ -447,7 +345,7 @@ async fn test_task_executor_timeout_handling() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), "timeout_task")
+        .get_task_status(UniversalUuid(pipeline_id), "timeout_task_test")
         .await
         .unwrap();
 
@@ -460,25 +358,24 @@ async fn test_task_executor_timeout_handling() {
     executor_handle.abort();
 }
 
+#[task(
+    id = "unified_task_test",
+    dependencies = []
+)]
+async fn unified_task_test(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Add test output to the context
+    context.insert("result", Value::String("unified_success".to_string()))?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_pipeline_engine_unified_mode() {
     let database = get_test_database().await;
 
-    // Create task registry
-    let mut task_registry = TaskRegistry::new();
-    let task = SimpleExecutorTask::new(
-        "unified_task",
-        vec![],
-        "result",
-        Value::String("unified_success".to_string()),
-    );
-    task_registry.register(task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow
-    let workflow = Workflow::builder("unified_pipeline")
+    // Create workflow using the #[task] function
+    let workflow = Workflow::builder("unified_pipeline_test")
         .description("Test pipeline for unified mode")
-        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("unified_task_test", vec![])))
         .unwrap()
         .build()
         .unwrap();
@@ -490,25 +387,18 @@ async fn test_pipeline_engine_unified_mode() {
         task_timeout: Duration::from_secs(5),
     };
 
+    let task_registry = Arc::new(TaskRegistry::new());
     let engine = PipelineEngine::new(
         database.clone(),
         task_registry,
-        vec![workflow],
+        vec![workflow.clone()],
         config,
         EngineMode::Unified,
     );
 
-    // Create a separate workflow for scheduling since we can't clone
-    let schedule_workflow = Workflow::builder("unified_pipeline")
-        .description("Test pipeline for unified mode")
-        .add_task(Arc::new(WorkflowTask::new("unified_task", vec![])))
-        .unwrap()
-        .build()
-        .unwrap();
-
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor(schedule_workflow.name().to_string(), {
-        let workflow = schedule_workflow.clone();
+    register_workflow_constructor(workflow.name().to_string(), {
+        let workflow = workflow.clone();
         move || workflow.clone()
     });
 
@@ -519,7 +409,7 @@ async fn test_pipeline_engine_unified_mode() {
         .insert("engine_test", Value::String("unified_mode".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("unified_pipeline", input_context)
+        .schedule_workflow_execution("unified_pipeline_test", input_context)
         .await
         .unwrap();
 
@@ -533,7 +423,7 @@ async fn test_pipeline_engine_unified_mode() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task_test")
         .await;
 
     // If the task was executed, metadata should exist
@@ -559,7 +449,7 @@ async fn test_pipeline_engine_unified_mode() {
             // Task might still be in progress or failed - check execution status
             let task_status = dal
                 .task_execution()
-                .get_task_status(UniversalUuid(pipeline_id), "unified_task")
+                .get_task_status(UniversalUuid(pipeline_id), "unified_task_test")
                 .await
                 .unwrap();
             assert_ne!(task_status, "Pending", "Task should have been processed");
@@ -570,61 +460,38 @@ async fn test_pipeline_engine_unified_mode() {
     engine_handle.abort();
 }
 
+#[task(
+    id = "initial_context_task_test",
+    dependencies = []
+)]
+async fn initial_context_task_test(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Verify we can access the initial context data
+    let initial_value = context
+        .get("initial_data")
+        .ok_or_else(|| TaskError::ValidationFailed {
+            message: "No initial_data found in context".to_string(),
+        })?;
+
+    // Add a processed value to show the task ran
+    context.insert(
+        "processed_initial",
+        Value::String(format!("Processed: {}", initial_value)),
+    )?;
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_task_executor_context_loading_no_dependencies() {
     let database = get_test_database().await;
 
-    // Create a task that validates it received initial context
-    #[derive(Debug)]
-    struct InitialContextTask {
-        id: String,
-    }
-
-    #[async_trait]
-    impl Task for InitialContextTask {
-        async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-            // Verify we can access the initial context data
-            let initial_value =
-                context
-                    .get("initial_data")
-                    .ok_or_else(|| TaskError::ValidationFailed {
-                        message: "No initial_data found in context".to_string(),
-                    })?;
-
-            // Add a processed value to show the task ran
-            context
-                .insert(
-                    "processed_initial",
-                    Value::String(format!("Processed: {}", initial_value)),
-                )
-                .map_err(|e| TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: format!("Failed to insert processed value: {}", e),
-                })?;
-
-            Ok(context)
-        }
-
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn dependencies(&self) -> &[String] {
-            &[] // No dependencies - should get initial context
-        }
-    }
-
-    let mut task_registry = TaskRegistry::new();
-    let initial_context_task = InitialContextTask {
-        id: "initial_context_task".to_string(),
-    };
-    task_registry.register(initial_context_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow
-    let workflow = Workflow::builder("initial_context_pipeline")
+    // Create workflow using the #[task] function
+    let workflow = Workflow::builder("initial_context_pipeline_test")
         .description("Test pipeline for initial context loading")
-        .add_task(Arc::new(WorkflowTask::new("initial_context_task", vec![])))
+        .add_task(Arc::new(WorkflowTask::new(
+            "initial_context_task_test",
+            vec![],
+        )))
         .unwrap()
         .build()
         .unwrap();
@@ -646,7 +513,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .insert("config_value", Value::Number(serde_json::Number::from(42)))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("initial_context_pipeline", input_context)
+        .schedule_workflow_execution("initial_context_pipeline_test", input_context)
         .await
         .unwrap();
 
@@ -659,7 +526,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
     // Give time for execution
@@ -669,7 +536,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), "initial_context_task")
+        .get_task_status(UniversalUuid(pipeline_id), "initial_context_task_test")
         .await
         .unwrap();
     assert_eq!(
@@ -680,7 +547,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     // Check the output context contains processed data
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "initial_context_task")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "initial_context_task_test")
         .await
         .unwrap();
 
@@ -716,118 +583,69 @@ async fn test_task_executor_context_loading_no_dependencies() {
     executor_handle.abort();
 }
 
+#[task(
+    id = "producer_context_task",
+    dependencies = []
+)]
+async fn producer_context_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Should have access to initial context
+    let initial_value = context
+        .get("seed_value")
+        .ok_or_else(|| TaskError::ValidationFailed {
+            message: "No seed_value found in context".to_string(),
+        })?;
+
+    // Produce some data
+    context.insert(
+        "produced_data",
+        Value::String(format!("Produced from: {}", initial_value)),
+    )?;
+
+    Ok(())
+}
+
+#[task(
+    id = "consumer_context_task",
+    dependencies = ["producer_context_task"]
+)]
+async fn consumer_context_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Should have access to dependency context data (not initial context directly)
+    let produced_data =
+        context
+            .get("produced_data")
+            .ok_or_else(|| TaskError::ValidationFailed {
+                message: "No produced_data found in context from dependency".to_string(),
+            })?;
+
+    // Should also have initial context merged in
+    let seed_value = context
+        .get("seed_value")
+        .ok_or_else(|| TaskError::ValidationFailed {
+            message: "No seed_value found in context".to_string(),
+        })?;
+
+    // Process the data
+    context.insert(
+        "final_result",
+        Value::String(format!("Final: {} + {}", produced_data, seed_value)),
+    )?;
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_task_executor_context_loading_with_dependencies() {
     let database = get_test_database().await;
 
-    // Task that produces data (no dependencies)
-    #[derive(Debug)]
-    struct ProducerTask {
-        id: String,
-    }
-
-    #[async_trait]
-    impl Task for ProducerTask {
-        async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-            // Should have access to initial context
-            let initial_value =
-                context
-                    .get("seed_value")
-                    .ok_or_else(|| TaskError::ValidationFailed {
-                        message: "No seed_value found in context".to_string(),
-                    })?;
-
-            // Produce some data
-            context
-                .insert(
-                    "produced_data",
-                    Value::String(format!("Produced from: {}", initial_value)),
-                )
-                .map_err(|e| TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: format!("Failed to insert produced data: {}", e),
-                })?;
-
-            Ok(context)
-        }
-
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn dependencies(&self) -> &[String] {
-            &[]
-        }
-    }
-
-    // Task that consumes dependency data
-    #[derive(Debug)]
-    struct ConsumerTask {
-        id: String,
-        dependencies: Vec<String>,
-    }
-
-    #[async_trait]
-    impl Task for ConsumerTask {
-        async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-            // Should have access to dependency context data (not initial context directly)
-            let produced_data =
-                context
-                    .get("produced_data")
-                    .ok_or_else(|| TaskError::ValidationFailed {
-                        message: "No produced_data found in context from dependency".to_string(),
-                    })?;
-
-            // Should also have initial context merged in
-            let seed_value =
-                context
-                    .get("seed_value")
-                    .ok_or_else(|| TaskError::ValidationFailed {
-                        message: "No seed_value found in context".to_string(),
-                    })?;
-
-            // Process the data
-            context
-                .insert(
-                    "final_result",
-                    Value::String(format!("Final: {} + {}", produced_data, seed_value)),
-                )
-                .map_err(|e| TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: format!("Failed to insert final result: {}", e),
-                })?;
-
-            Ok(context)
-        }
-
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn dependencies(&self) -> &[String] {
-            &self.dependencies
-        }
-    }
-
-    let mut task_registry = TaskRegistry::new();
-    let producer_task = ProducerTask {
-        id: "producer".to_string(),
-    };
-    let consumer_task = ConsumerTask {
-        id: "consumer".to_string(),
-        dependencies: vec!["producer".to_string()],
-    };
-
-    task_registry.register(producer_task).unwrap();
-    task_registry.register(consumer_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow with dependency chain
-    let workflow = Workflow::builder("dependency_context_pipeline")
+    // Create workflow with dependency chain using the #[task] functions
+    let workflow = Workflow::builder("dependency_context_pipeline_test")
         .description("Test pipeline for dependency context loading")
-        .add_task(Arc::new(WorkflowTask::new("producer", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("producer_context_task", vec![])))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new("consumer", vec!["producer"])))
+        .add_task(Arc::new(WorkflowTask::new(
+            "consumer_context_task",
+            vec!["producer_context_task"],
+        )))
         .unwrap()
         .build()
         .unwrap();
@@ -846,7 +664,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .insert("seed_value", Value::String("initial_seed".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("dependency_context_pipeline", input_context)
+        .schedule_workflow_execution("dependency_context_pipeline_test", input_context)
         .await
         .unwrap();
 
@@ -859,7 +677,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
     // Give time for both tasks to execute
@@ -869,12 +687,12 @@ async fn test_task_executor_context_loading_with_dependencies() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let producer_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), "producer")
+        .get_task_status(UniversalUuid(pipeline_id), "producer_context_task")
         .await
         .unwrap();
     let consumer_status = dal
         .task_execution()
-        .get_task_status(UniversalUuid(pipeline_id), "consumer")
+        .get_task_status(UniversalUuid(pipeline_id), "consumer_context_task")
         .await
         .unwrap();
 
@@ -890,7 +708,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     // Check the consumer's output context
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer_context_task")
         .await
         .unwrap();
 

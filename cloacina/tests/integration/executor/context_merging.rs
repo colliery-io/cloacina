@@ -48,7 +48,10 @@ impl WorkflowTask {
 
 #[async_trait]
 impl Task for WorkflowTask {
-    async fn execute(&self, context: Context<Value>) -> Result<Context<Value>, TaskError> {
+    async fn execute(
+        &self,
+        context: Context<serde_json::Value>,
+    ) -> Result<Context<serde_json::Value>, TaskError> {
         Ok(context) // No-op for workflow building
     }
 
@@ -61,196 +64,103 @@ impl Task for WorkflowTask {
     }
 }
 
-#[derive(Debug)]
-struct ContextProducerTask {
-    id: String,
-    dependencies: Vec<String>,
-    output_data: std::collections::HashMap<String, Value>,
+#[task(
+    id = "early_producer_task",
+    dependencies = []
+)]
+async fn early_producer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Add early producer data to the context
+    context.insert("shared_key", Value::String("early_value".to_string()))?;
+    context.insert("early_only", Value::String("unique_early".to_string()))?;
+    Ok(())
 }
 
-impl ContextProducerTask {
-    fn new(
-        id: &str,
-        deps: Vec<&str>,
-        output_data: std::collections::HashMap<String, Value>,
-    ) -> Self {
-        Self {
-            id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
-            output_data,
-        }
-    }
+#[task(
+    id = "late_producer_task",
+    dependencies = ["early_producer_task"]
+)]
+async fn late_producer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Add late producer data to the context (should override shared_key)
+    context.update("shared_key", Value::String("late_value".to_string()))?;
+    context.insert("late_only", Value::String("unique_late".to_string()))?;
+    Ok(())
 }
 
-#[async_trait]
-impl Task for ContextProducerTask {
-    async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-        // Add all output data to the context
-        for (key, value) in &self.output_data {
-            // Try to insert first, if key exists then update it
-            if let Err(_) = context.insert(key, value.clone()) {
-                // Key exists, update it instead (this implements "latest wins")
-                context
-                    .update(key, value.clone())
-                    .map_err(|e| TaskError::Unknown {
-                        task_id: self.id.clone(),
-                        message: format!("Failed to update {}: {}", key, e),
-                    })?;
-            }
-        }
+#[task(
+    id = "merger_task",
+    dependencies = ["early_producer_task", "late_producer_task"]
+)]
+async fn merger_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    let mut merged_values = std::collections::HashMap::new();
+    let expected_keys = vec!["shared_key", "early_only", "late_only"];
 
-        Ok(context)
-    }
-
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn dependencies(&self) -> &[String] {
-        &self.dependencies
-    }
-}
-
-#[derive(Debug)]
-struct ContextMergerTask {
-    id: String,
-    dependencies: Vec<String>,
-    expected_keys: Vec<String>,
-}
-
-impl ContextMergerTask {
-    fn new(id: &str, deps: Vec<&str>, expected_keys: Vec<&str>) -> Self {
-        Self {
-            id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
-            expected_keys: expected_keys.into_iter().map(|s| s.to_string()).collect(),
-        }
-    }
-}
-
-#[async_trait]
-impl Task for ContextMergerTask {
-    async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-        let mut merged_values = std::collections::HashMap::new();
-
-        // Try to load all expected keys from dependencies
-        for key in &self.expected_keys {
-            // Load the value from dependencies or local context
-            let value = match context.load_from_dependencies_and_cache(key).await {
-                Ok(Some(value)) => value,
-                Ok(None) => {
-                    // Check if it's in local context
-                    if let Some(local_value) = context.get(key) {
-                        local_value.clone()
-                    } else {
-                        return Err(TaskError::Unknown {
-                            task_id: self.id.clone(),
-                            message: format!(
-                                "Expected key '{}' not found in dependencies or local context",
-                                key
-                            ),
-                        });
-                    }
-                }
-                Err(e) => {
+    // Try to load all expected keys from dependencies
+    for key in &expected_keys {
+        // Load the value from dependencies or local context
+        let value = match context.load_from_dependencies_and_cache(key).await {
+            Ok(Some(value)) => value,
+            Ok(None) => {
+                // Check if it's in local context
+                if let Some(local_value) = context.get(key) {
+                    local_value.clone()
+                } else {
                     return Err(TaskError::Unknown {
-                        task_id: self.id.clone(),
-                        message: format!("Failed to load key '{}': {}", key, e),
+                        task_id: "merger_task".to_string(),
+                        message: format!(
+                            "Expected key '{}' not found in dependencies or local context",
+                            key
+                        ),
                     });
                 }
-            };
+            }
+            Err(e) => {
+                return Err(TaskError::Unknown {
+                    task_id: "merger_task".to_string(),
+                    message: format!("Failed to load key '{}': {}", key, e),
+                });
+            }
+        };
 
-            merged_values.insert(key.clone(), value);
-        }
-
-        // Add a summary of merged values
-        let summary = Value::Array(
-            merged_values
-                .keys()
-                .map(|k| Value::String(k.clone()))
-                .collect(),
-        );
-
-        // Insert the summary into the context
-        context
-            .insert("merged_keys", summary)
-            .map_err(|e| TaskError::Unknown {
-                task_id: self.id.clone(),
-                message: format!("Failed to insert summary: {}", e),
-            })?;
-
-        Ok(context)
+        merged_values.insert(key.to_string(), value);
     }
 
-    fn id(&self) -> &str {
-        &self.id
-    }
+    // Add a summary of merged values
+    let summary = Value::Array(
+        merged_values
+            .keys()
+            .map(|k| Value::String(k.to_string()))
+            .collect(),
+    );
 
-    fn dependencies(&self) -> &[String] {
-        &self.dependencies
-    }
+    // Insert the summary into the context
+    context.insert("merged_keys", summary)?;
+    Ok(())
 }
 
 #[tokio::test]
 async fn test_context_merging_latest_wins() {
     let database = get_test_database().await;
 
-    // Create tasks that produce conflicting data
-    let mut task_registry = TaskRegistry::new();
-
-    let mut early_data = std::collections::HashMap::new();
-    early_data.insert(
-        "shared_key".to_string(),
-        Value::String("early_value".to_string()),
-    );
-    early_data.insert(
-        "early_only".to_string(),
-        Value::String("unique_early".to_string()),
-    );
-
-    let mut late_data = std::collections::HashMap::new();
-    late_data.insert(
-        "shared_key".to_string(),
-        Value::String("late_value".to_string()),
-    );
-    late_data.insert(
-        "late_only".to_string(),
-        Value::String("unique_late".to_string()),
-    );
-
-    let early_task = ContextProducerTask::new("early_producer", vec![], early_data);
-    let late_task = ContextProducerTask::new("late_producer", vec!["early_producer"], late_data);
-    let merger_task = ContextMergerTask::new(
-        "merger",
-        vec!["early_producer", "late_producer"],
-        vec!["shared_key", "early_only", "late_only"],
-    );
-
-    task_registry.register(early_task).unwrap();
-    task_registry.register(late_task).unwrap();
-    task_registry.register(merger_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
-    // Create workflow
-    let workflow = Workflow::builder("merging_pipeline")
+    // Create workflow using the #[task] functions
+    let workflow = Workflow::builder("merging_pipeline_test")
         .description("Test pipeline for context merging")
-        .add_task(Arc::new(WorkflowTask::new("early_producer", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("early_producer_task", vec![])))
         .unwrap()
         .add_task(Arc::new(WorkflowTask::new(
-            "late_producer",
-            vec!["early_producer"],
+            "late_producer_task",
+            vec!["early_producer_task"],
         )))
         .unwrap()
         .add_task(Arc::new(WorkflowTask::new(
-            "merger",
-            vec!["early_producer", "late_producer"],
+            "merger_task",
+            vec!["early_producer_task", "late_producer_task"],
         )))
         .unwrap()
         .build()
         .unwrap();
 
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("merging_pipeline".to_string(), {
+    register_workflow_constructor("merging_pipeline_test".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -266,18 +176,21 @@ async fn test_context_merging_latest_wins() {
             .unwrap();
     }
     let pipeline_id = scheduler
-        .schedule_workflow_execution("merging_pipeline", input_context.lock().await.clone_data())
+        .schedule_workflow_execution(
+            "merging_pipeline_test",
+            input_context.lock().await.clone_data(),
+        )
         .await
         .unwrap();
 
-    // Create and run executor
+    // Create and run executor using global registry
     let config = ExecutorConfig {
         max_concurrent_tasks: 1, // Sequential execution to ensure order
         poll_interval: Duration::from_millis(100),
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
 
     // Run scheduling and execution
     let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
@@ -291,7 +204,7 @@ async fn test_context_merging_latest_wins() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let merger_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger_task")
         .await
         .unwrap();
 
@@ -324,69 +237,44 @@ async fn test_context_merging_latest_wins() {
     executor_handle.abort();
 }
 
+#[task(
+    id = "scope_inspector_task",
+    dependencies = []
+)]
+async fn scope_inspector_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Check if execution scope is set
+    if let Some(scope) = context.execution_scope() {
+        let scope_info = serde_json::json!({
+            "pipeline_execution_id": scope.pipeline_execution_id.to_string(),
+            "task_execution_id": scope.task_execution_id.map(|id| id.to_string()),
+            "task_name": scope.task_name.clone()
+        });
+
+        context.insert("execution_scope_info", scope_info)?;
+    } else {
+        return Err(TaskError::Unknown {
+            task_id: "scope_inspector_task".to_string(),
+            message: "Execution scope not set".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_execution_scope_context_setup() {
     let database = get_test_database().await;
 
-    // Create a task that inspects its execution scope
-    #[derive(Debug)]
-    struct ScopeInspectorTask {
-        id: String,
-    }
-
-    #[async_trait]
-    impl Task for ScopeInspectorTask {
-        async fn execute(&self, mut context: Context<Value>) -> Result<Context<Value>, TaskError> {
-            // Check if execution scope is set
-            if let Some(scope) = context.execution_scope() {
-                let scope_info = serde_json::json!({
-                    "pipeline_execution_id": scope.pipeline_execution_id.to_string(),
-                    "task_execution_id": scope.task_execution_id.map(|id| id.to_string()),
-                    "task_name": scope.task_name.clone()
-                });
-
-                context
-                    .insert("execution_scope_info", scope_info)
-                    .map_err(|e| TaskError::Unknown {
-                        task_id: self.id.clone(),
-                        message: format!("Failed to insert scope info: {}", e),
-                    })?;
-            } else {
-                return Err(TaskError::Unknown {
-                    task_id: self.id.clone(),
-                    message: "Execution scope not set".to_string(),
-                });
-            }
-
-            Ok(context)
-        }
-
-        fn id(&self) -> &str {
-            &self.id
-        }
-
-        fn dependencies(&self) -> &[String] {
-            &[]
-        }
-    }
-
-    let mut task_registry = TaskRegistry::new();
-    let inspector_task = ScopeInspectorTask {
-        id: "scope_inspector".to_string(),
-    };
-    task_registry.register(inspector_task).unwrap();
-    let task_registry = Arc::new(task_registry);
-
     // Create workflow
-    let workflow = Workflow::builder("scope_pipeline")
+    let workflow = Workflow::builder("scope_pipeline_test")
         .description("Test pipeline for execution scope")
-        .add_task(Arc::new(WorkflowTask::new("scope_inspector", vec![])))
+        .add_task(Arc::new(WorkflowTask::new("scope_inspector_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
 
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("scope_pipeline".to_string(), {
+    register_workflow_constructor("scope_pipeline_test".to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -399,21 +287,21 @@ async fn test_execution_scope_context_setup() {
         .insert("scope_test", Value::String("execution_scope".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("scope_pipeline", input_context)
+        .schedule_workflow_execution("scope_pipeline_test", input_context)
         .await
         .unwrap();
 
     // Process scheduling
     scheduler.process_active_pipelines().await.unwrap();
 
-    // Create and run executor
+    // Create and run executor using global registry
     let config = ExecutorConfig {
         max_concurrent_tasks: 1,
         poll_interval: Duration::from_millis(100),
         task_timeout: Duration::from_secs(5),
     };
 
-    let executor = ThreadTaskExecutor::new(database.clone(), task_registry, config);
+    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
 
     let executor_handle = tokio::spawn(async move { executor.run().await });
 
@@ -424,7 +312,7 @@ async fn test_execution_scope_context_setup() {
     let dal = cloacina::dal::DAL::new(database.pool());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector_task")
         .await
         .unwrap();
 
@@ -463,7 +351,7 @@ async fn test_execution_scope_context_setup() {
         if let Some(task_name) = scope_obj.get("task_name") {
             // task_name is an Option<String> in ExecutionScope, so it gets serialized as such
             if let Value::String(name) = task_name {
-                assert_eq!(name, "scope_inspector");
+                assert_eq!(name, "scope_inspector_task");
             } else {
                 panic!("Expected task_name to be a string, got: {:?}", task_name);
             }
