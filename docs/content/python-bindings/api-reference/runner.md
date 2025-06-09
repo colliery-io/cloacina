@@ -334,7 +334,7 @@ with cloaca.DefaultRunner("sqlite:///app.db") as runner:
 
 ## Configuration
 
-See [DefaultRunnerConfig](/python-bindings/api-reference/configuration/) for detailed configuration options.
+See [DefaultRunnerConfig]({{< ref "/python-bindings/api-reference/configuration/" >}}) for detailed configuration options.
 
 **Key Configuration Options:**
 - `max_concurrent_tasks`: Number of tasks that can run simultaneously
@@ -551,7 +551,7 @@ runner.shutdown()
 
 ## Related Classes
 
-- **[Context](/python-bindings/api-reference/context/)** - Data passed to execute()
-- **[DefaultRunnerConfig](/python-bindings/api-reference/configuration/)** - Configuration options
-- **[PipelineResult](/python-bindings/api-reference/pipeline-result/)** - Execution results
-- **[WorkflowBuilder](/python-bindings/api-reference/workflow-builder/)** - Build workflows to execute
+- **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed to execute()
+- **[DefaultRunnerConfig]({{< ref "/python-bindings/api-reference/configuration/" >}})** - Configuration options
+- **[PipelineResult]({{< ref "/python-bindings/api-reference/pipeline-result/" >}})** - Execution results
+- **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Build workflows to execute

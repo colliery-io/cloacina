@@ -295,12 +295,12 @@ def conditional_processing(context):
 
 Once you understand this basic example, explore:
 
-1. **[Task Dependencies Example](/python-bindings/examples/task-dependencies/)** - More complex dependency patterns
-2. **[Error Handling Example](/python-bindings/examples/error-handling/)** - Robust error handling strategies
-3. **[Data Pipeline Example](/python-bindings/examples/data-pipeline/)** - Real-world data processing
+1. **[Tutorial 02: Context Handling]({{< ref "/python-bindings/tutorials/02-context-handling/" >}})** - Advanced data flow between tasks
+2. **[Tutorial 03: Complex Workflows]({{< ref "/python-bindings/tutorials/03-complex-workflows/" >}})** - Dependencies and parallel processing
+3. **[Tutorial 04: Error Handling]({{< ref "/python-bindings/tutorials/04-error-handling/" >}})** - Robust error handling strategies
 
 ## Related Resources
 
-- [Tutorial: First Python Workflow](/python-bindings/tutorials/01-first-python-workflow/) - Step-by-step learning
-- [API Reference: Task Decorator](/python-bindings/api-reference/task/) - Complete task API
-- [API Reference: WorkflowBuilder](/python-bindings/api-reference/workflow-builder/) - Workflow construction API
+- [Tutorial: First Python Workflow]({{< ref "/python-bindings/tutorials/01-first-python-workflow/" >}}) - Step-by-step learning
+- [API Reference: Task Decorator]({{< ref "/python-bindings/api-reference/task/" >}}) - Complete task API
+- [API Reference: WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}}) - Workflow construction API

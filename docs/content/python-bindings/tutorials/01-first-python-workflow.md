@@ -399,13 +399,13 @@ Congratulations! You've created and executed your first Python workflow. In the 
 - Context serialization and type safety
 - Best practices for data flow
 
-{{< button href="/python-bindings/tutorials/02-context-handling/" >}}Continue to Tutorial 02{{< /button >}}
+{{< button relref="/python-bindings/tutorials/02-context-handling/" >}}Continue to Tutorial 02{{< /button >}}
 
 ## Related Resources
 
-- [Quick Start Guide](/python-bindings/quick-start/) - Simpler introduction
-- [API Reference](/python-bindings/api-reference/) - Complete API documentation
-- [Examples](/python-bindings/examples/) - More code examples
+- [Quick Start Guide]({{< ref "/python-bindings/quick-start/" >}}) - Simpler introduction
+- [API Reference]({{< ref "/python-bindings/api-reference/" >}}) - Complete API documentation
+- [Examples]({{< ref "/python-bindings/examples/" >}}) - More code examples
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial is based on the test patterns found in [`test_scenario_02_single_task_workflow_execution.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_02_single_task_workflow_execution.py) and [`test_scenario_08_multi_task_workflow_execution.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_08_multi_task_workflow_execution.py) from the Cloacina test suite.

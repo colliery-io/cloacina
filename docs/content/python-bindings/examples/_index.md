@@ -140,20 +140,17 @@ Production-ready examples covering common use cases:
 
 ## Learning Path
 
-### Beginner Examples
-1. [Basic Workflow](/python-bindings/examples/basic-workflow/) - Your first workflow
-2. [Task Dependencies](/python-bindings/examples/task-dependencies/) - Understanding dependencies
-3. [Error Handling](/python-bindings/examples/error-handling/) - Handle failures gracefully
+### Available Examples
+1. [Basic Workflow]({{< ref "/python-bindings/examples/basic-workflow/" >}}) - Your first workflow
 
-### Intermediate Examples
-1. [Data Pipeline](/python-bindings/examples/data-pipeline/) - ETL workflow patterns
-2. [API Integration](/python-bindings/examples/api-integration/) - External service calls
-3. [Conditional Logic](/python-bindings/examples/conditional-logic/) - Dynamic workflows
-
-### Advanced Examples
-1. [Multi-Tenancy](/python-bindings/examples/multi-tenancy/) - Isolated tenant workflows
-2. [Performance Optimization](/python-bindings/examples/performance/) - High-throughput patterns
-3. [Real-World Scenarios](/python-bindings/examples/real-world-scenarios/) - Production applications
+### Tutorial-Based Learning
+For comprehensive examples, follow the step-by-step tutorials:
+1. [Tutorial 01: First Python Workflow]({{< ref "/python-bindings/tutorials/01-first-python-workflow/" >}}) - Basic concepts
+2. [Tutorial 02: Context Handling]({{< ref "/python-bindings/tutorials/02-context-handling/" >}}) - Data flow
+3. [Tutorial 03: Complex Workflows]({{< ref "/python-bindings/tutorials/03-complex-workflows/" >}}) - Dependencies
+4. [Tutorial 04: Error Handling]({{< ref "/python-bindings/tutorials/04-error-handling/" >}}) - Resilience
+5. [Tutorial 05: Cron Scheduling]({{< ref "/python-bindings/tutorials/05-cron-scheduling/" >}}) - Automation
+6. [Tutorial 06: Multi-Tenancy]({{< ref "/python-bindings/tutorials/06-multi-tenancy/" >}}) - Production patterns
 
 ## Contributing Examples
 
@@ -167,7 +164,7 @@ We welcome contributions of new examples! Each example should:
 
 ## Related Resources
 
-- **[Tutorials](/python-bindings/tutorials/)** - Step-by-step learning guides
-- **[How-to Guides](/python-bindings/how-to-guides/)** - Problem-solving guides
-- **[API Reference](/python-bindings/api-reference/)** - Complete API documentation
+- **[Tutorials]({{< ref "/python-bindings/tutorials/" >}})** - Step-by-step learning guides
+- **[How-to Guides]({{< ref "/python-bindings/how-to-guides/" >}})** - Problem-solving guides
+- **[API Reference]({{< ref "/python-bindings/api-reference/" >}})** - Complete API documentation
 - **[GitHub Examples](https://github.com/dstorey/cloacina/tree/main/examples)** - Source code repository

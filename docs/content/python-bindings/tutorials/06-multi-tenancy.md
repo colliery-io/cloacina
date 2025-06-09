@@ -21,7 +21,7 @@ Welcome to the final tutorial in our Python Cloacina series! In this tutorial, y
 
 ## Prerequisites
 
-- Completion of [Tutorial 5](/python-bindings/tutorials/05-cron-scheduling/)
+- Completion of [Tutorial 5]({{< ref "/python-bindings/tutorials/05-cron-scheduling/" >}})
 - Access to PostgreSQL database
 - Understanding of database schemas
 - Basic knowledge of SaaS architecture concepts
@@ -1206,21 +1206,20 @@ Congratulations! You've completed the comprehensive Cloacina Python tutorial ser
 
 With this foundation, you're ready to:
 
-{{< button href="/python-bindings/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
-{{< button href="/python-bindings/api-reference/" >}}Browse API Reference{{< /button >}}
-{{< button href="/python-bindings/examples/" >}}See More Examples{{< /button >}}
+{{< button relref="/python-bindings/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
+{{< button relref="/python-bindings/api-reference/" >}}Browse API Reference{{< /button >}}
+{{< button relref="/python-bindings/examples/" >}}See More Examples{{< /button >}}
 
 ### Recommended Learning Path
 
-1. **[How-to: Backend Selection](/python-bindings/how-to-guides/backend-selection/)** - Choose between SQLite and PostgreSQL
-2. **[How-to: Performance Optimization](/python-bindings/how-to-guides/performance-optimization/)** - Scale your workflows
-3. **[Examples: Real-world Scenarios](/python-bindings/examples/real-world-scenarios/)** - Production patterns
+1. **[How-to: Backend Selection]({{< ref "/python-bindings/how-to-guides/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
+2. **[How-to: Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}})** - Scale your workflows
 
 ## Related Resources
 
-- [Explanation: Multi-tenancy](/explanation/multi-tenancy/) - Deep dive into architecture
-- [How-to: Multi-tenant Setup](/how-to-guides/multi-tenant-setup/) - Detailed setup guide
-- [How-to: Multi-tenant Recovery](/how-to-guides/multi-tenant-recovery/) - Recovery strategies
+- [Explanation: Multi-tenancy]({{< ref "/explanation/multi-tenancy/" >}}) - Deep dive into architecture
+- [How-to: Multi-tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Detailed setup guide
+- [How-to: Multi-tenant Recovery]({{< ref "/how-to-guides/multi-tenant-recovery/" >}}) - Recovery strategies
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from the [`examples/multi_tenant/`](https://github.com/dstorey/cloacina/tree/main/examples/multi_tenant) and [`examples/per_tenant_credentials/`](https://github.com/dstorey/cloacina/tree/main/examples/per_tenant_credentials) directories in the Cloacina repository.

@@ -91,9 +91,9 @@ Ready to build your first workflow?
 
 This documentation is organized following the [Diátaxis framework](https://diataxis.fr/):
 
-- **[Quick Start](/python-bindings/quick-start/)**: Run your first workflow in 5 minutes
-- **[Tutorials](/python-bindings/tutorials/)**: Step-by-step learning guides
-- **[API Reference](/python-bindings/api-reference/)**: Complete technical reference
+- **[Quick Start]({{< ref "/python-bindings/quick-start/" >}})**: Run your first workflow in 5 minutes
+- **[Tutorials]({{< ref "/python-bindings/tutorials/" >}})**: Step-by-step learning guides
+- **[API Reference]({{< ref "/python-bindings/api-reference/" >}})**: Complete technical reference
 
 ## Migration from Rust
 
@@ -105,13 +105,13 @@ Python and Rust implementations can coexist:
 
 ## Community and Support
 
-- **Rust documentation**: [Core concepts](/tutorials/) apply to both implementations
+- **Rust documentation**: [Core concepts]({{< ref "/tutorials/" >}}) apply to both implementations
 - **Python examples**: Working code in the [examples/](https://github.com/colliery-io/cloacina/tree/main/examples) directory
 
 ---
 
 {{< hint type="tip" title="Start Here" >}}
-New to Cloacina? Begin with the **[Quick Start Guide](/python-bindings/quick-start/)** to run your first workflow in minutes.
+New to Cloacina? Begin with the **[Quick Start Guide]({{< ref "/python-bindings/quick-start/" >}})** to run your first workflow in minutes.
 
 Experienced with the Rust version? The same concepts apply - just with Python syntax instead of Rust macros.
 {{< /hint >}}

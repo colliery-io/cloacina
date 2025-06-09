@@ -41,6 +41,6 @@ Each guide follows a consistent structure:
 
 ## Related Resources
 
-- **[Tutorials](/python-bindings/tutorials/)** - Learning-oriented step-by-step lessons
-- **[API Reference](/python-bindings/api-reference/)** - Complete API documentation
-- **[Examples](/python-bindings/examples/)** - Sample code and patterns
+- **[Tutorials]({{< ref "/python-bindings/tutorials/" >}})** - Learning-oriented step-by-step lessons
+- **[API Reference]({{< ref "/python-bindings/api-reference/" >}})** - Complete API documentation
+- **[Examples]({{< ref "/python-bindings/examples/" >}})** - Sample code and patterns

@@ -1,1 +1,8 @@
 /* You can add custom styles here. */
+
+.gdoc-header__logo img {
+    height: 200px;
+    width: auto;
+    object-fit: none;  /* Prevents any stretching */
+    object-position: center;  /* Centers the image */
+}

@@ -476,6 +476,6 @@ def robust_task(context):
 
 ## Related Classes
 
-- **[DefaultRunner](/python-bindings/api-reference/runner/)** - Executes workflows with Context
-- **[WorkflowBuilder](/python-bindings/api-reference/workflow-builder/)** - Builds workflows that use Context
-- **[Task Decorator](/python-bindings/api-reference/task/)** - Defines tasks that receive Context
+- **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Executes workflows with Context
+- **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Builds workflows that use Context
+- **[Task Decorator]({{< ref "/python-bindings/api-reference/task/" >}})** - Defines tasks that receive Context

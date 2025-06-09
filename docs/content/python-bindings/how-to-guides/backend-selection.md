@@ -326,7 +326,7 @@ except Exception as e:
 
 ## See Also
 
-- [Quick Start Guide](/python-bindings/quick-start/) - Getting started with either backend
-- [Multi-Tenancy Tutorial](/python-bindings/tutorials/06-multi-tenancy/) - PostgreSQL multi-tenant setup
-- [Performance Optimization](/python-bindings/how-to-guides/performance-optimization/) - Optimize your chosen backend
-- [Configuration Reference](/python-bindings/api-reference/configuration/) - Complete configuration options
+- [Quick Start Guide]({{< ref "/python-bindings/quick-start/" >}}) - Getting started with either backend
+- [Multi-Tenancy Tutorial]({{< ref "/python-bindings/tutorials/06-multi-tenancy/" >}}) - PostgreSQL multi-tenant setup
+- [Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}}) - Optimize your chosen backend
+- [Configuration Reference]({{< ref "/python-bindings/api-reference/configuration/" >}}) - Complete configuration options

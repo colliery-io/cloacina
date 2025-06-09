@@ -21,7 +21,7 @@ Welcome to the multi-tenancy tutorial! In this tutorial, you'll learn how to dep
 
 ## Prerequisites
 
-- Completion of [Tutorial 5](/tutorials/05-cron-scheduling/)
+- Completion of [Tutorial 5]({{< ref "/tutorials/05-cron-scheduling/" >}})
 - Access to PostgreSQL database
 - Understanding of database schemas
 - Basic knowledge of SaaS architecture concepts
@@ -642,13 +642,12 @@ Congratulations! You now understand:
 
 With multi-tenancy mastered, you're ready to:
 
-1. **[API Reference](/reference/)** - Explore advanced multi-tenant APIs
-2. **[Examples](/examples/)** - See production multi-tenant patterns
-3. **[How-to Guides](/how-to-guides/)** - Deploy multi-tenant applications
+1. **[API Reference]({{< ref "/reference/" >}})** - Explore advanced multi-tenant APIs
+2. **[How-to Guides]({{< ref "/how-to-guides/" >}})** - Deploy multi-tenant applications
 
 ## Related Resources
 
-- [Explanation: Multi-Tenancy Architecture](/explanation/multi-tenancy/) - Deep dive into design
-- [How-to: Multi-Tenant Setup](/how-to-guides/multi-tenant-setup/) - Production deployment
-- [Database Admin API](/reference/database-admin/) - Complete API reference
-- [Python Multi-Tenancy Tutorial](/python-bindings/tutorials/05-multi-tenancy/) - Python equivalent
+- [Explanation: Multi-Tenancy Architecture]({{< ref "/explanation/multi-tenancy/" >}}) - Deep dive into design
+- [How-to: Multi-Tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Production deployment
+- [Database Admin API]({{< ref "/reference/database-admin/" >}}) - Complete API reference
+- [Python Multi-Tenancy Tutorial]({{< ref "/python-bindings/tutorials/06-multi-tenancy/" >}}) - Python equivalent

@@ -325,6 +325,6 @@ validate_config(config)
 
 ## See Also
 
-- **[DefaultRunner](/python-bindings/api-reference/runner/)** - Execute workflows with configuration
-- **[DatabaseAdmin](/python-bindings/api-reference/database-admin/)** - Multi-tenant configuration
-- **[Task Decorator](/python-bindings/api-reference/task/)** - Task-level configuration
+- **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows with configuration
+- **[DatabaseAdmin]({{< ref "/python-bindings/api-reference/database-admin/" >}})** - Multi-tenant configuration
+- **[Task Decorator]({{< ref "/python-bindings/api-reference/task/" >}})** - Task-level configuration

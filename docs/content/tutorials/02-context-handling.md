@@ -7,11 +7,11 @@ review_date: "2024-03-19"
 ---
 
 
-Welcome to the second tutorial in our Cloacina series! In this tutorial, you'll learn how to use Context for data flow between tasks in your workflows. Context is the foundation of data passing in Cloacina, allowing tasks to share information and build complex data processing pipelines. We'll build on the concepts from [Tutorial 1](/tutorials/01-first-workflow/) and show you how to connect multiple tasks through shared context.
+Welcome to the second tutorial in our Cloacina series! In this tutorial, you'll learn how to use Context for data flow between tasks in your workflows. Context is the foundation of data passing in Cloacina, allowing tasks to share information and build complex data processing pipelines. We'll build on the concepts from [Tutorial 1]({{< ref "/tutorials/01-first-workflow/" >}}) and show you how to connect multiple tasks through shared context.
 
 ## Prerequisites
 
-- Completion of [Tutorial 1](/tutorials/01-first-workflow/)
+- Completion of [Tutorial 1]({{< ref "/tutorials/01-first-workflow/" >}})
 - Basic understanding of Rust
 - Rust toolchain installed (rustc, cargo)
 - A code editor of your choice
@@ -403,10 +403,10 @@ Congratulations! You've created a multi-task workflow with dependencies and data
 
 ## Related Resources
 
-- [API Documentation](/api)
-- [Task Reference](/reference/tasks)
-- [Context Reference](/reference/context)
-- [Workflow Reference](/reference/workflows)
+- [API Documentation]({{< ref "/reference/api/" >}})
+- [Task Reference]({{< ref "/reference/api/" >}})
+- [Context Reference]({{< ref "/reference/api/" >}})
+- [Workflow Reference]({{< ref "/reference/api/" >}})
 
 ## Download the Example
 

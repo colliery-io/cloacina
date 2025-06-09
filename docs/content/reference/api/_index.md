@@ -11,8 +11,8 @@ Welcome to the Cloacina API documentation. This section contains the complete AP
 
 ## Quick Links
 
-- [Core Library](/api/cloacina/)
-- [Macros](/api/cloacina_macros/)
+- [Core Library](/api/cloacina/index.html)
+- [Macros](/api/cloacina_macros/index.html)
 
 ## Using the API Documentation
 

@@ -14,7 +14,7 @@ This tutorial will guide you through setting up automated workflow execution usi
 
 Before starting this tutorial, you should:
 
-- Completion of [Tutorial 4](/tutorials/04-error-handling/)
+- Completion of [Tutorial 4]({{< ref "/tutorials/04-error-handling/" >}})
 - Be familiar with creating workflows and tasks using Cloacina's macro system
 - Understand basic cron expression syntax
 - Have Rust toolchain installed (rustc, cargo)
@@ -502,5 +502,5 @@ Cron scheduling in Cloacina provides a robust foundation for automating your wor
 
 - Explore advanced cron expressions for complex scheduling needs
 - Integrate with monitoring systems for production alerting
-- Learn about multi-tenant cron scheduling in the [Multi-Tenant Setup Guide](../how-to-guides/multi-tenant-setup.md)
-- Study the [Error Handling Tutorial](04-error-handling.md) for robust scheduled workflows
+- Learn about multi-tenant cron scheduling in the [Multi-Tenant Setup Guide]({{< ref "/how-to-guides/multi-tenant-setup/" >}})
+- Study the [Error Handling Tutorial]({{< ref "/tutorials/04-error-handling/" >}}) for robust scheduled workflows

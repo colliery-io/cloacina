@@ -450,6 +450,6 @@ class TestDataProcessingWorkflow:
 
 ## See Also
 
-- **[Error Handling Tutorial](/python-bindings/tutorials/04-error-handling/)** - Learn about error handling patterns
-- **[API Reference](/python-bindings/api-reference/)** - Complete API documentation
-- **[Performance Optimization](/python-bindings/how-to-guides/performance-optimization/)** - Optimize workflow performance
+- **[Error Handling Tutorial]({{< ref "/python-bindings/tutorials/04-error-handling/" >}})** - Learn about error handling patterns
+- **[API Reference]({{< ref "/python-bindings/api-reference/" >}})** - Complete API documentation
+- **[Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}})** - Optimize workflow performance

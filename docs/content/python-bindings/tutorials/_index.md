@@ -71,9 +71,9 @@ Each tutorial follows this structure:
 
 If you encounter issues:
 
-- Check the [API Reference](/python-bindings/api-reference/) for detailed method documentation
-- Review the [Examples](/python-bindings/examples/) for more code samples
-- Consult the [How-to Guides](/python-bindings/how-to-guides/) for specific solutions
+- Check the [API Reference]({{< ref "/python-bindings/api-reference/" >}}) for detailed method documentation
+- Review the [Examples]({{< ref "/python-bindings/examples/" >}}) for more code samples
+- Consult the [How-to Guides]({{< ref "/python-bindings/how-to-guides/" >}}) for specific solutions
 
 ## Sample Code Repository
 

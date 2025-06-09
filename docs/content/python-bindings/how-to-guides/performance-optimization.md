@@ -564,7 +564,7 @@ def workflow_health_check(runner):
 
 ## See Also
 
-- [Backend Selection](/python-bindings/how-to-guides/backend-selection/) - Choose the right database backend
-- [Testing Workflows](/python-bindings/how-to-guides/testing-workflows/) - Performance testing strategies
-- [Multi-Tenancy Tutorial](/python-bindings/tutorials/06-multi-tenancy/) - Multi-tenant performance considerations
-- [API Reference](/python-bindings/api-reference/) - Configuration options for performance
+- [Backend Selection]({{< ref "/python-bindings/how-to-guides/backend-selection/" >}}) - Choose the right database backend
+- [Testing Workflows]({{< ref "/python-bindings/how-to-guides/testing-workflows/" >}}) - Performance testing strategies
+- [Multi-Tenancy Tutorial]({{< ref "/python-bindings/tutorials/06-multi-tenancy/" >}}) - Multi-tenant performance considerations
+- [API Reference]({{< ref "/python-bindings/api-reference/" >}}) - Configuration options for performance

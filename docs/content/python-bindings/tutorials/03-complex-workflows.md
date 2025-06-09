@@ -21,7 +21,7 @@ Welcome to the fourth tutorial in our Python Cloacina series! In this tutorial, 
 
 ## Prerequisites
 
-- Completion of [Tutorial 2](/python-bindings/tutorials/02-context-handling/)
+- Completion of [Tutorial 2]({{< ref "/python-bindings/tutorials/02-context-handling/" >}})
 - Understanding of dependency management
 - Familiarity with parallel processing concepts
 
@@ -1019,13 +1019,12 @@ Excellent work! You now understand how to build sophisticated workflows with com
 - Tenant-specific configuration management
 - Scaling workflows across multiple tenants
 
-{{< button href="/python-bindings/tutorials/05-multi-tenancy/" >}}Continue to Tutorial 05{{< /button >}}
+{{< button relref="/python-bindings/tutorials/04-error-handling/" >}}Continue to Tutorial 04{{< /button >}}
 
 ## Related Resources
 
-- [Examples: Parallel Processing](/python-bindings/examples/parallel-processing/) - More parallel workflow patterns
-- [How-to: Performance Optimization](/python-bindings/how-to-guides/performance-optimization/) - Workflow optimization techniques
-- [API Reference: WorkflowBuilder](/python-bindings/api-reference/workflow-builder/) - Advanced workflow configuration
+- [How-to: Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}}) - Workflow optimization techniques
+- [API Reference: WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}}) - Advanced workflow configuration
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from [`test_scenario_13_complex_dependency_chains.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_13_complex_dependency_chains.py) and parallel processing concepts from the Cloacina test suite.

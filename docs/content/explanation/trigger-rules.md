@@ -59,7 +59,7 @@ Rules can be combined using logical operators:
 
 {{< api-link path="cloacina::scheduler::TriggerRule" type="enum" display="TriggerRule" >}}
 
-For practical examples of combining different types of rules, see our [Error Handling Tutorial](/tutorials/04-error-handling/) which demonstrates:
+For practical examples of combining different types of rules, see our [Error Handling Tutorial]({{< ref "/tutorials/04-error-handling/" >}}) which demonstrates:
 - Combining task status rules for fallback behavior
 - Using context values for conditional execution
 - Complex rule composition patterns

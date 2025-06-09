@@ -436,6 +436,6 @@ except cloaca.CloacaException as e:
 
 ## See Also
 
-- **[Task Decorator](/python-bindings/api-reference/task/)** - Task-level error handling
-- **[DefaultRunner](/python-bindings/api-reference/runner/)** - Workflow execution and errors
-- **[Configuration](/python-bindings/api-reference/configuration/)** - Configuration validation errors
+- **[Task Decorator]({{< ref "/python-bindings/api-reference/task/" >}})** - Task-level error handling
+- **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Workflow execution and errors
+- **[Configuration]({{< ref "/python-bindings/api-reference/configuration/" >}})** - Configuration validation errors

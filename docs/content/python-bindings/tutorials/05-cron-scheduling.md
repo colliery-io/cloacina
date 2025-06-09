@@ -21,7 +21,7 @@ Welcome to the cron scheduling tutorial! In this tutorial, you'll learn how to c
 
 ## Prerequisites
 
-- Completion of [Tutorial 4](/python-bindings/tutorials/04-error-handling/)
+- Completion of [Tutorial 4]({{< ref "/python-bindings/tutorials/04-error-handling/" >}})
 - Understanding of cron expression syntax
 - Basic knowledge of timezone handling
 - Familiarity with Python datetime operations
@@ -810,12 +810,12 @@ Congratulations! You now understand:
 
 With cron scheduling mastered, you're ready to:
 
-1. **[API Reference](/python-bindings/api-reference/)** - Explore advanced scheduling options
-2. **[Examples](/python-bindings/examples/)** - See real-world scheduling patterns
-3. **[Performance Guide](/python-bindings/how-to-guides/)** - Optimize scheduled workflows
+1. **[API Reference]({{< ref "/python-bindings/api-reference/" >}})** - Explore advanced scheduling options
+2. **[Examples]({{< ref "/python-bindings/examples/" >}})** - See real-world scheduling patterns
+3. **[Performance Guide]({{< ref "/python-bindings/how-to-guides/" >}})** - Optimize scheduled workflows
 
 ## Related Resources
 
-- [Explanation: Cron Scheduling Architecture](/explanation/cron-scheduling/) - Deep dive into scheduling
-- [How-to: Production Scheduling](/how-to-guides/production-scheduling/) - Deployment best practices
-- [Rust Tutorial: Cron Scheduling](/tutorials/05-cron-scheduling/) - Rust equivalent
+- [Explanation: Cron Scheduling Architecture]({{< ref "/explanation/cron-scheduling/" >}}) - Deep dive into scheduling
+- [How-to: Multi-Tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Deployment best practices
+- [Rust Tutorial: Cron Scheduling]({{< ref "/tutorials/05-cron-scheduling/" >}}) - Rust equivalent

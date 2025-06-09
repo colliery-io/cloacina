@@ -89,7 +89,7 @@ def safe_task(context):
 
 ## Context Usage
 
-Tasks receive a [Context](/python-bindings/api-reference/context/) object for data flow:
+Tasks receive a [Context]({{< ref "/python-bindings/api-reference/context/" >}}) object for data flow:
 
 ```python
 @cloaca.task(id="context_example")
@@ -158,6 +158,6 @@ def validation_task(context):
 
 ## See Also
 
-- **[Context](/python-bindings/api-reference/context/)** - Data passed between tasks
-- **[WorkflowBuilder](/python-bindings/api-reference/workflow-builder/)** - Combine tasks into workflows
-- **[DefaultRunner](/python-bindings/api-reference/runner/)** - Execute workflows containing tasks
+- **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed between tasks
+- **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Combine tasks into workflows
+- **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows containing tasks
