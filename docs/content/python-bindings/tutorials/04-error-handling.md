@@ -1,7 +1,7 @@
 ---
-title: "03 - Error Handling and Recovery"
+title: "04 - Error Handling and Recovery"
 description: "Build resilient workflows with comprehensive error handling strategies"
-weight: 13
+weight: 14
 reviewer: "automation"
 review_date: "2025-01-07"
 ---
@@ -21,7 +21,7 @@ Welcome to the third tutorial in our Python Cloacina series! In this tutorial, y
 
 ## Prerequisites
 
-- Completion of [Tutorial 2](/python-bindings/tutorials/02-context-handling/)
+- Completion of [Tutorial 3]({{< ref "/python-bindings/tutorials/03-complex-workflows/" >}})
 - Understanding of Python exception handling
 - Basic knowledge of error handling patterns
 
@@ -849,13 +849,12 @@ Excellent! You now know how to build resilient workflows with comprehensive erro
 - Performance optimization techniques
 - Resource management strategies
 
-{{< button href="/python-bindings/tutorials/04-parallel-processing/" >}}Continue to Tutorial 04{{< /button >}}
+{{< button relref="/python-bindings/tutorials/05-cron-scheduling/" >}}Continue to Tutorial 05{{< /button >}}
 
 ## Related Resources
 
-- [API Reference: Error Handling](/python-bindings/api-reference/exceptions/) - Exception types and handling
-- [How-to: Testing Workflows](/python-bindings/how-to-guides/testing-workflows/) - Testing error scenarios
-- [Examples: Error Recovery](/python-bindings/examples/error-recovery/) - Advanced error patterns
+- [API Reference: Error Handling]({{< ref "/python-bindings/api-reference/exceptions/" >}}) - Exception types and handling
+- [How-to: Testing Workflows]({{< ref "/python-bindings/how-to-guides/testing-workflows/" >}}) - Testing error scenarios
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from [`test_scenario_11_retry_mechanisms.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_11_retry_mechanisms.py) and [`test_scenario_17_advanced_error_handling.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_17_advanced_error_handling.py) in the Cloacina test suite.

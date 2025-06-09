@@ -1,17 +1,17 @@
 ---
-title: "03 - Parallel Processing"
-description: "Using parallel processing in Cloacina"
+title: "03 - Complex Workflows"
+description: "Build sophisticated workflows with advanced dependency patterns"
 weight: 13
 reviewer: "dstorey"
 review_date: "2024-03-19"
 ---
 
 
-Welcome to the third tutorial in our Cloacina series! In this tutorial, you'll learn how to create parallel processing workflows and implement task parallelization patterns. We'll build on the concepts from [Tutorial 2](/tutorials/02-workflows/) and show you how to handle expensive operations efficiently by running them in parallel.
+Welcome to the third tutorial in our Cloacina series! In this tutorial, you'll learn how to create sophisticated workflows with complex dependencies, parallel processing, and advanced patterns. We'll build on the concepts from [Tutorial 2]({{< ref "/tutorials/02-context-handling/" >}}) and show you how to handle expensive operations efficiently and create complex data processing pipelines.
 
 ## Prerequisites
 
-- Completion of [Tutorial 2](/tutorials/02-workflows/)
+- Completion of [Tutorial 2]({{< ref "/tutorials/02-context-handling/" >}})
 - Basic understanding of Rust
 - Rust toolchain installed (rustc, cargo)
 - A code editor of your choice
@@ -427,7 +427,7 @@ Congratulations! You've created a parallel processing workflow. In the next tuto
 
 ## Related Resources
 
-- [API Documentation](/api)
-- [Task Reference](/reference/tasks)
-- [Context Reference](/reference/context)
-- [Workflow Reference](/reference/workflows)
+- [API Documentation]({{< ref "/reference/api/" >}})
+- [Task Reference]({{< ref "/reference/api/" >}})
+- [Context Reference]({{< ref "/reference/api/" >}})
+- [Workflow Reference]({{< ref "/reference/api/" >}})

@@ -24,7 +24,7 @@ Whether you're building data processing applications, background job systems, or
 
 Cloacina provides libraries for multiple programming languages:
 
-- **[Cloacina](/tutorials/)**: Native Rust library for maximum performance and type safety
-- **[Cloaca](/python-bindings/)**: Python bindings providing the same powerful features with a Pythonic interface
+- **[Cloacina]({{< ref "/tutorials/" >}})**: Native Rust library for maximum performance and type safety
+- **[Cloaca]({{< ref "/python-bindings/" >}})**: Python bindings providing the same powerful features with a Pythonic interface
 
 Both libraries share the same core engine and can even share the same database, allowing you to use the best tool for each part of your system.

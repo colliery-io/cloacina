@@ -1,7 +1,7 @@
 ---
-title: "05 - Multi-Tenancy"
+title: "06 - Multi-Tenancy"
 description: "Deploy isolated workflows for multiple tenants using PostgreSQL schemas"
-weight: 15
+weight: 16
 reviewer: "automation"
 review_date: "2025-01-07"
 ---
@@ -21,7 +21,7 @@ Welcome to the final tutorial in our Python Cloacina series! In this tutorial, y
 
 ## Prerequisites
 
-- Completion of [Tutorial 4](/python-bindings/tutorials/04-complex-workflows/)
+- Completion of [Tutorial 5]({{< ref "/python-bindings/tutorials/05-cron-scheduling/" >}})
 - Access to PostgreSQL database
 - Understanding of database schemas
 - Basic knowledge of SaaS architecture concepts
@@ -579,6 +579,181 @@ if __name__ == "__main__":
     demonstrate_configurable_tenants()
 ```
 
+## Database Admin API
+
+For production SaaS applications, Cloacina provides a Database Admin API that handles tenant provisioning with dedicated database credentials and proper security isolation.
+
+### Tenant Provisioning
+
+The admin API creates tenants with their own database users and schemas:
+
+```python
+import cloaca
+
+def provision_tenant_with_admin():
+    """Demonstrate tenant provisioning using the admin API."""
+
+    # Create database admin with administrative privileges
+    admin_url = "postgresql://admin:admin_password@localhost:5432/myapp"
+    admin = cloaca.DatabaseAdmin(admin_url)
+
+    # Configure new tenant
+    tenant_config = cloaca.TenantConfig(
+        schema_name="tenant_acme_corp",
+        username="acme_corp_user",
+        password=""  # Auto-generate secure password
+    )
+
+    try:
+        # Create tenant with dedicated credentials
+        credentials = admin.create_tenant(tenant_config)
+
+        print(f"✓ Tenant provisioned successfully!")
+        print(f"  Schema: {credentials.schema_name}")
+        print(f"  Username: {credentials.username}")
+        print(f"  Password: {credentials.password}")
+        print(f"  Connection: {credentials.connection_string}")
+
+        # Create runner with tenant-specific credentials
+        tenant_runner = cloaca.DefaultRunner(credentials.connection_string)
+
+        return {
+            "credentials": credentials,
+            "runner": tenant_runner
+        }
+
+    except Exception as e:
+        print(f"✗ Failed to provision tenant: {e}")
+        return None
+
+# Example usage
+if __name__ == "__main__":
+    result = provision_tenant_with_admin()
+    if result:
+        print("Tenant is ready for workflow execution!")
+```
+
+### SaaS Integration Pattern
+
+```python
+import cloaca
+from typing import Dict, Optional
+
+class SaaSApplicationManager:
+    """Production-ready tenant management for SaaS applications."""
+
+    def __init__(self, admin_database_url: str):
+        self.admin = cloaca.DatabaseAdmin(admin_database_url)
+        self.tenant_runners: Dict[str, cloaca.DefaultRunner] = {}
+        self.tenant_credentials: Dict[str, cloaca.TenantCredentials] = {}
+
+    def onboard_customer(self, customer_id: str, customer_name: str) -> Dict[str, str]:
+        """Complete customer onboarding with dedicated tenant."""
+        print(f"Onboarding customer: {customer_name} ({customer_id})")
+
+        # Create tenant configuration
+        config = cloaca.TenantConfig(
+            schema_name=f"tenant_{customer_id}",
+            username=f"{customer_id}_user",
+            password=""  # Auto-generate secure password
+        )
+
+        try:
+            # Provision tenant with admin API
+            credentials = self.admin.create_tenant(config)
+            self.tenant_credentials[customer_id] = credentials
+
+            # Create dedicated runner for this customer
+            runner = cloaca.DefaultRunner(credentials.connection_string)
+            self.tenant_runners[customer_id] = runner
+
+            print(f"✓ Customer {customer_name} onboarded successfully")
+            print(f"  Dedicated schema: {credentials.schema_name}")
+            print(f"  Database isolation: ✓")
+
+            return {
+                "customer_id": customer_id,
+                "status": "active",
+                "schema": credentials.schema_name,
+                "database_user": credentials.username
+            }
+
+        except Exception as e:
+            print(f"✗ Failed to onboard customer {customer_name}: {e}")
+            return {
+                "customer_id": customer_id,
+                "status": "failed",
+                "error": str(e)
+            }
+
+    def execute_for_customer(self, customer_id: str, workflow_name: str, context: cloaca.Context):
+        """Execute workflow for specific customer with their isolated environment."""
+        runner = self.tenant_runners.get(customer_id)
+        if not runner:
+            raise ValueError(f"Customer {customer_id} not found or not onboarded")
+
+        # Add customer context
+        context.set("customer_id", customer_id)
+        context.set("tenant_schema", self.tenant_credentials[customer_id].schema_name)
+
+        return runner.execute(workflow_name, context)
+
+    def get_customer_runner(self, customer_id: str) -> Optional[cloaca.DefaultRunner]:
+        """Get the dedicated runner for a customer."""
+        return self.tenant_runners.get(customer_id)
+
+# Example usage
+def demonstrate_saas_pattern():
+    admin_url = "postgresql://admin:admin@localhost:5432/saas_app"
+    app_manager = SaaSApplicationManager(admin_url)
+
+    # Onboard multiple customers
+    customers = [
+        ("acme_corp", "Acme Corporation"),
+        ("globex_inc", "Globex Industries"),
+        ("initech", "Initech Solutions")
+    ]
+
+    for customer_id, customer_name in customers:
+        result = app_manager.onboard_customer(customer_id, customer_name)
+        print(f"Onboarding result: {result}")
+
+    print("\n🎉 All customers onboarded with dedicated database isolation!")
+
+if __name__ == "__main__":
+    demonstrate_saas_pattern()
+```
+
+### Security Benefits
+
+The Database Admin API provides enhanced security:
+
+{{< tabs "admin-security" >}}
+{{< tab "User Isolation" >}}
+**Each tenant gets a dedicated database user:**
+- Cannot access other tenants' data
+- Cannot modify other tenants' schemas
+- Cannot perform administrative operations
+- PostgreSQL enforces access controls
+{{< /tab >}}
+
+{{< tab "Password Security" >}}
+**Secure password generation:**
+- 32-character random passwords
+- Alphanumeric characters only (URL-safe)
+- Unique per tenant
+- Not stored in application code
+{{< /tab >}}
+
+{{< tab "Audit Trail" >}}
+**Database-level auditing:**
+- PostgreSQL logs show which tenant user performed operations
+- Connection tracking per tenant
+- Schema-level operation logging
+- No shared credentials
+{{< /tab >}}
+{{< /tabs >}}
+
 ## Security and Validation
 
 ### Schema Name Validation
@@ -1031,21 +1206,20 @@ Congratulations! You've completed the comprehensive Cloacina Python tutorial ser
 
 With this foundation, you're ready to:
 
-{{< button href="/python-bindings/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
-{{< button href="/python-bindings/api-reference/" >}}Browse API Reference{{< /button >}}
-{{< button href="/python-bindings/examples/" >}}See More Examples{{< /button >}}
+{{< button relref="/python-bindings/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
+{{< button relref="/python-bindings/api-reference/" >}}Browse API Reference{{< /button >}}
+{{< button relref="/python-bindings/examples/" >}}See More Examples{{< /button >}}
 
 ### Recommended Learning Path
 
-1. **[How-to: Backend Selection](/python-bindings/how-to-guides/backend-selection/)** - Choose between SQLite and PostgreSQL
-2. **[How-to: Performance Optimization](/python-bindings/how-to-guides/performance-optimization/)** - Scale your workflows
-3. **[Examples: Real-world Scenarios](/python-bindings/examples/real-world-scenarios/)** - Production patterns
+1. **[How-to: Backend Selection]({{< ref "/python-bindings/how-to-guides/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
+2. **[How-to: Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}})** - Scale your workflows
 
 ## Related Resources
 
-- [Explanation: Multi-tenancy](/explanation/multi-tenancy/) - Deep dive into architecture
-- [How-to: Multi-tenant Setup](/how-to-guides/multi-tenant-setup/) - Detailed setup guide
-- [How-to: Multi-tenant Recovery](/how-to-guides/multi-tenant-recovery/) - Recovery strategies
+- [Explanation: Multi-tenancy]({{< ref "/explanation/multi-tenancy/" >}}) - Deep dive into architecture
+- [How-to: Multi-tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Detailed setup guide
+- [How-to: Multi-tenant Recovery]({{< ref "/how-to-guides/multi-tenant-recovery/" >}}) - Recovery strategies
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from the [`examples/multi_tenant/`](https://github.com/dstorey/cloacina/tree/main/examples/multi_tenant) and [`examples/per_tenant_credentials/`](https://github.com/dstorey/cloacina/tree/main/examples/per_tenant_credentials) directories in the Cloacina repository.

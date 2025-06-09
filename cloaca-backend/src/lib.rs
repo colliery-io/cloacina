@@ -16,11 +16,15 @@
 
 use pyo3::prelude::*;
 
+#[cfg(feature = "postgres")]
+mod admin;
 mod context;
 mod runner;
 mod task;
 mod workflow;
 
+#[cfg(feature = "postgres")]
+use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 use context::{PyContext, PyDefaultRunnerConfig};
 use runner::{PyDefaultRunner, PyPipelineResult};
 use task::task as task_decorator;
@@ -103,6 +107,14 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;
     m.add_class::<PyPipelineResult>()?;
+
+    // Admin classes (PostgreSQL only)
+    #[cfg(feature = "postgres")]
+    {
+        m.add_class::<PyDatabaseAdmin>()?;
+        m.add_class::<PyTenantConfig>()?;
+        m.add_class::<PyTenantCredentials>()?;
+    }
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "postgres")?;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cloacina Python Tutorial 04: Complex Workflows
+Cloacina Python Tutorial 03: Complex Workflows
 
 This example demonstrates sophisticated workflows with advanced dependency
 patterns including diamond patterns, fan-out/fan-in architectures,
@@ -15,7 +15,7 @@ Learning objectives:
 - Optimize workflow performance through smart dependency design
 
 Usage:
-    python python_tutorial_04_complex_workflows.py
+    python python_tutorial_03_complex_workflows.py
 
 Prerequisites:
     pip install cloaca[sqlite]

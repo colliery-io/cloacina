@@ -49,6 +49,7 @@ tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-test = { version = "0.2" }
 url = { version = "2.5" }
+urlencoding = { version = "2.1" }
 uuid = { version = "1.0", features = ["serde", "v4"] }
 
 [dev-dependencies]

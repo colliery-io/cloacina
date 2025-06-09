@@ -153,9 +153,9 @@ Workflows are expressive and can:
 
 ## Next Steps
 
-- Check out our [Tutorials](/tutorials/) for more complex examples
-- Read the [How-to Guides](/how-to-guides/) for specific use cases
-- Explore the [Reference](/reference/) for detailed API documentation
+- Check out our [Tutorials]({{< ref "/tutorials/" >}}) for more complex examples
+- Read the [How-to Guides]({{< ref "/how-to-guides/" >}}) for specific use cases
+- Explore the [Reference]({{< ref "/reference/" >}}) for detailed API documentation
 
 ## Need Help?
 

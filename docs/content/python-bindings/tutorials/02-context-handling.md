@@ -20,7 +20,7 @@ Welcome to the second tutorial in our Python Cloacina series! In this tutorial, 
 
 ## Prerequisites
 
-- Completion of [Tutorial 1](/python-bindings/tutorials/01-first-python-workflow/)
+- Completion of [Tutorial 1]({{< ref "/python-bindings/tutorials/01-first-python-workflow/" >}})
 - Basic understanding of Python data types
 - Familiarity with JSON serialization
 
@@ -643,13 +643,13 @@ Excellent work! You now understand how to manage complex data flows through Cloa
 - Retry mechanisms and error propagation
 - Building resilient workflows
 
-{{< button href="/python-bindings/tutorials/03-error-handling/" >}}Continue to Tutorial 03{{< /button >}}
+{{< button relref="/python-bindings/tutorials/03-complex-workflows/" >}}Continue to Tutorial 03{{< /button >}}
 
 ## Related Resources
 
-- [API Reference: Context](/python-bindings/api-reference/context/) - Complete Context API
-- [Examples: Data Processing](/python-bindings/examples/basic-workflow/) - More data pipeline examples
-- [How-to: Testing Workflows](/python-bindings/how-to-guides/testing-workflows/) - Testing with context data
+- [API Reference: Context]({{< ref "/python-bindings/api-reference/context/" >}}) - Complete Context API
+- [Examples: Data Processing]({{< ref "/python-bindings/examples/basic-workflow/" >}}) - More data pipeline examples
+- [How-to: Testing Workflows]({{< ref "/python-bindings/how-to-guides/testing-workflows/" >}}) - Testing with context data
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial is based on patterns from [`test_scenario_09_context_propagation.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_09_context_propagation.py) and data processing examples from the Cloacina test suite.

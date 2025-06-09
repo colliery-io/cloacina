@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Cloacina Python Tutorial 05: Multi-Tenancy
+Cloacina Python Tutorial 06: Multi-Tenancy
 
 This example demonstrates deploying isolated workflows for multiple tenants
-using PostgreSQL schema-based multi-tenancy, tenant management patterns,
+using PostgreSQL schema-based multi-tenancy, automated tenant provisioning,
 security considerations, and scaling strategies.
 
 Learning objectives:
 - Understand schema-based multi-tenancy architecture
-- Implement tenant-specific workflow runners
-- Manage tenant isolation and security
+- Use admin API for automated tenant provisioning
+- Implement tenant-specific workflow runners with dedicated credentials
+- Manage complete tenant isolation and security
 - Handle tenant lifecycle and recovery
 - Design scalable multi-tenant systems
 - Apply best practices for SaaS deployments
 
 Usage:
-    python python_tutorial_05_multi_tenancy.py
+    python python_tutorial_06_multi_tenancy.py
 
 Prerequisites:
     pip install cloaca[postgres]
@@ -175,21 +176,55 @@ cloaca.register_workflow_constructor("tenant_data_processing", create_data_proce
 class TenantManager:
     """Manages multi-tenant workflow execution."""
 
-    def __init__(self, postgres_url: str):
-        """Initialize with PostgreSQL connection URL."""
-        self.postgres_url = postgres_url
+    def __init__(self, admin_postgres_url: str):
+        """Initialize with PostgreSQL admin connection URL."""
+        self.admin_postgres_url = admin_postgres_url
         self.tenant_runners: Dict[str, cloaca.DefaultRunner] = {}
+        self.tenant_credentials: Dict[str, cloaca.TenantCredentials] = {}
+
+        # Initialize database admin for tenant provisioning
+        self.db_admin = cloaca.DatabaseAdmin(admin_postgres_url)
+
+    def provision_tenant(self, tenant_id: str) -> cloaca.TenantCredentials:
+        """Provision a new tenant with dedicated schema and credentials."""
+        print(f"Provisioning tenant: {tenant_id}")
+
+        # Create tenant configuration
+        tenant_config = cloaca.TenantConfig(
+            schema_name=f"tenant_{tenant_id}",
+            username=f"{tenant_id}_user",
+            password=""  # Auto-generate secure password
+        )
+
+        # Create tenant using admin API
+        credentials = self.db_admin.create_tenant(tenant_config)
+        self.tenant_credentials[tenant_id] = credentials
+
+        print(f"Tenant {tenant_id} provisioned:")
+        print(f"  Schema: {credentials.schema_name}")
+        print(f"  Username: {credentials.username}")
+        print(f"  Password: {credentials.password}")
+        print(f"  Connection string: {credentials.connection_string}")
+        print("  Dedicated database connection ready")
+
+        return credentials
 
     def create_tenant_runner(self, tenant_id: str) -> cloaca.DefaultRunner:
         """Create a tenant-specific runner with schema isolation."""
         print(f"Creating runner for tenant: {tenant_id}")
 
-        # Create runner with schema-based tenant isolation
-        # This uses PostgreSQL schemas for complete data isolation
-        runner = cloaca.DefaultRunner.with_schema(self.postgres_url, tenant_id)
+        # Get or create tenant credentials
+        if tenant_id not in self.tenant_credentials:
+            credentials = self.provision_tenant(tenant_id)
+        else:
+            credentials = self.tenant_credentials[tenant_id]
+
+        # Create runner with tenant-specific connection string
+        # This uses the dedicated tenant credentials for complete isolation
+        runner = cloaca.DefaultRunner(credentials.connection_string)
         self.tenant_runners[tenant_id] = runner
 
-        print(f"Runner created for tenant {tenant_id} with schema isolation")
+        print(f"Runner created for tenant {tenant_id} with dedicated credentials")
         return runner
 
     def get_tenant_runner(self, tenant_id: str) -> Optional[cloaca.DefaultRunner]:
@@ -267,10 +302,27 @@ class TenantManager:
                 "error": getattr(result, 'error', 'Unknown error')
             }
 
-    def cleanup_tenant_resources(self, tenant_id: str):
-        """Clean up resources for tenant."""
+    def remove_tenant(self, tenant_id: str):
+        """Remove tenant completely including schema and credentials."""
+        print(f"Removing tenant: {tenant_id}")
+
+        # Cleanup runner first
         if tenant_id in self.tenant_runners:
-            print(f"Cleaning up resources for tenant: {tenant_id}")
+            runner = self.tenant_runners[tenant_id]
+            runner.shutdown()
+            del self.tenant_runners[tenant_id]
+
+        # Remove tenant credentials and schema
+        if tenant_id in self.tenant_credentials:
+            credentials = self.tenant_credentials[tenant_id]
+            self.db_admin.remove_tenant(credentials.schema_name, credentials.username)
+            del self.tenant_credentials[tenant_id]
+            print(f"Tenant {tenant_id} removed completely")
+
+    def cleanup_tenant_resources(self, tenant_id: str):
+        """Clean up runtime resources for tenant (keeps schema)."""
+        if tenant_id in self.tenant_runners:
+            print(f"Cleaning up runtime resources for tenant: {tenant_id}")
             runner = self.tenant_runners[tenant_id]
             runner.shutdown()
             del self.tenant_runners[tenant_id]
@@ -288,11 +340,11 @@ def simulate_multi_tenant_operations():
     """Simulate multi-tenant SaaS operations."""
     print("=== Multi-Tenant SaaS Simulation ===")
 
-    # PostgreSQL connection URL (modify as needed for your setup)
-    postgres_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina"
+    # PostgreSQL admin connection URL (modify as needed for your setup)
+    admin_postgres_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina"
 
-    # Create tenant manager
-    tenant_manager = TenantManager(postgres_url)
+    # Create tenant manager with admin credentials
+    tenant_manager = TenantManager(admin_postgres_url)
 
     # Define multiple tenants
     tenants = [
@@ -396,7 +448,7 @@ def simulate_multi_tenant_operations():
 
 # Main execution
 if __name__ == "__main__":
-    print("=== Cloacina Python Tutorial 05: Multi-Tenancy ===")
+    print("=== Cloacina Python Tutorial 06: Multi-Tenancy ===")
     print()
     print("This tutorial demonstrates:")
     print("- Schema-based multi-tenancy with PostgreSQL")
@@ -428,20 +480,25 @@ if __name__ == "__main__":
     print()
     print("Key concepts demonstrated:")
     print("- PostgreSQL schema-based tenant isolation")
+    print("- Automated tenant provisioning with admin API")
+    print("- Dedicated tenant credentials and database users")
     print("- Tenant-specific DefaultRunner instances")
-    print("- Automated schema creation and management")
+    print("- Complete schema and user lifecycle management")
     print("- Independent workflow execution per tenant")
-    print("- Resource cleanup and lifecycle management")
+    print("- Resource cleanup and tenant removal")
     print()
     print("Multi-tenancy benefits:")
     print("- Complete data isolation (no cross-tenant access possible)")
+    print("- Dedicated database credentials per tenant")
     print("- Native PostgreSQL performance (no application filtering)")
     print("- Enterprise-grade security boundaries")
     print("- Zero code changes required for existing workflows")
+    print("- Automated tenant provisioning and removal")
     print("- Easy scaling and tenant management")
     print()
     print("Next steps:")
     print("- Deploy to production with proper PostgreSQL setup")
-    print("- Implement tenant-specific credentials and RBAC")
-    print("- Add monitoring and analytics per tenant")
+    print("- Configure monitoring and analytics per tenant")
+    print("- Implement tenant-specific backup and recovery")
+    print("- Add tenant usage tracking and billing")
     print("- Explore advanced multi-tenant patterns")

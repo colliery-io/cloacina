@@ -55,3 +55,6 @@ enableRobotsTXT = true
     name = "Contributing"
     url = "/contributing/"
     weight = 60
+
+[params]
+  geekdocLogo = "logo.png"

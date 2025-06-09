@@ -100,11 +100,8 @@ mod postgres_impl {
         /// Returns the tenant credentials for distribution to the tenant.
         pub async fn create_tenant(
             &self,
-            _tenant_config: TenantConfig,
+            tenant_config: TenantConfig,
         ) -> Result<TenantCredentials, AdminError> {
-            // TODO: Temporarily disabled during async migration
-            todo!("Admin functions need rework for deadpool-diesel")
-            /*
             // Validate configuration
             if tenant_config.schema_name.is_empty() {
                 return Err(AdminError::InvalidConfig {
@@ -128,7 +125,6 @@ mod postgres_impl {
             let schema_name = tenant_config.schema_name.clone();
             let username = tenant_config.username.clone();
             let final_password_clone = final_password.clone();
-
 
             // Clone again for use after the closure
             let schema_name_result = schema_name.clone();
@@ -224,7 +220,6 @@ mod postgres_impl {
                 schema_name: schema_name_result,
                 connection_string,
             })
-            */
         }
 
         /// Remove a tenant (user + schema)
@@ -292,6 +287,8 @@ mod postgres_impl {
             // Extract connection details from the admin database connection
             // For now, return a template - in a real implementation, this would
             // parse the admin connection string and replace credentials
+
+            // Try unencoded password first - sqlx may handle encoding internally
             format!(
                 "postgresql://{}:{}@localhost:5432/cloacina",
                 username, password
@@ -301,10 +298,10 @@ mod postgres_impl {
 
     #[allow(dead_code)]
     fn generate_secure_password(length: usize) -> String {
+        // Use only alphanumeric characters to avoid URL/connection string issues
         let charset: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                               abcdefghijklmnopqrstuvwxyz\
-                              0123456789\
-                              !@#$%^&*()_+-=[]{}|;:,.<>?";
+                              0123456789";
         let mut rng = rand::thread_rng();
         (0..length)
             .map(|_| {

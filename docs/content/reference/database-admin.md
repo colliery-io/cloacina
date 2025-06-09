@@ -260,8 +260,32 @@ runner.execute(workflow).await?;
 4. **Error Recovery**: Wrap operations in proper error handling for production use
 5. **Resource Limits**: Monitor total connection count across all tenants
 
+## Python Bindings
+
+The Database Admin API is also available in Python with identical functionality:
+
+```python
+import cloaca
+
+# Create admin
+admin = cloaca.DatabaseAdmin("postgresql://admin:password@localhost/db")
+
+# Create tenant
+config = cloaca.TenantConfig(
+    schema_name="tenant_acme",
+    username="acme_user",
+    password=""  # Auto-generate
+)
+credentials = admin.create_tenant(config)
+
+# Use with Python runner
+runner = cloaca.DefaultRunner(credentials.connection_string)
+```
+
 ## See Also
 
+- [Python Database Admin API]({{< ref "/python-bindings/api-reference/database-admin" >}})
 - [Multi-Tenancy Architecture]({{< ref "/explanation/multi-tenancy" >}})
 - [Multi-Tenant Setup Guide]({{< ref "/how-to-guides/multi-tenant-setup" >}})
+- [Python Multi-Tenancy Tutorial]({{< ref "/python-bindings/tutorials/06-multi-tenancy" >}})
 - [Per-Tenant Credentials Example](https://github.com/your-repo/cloacina/tree/main/examples/per_tenant_credentials)
