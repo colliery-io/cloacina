@@ -113,6 +113,32 @@ def write_file_safe(path: Path, content: str, encoding: str = "utf-8", backup: b
     except (OSError, UnicodeEncodeError) as e:
         raise FileOperationError(f"Failed to write file {path}: {e}")
 
+def normalize_version_for_python(cargo_version: str) -> str:
+    """Convert Cargo SemVer to PEP 440 compliant version.
+    
+    Args:
+        cargo_version: Version string from Cargo.toml (e.g., "0.2.0-alpha.4")
+        
+    Returns:
+        PEP 440 compliant version string (e.g., "0.2.0a4")
+        
+    Examples:
+        >>> normalize_version_for_python("0.2.0-alpha.4")
+        "0.2.0a4"
+        >>> normalize_version_for_python("0.2.0-beta.3")
+        "0.2.0b3"
+        >>> normalize_version_for_python("1.0.0")
+        "1.0.0"
+    """
+    # Convert alpha pre-releases: 0.2.0-alpha.4 -> 0.2.0a4
+    version = re.sub(r'-alpha\.(\d+)', r'a\1', cargo_version)
+    
+    # Convert beta pre-releases: 0.2.0-beta.3 -> 0.2.0b3
+    version = re.sub(r'-beta\.(\d+)', r'b\1', version)
+    
+    return version
+
+
 def get_workspace_version() -> str:
     """Extract version from workspace Cargo.toml.
 
@@ -212,27 +238,34 @@ def generate(backend):
     """Generate all configuration files from templates."""
 
     try:
-        version = get_workspace_version()
+        cargo_version = get_workspace_version()
+        python_version = normalize_version_for_python(cargo_version)
 
-        print(f"Using version: {version}")
+        print(f"Using Cargo version: {cargo_version}")
+        print(f"Using Python version: {python_version}")
         print(f"Generating files for {backend} backend...")
 
         project_root = Path(angreal.get_root()).parent
         template_dir = Path(angreal.get_root()) / "templates"
 
-        # Generate dispatcher pyproject.toml
+        # Generate dispatcher pyproject.toml (uses normalized Python version for dependencies)
         dispatcher_template = template_dir / "dispatcher_pyproject.toml.j2"
-        dispatcher_content = render_template(dispatcher_template.read_text(), {"version": version})
+        dispatcher_context = {
+            "version": python_version,
+            "python_version": python_version,
+            "cargo_version": cargo_version
+        }
+        dispatcher_content = render_template(dispatcher_template.read_text(), dispatcher_context)
         dispatcher_path = project_root / "cloaca" / "pyproject.toml"
 
-        # Generate backend Cargo.toml
+        # Generate backend Cargo.toml (uses original Cargo version)
         backend_template = template_dir / "backend_cargo.toml.j2"
-        backend_content = render_template(backend_template.read_text(), {"backend": backend, "version": version})
+        backend_content = render_template(backend_template.read_text(), {"backend": backend, "version": cargo_version})
         backend_path = project_root / "cloaca-backend" / "Cargo.toml"
 
-        # Generate backend pyproject.toml
+        # Generate backend pyproject.toml (uses normalized Python version)
         backend_pyproject_template = template_dir / "backend_pyproject.toml.j2"
-        backend_pyproject_content = render_template(backend_pyproject_template.read_text(), {"backend": backend, "version": version})
+        backend_pyproject_content = render_template(backend_pyproject_template.read_text(), {"backend": backend, "version": python_version})
         backend_pyproject_path = project_root / "cloaca-backend" / "pyproject.toml"
 
         # Write files
@@ -253,7 +286,7 @@ def generate(backend):
         backend_python_dst = project_root / "cloaca-backend" / "python" / f"cloaca_{backend}"
 
         if backend_python_src.exists():
-            context = {"backend": backend, "version": version}
+            context = {"backend": backend, "version": python_version}
 
             # Remove existing destination directory if it exists
             if backend_python_dst.exists():
