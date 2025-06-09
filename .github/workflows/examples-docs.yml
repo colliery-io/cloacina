@@ -42,7 +42,7 @@ jobs:
             ${{ runner.os }}-rust-
 
       - name: Run tutorial tests
-        run: angreal tutorials all
+        run: angreal demos all --tutorials --rust
 
   examples:
     name: Example Tests
@@ -89,9 +89,9 @@ jobs:
 
       - name: Run example tests
         run: |
-          angreal examples cron-scheduling
-          angreal examples multi-tenant
-          angreal examples per-tenant-credentials
+          angreal demos cron-scheduling
+          angreal demos multi-tenant
+          angreal demos per-tenant-creds
 
   documentation:
     name: Build Documentation
@@ -198,4 +198,4 @@ jobs:
 
       - name: Run Python tutorial tests
         run: |
-          angreal cloaca tutorial --backend ${{ matrix.backend }}
+          angreal demos all --python --backend ${{ matrix.backend }}

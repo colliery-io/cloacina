@@ -10,7 +10,9 @@
 
 Cloacina is a Rust library for building resilient task pipelines directly within your Rust applications, built by [Colliery Software](https://colliery.io). Unlike standalone orchestration services, Cloacina embeds into your existing applications to manage complex multi-step workflows with automatic retry, state persistence, and dependency resolution.
 
-> **Why "Cloacina"?** Named after the Roman goddess of sewers and drainage systems, Cloacina reflects the library's purpose: efficiently moving data through processing pipelines, just as ancient Roman infrastructure managed the flow of sewage out of the city. (Don't read too much into it, apparently there aren't any deities of "plumbing"!)
+Cloaca are the python bindings for Cloacina, providing a familiar interface for developers from the python ecosystem.
+
+> Why "Cloacina" and "Cloaca" ? Named after the Roman goddess of sewers and drainage systems, Cloacina reflects the library's purpose: efficiently moving data through processing pipelines, just as ancient Roman infrastructure managed the flow of sewage out of the city. Cloaca is the latin noun for the drain, the Cloaca Maxima is the system Cloacina presided over. (Don't read too much into it, apparently there aren't many deities of "plumbing"!)
 
 ## Features
 

@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 import subprocess
 
-from .cloaca_utils import generate
+from .generate import generate
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")

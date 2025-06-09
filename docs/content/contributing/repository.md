@@ -59,19 +59,19 @@ Cloacina employs a comprehensive testing approach:
 1. **Unit Tests**
    - Located alongside the code they test in `cloacina/src/` and `cloacina-macros/src/`
    - Test individual components and functions in isolation
-   - Run with `angreal tests unit`
+   - Run with `angreal cloacina unit`
 
 2. **Integration Tests**
    - Located in `cloacina/tests/`
    - Test how different components work together
    - Include test utilities and helpers
-   - Run with `angreal tests integration`
+   - Run with `angreal cloacina integration`
 
 3. **End-to-End Tests**
    - Implemented as executable examples in the `examples/` directory
    - Tutorials that are executed via angreal
    - Demonstrate complete usage patterns and workflows
-   - Run with `angreal examples all`
+   - Run with `angreal demos all --rust`
 
 4. **Python Binding Tests**
    - Located in `python-tests/` with 28+ scenario files

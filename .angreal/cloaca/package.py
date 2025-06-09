@@ -2,7 +2,7 @@ import angreal # type: ignore
 import shutil
 from pathlib import Path
 from .cloaca_utils import generate  # noqa: F821
-from angreal.integrations.venv import VirtualEnv  # noqa: F821
+from angreal.integrations.venv import VirtualEnv  # type: ignore
 import subprocess  # noqa: F821
 from .scrub import scrub  # noqa: F821
 

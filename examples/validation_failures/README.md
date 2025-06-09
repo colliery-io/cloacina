@@ -49,10 +49,10 @@ These examples are tested via the Angreal task system. Run:
 
 ```bash
 # Test all validation failures
-angreal examples validation-failures
+angreal demos validation-failures
 
 # Test specific failure case
-angreal examples validation-failure-test missing_dependency
+angreal demos validation-failure-test missing_dependency
 ```
 
 ## Expected Behavior
