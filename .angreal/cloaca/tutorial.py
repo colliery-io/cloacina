@@ -1,21 +1,19 @@
-"""
-Tutorial execution tasks for Cloaca.
-"""
-
-import time
-import subprocess
+import angreal # type: ignore
 import shutil
 from pathlib import Path
+import subprocess
+import time
 
-import angreal  # type: ignore
-
+from .cloaca_utils import (
+    _build_and_install_cloaca_backend,
+    docker_up,
+    generate,
+    scrub,
+    check_postgres_container_health,
+    smart_postgres_reset,
+)
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
-
-from .generate import generate
-from .build import build_and_install_cloaca_backend
-from .scrub import scrub
-from utils import docker_up, check_postgres_container_health, smart_postgres_reset
 
 @cloaca()
 @angreal.command(name="tutorial", about="run Python tutorial examples with isolated environments")
@@ -122,7 +120,7 @@ def tutorial(tutorial=None, backend=None):
 
             # Step 3: Build and install cloaca backend
             print("Step 3: Setting up tutorial environment...")
-            venv, python_exe, pip_exe = build_and_install_cloaca_backend(backend, venv_name)
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
 
             # Step 4: Run the tutorial
             print(f"Step 4: Executing tutorial {tutorial_num}...")

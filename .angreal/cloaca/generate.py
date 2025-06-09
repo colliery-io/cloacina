@@ -1,17 +1,16 @@
-"""
-File generation tasks for Cloaca.
-"""
+import angreal # type: ignore
+from angreal import render_template# type: ignore
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 
-import angreal  # type: ignore
-
-# Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
-from .utils import write_file_safe, get_workspace_version
-from .build import build_and_install_cloaca_backend
+
+from .cloaca_utils import get_workspace_version, normalize_version_for_python, write_file_safe, _build_and_install_cloaca_backend  # noqa: E402
+
+
+
 
 @cloaca()
 @angreal.command(name="generate", about="generate all configuration files from templates")
@@ -20,27 +19,34 @@ def generate(backend):
     """Generate all configuration files from templates."""
 
     try:
-        version = get_workspace_version()
+        cargo_version = get_workspace_version()
+        python_version = normalize_version_for_python(cargo_version)
 
-        print(f"Using version: {version}")
+        print(f"Using Cargo version: {cargo_version}")
+        print(f"Using Python version: {python_version}")
         print(f"Generating files for {backend} backend...")
 
         project_root = Path(angreal.get_root()).parent
         template_dir = Path(angreal.get_root()) / "templates"
 
-        # Generate dispatcher pyproject.toml
-        dispatcher_template = template_dir / "dispatcher_pyproject.toml.j2"
-        dispatcher_content = render_template(dispatcher_template.read_text(), {"version": version})
+        # Generate dispatcher pyproject.toml (uses normalized Python version for dependencies)
+        dispatcher_template = template_dir / "dispatcher_pyproject.toml.tera"
+        dispatcher_context = {
+            "version": python_version,
+            "python_version": python_version,
+            "cargo_version": cargo_version
+        }
+        dispatcher_content = render_template(dispatcher_template.read_text(), dispatcher_context)
         dispatcher_path = project_root / "cloaca" / "pyproject.toml"
 
-        # Generate backend Cargo.toml
-        backend_template = template_dir / "backend_cargo.toml.j2"
-        backend_content = render_template(backend_template.read_text(), {"backend": backend, "version": version})
+        # Generate backend Cargo.toml (uses original Cargo version)
+        backend_template = template_dir / "backend_cargo.toml.tera"
+        backend_content = render_template(backend_template.read_text(), {"backend": backend, "version": cargo_version})
         backend_path = project_root / "cloaca-backend" / "Cargo.toml"
 
-        # Generate backend pyproject.toml
-        backend_pyproject_template = template_dir / "backend_pyproject.toml.j2"
-        backend_pyproject_content = render_template(backend_pyproject_template.read_text(), {"backend": backend, "version": version})
+        # Generate backend pyproject.toml (uses normalized Python version)
+        backend_pyproject_template = template_dir / "backend_pyproject.toml.tera"
+        backend_pyproject_content = render_template(backend_pyproject_template.read_text(), {"backend": backend, "version": python_version})
         backend_pyproject_path = project_root / "cloaca-backend" / "pyproject.toml"
 
         # Write files
@@ -61,7 +67,7 @@ def generate(backend):
         backend_python_dst = project_root / "cloaca-backend" / "python" / f"cloaca_{backend}"
 
         if backend_python_src.exists():
-            context = {"backend": backend, "version": version}
+            context = {"backend": backend, "version": python_version}
 
             # Remove existing destination directory if it exists
             if backend_python_dst.exists():
@@ -118,7 +124,7 @@ def generate(backend):
                 shutil.rmtree(venv_path)
 
             # Build and install backend explicitly (files already generated above)
-            venv, python_exe, pip_exe = build_and_install_cloaca_backend(backend, venv_name)
+            venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
 
             print(f"✓ Debug environment ready: {venv_name}")
             print(f"  Usage: {venv_path}/bin/python your_debug_script.py")
@@ -130,6 +136,6 @@ def generate(backend):
         print(f"Successfully generated files for {backend} backend!")
         return 0
 
-    except (FileOperationError, ValueError) as e:
+    except (OSError, ValueError) as e:
         print(f"Generation failed: {e}")
         return 1

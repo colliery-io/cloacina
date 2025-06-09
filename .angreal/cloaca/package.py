@@ -1,19 +1,16 @@
-"""
-Packaging tasks for Cloaca.
-"""
-
+import angreal # type: ignore
 import shutil
-import subprocess
 from pathlib import Path
+from .cloaca_utils import generate  # noqa: F821
+from angreal.integrations.venv import VirtualEnv  # noqa: F821
+import subprocess  # noqa: F821
+from .scrub import scrub  # noqa: F821
 
-import angreal  # type: ignore
-from angreal.integrations.venv import VirtualEnv  # type: ignore
 
-# Define command group
+
+
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
-from .generate import generate
-from .scrub import scrub
 
 @cloaca()
 @angreal.command(name="package", about="generate files, build wheel, then clean")

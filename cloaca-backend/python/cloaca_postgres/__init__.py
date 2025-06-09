@@ -1,25 +1,5 @@
-"""
-Postgres backend for Cloaca - Python bindings for Cloacina workflow orchestration.
-"""
-
-# Import from the extension module built by maturin
-from .cloaca_postgres import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, DefaultRunner, PipelineResult, WorkflowBuilder, Workflow, register_workflow_constructor, DatabaseAdmin, TenantConfig, TenantCredentials, __backend__
-# __version__ is automatically provided by maturin from Cargo.toml
-
-__all__ = [
-    "hello_world",
-    "get_backend",
-    "HelloClass",
-    "Context",
-    "DefaultRunnerConfig",
-    "task",
-    "DefaultRunner",
-    "PipelineResult",
-    "WorkflowBuilder",
-    "Workflow",
-    "register_workflow_constructor",
-    "DatabaseAdmin",
-    "TenantConfig",
-    "TenantCredentials",
-    "__backend__",
-]
+# This entire directory is generated automatically during build
+# Template directory: cloaca-backend/python/cloaca_{{backend}}
+# DO NOT EDIT - Any changes will be overwritten
+# The entire cloaca_postgres directory is re-rendered from the template during 'angreal cloaca generate'
+# To make changes, edit the template directory above

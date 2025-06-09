@@ -1,16 +1,14 @@
-"""
-Cleanup tasks for Cloaca.
-"""
-
+import angreal # type: ignore
 import shutil
 from pathlib import Path
 
-import angreal  # type: ignore
+from .cloaca_utils import write_file_safe
+
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
-from .utils import write_file_safe
+
 
 @cloaca()
 @angreal.command(name="scrub", about="replace generated files with placeholder content and clean build artifacts")
@@ -131,6 +129,6 @@ def scrub():
         print("Successfully cleaned generated files and build artifacts!")
         return 0
 
-    except FileOperationError as e:
+    except Exception as e:
         print(f"Clean failed: {e}")
         return 1
