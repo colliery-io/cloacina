@@ -21,7 +21,7 @@ def daily_report(context):
         "active_users": 89
     }
 
-    print(f"📊 Daily Report Generated at {current_time}")
+    print(f"Daily Report Generated at {current_time}")
     print(f"   Orders: {report_data['total_orders']}")
     print(f"   Revenue: ${report_data['revenue']}")
     print(f"   Users: {report_data['active_users']}")
@@ -35,7 +35,7 @@ def system_backup(context):
     backup_type = context.get("backup_type", "incremental")
     timestamp = datetime.now()
 
-    print(f"💾 {backup_type.title()} backup at {timestamp}")
+    print(f"{backup_type.title()} backup at {timestamp}")
 
     context.set("backup_completed", timestamp.isoformat())
     context.set("backup_type", backup_type)
@@ -47,7 +47,7 @@ def data_cleanup(context):
     retention_days = context.get("retention_days", 30)
     timestamp = datetime.now()
 
-    print(f"🧹 Cleaning data older than {retention_days} days at {timestamp}")
+    print(f"Cleaning data older than {retention_days} days at {timestamp}")
 
     # Simulate cleanup
     files_removed = 47
@@ -64,7 +64,7 @@ def health_check(context):
     """Perform system health check."""
     timestamp = datetime.now()
 
-    print(f"🏥 System health check at {timestamp}")
+    print(f"System health check at {timestamp}")
 
     # Simulate health monitoring
     health_status = {
@@ -123,52 +123,7 @@ def create_workflows():
         "health_check": health_builder.build()
     }
 
-def basic_cron_demo():
-    """Demonstrate basic cron scheduling."""
-    print("=== Basic Cron Scheduling Demo ===")
-
-    # Create runner
-    runner = cloaca.DefaultRunner(":memory:")
-
-    try:
-        # Register workflows
-        workflows = create_workflows()
-        for name, workflow in workflows.items():
-            cloaca.register_workflow_constructor(name, lambda w=workflow: w)
-
-        # Create basic schedules (demo frequencies)
-        schedules = [
-            # Daily report every 20 seconds (demo)
-            cloaca.CronSchedule(
-                workflow_name="daily_report",
-                cron_expression="*/20 * * * * *",
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({})
-            ),
-
-            # Health check every 15 seconds (demo)
-            cloaca.CronSchedule(
-                workflow_name="health_check",
-                cron_expression="*/15 * * * * *",
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({})
-            )
-        ]
-
-        # Register schedules
-        for schedule in schedules:
-            runner.add_cron_schedule(schedule)
-            print(f"✓ Scheduled: {schedule.workflow_name} - {schedule.cron_expression}")
-
-        print("\n⏰ Running schedules for 45 seconds...")
-        time.sleep(45)
-
-    finally:
-        runner.shutdown()
-
-def advanced_cron_demo():
+def cron_demo():
     """Demonstrate advanced cron scheduling patterns."""
     print("\n=== Advanced Multi-Schedule Demo ===")
 
@@ -189,38 +144,13 @@ def advanced_cron_demo():
         #     ("*/15 9-17 * * MON-FRI", "Health check every 15 min during business hours"),
         # ]
 
+        # Demo schedule configurations - simplified for quick demo
         demo_schedules = [
-            cloaca.CronSchedule(
-                workflow_name="daily_report",
-                cron_expression="*/25 * * * * *",  # Every 25 seconds
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({})
-            ),
-            cloaca.CronSchedule(
-                workflow_name="system_backup",
-                cron_expression="*/30 * * * * *",  # Every 30 seconds
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({"backup_type": "incremental"})
-            ),
-            cloaca.CronSchedule(
-                workflow_name="data_cleanup",
-                cron_expression="*/35 * * * * *",  # Every 35 seconds
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({"retention_days": 30})
-            ),
-            cloaca.CronSchedule(
-                workflow_name="health_check",
-                cron_expression="*/10 * * * * *",  # Every 10 seconds
-                timezone="UTC",
-                enabled=True,
-                context=cloaca.Context({})
-            )
+            ("daily_report", "*/8 * * * * *"),       # Every 8 seconds
+            ("health_check", "*/5 * * * * *")        # Every 5 seconds
         ]
 
-        print("📅 Production Schedule Patterns:")
+        print("Production Schedule Patterns:")
         production_patterns = [
             ("daily_report", "0 9 * * *", "Daily at 9:00 AM"),
             ("system_backup", "0 2 * * SUN", "Weekly on Sunday at 2:00 AM"),
@@ -231,32 +161,32 @@ def advanced_cron_demo():
         for workflow, expression, description in production_patterns:
             print(f"   {workflow}: {expression} ({description})")
 
-        print("\n🚀 Starting demo schedules...")
+        print("\nStarting demo schedules...")
 
-        # Register demo schedules
-        for schedule in demo_schedules:
-            runner.add_cron_schedule(schedule)
-            print(f"✓ {schedule.workflow_name}: {schedule.cron_expression}")
+        # Register demo schedules using runner's cron functionality
+        schedule_ids = []
+        for workflow_name, cron_expression in demo_schedules:
+            schedule_id = runner.register_cron_workflow(workflow_name, cron_expression, "UTC")
+            schedule_ids.append(schedule_id)
+            print(f"✓ {workflow_name}: {cron_expression} (ID: {schedule_id})")
 
-        print("\n⏰ Running multiple schedules for 60 seconds...")
+        print("\nRunning multiple schedules for 30 seconds...")
         print("   (Different workflows will execute at different intervals)")
-        time.sleep(60)
+        print("   Watch for automatic cron executions below...")
+        time.sleep(30)
 
     finally:
         runner.shutdown()
 
 def main():
     """Main tutorial demonstration."""
-    print("🕐 Cloaca Cron Scheduling Tutorial")
+    print("Cloaca Cron Scheduling Tutorial")
     print("=" * 50)
 
-    # Run basic demo
-    basic_cron_demo()
-
     # Run advanced demo
-    advanced_cron_demo()
+    cron_demo()
 
-    print("\n✅ Tutorial completed successfully!")
+    print("\nTutorial completed successfully!")
     print("\nWhat you learned:")
     print("- Creating cron schedules with expressions")
     print("- Registering schedules with workflows")
@@ -264,7 +194,7 @@ def main():
     print("- Managing multiple concurrent schedules")
     print("- Production scheduling patterns")
 
-    print("\n🎓 Next Steps:")
+    print("\nNext Steps:")
     print("- Explore the API reference for advanced scheduling options")
     print("- Check out real-world examples in the examples directory")
     print("- Learn about production deployment considerations")
