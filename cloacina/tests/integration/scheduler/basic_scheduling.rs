@@ -65,7 +65,10 @@ async fn test_schedule_workflow_execution() {
         .build()
         .expect("Failed to build workflow");
 
-    let scheduler = TaskScheduler::with_static_workflows(database.clone(), vec![workflow]);
+    // Register workflow globally before creating scheduler
+    cloacina::register_workflow_constructor("test-workflow".to_string(), move || workflow.clone());
+    
+    let scheduler = TaskScheduler::new(database.clone()).await.expect("Failed to create scheduler");
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
@@ -98,7 +101,7 @@ async fn test_schedule_nonexistent_workflow() {
     fixture.initialize().await;
     let database = fixture.get_database();
 
-    let scheduler = TaskScheduler::with_static_workflows(database, vec![]);
+    let scheduler = TaskScheduler::new(database).await.expect("Failed to create scheduler");
 
     let mut input_context = Context::<serde_json::Value>::new();
     input_context
