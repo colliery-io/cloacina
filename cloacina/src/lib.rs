@@ -482,7 +482,11 @@ pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder
 #[cfg(feature = "postgres")]
 pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
-pub use task::{global_task_registry, register_task_constructor, Task, TaskRegistry, TaskState};
+pub use task::namespace::parse_namespace;
+pub use task::{
+    get_task_by_id, global_task_registry, register_task_constructor, Task, TaskNamespace,
+    TaskRegistry, TaskState,
+};
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{
     get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
