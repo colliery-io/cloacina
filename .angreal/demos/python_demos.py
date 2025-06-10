@@ -154,13 +154,17 @@ def create_python_tutorial_command(tutorial_file):
     @angreal.argument(
         name="backend",
         long="backend",
-        help="Backend to use: postgres or sqlite (default: sqlite)",
+        help="Backend to use: postgres or sqlite (default: postgres for tutorials 05-06, sqlite for others)",
         required=False
     )
     def command(backend=None):
         """Run the Python tutorial."""
         if backend is None:
-            backend = "sqlite"
+            # Default to postgres for multi-tenancy tutorials that require admin features
+            if tutorial_num in ["05", "06"]:
+                backend = "postgres"
+            else:
+                backend = "sqlite"
 
         # Validate backend
         if backend not in ["postgres", "sqlite"]:
@@ -170,6 +174,10 @@ def create_python_tutorial_command(tutorial_file):
         # Special handling for tutorial 05 (multi-tenancy)
         if tutorial_num == "05" and backend == "sqlite":
             print("Error: Tutorial 05 (multi-tenancy) requires PostgreSQL backend")
+            print("Please use --backend postgres to run this tutorial")
+            return 1
+        if tutorial_num == "06" and backend == "sqlite":
+            print("Error: Tutorial 06 (multi-tenancy) requires PostgreSQL backend")
             print("Please use --backend postgres to run this tutorial")
             return 1
 

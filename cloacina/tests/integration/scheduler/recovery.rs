@@ -66,9 +66,7 @@ async fn test_orphaned_task_recovery() {
     info!("Creating scheduler with recovery (empty workflow registry)");
 
     // Create scheduler with recovery - empty registry means workflow is unavailable
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying task was abandoned due to unavailable workflow");
 
@@ -164,9 +162,7 @@ async fn test_task_abandonment_after_max_retries() {
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon task");
 
     // Create scheduler with recovery - task will be abandoned due to workflow unavailability
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying task was abandoned due to unavailable workflow");
 
@@ -272,9 +268,7 @@ async fn test_no_recovery_needed() {
     info!("Creating scheduler with recovery - should find no orphans");
 
     // Create scheduler with recovery - should find no orphans
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying no recovery events were created");
 
@@ -371,9 +365,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
 
     // Create scheduler with recovery - all tasks will be abandoned due to workflow unavailability
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying all tasks were abandoned due to unavailable workflow");
 
@@ -477,9 +469,7 @@ async fn test_recovery_event_details() {
     info!("Creating scheduler with recovery (empty workflow registry)");
 
     // Trigger recovery - task will be abandoned due to workflow unavailability
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying workflow unavailable recovery event details");
 
@@ -563,9 +553,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     info!("Creating scheduler with empty workflow registry - should gracefully abandon unknown workflow");
 
     // Create scheduler with empty workflow registry (no workflows available)
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying tasks were abandoned gracefully");
 
@@ -695,9 +683,7 @@ async fn test_recovery_event_details_multiple_tasks() {
     info!("Creating scheduler with recovery (empty workflow registry) - should record detailed events");
 
     // Create scheduler with recovery - should record detailed events
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying recovery events were recorded with details");
 
@@ -834,9 +820,7 @@ async fn test_recovery_event_details_unknown_workflow() {
     info!("Creating scheduler with recovery (empty workflow registry) - should handle unknown workflow gracefully");
 
     // Create scheduler with recovery - should handle unknown workflow gracefully
-    let _scheduler = TaskScheduler::new(database)
-        .await
-        .unwrap();
+    let _scheduler = TaskScheduler::new(database).await.unwrap();
 
     info!("Verifying graceful handling of unknown workflow");
 
