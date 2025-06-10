@@ -171,15 +171,15 @@ def create_python_tutorial_command(tutorial_file):
             print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
             return 1
 
-        # Special handling for tutorial 05 (multi-tenancy)
-        if tutorial_num == "05" and backend == "sqlite":
-            print("Error: Tutorial 05 (multi-tenancy) requires PostgreSQL backend")
-            print("Please use --backend postgres to run this tutorial")
-            return 1
-        if tutorial_num == "06" and backend == "sqlite":
-            print("Error: Tutorial 06 (multi-tenancy) requires PostgreSQL backend")
-            print("Please use --backend postgres to run this tutorial")
-            return 1
+        # # Special handling for tutorial 05 (multi-tenancy)
+        # if tutorial_num == "05" and backend == "sqlite":
+        #     print("Error: Tutorial 05 (multi-tenancy) requires PostgreSQL backend")
+        #     print("Please use --backend postgres to run this tutorial")
+        #     return 1
+        # if tutorial_num == "06" and backend == "sqlite":
+        #     print("Error: Tutorial 06 (multi-tenancy) requires PostgreSQL backend")
+        #     print("Please use --backend postgres to run this tutorial")
+        #     return 1
 
         return run_python_tutorial(tutorial_num, tutorial_file, backend)
 
@@ -191,4 +191,7 @@ def create_python_tutorial_command(tutorial_file):
 # Create commands for all Python tutorials
 python_tutorial_commands = {}
 for tutorial_file in get_python_tutorial_files():
-    python_tutorial_commands[tutorial_file] = create_python_tutorial_command(tutorial_file)
+    if "05" in  tutorial_file or "06" in tutorial_file:
+        next
+    else:
+        python_tutorial_commands[tutorial_file] = create_python_tutorial_command(tutorial_file)
