@@ -206,7 +206,8 @@ impl TaskDecorator {
 
         // Register task constructor in global registry
         let shared_function = Arc::new(function);
-        cloacina::register_task_constructor(task_id.clone(), {
+        let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
+        cloacina::register_task_constructor(namespace, {
             let task_id_clone = task_id.clone();
             let deps_clone = deps.clone();
             let policy_clone = policy.clone();

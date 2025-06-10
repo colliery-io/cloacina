@@ -53,7 +53,8 @@ impl PyWorkflowBuilder {
                 PyValueError::new_err(format!("Failed to access task registry: {}", e))
             })?;
 
-            let constructor = guard.get(&task_id).ok_or_else(|| {
+            let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
+            let constructor = guard.get(&namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
@@ -85,7 +86,8 @@ impl PyWorkflowBuilder {
                                         PyValueError::new_err(format!("Failed to access task registry: {}", e))
                                     })?;
 
-                                    let constructor = guard.get(&func_name).ok_or_else(|| {
+                                    let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &func_name);
+                                    let constructor = guard.get(&namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name

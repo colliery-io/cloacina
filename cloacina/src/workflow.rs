@@ -1147,7 +1147,9 @@ impl Workflow {
 
         // Recreate all tasks from the registry
         for task_id in self.get_task_ids() {
-            let constructor = guard.get(&task_id).ok_or_else(|| {
+            // Use default namespace for workflow recreation
+            let namespace = crate::TaskNamespace::new("public", "embedded", "default", &task_id);
+            let constructor = guard.get(&namespace).ok_or_else(|| {
                 WorkflowError::TaskNotFound(format!(
                     "Task '{}' not found in global registry during workflow recreation",
                     task_id
