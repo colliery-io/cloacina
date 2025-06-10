@@ -167,11 +167,11 @@ def create_python_tutorial_command(tutorial_file):
             print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
             return 1
 
-        # Special handling for tutorial 05 (multi-tenancy)
-        if tutorial_num == "05" and backend == "sqlite":
-            print("Error: Tutorial 05 (multi-tenancy) requires PostgreSQL backend")
-            print("Please use --backend postgres to run this tutorial")
-            return 1
+        # Special handling for tutorials that require PostgreSQL
+        if tutorial_num == "06" and backend == "sqlite":
+            print("Tutorial 06 (multi-tenancy) requires PostgreSQL - starting Docker services...")
+            docker_up()
+            backend = "postgres"
 
         return run_python_tutorial(tutorial_num, tutorial_file, backend)
 

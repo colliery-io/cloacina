@@ -219,9 +219,9 @@ class TenantManager:
         else:
             credentials = self.tenant_credentials[tenant_id]
 
-        # Create runner with tenant-specific connection string
-        # This uses the dedicated tenant credentials for complete isolation
-        runner = cloaca.DefaultRunner(credentials.connection_string)
+        # Create runner with schema-based isolation
+        # This uses the admin connection with tenant-specific schema
+        runner = cloaca.DefaultRunner.with_schema(self.admin_postgres_url, credentials.schema_name)
         self.tenant_runners[tenant_id] = runner
 
         print(f"Runner created for tenant {tenant_id} with dedicated credentials")

@@ -114,11 +114,7 @@ def all_demos(rust=False, python=False, examples=False, tutorials=False, backend
         for tutorial_file, command_func in python_tutorial_commands.items():
             demo_name = normalize_command_name(tutorial_file)
 
-            # Skip tutorial 05 if using SQLite
-            if "05" in tutorial_file and backend == "sqlite":
-                print(f"\n=== Skipping {demo_name} (requires PostgreSQL) ===")
-                results.append(("Python Tutorial", demo_name, "skipped"))
-                continue
+            # Note: Tutorial 05 and 06 will auto-start PostgreSQL if needed
 
             print(f"\n=== Running {demo_name} ===")
             # Call the command with backend argument
