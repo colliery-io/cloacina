@@ -88,6 +88,7 @@
 
 use deadpool_diesel::postgres::Pool;
 use diesel::pg::PgConnection;
+use crate::database::Database;
 
 pub mod context;
 pub mod cron_execution;
@@ -131,20 +132,23 @@ pub use cron_execution::CronExecutionStats;
 pub struct DAL {
     /// A connection pool for PostgreSQL database connections.
     pub pool: Pool,
+    /// The Database instance for schema-aware operations
+    pub database: Database,
 }
 
 impl DAL {
-    /// Creates a new DAL instance with the provided connection pool.
+    /// Creates a new DAL instance with the provided database.
     ///
     /// # Arguments
     ///
-    /// * `pool` - A connection pool for PostgreSQL database connections
+    /// * `database` - A Database instance with schema-aware connection management
     ///
     /// # Returns
     ///
     /// A new DAL instance ready for database operations.
-    pub fn new(pool: Pool) -> Self {
-        DAL { pool }
+    pub fn new(database: Database) -> Self {
+        let pool = database.pool();
+        DAL { pool, database }
     }
 
     /// Executes a closure within a database transaction.

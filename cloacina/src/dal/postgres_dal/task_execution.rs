@@ -75,7 +75,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         new_task: NewTaskExecution,
     ) -> Result<TaskExecution, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let task: TaskExecution = conn
             .interact(move |conn| {
@@ -100,7 +100,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let tasks = conn
             .interact(move |conn| {
@@ -125,7 +125,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Get task info for logging before updating
         let task = conn
@@ -171,7 +171,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Get task info for logging before updating
         let task = conn
@@ -218,7 +218,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let tasks = conn
             .interact(move |conn| {
@@ -245,7 +245,7 @@ impl<'a> TaskExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
         task_name: &str,
     ) -> Result<String, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let task_name_owned = task_name.to_string();
         let status: String = conn
@@ -291,7 +291,7 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(HashMap::new());
         }
 
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let results: Vec<(String, String)> = conn
             .interact(move |conn| {
@@ -329,7 +329,7 @@ impl<'a> TaskExecutionDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let pipeline_ids: Vec<Uuid> = pipeline_execution_ids
             .into_iter()
@@ -364,7 +364,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let incomplete_count: i64 = conn
             .interact(move |conn| {
@@ -388,7 +388,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of orphaned tasks
     pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let orphaned_tasks = conn
             .interact(move |conn| {
@@ -416,7 +416,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id.0))
@@ -448,7 +448,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason_owned = reason.to_string();
         conn.interact(move |conn| {
@@ -478,7 +478,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Check if any tasks are permanently failed (abandoned)
         let failed_count: i64 = conn
@@ -507,7 +507,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<TaskExecution, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let task = conn
             .interact(move |conn| task_executions::table.find(task_id.0).first(conn))
@@ -522,7 +522,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of tasks ready for retry
     pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let ready_tasks = conn
             .interact(move |conn| {
@@ -556,7 +556,7 @@ impl<'a> TaskExecutionDAL<'a> {
         retry_at: UniversalTimestamp,
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let retry_time = retry_at.as_datetime().naive_utc();
         conn.interact(move |conn| {
@@ -588,7 +588,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let tasks = conn
             .interact(move |conn| {
@@ -630,7 +630,7 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Use a more explicit query to avoid type inference issues
         let exhausted_tasks = conn
@@ -659,7 +659,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id.0))
@@ -688,7 +688,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id.0))
@@ -718,7 +718,7 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
         error_message: &str,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let error_message_owned = error_message.to_string();
         conn.interact(move |conn| {
@@ -745,7 +745,7 @@ impl<'a> TaskExecutionDAL<'a> {
     /// # Returns
     /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
     pub async fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Atomic claim using FOR UPDATE SKIP LOCKED
         let result: Option<ClaimResult> = conn

@@ -249,7 +249,7 @@ impl TaskScheduler {
 
     /// Creates a new TaskScheduler with custom poll interval (synchronous version).
     pub(crate) fn with_poll_interval_sync(database: Database, poll_interval: Duration) -> Self {
-        let dal = DAL::new(database.pool());
+        let dal = DAL::new(database.clone());
 
         Self {
             dal,

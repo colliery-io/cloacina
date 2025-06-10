@@ -158,9 +158,12 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
     """
     # Check if this is a tutorial (SQLite-based) or other example (potentially PostgreSQL-based)
     is_tutorial = "tutorial" in example_dir
+    
+    # Tutorial-06 (multi-tenancy) needs PostgreSQL for the advanced admin demo
+    needs_postgres = not is_tutorial or "tutorial-06" in example_dir
 
-    if not is_tutorial:
-        # For non-tutorial examples, check if Docker services are running
+    if needs_postgres:
+        # For examples and tutorial-06, check if Docker services are running
         try:
             # Try docker compose first (newer), then fall back to docker-compose
             try:
@@ -198,7 +201,7 @@ def run_example_or_tutorial(project_root, example_dir, name, is_test=False, bina
             print("Waiting for services to be ready...")
             time.sleep(10)
     else:
-        # For tutorials, SQLite is used - no Docker setup needed
+        # For most tutorials, SQLite is used - no Docker setup needed
         print(f"Running {name} (SQLite-based, no database setup required)")
 
     # Run the example/tutorial

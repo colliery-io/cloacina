@@ -32,7 +32,7 @@ async fn test_orphaned_task_recovery() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline with orphaned task");
 
@@ -118,7 +118,7 @@ async fn test_task_abandonment_after_max_retries() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline with task at max recovery attempts");
 
@@ -210,7 +210,7 @@ async fn test_no_recovery_needed() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline with normal task states");
 
@@ -296,7 +296,7 @@ async fn test_multiple_orphaned_tasks_recovery() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline with multiple orphaned tasks");
 
@@ -443,7 +443,7 @@ async fn test_recovery_event_details() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline to verify recovery event details");
 
@@ -515,7 +515,7 @@ async fn test_graceful_recovery_for_unknown_workflow() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline with unknown workflow");
 
@@ -647,7 +647,7 @@ async fn test_recovery_event_details_multiple_tasks() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline to verify recovery event details for multiple tasks");
 
@@ -786,7 +786,7 @@ async fn test_recovery_event_details_unknown_workflow() {
     let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
     guard.initialize().await;
     let database = guard.get_database();
-    let dal = DAL::new(database.pool());
+    let dal = DAL::new(database.clone());
 
     info!("Creating test pipeline to verify recovery event details for unknown workflow");
 

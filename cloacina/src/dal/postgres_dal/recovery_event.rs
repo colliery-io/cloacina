@@ -106,7 +106,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         new_event: NewRecoveryEvent,
     ) -> Result<RecoveryEvent, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let result = conn
             .interact(move |conn| {
@@ -151,7 +151,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let events = conn
             .interact(move |conn| {
@@ -196,7 +196,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let events = conn
             .interact(move |conn| {
@@ -240,7 +240,7 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         recovery_type: &str,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let recovery_type = recovery_type.to_string();
 
         let events = conn
@@ -314,7 +314,7 @@ impl<'a> RecoveryEventDAL<'a> {
     /// }
     /// ```
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let events = conn
             .interact(move |conn| {

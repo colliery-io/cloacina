@@ -137,7 +137,7 @@ impl DependencyLoader {
         &self,
         task_name: &str,
     ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         let task_metadata = dal
             .task_execution_metadata()
             .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)

@@ -569,7 +569,7 @@ impl DefaultRunner {
             };
 
             // Create CronScheduler with DefaultRunner as PipelineExecutor
-            let dal = DAL::new(self.database.pool());
+            let dal = DAL::new(self.database.clone());
             let cron_scheduler = CronScheduler::new(
                 Arc::new(dal),
                 Arc::new(self.clone()), // self implements PipelineExecutor!
@@ -618,7 +618,7 @@ impl DefaultRunner {
                 };
 
                 // Create CronRecoveryService
-                let dal = DAL::new(self.database.pool());
+                let dal = DAL::new(self.database.clone());
                 let recovery_service = crate::CronRecoveryService::new(
                     Arc::new(dal),
                     Arc::new(self.clone()), // self implements PipelineExecutor!
@@ -713,7 +713,7 @@ impl DefaultRunner {
         &self,
         execution_id: Uuid,
     ) -> Result<PipelineResult, PipelineError> {
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         let pipeline_execution = dal
             .pipeline_execution()
@@ -873,7 +873,7 @@ impl PipelineExecutor for DefaultRunner {
 
         // Wait for completion
         let start_time = std::time::Instant::now();
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         loop {
             // Check timeout
@@ -990,7 +990,7 @@ impl PipelineExecutor for DefaultRunner {
         &self,
         execution_id: Uuid,
     ) -> Result<PipelineStatus, PipelineError> {
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         let pipeline = dal
             .pipeline_execution()
             .get_by_id(UniversalUuid(execution_id))
@@ -1034,7 +1034,7 @@ impl PipelineExecutor for DefaultRunner {
     async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), PipelineError> {
         // Implementation would mark execution as cancelled in database
         // and notify scheduler/executor to stop processing
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         dal.pipeline_execution()
             .cancel(execution_id.into())
@@ -1053,7 +1053,7 @@ impl PipelineExecutor for DefaultRunner {
     ///
     /// Currently limited to the 100 most recent executions.
     async fn list_executions(&self) -> Result<Vec<PipelineResult>, PipelineError> {
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         let executions = dal
             .pipeline_execution()
@@ -1116,7 +1116,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         // Validate cron expression and timezone
         use crate::CronEvaluator;
@@ -1188,7 +1188,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         dal.cron_schedule()
             .list(enabled_only, limit, offset)
             .await
@@ -1216,7 +1216,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         if enabled {
             dal.cron_schedule().enable(schedule_id).await
@@ -1245,7 +1245,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         dal.cron_schedule()
             .delete(schedule_id)
             .await
@@ -1271,7 +1271,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         dal.cron_schedule()
             .get_by_id(schedule_id)
             .await
@@ -1301,7 +1301,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
 
         // Validate inputs if provided
         if let (Some(expr), Some(tz)) = (cron_expression, timezone) {
@@ -1376,7 +1376,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         dal.cron_execution()
             .get_by_schedule_id(schedule_id, limit, offset)
             .await
@@ -1402,7 +1402,7 @@ impl DefaultRunner {
             });
         }
 
-        let dal = DAL::new(self.database.pool());
+        let dal = DAL::new(self.database.clone());
         dal.cron_execution()
             .get_execution_stats(since)
             .await
