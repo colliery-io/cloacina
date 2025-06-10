@@ -21,6 +21,7 @@
 
 use deadpool_diesel::sqlite::Pool;
 use diesel::sqlite::SqliteConnection;
+use crate::database::Database;
 
 pub mod context;
 pub mod cron_execution;
@@ -45,12 +46,15 @@ pub use cron_execution::CronExecutionStats;
 pub struct DAL {
     /// A connection pool for SQLite database connections.
     pub pool: Pool,
+    /// The Database instance for consistency with PostgreSQL
+    pub database: Database,
 }
 
 impl DAL {
-    /// Creates a new DAL instance with the provided connection pool.
-    pub fn new(pool: Pool) -> Self {
-        DAL { pool }
+    /// Creates a new DAL instance with the provided database.
+    pub fn new(database: Database) -> Self {
+        let pool = database.pool();
+        DAL { pool, database }
     }
 
     /// Executes a closure within a database transaction.

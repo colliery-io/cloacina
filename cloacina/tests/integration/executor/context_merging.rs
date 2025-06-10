@@ -201,7 +201,7 @@ async fn test_context_merging_latest_wins() {
     tokio::time::sleep(Duration::from_secs(3)).await;
 
     // Check merger task results
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let merger_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger_task")
@@ -309,7 +309,7 @@ async fn test_execution_scope_context_setup() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Check that scope information was captured
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector_task")

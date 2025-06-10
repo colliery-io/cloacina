@@ -81,7 +81,7 @@ impl ThreadTaskExecutor {
         task_registry: Arc<TaskRegistry>,
         config: ExecutorConfig,
     ) -> Self {
-        let dal = DAL::new(database.pool());
+        let dal = DAL::new(database.clone());
 
         Self {
             database,

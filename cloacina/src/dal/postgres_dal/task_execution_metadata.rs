@@ -56,7 +56,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
@@ -83,7 +83,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         task_name: &str,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let task_name_owned = task_name.to_string();
         let metadata = conn
@@ -110,7 +110,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let metadata = conn
             .interact(move |conn| {
@@ -137,7 +137,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_execution_id: UniversalUuid,
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let context_uuid: Option<Uuid> = context_id.map(|id| id.into());
         conn.interact(move |conn| {
@@ -169,7 +169,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
@@ -202,7 +202,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let dependency_task_names_owned = dependency_task_names.to_vec();
         let metadata = conn
@@ -243,7 +243,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             return Ok(Vec::new());
         }
 
-        let conn = self.dal.pool.get().await?;
+        let conn = self.dal.database.get_connection_with_schema().await.map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let dependency_task_names_owned = dependency_task_names.to_vec();
         let results = conn

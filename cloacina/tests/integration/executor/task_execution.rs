@@ -185,7 +185,7 @@ async fn test_task_executor_basic_execution() {
     time::sleep(Duration::from_millis(500)).await;
 
     // Check that task was executed
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let task_executions = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
@@ -255,7 +255,7 @@ async fn test_task_executor_dependency_loading() {
     time::sleep(Duration::from_secs(2)).await;
 
     // Check that consumer task successfully loaded dependency data
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let consumer_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "consumer_task")
@@ -342,7 +342,7 @@ async fn test_task_executor_timeout_handling() {
     time::sleep(Duration::from_secs(2)).await;
 
     // Check that task failed due to timeout
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "timeout_task_test")
@@ -420,7 +420,7 @@ async fn test_pipeline_engine_unified_mode() {
     time::sleep(Duration::from_secs(1)).await;
 
     // Check that task was processed
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "unified_task_test")
@@ -533,7 +533,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     time::sleep(Duration::from_secs(1)).await;
 
     // Verify the task successfully processed the initial context
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "initial_context_task_test")
@@ -684,7 +684,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
     time::sleep(Duration::from_secs(2)).await;
 
     // Verify both tasks completed
-    let dal = cloacina::dal::DAL::new(database.pool());
+    let dal = cloacina::dal::DAL::new(database.clone());
     let producer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), "producer_context_task")

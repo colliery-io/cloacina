@@ -106,9 +106,9 @@ impl TestFixture {
         &mut self.conn
     }
 
-    /// Get a DAL instance using the database connection pool
+    /// Get a DAL instance using the database
     pub fn get_dal(&self) -> cloacina::dal::DAL {
-        cloacina::dal::DAL::new(self.db.get_connection())
+        cloacina::dal::DAL::new(self.db.clone())
     }
 
     /// Get a clone of the database instance

@@ -290,6 +290,32 @@ impl Database {
     pub fn pool(&self) -> DbPool {
         self.pool.clone()
     }
+
+    /// Gets a connection from the pool with the correct schema search path set
+    ///
+    /// This method automatically sets the PostgreSQL search path for the connection
+    /// if a schema was configured, ensuring all database operations happen in the
+    /// correct tenant schema.
+    ///
+    /// # Returns
+    ///
+    /// Returns a connection with the search path properly configured
+    #[cfg(feature = "postgres")]
+    pub async fn get_connection_with_schema(&self) -> Result<deadpool::managed::Object<Manager>, deadpool::managed::PoolError<deadpool_diesel::Error>> {
+        use diesel::prelude::*;
+        
+        let conn = self.pool.get().await?;
+        
+        if let Some(ref schema) = self.schema {
+            let schema_name = schema.clone();
+            let _ = conn.interact(move |conn| {
+                let set_search_path_sql = format!("SET search_path TO {}, public", schema_name);
+                diesel::sql_query(&set_search_path_sql).execute(conn)
+            }).await;
+        }
+        
+        Ok(conn)
+    }
 }
 
 #[cfg(test)]
