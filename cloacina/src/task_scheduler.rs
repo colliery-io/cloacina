@@ -206,22 +206,6 @@ impl TaskScheduler {
         Ok(scheduler)
     }
 
-    /// Creates a new TaskScheduler with the provided database.
-    ///
-    /// This method is deprecated. Use `new()` instead which provides the same functionality.
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    ///
-    /// # Returns
-    ///
-    /// A new TaskScheduler instance ready to schedule and manage workflow executions.
-    #[deprecated(note = "Use TaskScheduler::new() instead")]
-    pub fn with_static_workflows(database: Database, _compiled_workflows: Vec<Workflow>) -> Self {
-        Self::with_poll_interval_sync(database, Duration::from_millis(100))
-    }
-
     /// Creates a new TaskScheduler with custom poll interval using global workflow registry.
     ///
     /// Uses all workflows registered in the global registry and enables automatic recovery.
@@ -258,103 +242,6 @@ impl TaskScheduler {
         }
     }
 
-    /// Creates a new TaskScheduler with custom poll interval.
-    ///
-    /// This method is deprecated. Use `with_poll_interval()` instead.
-    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
-    pub fn with_static_workflows_and_poll_interval(
-        database: Database,
-        _compiled_workflows: Vec<Workflow>,
-        poll_interval: Duration,
-    ) -> Self {
-        Self::with_poll_interval_sync(database, poll_interval)
-    }
-
-    /// Creates a new TaskScheduler with static workflows and automatic recovery of orphaned tasks.
-    ///
-    /// This method is deprecated. Use `new()` for the recommended behavior with global workflows.
-    ///
-    /// This method performs recovery during initialization by:
-    /// 1. Detecting tasks stuck in "Running" state from previous system interruptions
-    /// 2. Resetting orphaned tasks to "Ready" state for retry
-    /// 3. Tracking recovery events for monitoring
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    /// * `compiled_workflows` - Vector of compiled Workflow instances
-    ///
-    /// # Returns
-    ///
-    /// A TaskScheduler instance with recovery completed.
-    #[deprecated(note = "Use TaskScheduler::new() instead")]
-    pub async fn with_static_workflows_and_recovery(
-        database: Database,
-        _compiled_workflows: Vec<Workflow>,
-    ) -> Result<Self, ValidationError> {
-        Self::new(database).await
-    }
-
-    /// Creates a new TaskScheduler with static workflows, automatic recovery and custom poll interval.
-    ///
-    /// This method is deprecated. Use `with_poll_interval()` for the recommended behavior with global workflows.
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    /// * `compiled_workflows` - Vector of compiled Workflow instances
-    /// * `poll_interval` - How often to check for ready tasks
-    ///
-    /// # Returns
-    ///
-    /// A TaskScheduler instance with recovery completed.
-    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
-    pub async fn with_static_workflows_and_recovery_and_poll_interval(
-        database: Database,
-        _compiled_workflows: Vec<Workflow>,
-        poll_interval: Duration,
-    ) -> Result<Self, ValidationError> {
-        Self::with_poll_interval(database, poll_interval).await
-    }
-
-    /// Creates a new TaskScheduler with automatic recovery using workflows from the global registry.
-    ///
-    /// This method is deprecated. Use `new()` instead for the same behavior.
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    ///
-    /// # Returns
-    ///
-    /// A TaskScheduler instance with all globally registered workflows and recovery completed.
-    #[deprecated(note = "Use TaskScheduler::new() instead")]
-    pub async fn with_global_workflows_and_recovery(
-        database: Database,
-    ) -> Result<Self, ValidationError> {
-        Self::new(database).await
-    }
-
-    /// Creates a new TaskScheduler with automatic recovery using global workflows and custom poll interval.
-    ///
-    /// This method is deprecated. Use `with_poll_interval()` instead for the same behavior.
-    ///
-    /// # Arguments
-    ///
-    /// * `database` - Database instance for persistence
-    /// * `poll_interval` - How often to check for ready tasks
-    ///
-    /// # Returns
-    ///
-    /// A TaskScheduler instance with all globally registered workflows and recovery completed.
-    #[deprecated(note = "Use TaskScheduler::with_poll_interval() instead")]
-    pub async fn with_global_workflows_and_recovery_and_poll_interval(
-        database: Database,
-        poll_interval: Duration,
-    ) -> Result<Self, ValidationError> {
-        Self::with_poll_interval(database, poll_interval).await
-    }
-
     /// Schedules a new workflow execution with the provided input context.
     ///
     /// This method:
@@ -378,7 +265,7 @@ impl TaskScheduler {
     /// use cloacina::{Context, TaskScheduler};
     /// use serde_json::json;
     ///
-    /// let scheduler = TaskScheduler::with_global_workflows(database);
+    /// let scheduler = TaskScheduler::new(database).await?;
     /// let mut context = Context::new();
     /// context.insert("input", json!({"key": "value"}))?;
     ///

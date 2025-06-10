@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, Context, Task, TaskError, TaskRegistry};
+use cloacina::{task, Context, Task, TaskError, TaskNamespace, TaskRegistry};
 use serde_json::Value;
 
 #[task(id = "macro-test-simple-task", dependencies = [])]
@@ -79,8 +79,13 @@ async fn test_task_registry_with_macro_tasks() {
     let mut registry = TaskRegistry::new();
 
     // Register macro-generated tasks
-    registry.register(simple_task_task()).unwrap();
-    registry.register(dependent_task_task()).unwrap();
+    let ns1 = TaskNamespace::embedded("test_workflow", "macro-test-simple-task");
+    let ns2 = TaskNamespace::embedded("test_workflow", "macro-test-dependent-task");
+
+    registry.register(ns1.clone(), simple_task_task()).unwrap();
+    registry
+        .register(ns2.clone(), dependent_task_task())
+        .unwrap();
 
     // Validate dependencies
     assert!(registry.validate_dependencies().is_ok());
@@ -89,11 +94,11 @@ async fn test_task_registry_with_macro_tasks() {
     let sorted = registry.topological_sort().unwrap();
     let simple_pos = sorted
         .iter()
-        .position(|x| x == "macro-test-simple-task")
+        .position(|x| x.task_id == "macro-test-simple-task")
         .unwrap();
     let dependent_pos = sorted
         .iter()
-        .position(|x| x == "macro-test-dependent-task")
+        .position(|x| x.task_id == "macro-test-dependent-task")
         .unwrap();
 
     assert!(simple_pos < dependent_pos);
@@ -102,15 +107,20 @@ async fn test_task_registry_with_macro_tasks() {
 #[tokio::test]
 async fn test_task_execution_flow() {
     let mut registry = TaskRegistry::new();
-    registry.register(simple_task_task()).unwrap();
-    registry.register(dependent_task_task()).unwrap();
+    let ns1 = TaskNamespace::embedded("test_workflow", "macro-test-simple-task");
+    let ns2 = TaskNamespace::embedded("test_workflow", "macro-test-dependent-task");
+
+    registry.register(ns1.clone(), simple_task_task()).unwrap();
+    registry
+        .register(ns2.clone(), dependent_task_task())
+        .unwrap();
 
     let sorted = registry.topological_sort().unwrap();
     let mut context = Context::new();
 
     // Execute tasks in dependency order
-    for task_id in sorted {
-        let task = registry.get_task(&task_id).unwrap();
+    for task_ns in sorted {
+        let task = registry.get_task(&task_ns).unwrap();
         context = task.execute(context).await.unwrap();
     }
 

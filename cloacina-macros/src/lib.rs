@@ -719,8 +719,9 @@ fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
         const _: () = {
             #[ctor::ctor]
             fn auto_register() {
+                let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", #task_id);
                 cloacina::register_task_constructor(
-                    #task_id.to_string(),
+                    namespace,
                     || std::sync::Arc::new(#task_struct_name::new())
                 );
             }

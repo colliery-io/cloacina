@@ -333,10 +333,13 @@
 //!
 //! Tasks track their execution state for monitoring and recovery:
 
+pub mod namespace;
+
 use crate::context::Context;
 use crate::error::{CheckpointError, RegistrationError, TaskError, ValidationError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+pub use namespace::TaskNamespace;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -706,96 +709,19 @@ pub trait Task: Send + Sync {
 /// Most users won't interact with this directly as the `#[task]` macro and
 /// `workflow!` macro handle registration automatically.
 ///
+/// Now supports namespaced task registration for isolation and conflict resolution.
+///
 /// # Features
 ///
-/// - **Task Registration**: Add tasks with automatic ID validation
+/// - **Namespaced Task Registration**: Tasks organized by hierarchical namespace
 /// - **Dependency Validation**: Ensure all dependencies exist and detect cycles
 /// - **Topological Sorting**: Get tasks in dependency-safe execution order
-/// - **Task Lookup**: Retrieve tasks by ID
+/// - **Namespace-aware Lookup**: Retrieve tasks by namespace or with fallback
+/// - **Multi-tenant Support**: Isolate tasks by tenant, package, and workflow
 ///
-/// # Common Use Cases
+/// # Namespace Format
 ///
-/// ## Basic Task Registration
-///
-/// ```rust
-/// use cloacina::*;
-///
-/// let mut registry = TaskRegistry::new();
-///
-/// // Register a simple task
-/// registry.register(TestTask::new("task1", vec![]))?;
-///
-/// // Register a task with dependencies
-/// registry.register(TestTask::new("task2", vec!["task1"]))?;
-///
-/// // Validate the task graph
-/// registry.validate_dependencies()?;
-/// ```
-///
-/// ## Complex Dependency Graph
-///
-/// ```rust
-/// use cloacina::*;
-///
-/// let mut registry = TaskRegistry::new();
-///
-/// // Create a complex task graph
-/// registry.register(TestTask::new("extract", vec![]))?;
-/// registry.register(TestTask::new("transform1", vec!["extract"]))?;
-/// registry.register(TestTask::new("transform2", vec!["extract"]))?;
-/// registry.register(TestTask::new("load", vec!["transform1", "transform2"]))?;
-///
-/// // Get execution order
-/// let order = registry.topological_sort()?;
-/// assert_eq!(order, vec!["extract", "transform1", "transform2", "load"]);
-/// ```
-///
-/// ## Error Handling
-///
-/// ```rust
-/// use cloacina::*;
-///
-/// let mut registry = TaskRegistry::new();
-///
-/// // Register tasks
-/// registry.register(TestTask::new("task1", vec![]))?;
-///
-/// // Try to register duplicate task
-/// assert!(matches!(
-///     registry.register(TestTask::new("task1", vec![])),
-///     Err(RegistrationError::DuplicateTaskId { .. })
-/// ));
-///
-/// // Try to register task with missing dependency
-/// registry.register(TestTask::new("task2", vec!["nonexistent"]))?;
-/// assert!(matches!(
-///     registry.validate_dependencies(),
-///     Err(ValidationError::MissingDependencyOld { .. })
-/// ));
-/// ```
-///
-/// ## Task Lookup and Inspection
-///
-/// ```rust
-/// use cloacina::*;
-///
-/// let mut registry = TaskRegistry::new();
-///
-/// // Register tasks
-/// registry.register(TestTask::new("task1", vec![]))?;
-/// registry.register(TestTask::new("task2", vec!["task1"]))?;
-///
-/// // Look up tasks
-/// assert!(registry.get_task("task1").is_some());
-/// assert!(registry.get_task("task2").is_some());
-/// assert!(registry.get_task("nonexistent").is_none());
-///
-/// // Get all task IDs
-/// let ids = registry.task_ids();
-/// assert_eq!(ids.len(), 2);
-/// assert!(ids.contains(&"task1".to_string()));
-/// assert!(ids.contains(&"task2".to_string()));
-/// ```
+/// Tasks are identified by: `tenant_id::package_name::workflow_id::task_id`
 ///
 /// # Examples
 ///
@@ -804,34 +730,19 @@ pub trait Task: Send + Sync {
 ///
 /// let mut registry = TaskRegistry::new();
 ///
-/// // Register tasks (assuming task1, task2 are defined)
-/// # struct TestTask { id: String, deps: Vec<String> }
-/// # impl TestTask { fn new(id: &str, deps: Vec<&str>) -> Self { Self { id: id.to_string(), deps: deps.into_iter().map(|s| s.to_string()).collect() } } }
-/// # use async_trait::async_trait;
-/// # #[async_trait]
-/// # impl Task for TestTask {
-/// #     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-/// #     fn id(&self) -> &str { &self.id }
-/// #     fn dependencies(&self) -> &[String] { &self.deps }
-/// # }
-/// let task1 = TestTask::new("extract", vec![]);
-/// let task2 = TestTask::new("transform", vec!["extract"]);
-/// let task3 = TestTask::new("load", vec!["transform"]);
+/// // Register namespaced tasks
+/// let ns1 = TaskNamespace::embedded("customer_etl", "extract");
+/// let ns2 = TaskNamespace::embedded("customer_etl", "transform");
 ///
-/// registry.register(task1)?;
-/// registry.register(task2)?;
-/// registry.register(task3)?;
+/// registry.register_with_namespace(ns1, TestTask::new("extract", vec![]))?;
+/// registry.register_with_namespace(ns2, TestTask::new("transform", vec!["extract"]))?;
 ///
-/// // Validate all dependencies
-/// registry.validate_dependencies()?;
-///
-/// // Get execution order
-/// let order = registry.topological_sort()?;
-/// assert_eq!(order, vec!["extract", "transform", "load"]);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// // Look up tasks by namespace
+/// let task = registry.get_task_by_namespace(&TaskNamespace::embedded("customer_etl", "extract"));
+/// assert!(task.is_some());
 /// ```
 pub struct TaskRegistry {
-    tasks: HashMap<String, Arc<dyn Task>>,
+    tasks: HashMap<TaskNamespace, Arc<dyn Task>>,
 }
 
 impl TaskRegistry {
@@ -846,98 +757,87 @@ impl TaskRegistry {
     ///
     /// # Arguments
     ///
+    /// * `namespace` - The namespace for the task
     /// * `task` - The task to register
     ///
     /// # Returns
     ///
     /// * `Ok(())` - If registration succeeds
-    /// * `Err(RegistrationError)` - If the task ID is invalid or already exists
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use cloacina::*;
-    /// # use async_trait::async_trait;
-    /// # struct MyTask;
-    /// # #[async_trait]
-    /// # impl Task for MyTask {
-    /// #     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-    /// #     fn id(&self) -> &str { "my_task" }
-    /// #     fn dependencies(&self) -> &[String] { &[] }
-    /// # }
-    /// let mut registry = TaskRegistry::new();
-    /// let task = MyTask;
-    ///
-    /// registry.register(task)?;
-    /// assert!(registry.get_task("my_task").is_some());
-    /// # Ok::<(), RegistrationError>(())
-    /// ```
-    pub fn register<T: Task + 'static>(&mut self, task: T) -> Result<(), RegistrationError> {
-        let id = task.id().to_string();
-
-        // Validate task ID
-        if id.is_empty() {
+    /// * `Err(RegistrationError)` - If the namespace is already taken
+    pub fn register<T: Task + 'static>(
+        &mut self,
+        namespace: TaskNamespace,
+        task: T,
+    ) -> Result<(), RegistrationError> {
+        // Validate task ID is not empty
+        if namespace.task_id.is_empty() {
             return Err(RegistrationError::InvalidTaskId {
                 message: "Task ID cannot be empty".to_string(),
             });
         }
 
-        // Check for duplicate IDs
-        if self.tasks.contains_key(&id) {
-            return Err(RegistrationError::DuplicateTaskId { id });
+        // Check for duplicate namespace
+        if self.tasks.contains_key(&namespace) {
+            return Err(RegistrationError::DuplicateTaskId {
+                id: namespace.to_string(),
+            });
         }
 
-        self.tasks.insert(id, Arc::new(task));
+        self.tasks.insert(namespace, Arc::new(task));
         Ok(())
     }
 
     /// Register a boxed task in the registry (used internally)
-    pub fn register_arc(&mut self, task: Arc<dyn Task>) -> Result<(), RegistrationError> {
-        let id = task.id().to_string();
-
-        // Validate task ID
-        if id.is_empty() {
+    pub fn register_arc(
+        &mut self,
+        namespace: TaskNamespace,
+        task: Arc<dyn Task>,
+    ) -> Result<(), RegistrationError> {
+        // Validate task ID is not empty
+        if namespace.task_id.is_empty() {
             return Err(RegistrationError::InvalidTaskId {
                 message: "Task ID cannot be empty".to_string(),
             });
         }
 
-        // Check for duplicate IDs
-        if self.tasks.contains_key(&id) {
-            return Err(RegistrationError::DuplicateTaskId { id });
+        // Check for duplicate namespace
+        if self.tasks.contains_key(&namespace) {
+            return Err(RegistrationError::DuplicateTaskId {
+                id: namespace.to_string(),
+            });
         }
 
-        self.tasks.insert(id, task);
+        self.tasks.insert(namespace, task);
         Ok(())
     }
 
-    /// Get a task by ID
+    /// Get a task by namespace
     ///
     /// # Arguments
     ///
-    /// * `id` - The task ID to look up
+    /// * `namespace` - The namespace to look up
     ///
     /// # Returns
     ///
     /// * `Some(Arc<dyn Task>)` - If the task exists
-    /// * `None` - If no task with that ID is registered
-    pub fn get_task(&self, id: &str) -> Option<Arc<dyn Task>> {
-        self.tasks.get(id).cloned()
+    /// * `None` - If no task with that namespace is registered
+    pub fn get_task(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
+        self.tasks.get(namespace).cloned()
     }
 
-    /// Get all registered task IDs
+    /// Get all registered task namespaces
     ///
     /// # Returns
     ///
-    /// A vector of all task IDs currently registered
-    pub fn task_ids(&self) -> Vec<String> {
+    /// A vector of all task namespaces currently registered
+    pub fn task_ids(&self) -> Vec<TaskNamespace> {
         self.tasks.keys().cloned().collect()
     }
 
     /// Validate all task dependencies
     ///
     /// Checks that:
-    /// - All dependencies exist as registered tasks
+    /// - All dependencies exist as registered tasks within the same workflow
     /// - No circular dependencies exist
     ///
     /// # Returns
@@ -946,11 +846,19 @@ impl TaskRegistry {
     /// * `Err(ValidationError)` - If validation fails
     pub fn validate_dependencies(&self) -> Result<(), ValidationError> {
         // Check for missing dependencies
-        for (task_id, task) in &self.tasks {
+        for (namespace, task) in &self.tasks {
             for dependency in task.dependencies() {
-                if !self.tasks.contains_key(dependency) {
+                // Create dependency namespace (same tenant/package/workflow, different task)
+                let dependency_namespace = TaskNamespace::new(
+                    &namespace.tenant_id,
+                    &namespace.package_name,
+                    &namespace.workflow_id,
+                    dependency,
+                );
+
+                if !self.tasks.contains_key(&dependency_namespace) {
                     return Err(ValidationError::MissingDependencyOld {
-                        task_id: task_id.clone(),
+                        task_id: namespace.to_string(),
                         dependency: dependency.clone(),
                     });
                 }
@@ -961,9 +869,9 @@ impl TaskRegistry {
         let mut visited = HashMap::new();
         let mut rec_stack = HashMap::new();
 
-        for task_id in self.tasks.keys() {
-            if !visited.get(task_id).unwrap_or(&false) {
-                if let Err(cycle) = self.check_cycles(task_id, &mut visited, &mut rec_stack) {
+        for namespace in self.tasks.keys() {
+            if !visited.get(namespace).unwrap_or(&false) {
+                if let Err(cycle) = self.check_cycles(namespace, &mut visited, &mut rec_stack) {
                     return Err(ValidationError::CircularDependency { cycle });
                 }
             }
@@ -975,26 +883,35 @@ impl TaskRegistry {
     /// Helper method to detect circular dependencies using DFS
     fn check_cycles(
         &self,
-        task_id: &str,
-        visited: &mut HashMap<String, bool>,
-        rec_stack: &mut HashMap<String, bool>,
+        namespace: &TaskNamespace,
+        visited: &mut HashMap<TaskNamespace, bool>,
+        rec_stack: &mut HashMap<TaskNamespace, bool>,
     ) -> Result<(), String> {
-        visited.insert(task_id.to_string(), true);
-        rec_stack.insert(task_id.to_string(), true);
+        visited.insert(namespace.clone(), true);
+        rec_stack.insert(namespace.clone(), true);
 
-        if let Some(task) = self.tasks.get(task_id) {
+        if let Some(task) = self.tasks.get(namespace) {
             for dependency in task.dependencies() {
-                if !visited.get(dependency).unwrap_or(&false) {
-                    if let Err(cycle) = self.check_cycles(dependency, visited, rec_stack) {
-                        return Err(format!("{} -> {}", task_id, cycle));
+                // Create dependency namespace (same tenant/package/workflow, different task)
+                let dependency_namespace = TaskNamespace::new(
+                    &namespace.tenant_id,
+                    &namespace.package_name,
+                    &namespace.workflow_id,
+                    dependency,
+                );
+
+                if !visited.get(&dependency_namespace).unwrap_or(&false) {
+                    if let Err(cycle) = self.check_cycles(&dependency_namespace, visited, rec_stack)
+                    {
+                        return Err(format!("{} -> {}", namespace.task_id, cycle));
                     }
-                } else if *rec_stack.get(dependency).unwrap_or(&false) {
-                    return Err(format!("{} -> {}", task_id, dependency));
+                } else if *rec_stack.get(&dependency_namespace).unwrap_or(&false) {
+                    return Err(format!("{} -> {}", namespace.task_id, dependency));
                 }
             }
         }
 
-        rec_stack.insert(task_id.to_string(), false);
+        rec_stack.insert(namespace.clone(), false);
         Ok(())
     }
 
@@ -1005,33 +922,9 @@ impl TaskRegistry {
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<String>)` - Task IDs in topological order
+    /// * `Ok(Vec<TaskNamespace>)` - Task namespaces in topological order
     /// * `Err(ValidationError)` - If dependencies are invalid or cycles exist
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use cloacina::*;
-    /// # use async_trait::async_trait;
-    /// # struct TestTask { id: String, deps: Vec<String> }
-    /// # impl TestTask { fn new(id: &str, deps: Vec<&str>) -> Self { Self { id: id.to_string(), deps: deps.into_iter().map(|s| s.to_string()).collect() } } }
-    /// # #[async_trait]
-    /// # impl Task for TestTask {
-    /// #     async fn execute(&self, context: Context<serde_json::Value>) -> Result<Context<serde_json::Value>, TaskError> { Ok(context) }
-    /// #     fn id(&self) -> &str { &self.id }
-    /// #     fn dependencies(&self) -> &[String] { &self.deps }
-    /// # }
-    /// let mut registry = TaskRegistry::new();
-    /// registry.register(TestTask::new("c", vec!["a", "b"]))?;
-    /// registry.register(TestTask::new("b", vec!["a"]))?;
-    /// registry.register(TestTask::new("a", vec![]))?;
-    ///
-    /// let order = registry.topological_sort()?;
-    /// // "a" comes first, then "b", then "c"
-    /// assert_eq!(order, vec!["a", "b", "c"]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn topological_sort(&self) -> Result<Vec<String>, ValidationError> {
+    pub fn topological_sort(&self) -> Result<Vec<TaskNamespace>, ValidationError> {
         // First validate dependencies
         self.validate_dependencies()?;
 
@@ -1039,16 +932,26 @@ impl TaskRegistry {
         let mut adj_list = HashMap::new();
 
         // Initialize in-degree and adjacency list
-        for task_id in self.tasks.keys() {
-            in_degree.insert(task_id.clone(), 0);
-            adj_list.insert(task_id.clone(), Vec::new());
+        for namespace in self.tasks.keys() {
+            in_degree.insert(namespace.clone(), 0);
+            adj_list.insert(namespace.clone(), Vec::new());
         }
 
         // Build adjacency list and calculate in-degrees
-        for (task_id, task) in &self.tasks {
+        for (namespace, task) in &self.tasks {
             for dependency in task.dependencies() {
-                adj_list.get_mut(dependency).unwrap().push(task_id.clone());
-                *in_degree.get_mut(task_id).unwrap() += 1;
+                // Create dependency namespace (same tenant/package/workflow, different task)
+                let dependency_namespace = TaskNamespace::new(
+                    &namespace.tenant_id,
+                    &namespace.package_name,
+                    &namespace.workflow_id,
+                    dependency,
+                );
+
+                if let Some(adj_list_entry) = adj_list.get_mut(&dependency_namespace) {
+                    adj_list_entry.push(namespace.clone());
+                    *in_degree.get_mut(namespace).unwrap() += 1;
+                }
             }
         }
 
@@ -1057,9 +960,9 @@ impl TaskRegistry {
         let mut result = Vec::new();
 
         // Add nodes with no incoming edges
-        for (task_id, &degree) in &in_degree {
+        for (namespace, &degree) in &in_degree {
             if degree == 0 {
-                queue.push(task_id.clone());
+                queue.push(namespace.clone());
             }
         }
 
@@ -1094,14 +997,14 @@ impl Default for TaskRegistry {
 
 /// Global registry for automatically registering tasks created with the `#[task]` macro
 static GLOBAL_TASK_REGISTRY: Lazy<
-    Arc<RwLock<HashMap<String, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>>,
+    Arc<RwLock<HashMap<TaskNamespace, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>>,
 > = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-/// Register a task constructor function globally
+/// Register a task constructor function globally with namespace
 ///
-/// This is used internally by the `#[task]` macro to automatically register tasks.
+/// This is used internally by the `workflow!` macro to automatically register tasks.
 /// Most users won't call this directly.
-pub fn register_task_constructor<F>(task_id: String, constructor: F)
+pub fn register_task_constructor<F>(namespace: TaskNamespace, constructor: F)
 where
     F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
 {
@@ -1112,8 +1015,11 @@ where
             poisoned.into_inner()
         }
     };
-    registry.insert(task_id, Box::new(constructor));
-    tracing::debug!("Successfully registered task constructor");
+    registry.insert(namespace.clone(), Box::new(constructor));
+    tracing::debug!(
+        "Successfully registered task constructor for namespace: {}",
+        namespace
+    );
 }
 
 /// Get the global task registry
@@ -1121,15 +1027,15 @@ where
 /// This provides access to the global task registry used by the macro system.
 /// Most users won't need to call this directly.
 pub fn global_task_registry(
-) -> Arc<RwLock<HashMap<String, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>> {
+) -> Arc<RwLock<HashMap<TaskNamespace, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>> {
     GLOBAL_TASK_REGISTRY.clone()
 }
 
-/// Get a task instance from the global registry by ID
+/// Get a task instance from the global registry by namespace
 ///
 /// This is a convenience function for getting task instances without
 /// directly accessing the registry.
-pub fn get_task(task_id: &str) -> Option<Arc<dyn Task>> {
+pub fn get_task(namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
     let registry = match GLOBAL_TASK_REGISTRY.read() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -1137,7 +1043,16 @@ pub fn get_task(task_id: &str) -> Option<Arc<dyn Task>> {
             poisoned.into_inner()
         }
     };
-    registry.get(task_id).map(|constructor| constructor())
+    registry.get(namespace).map(|constructor| constructor())
+}
+
+/// Get a task instance by task ID using default namespace
+///
+/// This is a convenience function for backward compatibility.
+/// Uses default namespace: public::embedded::default::{task_id}
+pub fn get_task_by_id(task_id: &str) -> Option<Arc<dyn Task>> {
+    let namespace = TaskNamespace::new("public", "embedded", "default", task_id);
+    get_task(&namespace)
 }
 
 #[cfg(test)]
@@ -1229,12 +1144,17 @@ mod tests {
         let task1 = TestTask::new("task1", vec![]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        assert!(registry.register(task1).is_ok());
-        assert!(registry.register(task2).is_ok());
+        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
 
-        assert!(registry.get_task("task1").is_some());
-        assert!(registry.get_task("task2").is_some());
-        assert!(registry.get_task("nonexistent").is_none());
+        assert!(registry.register(ns1.clone(), task1).is_ok());
+        assert!(registry.register(ns2.clone(), task2).is_ok());
+
+        assert!(registry.get_task(&ns1).is_some());
+        assert!(registry.get_task(&ns2).is_some());
+
+        let nonexistent_ns = TaskNamespace::embedded("test_workflow", "nonexistent");
+        assert!(registry.get_task(&nonexistent_ns).is_none());
     }
 
     #[test]
@@ -1246,9 +1166,11 @@ mod tests {
         let task1 = TestTask::new("task1", vec![]);
         let task1_duplicate = TestTask::new("task1", vec![]);
 
-        assert!(registry.register(task1).is_ok());
+        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+
+        assert!(registry.register(ns1.clone(), task1).is_ok());
         assert!(matches!(
-            registry.register(task1_duplicate),
+            registry.register(ns1, task1_duplicate),
             Err(RegistrationError::DuplicateTaskId { .. })
         ));
     }
@@ -1263,9 +1185,13 @@ mod tests {
         let task2 = TestTask::new("task2", vec!["task1"]);
         let task3 = TestTask::new("task3", vec!["nonexistent"]);
 
-        registry.register(task1).unwrap();
-        registry.register(task2).unwrap();
-        registry.register(task3).unwrap();
+        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
+        let ns3 = TaskNamespace::embedded("test_workflow", "task3");
+
+        registry.register(ns1, task1).unwrap();
+        registry.register(ns2, task2).unwrap();
+        registry.register(ns3, task3).unwrap();
 
         // Should fail due to missing dependency
         assert!(matches!(
@@ -1283,8 +1209,11 @@ mod tests {
         let task1 = TestTask::new("task1", vec!["task2"]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        registry.register(task1).unwrap();
-        registry.register(task2).unwrap();
+        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
+
+        registry.register(ns1, task1).unwrap();
+        registry.register(ns2, task2).unwrap();
 
         assert!(matches!(
             registry.validate_dependencies(),
@@ -1302,17 +1231,21 @@ mod tests {
         let task2 = TestTask::new("task2", vec!["task1"]);
         let task3 = TestTask::new("task3", vec!["task1", "task2"]);
 
-        registry.register(task1).unwrap();
-        registry.register(task2).unwrap();
-        registry.register(task3).unwrap();
+        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
+        let ns3 = TaskNamespace::embedded("test_workflow", "task3");
+
+        registry.register(ns1.clone(), task1).unwrap();
+        registry.register(ns2.clone(), task2).unwrap();
+        registry.register(ns3.clone(), task3).unwrap();
 
         let sorted = registry.topological_sort().unwrap();
 
         // task1 should come before task2 and task3
         // task2 should come before task3
-        let pos1 = sorted.iter().position(|x| x == "task1").unwrap();
-        let pos2 = sorted.iter().position(|x| x == "task2").unwrap();
-        let pos3 = sorted.iter().position(|x| x == "task3").unwrap();
+        let pos1 = sorted.iter().position(|x| x.task_id == "task1").unwrap();
+        let pos2 = sorted.iter().position(|x| x.task_id == "task2").unwrap();
+        let pos3 = sorted.iter().position(|x| x.task_id == "task3").unwrap();
 
         assert!(pos1 < pos2);
         assert!(pos1 < pos3);
