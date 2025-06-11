@@ -1,5 +1,5 @@
 [workspace]
-members = ["cloacina", "cloacina-macros"]
+members = ["cloacina", "cloacina-macros", "cloacina-ctl"]
 exclude = ["examples/*", "cloaca-backend"]
 resolver = "2"
 
@@ -20,3 +20,6 @@ ctor = { version = "0.2" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
 cloacina-macros = { version = "0.2.0-alpha.5", path = "cloacina-macros" }
+clap = { version = "4.0", features = ["derive"] }
+anyhow = { version = "1.0" }
+toml = { version = "0.8" }
