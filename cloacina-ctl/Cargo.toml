@@ -27,6 +27,7 @@ regex = "1.10"
 tar = "0.4"
 flate2 = "1.0"
 tempfile = "3.0"
+libloading = "0.8"
 
 [dev-dependencies]
 tempfile = "3.0"
