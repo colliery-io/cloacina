@@ -174,29 +174,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // runner.add_schedule(backup_schedule).await?;
 
     // For this tutorial, we'll demonstrate manual execution
-    info!("Demonstrating scheduled workflows (manual execution for tutorial):");
-
-    // Simulate backup execution
-    info!("\n--- Simulated Backup Schedule (every 30 minutes) ---");
-    let mut backup_context = Context::new();
-    backup_context.insert("backup_type", json!("incremental"))?;
-    let backup_result = runner.execute("data_backup", backup_context).await?;
-    info!("Backup result: {:?}", backup_result.status);
-
-    // Simulate health check execution
-    info!("\n--- Simulated Health Check Schedule (every 5 minutes) ---");
-    let health_context = Context::new();
-    let health_result = runner.execute("health_check", health_context).await?;
-    info!("Health check result: {:?}", health_result.status);
-
-    // Simulate daily report execution
-    info!("\n--- Simulated Daily Report Schedule (daily at 6 AM) ---");
-    let report_context = Context::new();
-    let report_result = runner.execute("daily_report", report_context).await?;
-    info!("Report result: {:?}", report_result.status);
-
-    info!("\n✅ Tutorial 05 completed successfully!");
-    info!("In production, these workflows would run automatically via cron schedules.");
 
     // Cleanup
     runner.shutdown().await?;

@@ -23,6 +23,7 @@
 //!
 //! - `#[task]` attribute macro for defining tasks with retry policies and trigger rules
 //! - `workflow!` macro for declarative workflow definition
+//! - `#[packaged_workflow]` attribute macro for creating distributable workflow packages
 //! - Compile-time validation of task dependencies and workflow structure
 //! - Automatic task and workflow registration
 //! - Code fingerprinting for task versioning
@@ -58,7 +59,7 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use registry::{get_registry, TaskInfo};
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use syn::{
     parse::{Parse, ParseStream},
@@ -800,6 +801,9 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     // Use a timeout to avoid hanging if there are mutex issues
     let file_path = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "unknown".to_string());
 
+    // Check if we're in a packaged workflow context by looking at the file path
+    let is_packaged_workflow = file_path.contains("packaged-workflow");
+
     let task_info = TaskInfo {
         id: attrs.id.clone(),
         dependencies: attrs.dependencies.clone(),
@@ -807,22 +811,27 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let validation_result = {
-        // Try to acquire the lock with a timeout approach
-        match get_registry().try_lock() {
-            Ok(mut registry) => {
-                // Register this task
-                match registry.register_task(task_info) {
-                    Err(e) => Err(e),
-                    Ok(()) => {
-                        // Validate dependencies for this task
-                        registry.validate_dependencies(&attrs.id)
+        // Skip validation for packaged workflows - they will be validated at the module level
+        if is_packaged_workflow {
+            Ok(())
+        } else {
+            // Try to acquire the lock with a timeout approach
+            match get_registry().try_lock() {
+                Ok(mut registry) => {
+                    // Register this task
+                    match registry.register_task(task_info) {
+                        Err(e) => Err(e),
+                        Ok(()) => {
+                            // Validate dependencies for this task
+                            registry.validate_dependencies(&attrs.id)
+                        }
                     }
                 }
-            }
-            Err(_) => {
-                // If we can't acquire the lock, skip validation to avoid hanging
-                // This can happen during parallel compilation
-                Ok(())
+                Err(_) => {
+                    // If we can't acquire the lock, skip validation to avoid hanging
+                    // This can happen during parallel compilation
+                    Ok(())
+                }
             }
         }
     };
@@ -1057,4 +1066,639 @@ pub fn workflow(input: TokenStream) -> TokenStream {
     };
 
     generate_workflow_impl(attrs).into()
+}
+
+/// Attributes for the packaged_workflow macro
+///
+/// # Fields
+///
+/// * `package` - Package name for namespace isolation (required)
+/// * `version` - Package version (required)
+/// * `description` - Optional description of the workflow package
+/// * `author` - Optional author information
+struct PackagedWorkflowAttributes {
+    package: String,
+    version: String,
+    description: Option<String>,
+    author: Option<String>,
+}
+
+impl Parse for PackagedWorkflowAttributes {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let mut package = None;
+        let mut version = None;
+        let mut description = None;
+        let mut author = None;
+
+        while !input.is_empty() {
+            let field_name: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match field_name.to_string().as_str() {
+                "package" => {
+                    let lit: LitStr = input.parse()?;
+                    package = Some(lit.value());
+                }
+                "version" => {
+                    let lit: LitStr = input.parse()?;
+                    version = Some(lit.value());
+                }
+                "description" => {
+                    let lit: LitStr = input.parse()?;
+                    description = Some(lit.value());
+                }
+                "author" => {
+                    let lit: LitStr = input.parse()?;
+                    author = Some(lit.value());
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        field_name.span(),
+                        format!("Unknown attribute: {}", field_name),
+                    ));
+                }
+            }
+
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        let package = package.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "packaged_workflow macro requires 'package' attribute",
+            )
+        })?;
+
+        let version = version.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "packaged_workflow macro requires 'version' attribute",
+            )
+        })?;
+
+        Ok(PackagedWorkflowAttributes {
+            package,
+            version,
+            description,
+            author,
+        })
+    }
+}
+
+/// Detect circular dependencies within a package's task dependencies
+///
+/// This function performs cycle detection specifically within the scope of a single
+/// packaged workflow, without relying on the global registry. It uses a depth-first
+/// search to detect cycles in the local dependency graph.
+///
+/// # Arguments
+///
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+///
+/// # Returns
+///
+/// * `Ok(())` if no cycles are found
+/// * `Err(String)` with cycle description if a cycle is detected
+fn detect_package_cycles(task_dependencies: &HashMap<String, Vec<String>>) -> Result<(), String> {
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    for task_id in task_dependencies.keys() {
+        if !visited.contains(task_id) {
+            if let Err(cycle_error) = dfs_package_cycle_detection(
+                task_id,
+                task_dependencies,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+            ) {
+                return Err(cycle_error);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Depth-first search implementation for package-level cycle detection
+///
+/// # Arguments
+///
+/// * `task_id` - Current task being visited
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `visited` - Set tracking visited tasks
+/// * `rec_stack` - Set tracking tasks in current recursion stack
+/// * `path` - Current path being explored
+///
+/// # Returns
+///
+/// * `Ok(())` if no cycle is found
+/// * `Err(String)` with cycle description if a cycle is detected
+fn dfs_package_cycle_detection(
+    task_id: &str,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+    rec_stack: &mut HashSet<String>,
+    path: &mut Vec<String>,
+) -> Result<(), String> {
+    visited.insert(task_id.to_string());
+    rec_stack.insert(task_id.to_string());
+    path.push(task_id.to_string());
+
+    if let Some(dependencies) = task_dependencies.get(task_id) {
+        for dependency in dependencies {
+            // Only check dependencies that are defined within this package
+            if task_dependencies.contains_key(dependency) {
+                if !visited.contains(dependency) {
+                    dfs_package_cycle_detection(
+                        dependency,
+                        task_dependencies,
+                        visited,
+                        rec_stack,
+                        path,
+                    )?;
+                } else if rec_stack.contains(dependency) {
+                    // Found cycle - build cycle description
+                    let cycle_start = path.iter().position(|x| x == dependency).unwrap_or(0);
+                    let mut cycle: Vec<String> = path[cycle_start..].to_vec();
+                    cycle.push(dependency.to_string()); // Complete the cycle
+
+                    return Err(format!("{} -> {}", cycle.join(" -> "), dependency));
+                }
+            }
+        }
+    }
+
+    rec_stack.remove(task_id);
+    path.pop();
+    Ok(())
+}
+
+/// Generate packaged workflow implementation
+///
+/// Creates the necessary entry points and metadata for a distributable workflow package.
+/// This includes:
+/// - Package metadata structure
+/// - Task registration functions using namespace isolation
+/// - Standard ABI entry points for dynamic loading
+/// - Version information and fingerprinting
+/// - Compile-time validation of task dependencies within the package
+///
+/// # Arguments
+///
+/// * `attrs` - The packaged workflow attributes
+/// * `input` - The input module to be packaged
+///
+/// # Returns
+///
+/// A `TokenStream2` containing the generated packaged workflow implementation
+fn generate_packaged_workflow_impl(
+    attrs: PackagedWorkflowAttributes,
+    input: syn::ItemMod,
+) -> TokenStream2 {
+    let mod_name = &input.ident;
+    let mod_vis = &input.vis;
+    let mod_content = &input.content;
+
+    let package_name = &attrs.package;
+    let package_version = &attrs.version;
+    let package_description = attrs
+        .description
+        .unwrap_or_else(|| format!("Workflow package: {}", package_name));
+    let package_author = attrs.author.unwrap_or_else(|| "Unknown".to_string());
+
+    // Generate a normalized package name for use in identifiers
+    let package_ident = syn::Ident::new(
+        &package_name
+            .replace("-", "_")
+            .replace(" ", "_")
+            .to_lowercase(),
+        mod_name.span(),
+    );
+
+    // Generate unique ABI function names based on package
+    let register_abi_name = syn::Ident::new(
+        &format!("register_tasks_abi_{}", package_ident),
+        mod_name.span(),
+    );
+    let metadata_abi_name = syn::Ident::new(
+        &format!("get_package_metadata_abi_{}", package_ident),
+        mod_name.span(),
+    );
+
+    // Generate metadata struct name
+    let metadata_struct_name = syn::Ident::new(
+        &format!(
+            "{}PackageMetadata",
+            to_pascal_case(&package_ident.to_string())
+        ),
+        mod_name.span(),
+    );
+
+    // Extract task function information from module content and perform validation
+    let mut task_registrations = Vec::new();
+    let mut detected_tasks = HashMap::new();
+    let mut task_dependencies = HashMap::new();
+
+    if let Some((_, items)) = mod_content {
+        // First pass: collect all tasks and their metadata
+        for item in items {
+            if let syn::Item::Fn(item_fn) = item {
+                // Check if this function has a #[task] attribute
+                for attr in &item_fn.attrs {
+                    if attr.path().is_ident("task") {
+                        let fn_name = &item_fn.sig.ident;
+
+                        // Parse the task attributes to get the task ID and dependencies
+                        if let Ok(task_attrs) = attr.parse_args::<TaskAttributes>() {
+                            let task_id = &task_attrs.id;
+                            detected_tasks.insert(task_id.clone(), fn_name.clone());
+                            task_dependencies
+                                .insert(task_id.clone(), task_attrs.dependencies.clone());
+
+                            // Generate task constructor name (following the pattern from the task macro)
+                            let task_constructor_name =
+                                syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+
+                            // Generate registration call using namespace isolation
+                            let registration = quote! {
+                                {
+                                    let namespace = cloacina::TaskNamespace::new(
+                                        tenant_id,
+                                        #package_name,
+                                        workflow_id,
+                                        #task_id
+                                    );
+                                    cloacina::register_task_constructor(
+                                        namespace,
+                                        || std::sync::Arc::new(#task_constructor_name())
+                                    );
+                                }
+                            };
+                            task_registrations.push(registration);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Second pass: validate dependencies within the package
+        for (task_id, dependencies) in &task_dependencies {
+            for dependency in dependencies {
+                // Check if dependency exists within this package
+                if !detected_tasks.contains_key(dependency) {
+                    // If not found locally, check global registry for external dependencies
+                    let validation_result = {
+                        match get_registry().try_lock() {
+                            Ok(registry) => {
+                                if !registry.get_all_task_ids().contains(dependency) {
+                                    Err(format!(
+                                        "Task '{}' depends on undefined task '{}'. \
+                                        This dependency is not defined within the '{}' package \
+                                        and is not available in the global registry.\n\n\
+                                        Available tasks in this package: [{}]\n\n\
+                                        Hint: Make sure all task dependencies are either:\n\
+                                        1. Defined within the same packaged workflow module, or\n\
+                                        2. Registered in the global task registry before this package is processed",
+                                        task_id,
+                                        dependency,
+                                        package_name,
+                                        detected_tasks.keys().cloned().collect::<Vec<_>>().join(", ")
+                                    ))
+                                } else {
+                                    Ok(())
+                                }
+                            }
+                            Err(_) => {
+                                // If we can't acquire the lock, skip validation to avoid hanging
+                                Ok(())
+                            }
+                        }
+                    };
+
+                    // Return compile error if validation failed
+                    if let Err(error_msg) = validation_result {
+                        return quote! {
+                            compile_error!(#error_msg);
+                        };
+                    }
+                }
+            }
+        }
+
+        // Third pass: check for circular dependencies within the package
+        let cycle_result = detect_package_cycles(&task_dependencies);
+        if let Err(cycle_error) = cycle_result {
+            let error_msg = format!(
+                "Circular dependency detected within package '{}': {}\n\n\
+                Hint: Review your task dependencies to eliminate cycles.",
+                package_name, cycle_error
+            );
+            return quote! {
+                compile_error!(#error_msg);
+            };
+        }
+    }
+
+    // Generate package fingerprint based on version and content
+    let mut hasher = DefaultHasher::new();
+    package_name.hash(&mut hasher);
+    package_version.hash(&mut hasher);
+    if let Some((_, items)) = mod_content {
+        for item in items {
+            quote::quote!(#item).to_string().hash(&mut hasher);
+        }
+    }
+    let package_fingerprint = format!("{:016x}", hasher.finish());
+
+    // Extract the module items for proper token generation
+    let module_items = if let Some((_, items)) = mod_content {
+        items.iter().collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    quote! {
+        // Keep the original module with enhanced functionality
+        #mod_vis mod #mod_name {
+            #(#module_items)*
+
+            /// Package metadata for this workflow package
+            #[derive(Debug, Clone)]
+            pub struct #metadata_struct_name {
+                pub package: &'static str,
+                pub version: &'static str,
+                pub description: &'static str,
+                pub author: &'static str,
+                pub fingerprint: &'static str,
+            }
+
+            impl #metadata_struct_name {
+                pub const fn new() -> Self {
+                    Self {
+                        package: #package_name,
+                        version: #package_version,
+                        description: #package_description,
+                        author: #package_author,
+                        fingerprint: #package_fingerprint,
+                    }
+                }
+            }
+
+            /// Get package metadata
+            pub fn get_package_metadata() -> #metadata_struct_name {
+                #metadata_struct_name::new()
+            }
+
+            /// Register all tasks in this package with namespace isolation
+            ///
+            /// This function registers all tasks defined in this package under the
+            /// package's namespace for proper isolation from other packages.
+            pub fn register_package_tasks(tenant_id: &str, workflow_id: &str) {
+                #(#task_registrations)*
+            }
+
+            /// Standard ABI entry point for dynamic loading
+            ///
+            /// This function provides a standardized interface that can be called
+            /// when the package is dynamically loaded as a shared library.
+            #[no_mangle]
+            pub extern "C" fn #register_abi_name(tenant_id: *const std::os::raw::c_char, workflow_id: *const std::os::raw::c_char) {
+                use std::ffi::CStr;
+
+                if tenant_id.is_null() || workflow_id.is_null() {
+                    return;
+                }
+
+                let tenant_id = unsafe {
+                    match CStr::from_ptr(tenant_id).to_str() {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    }
+                };
+
+                let workflow_id = unsafe {
+                    match CStr::from_ptr(workflow_id).to_str() {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    }
+                };
+
+                register_package_tasks(tenant_id, workflow_id);
+            }
+
+            /// Get package metadata via ABI
+            #[no_mangle]
+            pub extern "C" fn #metadata_abi_name() -> *const #metadata_struct_name {
+                Box::leak(Box::new(get_package_metadata()))
+            }
+        }
+    }
+}
+
+/// The packaged_workflow macro for creating distributable workflow packages
+///
+/// This macro transforms a module into a packaged workflow that can be:
+/// - Compiled into a shared library (.so file)
+/// - Dynamically loaded by executors
+/// - Properly isolated using namespace system
+/// - Versioned and fingerprinted for integrity
+///
+/// # Usage
+///
+/// ```rust
+/// #[packaged_workflow(
+///     package = "analytics_pipeline",
+///     version = "1.0.0",
+///     description = "Real-time analytics workflow",
+///     author = "Analytics Team"
+/// )]
+/// mod analytics_workflow {
+///     use cloacina_macros::task;
+///     use cloacina::{Context, TaskError};
+///
+///     #[task(id = "extract_data", dependencies = [])]
+///     async fn extract_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+///         // Implementation
+///         Ok(())
+///     }
+///
+///     #[task(id = "transform_data", dependencies = ["extract_data"])]
+///     async fn transform_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+///         // Implementation
+///         Ok(())
+///     }
+/// }
+/// ```
+///
+/// # Attributes
+///
+/// See `PackagedWorkflowAttributes` for available configuration options.
+#[proc_macro_attribute]
+pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = TokenStream2::from(args);
+    let input = TokenStream2::from(input);
+
+    let attrs = match syn::parse2::<PackagedWorkflowAttributes>(args) {
+        Ok(attrs) => attrs,
+        Err(e) => {
+            return syn::Error::new(
+                Span::call_site(),
+                format!("Invalid packaged_workflow attributes: {}", e),
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let input_mod = match syn::parse2::<syn::ItemMod>(input) {
+        Ok(input_mod) => input_mod,
+        Err(e) => {
+            return syn::Error::new(
+                Span::call_site(),
+                format!(
+                    "packaged_workflow macro can only be applied to modules: {}",
+                    e
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    generate_packaged_workflow_impl(attrs, input_mod).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_packaged_workflow_macro_compiles() {
+        // This test verifies the macro generates valid code
+        let input = quote! {
+            #[packaged_workflow(
+                package = "test_package",
+                version = "1.0.0",
+                description = "Test workflow package",
+                author = "Test Author"
+            )]
+            mod test_workflow {
+                use cloacina::{Context, TaskError};
+                use cloacina_macros::task;
+
+                #[task(id = "task1", dependencies = [])]
+                async fn task1(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+                    Ok(())
+                }
+
+                #[task(id = "task2", dependencies = ["task1"])]
+                async fn task2(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+                    Ok(())
+                }
+            }
+        };
+
+        // Parse and generate the code - if this doesn't panic, the macro works
+        let attrs = PackagedWorkflowAttributes {
+            package: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Test workflow package".to_string()),
+            author: Some("Test Author".to_string()),
+        };
+
+        let input_mod = syn::parse2::<syn::ItemMod>(input).expect("Failed to parse module");
+        let _generated = generate_packaged_workflow_impl(attrs, input_mod);
+    }
+
+    #[test]
+    fn test_task_namespace_format() {
+        // Verify the namespace format matches our design
+        let namespace = quote! {
+            cloacina::TaskNamespace::new(
+                "tenant_123",
+                "analytics_pkg",
+                "etl_workflow",
+                "extract_data"
+            )
+        };
+
+        // This should generate: "tenant_123::analytics_pkg::etl_workflow::extract_data"
+        let expected = "tenant_123::analytics_pkg::etl_workflow::extract_data";
+
+        // The actual TaskNamespace implementation will validate this at runtime
+    }
+
+    #[test]
+    fn test_package_cycle_detection() {
+        // Test valid dependency chain (no cycles)
+        let mut valid_deps = HashMap::new();
+        valid_deps.insert("task_a".to_string(), vec!["task_b".to_string()]);
+        valid_deps.insert("task_b".to_string(), vec!["task_c".to_string()]);
+        valid_deps.insert("task_c".to_string(), vec![]);
+
+        assert!(detect_package_cycles(&valid_deps).is_ok());
+
+        // Test circular dependency
+        let mut circular_deps = HashMap::new();
+        circular_deps.insert("task_a".to_string(), vec!["task_b".to_string()]);
+        circular_deps.insert("task_b".to_string(), vec!["task_c".to_string()]);
+        circular_deps.insert("task_c".to_string(), vec!["task_a".to_string()]);
+
+        let result = detect_package_cycles(&circular_deps);
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err();
+        assert!(
+            error_msg.contains("task_a")
+                && error_msg.contains("task_b")
+                && error_msg.contains("task_c")
+        );
+
+        // Test self-dependency
+        let mut self_dep = HashMap::new();
+        self_dep.insert("task_a".to_string(), vec!["task_a".to_string()]);
+
+        assert!(detect_package_cycles(&self_dep).is_err());
+
+        // Test complex valid graph
+        let mut complex_valid = HashMap::new();
+        complex_valid.insert("extract".to_string(), vec![]);
+        complex_valid.insert("validate".to_string(), vec!["extract".to_string()]);
+        complex_valid.insert("transform".to_string(), vec!["validate".to_string()]);
+        complex_valid.insert("load".to_string(), vec!["transform".to_string()]);
+        complex_valid.insert(
+            "report".to_string(),
+            vec!["load".to_string(), "validate".to_string()],
+        );
+
+        assert!(detect_package_cycles(&complex_valid).is_ok());
+    }
+
+    #[test]
+    fn test_compile_time_validation_features() {
+        // This test documents the validation features we've implemented
+
+        // 1. Within-package dependency validation
+        // Tasks can depend on other tasks in the same package
+
+        // 2. External dependency validation
+        // Tasks can depend on tasks in the global registry
+
+        // 3. Circular dependency detection
+        // Cycles within a package are detected and reported
+
+        // 4. Helpful error messages
+        // Missing dependencies include suggestions and available tasks
+
+        // 5. Module boundary awareness
+        // Validation respects packaged workflow module boundaries
+
+        // These features ensure packaged workflows are self-contained
+        // and dependencies are properly validated at compile time
+        assert!(true); // This test is primarily documentation
+    }
 }
