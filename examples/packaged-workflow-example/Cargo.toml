@@ -9,8 +9,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../cloacina" }
-cloacina-macros = { path = "../../cloacina-macros" }
+cloacina = { path = "../../cloacina", features=["sqlite","macros"] }
 serde_json = "1.0"
 async-trait = "0.1"
 chrono = "0.4"

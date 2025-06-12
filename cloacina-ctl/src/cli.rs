@@ -96,7 +96,7 @@ pub enum Commands {
         output: PathBuf,
 
         /// Additional cargo build flags
-        #[arg(long)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cargo_flags: Vec<String>,
     },
     /// Package a workflow Cargo project into a .cloacina archive
@@ -109,7 +109,7 @@ pub enum Commands {
         output: PathBuf,
 
         /// Additional cargo build flags
-        #[arg(long)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cargo_flags: Vec<String>,
     },
     /// Inspect a .cloacina package and display its contents
