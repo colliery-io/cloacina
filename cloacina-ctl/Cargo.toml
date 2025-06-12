@@ -12,12 +12,17 @@ categories.workspace = true
 edition = "2021"
 description = "Command-line interface for Cloacina workflow compilation and management"
 
+[features]
+default = ["postgres"]
+postgres = ["cloacina/postgres", "cloacina/macros"]
+sqlite = ["cloacina/sqlite", "cloacina/macros"]
+
 [[bin]]
 name = "cloacina-ctl"
 path = "src/main.rs"
 
 [dependencies]
-cloacina = { path = "../cloacina", features = ["postgres"] }
+cloacina = { path = "../cloacina", default-features = false }
 clap = { workspace = true }
 anyhow = { workspace = true }
 toml = { workspace = true }
