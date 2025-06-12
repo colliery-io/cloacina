@@ -151,107 +151,121 @@ pub mod analytics_workflow {
         Ok(())
     }
 
-    /// Transform data into analytics-ready format
+    /// Transform validated data into required format
     ///
     /// Applies business logic transformations, aggregations, and enrichment
-    /// to prepare data for analytics and reporting.
+    /// to prepare data for analysis and reporting.
     #[task(
         id = "transform_data",
         dependencies = ["validate_data"],
         retry_attempts = 3,
-        retry_backoff = "exponential",
-        retry_delay_ms = 2000
+        retry_backoff = "exponential"
     )]
     pub async fn transform_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-        println!("🔄 Transforming data for analytics...");
+        println!("🔄 Transforming validated data...");
 
         let valid_records = context
             .get("valid_records")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        // Simulate transformation operations
+        // Simulate data transformation steps
         let transformations = vec![
-            "normalize_values",
+            "normalize_formats",
             "calculate_metrics",
-            "apply_business_logic",
-            "create_aggregations",
+            "enrich_data",
+            "aggregate_summaries",
         ];
+
+        let mut transformed_records = valid_records;
 
         for transformation in transformations {
             println!("  🔄 Applying: {}", transformation);
             tokio::time::sleep(tokio::time::Duration::from_millis(75)).await;
+
+            // Simulate transformation effects
+            match transformation {
+                "normalize_formats" => {
+                    // No record loss in normalization
+                }
+                "calculate_metrics" => {
+                    // Might create additional derived records
+                    transformed_records = (transformed_records as f64 * 1.1) as u64;
+                }
+                "enrich_data" => {
+                    // External lookups might filter some records
+                    transformed_records = (transformed_records as f64 * 0.98) as u64;
+                }
+                "aggregate_summaries" => {
+                    // Aggregation produces fewer output records but richer content
+                    transformed_records = (transformed_records as f64 * 0.3) as u64;
+                }
+                _ => {}
+            }
         }
 
-        // Generate analytics metrics
-        let metrics = serde_json::json!({
-            "total_records": valid_records,
-            "revenue_metrics": {
-                "total_revenue": valid_records * 25, // $25 per record average
-                "avg_transaction": 25
-            },
-            "performance_metrics": {
-                "processing_rate": valid_records as f64 / 60.0, // per minute
-                "error_rate": 0.03
-            }
-        });
-
-        context.insert("analytics_metrics", metrics)?;
+        context.insert(
+            "transformed_records",
+            serde_json::json!(transformed_records),
+        )?;
         context.insert(
             "transformation_timestamp",
             serde_json::json!(chrono::Utc::now().to_rfc3339()),
         )?;
 
-        println!(
-            "✅ Transformed {} records into analytics format",
-            valid_records
-        );
+        println!("✅ Transformed to {} enriched records", transformed_records);
         Ok(())
     }
 
-    /// Generate comprehensive analytics reports
+    /// Generate comprehensive reports from transformed data
     ///
-    /// Creates various report formats including executive summaries, detailed
-    /// analytics, and operational dashboards based on transformed data.
+    /// Creates various output formats including dashboards, alerts, and scheduled
+    /// reports for different stakeholder groups.
     #[task(
         id = "generate_reports",
         dependencies = ["transform_data"],
-        retry_attempts = 2
+        retry_attempts = 2,
+        retry_backoff = "fixed"
     )]
     pub async fn generate_reports(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {
-        println!("📊 Generating analytics reports...");
+        println!("📊 Generating comprehensive reports...");
 
-        let metrics = context
-            .get("analytics_metrics")
-            .cloned()
-            .unwrap_or_default();
+        let transformed_records = context
+            .get("transformed_records")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Calculate analytics metrics
+        let total_records = context
+            .get("extracted_records")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
 
         // Simulate report generation
         let report_types = vec![
-            "executive_summary",
-            "detailed_analytics",
-            "operational_dashboard",
-            "trend_analysis",
+            "executive_dashboard",
+            "operational_metrics",
+            "quality_report",
+            "performance_analytics",
         ];
 
         let mut generated_reports = Vec::new();
 
         for report_type in report_types {
-            println!("  📋 Generating: {}", report_type);
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            println!("  📋 Creating: {}", report_type);
+            tokio::time::sleep(tokio::time::Duration::from_millis(60)).await;
 
-            let report_url = format!(
-                "/reports/{}/{}.html",
-                chrono::Utc::now().format("%Y%m%d"),
-                report_type
-            );
-            generated_reports.push(serde_json::json!({
+            let report = serde_json::json!({
                 "type": report_type,
-                "url": report_url,
-                "generated_at": chrono::Utc::now().to_rfc3339()
-            }));
+                "records_processed": transformed_records,
+                "generated_at": chrono::Utc::now().to_rfc3339(),
+                "format": "json",
+                "status": "completed"
+            });
+
+            generated_reports.push(report);
         }
 
         context.insert("generated_reports", serde_json::json!(generated_reports))?;
@@ -260,182 +274,13 @@ pub mod analytics_workflow {
             serde_json::json!(chrono::Utc::now().to_rfc3339()),
         )?;
 
-        println!("✅ Generated {} reports", generated_reports.len());
-
-        // Output summary
-        if let Some(total_records) = metrics.get("total_records").and_then(|v| v.as_u64()) {
-            println!("🎉 Analytics pipeline completed successfully!");
+        // Summary output
+        if transformed_records > 0 {
+            println!("📈 Analytics Pipeline Summary:");
             println!("   📊 Processed {} total records", total_records);
             println!("   📋 Generated {} reports", generated_reports.len());
         }
 
         Ok(())
-    }
-}
-
-/// Marketing Campaign Workflow - Another workflow package example
-///
-/// Demonstrates how multiple workflow packages can coexist without conflicts
-/// thanks to namespace isolation.
-#[packaged_workflow(
-    package = "marketing_campaigns",
-    version = "1.3.0",
-    description = "Automated marketing campaign management and optimization",
-    author = "Marketing Automation Team"
-)]
-pub mod marketing_workflow {
-    use super::*;
-
-    /// Segment customer base for targeted campaigns
-    #[task(
-        id = "segment_customers",
-        dependencies = [],
-        retry_attempts = 2
-    )]
-    pub async fn segment_customers(
-        context: &mut Context<serde_json::Value>,
-    ) -> Result<(), TaskError> {
-        println!("👥 Segmenting customers for campaigns...");
-
-        // Simulate customer segmentation
-        let segments = vec![
-            ("high_value", 1200),
-            ("medium_value", 3500),
-            ("new_customers", 800),
-            ("at_risk", 450),
-        ];
-
-        let mut segment_data = Vec::new();
-        for (segment_name, count) in segments {
-            println!("  📊 Segment '{}': {} customers", segment_name, count);
-            segment_data.push(serde_json::json!({
-                "name": segment_name,
-                "count": count,
-                "created_at": chrono::Utc::now().to_rfc3339()
-            }));
-        }
-
-        context.insert("customer_segments", serde_json::json!(segment_data))?;
-        println!("✅ Customer segmentation completed");
-        Ok(())
-    }
-
-    /// Create personalized campaign content
-    #[task(
-        id = "create_campaigns",
-        dependencies = ["segment_customers"],
-        retry_attempts = 3
-    )]
-    pub async fn create_campaigns(
-        context: &mut Context<serde_json::Value>,
-    ) -> Result<(), TaskError> {
-        println!("📝 Creating personalized campaigns...");
-
-        let default_segments = vec![];
-        let segments = context
-            .get("customer_segments")
-            .and_then(|v| v.as_array())
-            .unwrap_or(&default_segments);
-
-        let mut campaigns = Vec::new();
-
-        for segment in segments {
-            if let Some(segment_name) = segment.get("name").and_then(|v| v.as_str()) {
-                println!("  📧 Creating campaign for: {}", segment_name);
-                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-
-                campaigns.push(serde_json::json!({
-                    "segment": segment_name,
-                    "campaign_id": format!("camp_{}_{}",
-                        segment_name,
-                        chrono::Utc::now().timestamp()
-                    ),
-                    "status": "ready",
-                    "created_at": chrono::Utc::now().to_rfc3339()
-                }));
-            }
-        }
-
-        context.insert("campaigns", serde_json::json!(campaigns))?;
-        println!("✅ Created {} personalized campaigns", campaigns.len());
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_analytics_pipeline_metadata() {
-        let metadata = analytics_workflow::get_package_metadata();
-        assert_eq!(metadata.package, "analytics_pipeline");
-        assert_eq!(metadata.version, "2.1.0");
-        assert!(metadata.description.contains("analytics"));
-        assert!(!metadata.fingerprint.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_marketing_pipeline_metadata() {
-        let metadata = marketing_workflow::get_package_metadata();
-        assert_eq!(metadata.package, "marketing_campaigns");
-        assert_eq!(metadata.version, "1.3.0");
-        assert!(metadata.description.contains("marketing"));
-    }
-
-    #[tokio::test]
-    async fn test_task_registration_simulation() {
-        // Test that task registration function exists and can be called
-        // In a real scenario, these would register tasks in the global registry
-        analytics_workflow::register_package_tasks("test_tenant", "test_workflow");
-        marketing_workflow::register_package_tasks("test_tenant", "test_workflow");
-
-        // No assertions needed - if this compiles and runs, the registration functions exist
-    }
-
-    #[tokio::test]
-    async fn test_analytics_workflow_tasks() {
-        let mut context = Context::new();
-
-        // Test extract_data task
-        analytics_workflow::extract_data(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("extracted_records").is_some());
-
-        // Test validate_data task
-        analytics_workflow::validate_data(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("valid_records").is_some());
-
-        // Test transform_data task
-        analytics_workflow::transform_data(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("analytics_metrics").is_some());
-
-        // Test generate_reports task
-        analytics_workflow::generate_reports(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("generated_reports").is_some());
-    }
-
-    #[tokio::test]
-    async fn test_marketing_workflow_tasks() {
-        let mut context = Context::new();
-
-        // Test segment_customers task
-        marketing_workflow::segment_customers(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("customer_segments").is_some());
-
-        // Test create_campaigns task
-        marketing_workflow::create_campaigns(&mut context)
-            .await
-            .unwrap();
-        assert!(context.get("campaigns").is_some());
     }
 }

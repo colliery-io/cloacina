@@ -1415,6 +1415,297 @@ fn generate_packaged_workflow_impl(
     }
     let package_fingerprint = format!("{:016x}", hasher.finish());
 
+    // Generate task metadata structures for FFI export
+    let task_metadata_items = if !detected_tasks.is_empty() {
+        let mut task_metadata_entries = Vec::new();
+        let mut task_execution_cases = Vec::new();
+        let mut task_index = 0u32;
+
+        for (task_id, fn_name) in &detected_tasks {
+            let dependencies = task_dependencies.get(task_id).cloned().unwrap_or_default();
+
+            // Generate fully qualified namespace: tenant::package::workflow::task
+            // For now, we'll use placeholders that get filled in at runtime
+            let namespaced_id = format!("{{tenant}}::{}::{{workflow}}::{}", package_name, task_id);
+
+            // Generate dependencies as JSON array string
+            let dependencies_json = if dependencies.is_empty() {
+                "[]".to_string()
+            } else {
+                format!("[\"{}\"]", dependencies.join("\",\""))
+            };
+
+            let source_location = format!("src/{}.rs", mod_name);
+
+            task_metadata_entries.push(quote! {
+                cloacina_ctl_task_metadata {
+                    index: #task_index,
+                    local_id: concat!(#task_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    namespaced_id_template: concat!(#namespaced_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    dependencies_json: concat!(#dependencies_json, "\0").as_ptr() as *const std::os::raw::c_char,
+                    description: concat!("Task: ", #task_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    source_location: concat!(#source_location, "\0").as_ptr() as *const std::os::raw::c_char,
+                }
+            });
+
+            // Generate task execution case
+            task_execution_cases.push(quote! {
+                #task_id => {
+                    match #fn_name(&mut context).await {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(format!("Task '{}' failed: {:?}", #task_id, e))
+                    }
+                }
+            });
+
+            task_index += 1;
+        }
+
+        let task_count = detected_tasks.len();
+
+        // Generate unique function name for this package
+        let metadata_fn_name = syn::Ident::new(
+            &format!("cloacina_get_task_metadata_{}", package_ident),
+            mod_name.span(),
+        );
+
+        quote! {
+            /// C-compatible task metadata structure for FFI
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_task_metadata {
+                pub index: u32,
+                pub local_id: *const std::os::raw::c_char,
+                pub namespaced_id_template: *const std::os::raw::c_char,
+                pub dependencies_json: *const std::os::raw::c_char,
+                pub description: *const std::os::raw::c_char,
+                pub source_location: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static string literals which are safe to share
+            unsafe impl Sync for cloacina_ctl_task_metadata {}
+
+            /// Package task metadata for FFI export
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_package_tasks {
+                pub task_count: u32,
+                pub tasks: *const cloacina_ctl_task_metadata,
+                pub package_name: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static data which is safe to share
+            unsafe impl Sync for cloacina_ctl_package_tasks {}
+
+            /// Static array of task metadata
+            static TASK_METADATA_ARRAY: [cloacina_ctl_task_metadata; #task_count] = [
+                #(#task_metadata_entries),*
+            ];
+
+            /// Static package tasks metadata
+            static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
+                task_count: #task_count as u32,
+                tasks: TASK_METADATA_ARRAY.as_ptr(),
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+            };
+
+            /// Get task metadata for cloacina-ctl compilation
+            #[no_mangle]
+            pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// String-based task execution function for cloacina-ctl
+            #[no_mangle]
+            pub extern "C" fn cloacina_execute_task(
+                task_name: *const std::os::raw::c_char,
+                task_name_len: u32,
+                context_json: *const std::os::raw::c_char,
+                context_len: u32,
+                result_buffer: *mut u8,
+                result_capacity: u32,
+                result_len: *mut u32,
+            ) -> i32 {
+                // Safety: Convert raw pointers to safe Rust types
+                let task_name_bytes = unsafe {
+                    std::slice::from_raw_parts(task_name as *const u8, task_name_len as usize)
+                };
+
+                let task_name_str = match std::str::from_utf8(task_name_bytes) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        return write_error_result("Invalid UTF-8 in task name", result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                let context_bytes = unsafe {
+                    std::slice::from_raw_parts(context_json as *const u8, context_len as usize)
+                };
+
+                let context_str = match std::str::from_utf8(context_bytes) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        return write_error_result("Invalid UTF-8 in context", result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                // Execute the actual task by creating context from JSON
+                let mut context = match cloacina::Context::from_json(context_str.to_string()) {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        return write_error_result(&format!("Failed to create context from JSON: {}", e), result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                // Use an async runtime for task execution
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        return write_error_result(&format!("Failed to create async runtime: {}", e), result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                let task_result = runtime.block_on(async {
+                    match task_name_str {
+                        #(#task_execution_cases)*
+                        _ => Err(format!("Unknown task: {}", task_name_str))
+                    }
+                });
+
+                // Handle the result and write to output buffer
+                match task_result {
+                    Ok(()) => {
+                        let result = serde_json::json!({
+                            "status": "success",
+                            "task": task_name_str,
+                            "message": "Task executed successfully"
+                        });
+                        write_success_result(&result, result_buffer, result_capacity, result_len)
+                    }
+                    Err(e) => {
+                        write_error_result(&e, result_buffer, result_capacity, result_len)
+                    }
+                }
+            }
+
+            fn write_success_result(result: &serde_json::Value, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
+                let json_str = match serde_json::to_string(result) {
+                    Ok(s) => s,
+                    Err(_) => return -1,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
+                    *result_len = len as u32;
+                }
+
+                0 // Success
+            }
+
+            fn write_error_result(error: &str, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
+                let error_json = serde_json::json!({
+                    "error": error,
+                    "status": "error"
+                });
+
+                let json_str = match serde_json::to_string(&error_json) {
+                    Ok(s) => s,
+                    Err(_) => return -2,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
+                    *result_len = len as u32;
+                }
+
+                -1 // Error
+            }
+        }
+    } else {
+        // Generate unique function name for this package
+        let metadata_fn_name = syn::Ident::new(
+            &format!("cloacina_get_task_metadata_{}", package_ident),
+            mod_name.span(),
+        );
+
+        quote! {
+            /// Empty task metadata structure for packages with no tasks
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_task_metadata {
+                pub index: u32,
+                pub local_id: *const std::os::raw::c_char,
+                pub namespaced_id_template: *const std::os::raw::c_char,
+                pub dependencies_json: *const std::os::raw::c_char,
+                pub description: *const std::os::raw::c_char,
+                pub source_location: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static string literals which are safe to share
+            unsafe impl Sync for cloacina_ctl_task_metadata {}
+
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_package_tasks {
+                pub task_count: u32,
+                pub tasks: *const cloacina_ctl_task_metadata,
+                pub package_name: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static data which is safe to share
+            unsafe impl Sync for cloacina_ctl_package_tasks {}
+
+            static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
+                task_count: 0,
+                tasks: std::ptr::null(),
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+            };
+
+            #[no_mangle]
+            pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// String-based task execution function for empty packages
+            #[no_mangle]
+            pub extern "C" fn cloacina_execute_task(
+                _task_name: *const std::os::raw::c_char,
+                _task_name_len: u32,
+                _context_json: *const std::os::raw::c_char,
+                _context_len: u32,
+                result_buffer: *mut u8,
+                result_capacity: u32,
+                result_len: *mut u32,
+            ) -> i32 {
+                let error_json = serde_json::json!({
+                    "error": "No tasks defined in this package",
+                    "status": "error"
+                });
+
+                let json_str = match serde_json::to_string(&error_json) {
+                    Ok(s) => s,
+                    Err(_) => return -2,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(result_capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), result_buffer, len);
+                    *result_len = len as u32;
+                }
+
+                -1 // Error
+            }
+        }
+    };
+
     // Extract the module items for proper token generation
     let module_items = if let Some((_, items)) = mod_content {
         items.iter().collect::<Vec<_>>()
@@ -1426,6 +1717,9 @@ fn generate_packaged_workflow_impl(
         // Keep the original module with enhanced functionality
         #mod_vis mod #mod_name {
             #(#module_items)*
+
+            // Include task metadata structures and functions
+            #task_metadata_items
 
             /// Package metadata for this workflow package
             #[derive(Debug, Clone)]

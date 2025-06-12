@@ -16,18 +16,33 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use flate2::{write::GzEncoder, read::GzDecoder, Compression};
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use libloading::{Library, Symbol};
 use regex::Regex;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use tar::{Builder, Archive};
 use std::io::Read;
-use libloading::{Library, Symbol};
+use std::path::PathBuf;
+use tar::{Archive, Builder};
 
 const CLOACINA_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MANIFEST_FILENAME: &str = "manifest.json";
+const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
+
+// Standard FFI interface that packaged workflows must implement:
+//
+// #[no_mangle]
+// extern "C" fn cloacina_execute_task(
+//     task_name: *const u8,        // Task name as UTF-8 bytes
+//     task_name_len: u32,          // Length of task name
+//     context_json: *const u8,     // Input context as JSON bytes
+//     context_len: u32,            // Length of context JSON
+//     result_buffer: *mut u8,      // Buffer for result JSON
+//     result_capacity: u32,        // Size of result buffer
+//     result_len: *mut u32,        // Actual length of result written
+// ) -> i32;                       // 0 = success, negative = error
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageManifest {
@@ -42,7 +57,6 @@ pub struct PackageInfo {
     pub name: String,
     pub version: String,
     pub description: String,
-    pub abi_version: u32,
     pub cloacina_version: String,
 }
 
@@ -160,6 +174,22 @@ enum DebugAction {
         /// JSON context to pass to the task
         #[arg(long, default_value = "{}")]
         context: String,
+
+        /// Environment variables to set (KEY=VALUE format)
+        #[arg(short = 'e', long = "env", value_name = "KEY=VALUE")]
+        env_vars: Vec<String>,
+
+        /// Load environment variables from .env file
+        #[arg(long = "env-file")]
+        env_file: Option<PathBuf>,
+
+        /// Include current environment variables in context
+        #[arg(long = "include-env")]
+        include_env: bool,
+
+        /// Prefix for environment variables to include (e.g., "CLOACINA_")
+        #[arg(long = "env-prefix", requires = "include_env")]
+        env_prefix: Option<String>,
     },
 }
 
@@ -326,7 +356,7 @@ fn compile_workflow(
     let so_path = execute_cargo_build(&project_path, target.as_ref(), &profile, &cargo_flags, cli)?;
 
     // Step 7: Generate manifest data
-    let manifest = generate_manifest(&cargo_toml, &so_path, &target)?;
+    let manifest = generate_manifest(&cargo_toml, &so_path, &target, &project_path)?;
 
     // Step 8: Copy .so file to output location
     copy_output_file(&so_path, &output)?;
@@ -403,23 +433,19 @@ fn create_package_archive(
     header.set_cksum();
 
     tar_builder
-        .append_data(&mut header, "manifest.json", manifest_bytes)
+        .append_data(&mut header, MANIFEST_FILENAME, manifest_bytes)
         .context("Failed to add manifest.json to archive")?;
 
     if should_print(cli, LogLevel::Debug) {
         println!("Added manifest.json to archive");
     }
 
-    // Add .so file to archive
-    let so_filename = compile_result
-        .so_path
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("Invalid .so file path"))?;
-    let archive_so_path = so_filename.to_string_lossy().to_string();
+    // Add .so file to archive using the filename from the manifest (not the temp file name)
+    let archive_so_path = &compile_result.manifest.library.filename;
 
     tar_builder
         .append_file(
-            &archive_so_path,
+            archive_so_path,
             &mut fs::File::open(&compile_result.so_path)?,
         )
         .context("Failed to add .so file to archive")?;
@@ -582,9 +608,9 @@ fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()> {
 fn validate_packaged_workflow_presence(project_path: &PathBuf) -> Result<()> {
     let src_path = project_path.join("src");
 
-    // Regex to find #[packaged_workflow] macro usage
+    // Regex to find #[packaged_workflow] macro usage (with or without attributes, including multiline)
     let packaged_workflow_regex =
-        Regex::new(r"#\[packaged_workflow\]").expect("Failed to compile regex");
+        Regex::new(r"(?s)#\[packaged_workflow(?:\([^)]*\))?\]").expect("Failed to compile regex");
 
     let mut found_macro = false;
 
@@ -812,6 +838,7 @@ fn generate_manifest(
     cargo_toml: &CargoToml,
     so_path: &PathBuf,
     target: &Option<String>,
+    project_path: &PathBuf,
 ) -> Result<PackageManifest> {
     let package = cargo_toml
         .package
@@ -837,19 +864,185 @@ fn generate_manifest(
             name: package.name.clone(),
             version: package.version.clone(),
             description: format!("Packaged workflow: {}", package.name),
-            abi_version: 1,
             cloacina_version: CLOACINA_VERSION.to_string(),
         },
         library: LibraryInfo {
             filename: library_filename,
-            symbols: vec!["cloacina_execute_task".to_string()],
+            symbols: vec![EXECUTE_TASK_SYMBOL.to_string()],
             architecture,
         },
-        tasks: vec![],           // TODO: Extract from source code
-        execution_order: vec![], // TODO: Generate from task dependencies
+        tasks: extract_task_info_from_library(&so_path, project_path)?,
+        execution_order: vec![], // TODO: Generate from task dependencies based on extracted tasks
     };
 
     Ok(manifest)
+}
+
+/// Extract task information from a compiled library using FFI metadata functions
+fn extract_task_info_from_library(
+    so_path: &PathBuf,
+    project_path: &PathBuf,
+) -> Result<Vec<TaskInfo>> {
+    // Define the C structures that match the macro-generated ones
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct CTaskMetadata {
+        index: u32,
+        local_id: *const std::os::raw::c_char,
+        namespaced_id_template: *const std::os::raw::c_char,
+        dependencies_json: *const std::os::raw::c_char,
+        description: *const std::os::raw::c_char,
+        source_location: *const std::os::raw::c_char,
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct CPackageTasks {
+        task_count: u32,
+        tasks: *const CTaskMetadata,
+        package_name: *const std::os::raw::c_char,
+    }
+
+    // Load the compiled library
+    let lib = unsafe {
+        libloading::Library::new(so_path).with_context(|| {
+            format!(
+                "Failed to load library for metadata extraction: {:?}",
+                so_path
+            )
+        })?
+    };
+
+    // Try to find a metadata function - first try the standard name
+    let get_metadata = unsafe {
+        // Try standard name first
+        match lib
+            .get::<unsafe extern "C" fn() -> *const CPackageTasks>(b"cloacina_get_task_metadata")
+        {
+            Ok(func) => func,
+            Err(_) => {
+                // If that fails, try to find package-specific functions by reading package names from Cargo.toml
+                let cargo_toml_path = project_path.join("Cargo.toml");
+                let cargo_content = std::fs::read_to_string(&cargo_toml_path)
+                    .context("Failed to read Cargo.toml for package name extraction")?;
+
+                // Look for packaged_workflow attributes in source files to find package names
+                let package_names = extract_package_names_from_source(project_path)?;
+
+                let mut found_func = None;
+                for package_name in package_names {
+                    let normalized_name = package_name
+                        .replace("-", "_")
+                        .replace(" ", "_")
+                        .to_lowercase();
+                    let func_name = format!("cloacina_get_task_metadata_{}\0", normalized_name);
+
+                    if let Ok(func) = lib
+                        .get::<unsafe extern "C" fn() -> *const CPackageTasks>(func_name.as_bytes())
+                    {
+                        found_func = Some(func);
+                        break;
+                    }
+                }
+
+                found_func
+                    .ok_or_else(|| anyhow::anyhow!("No task metadata function found in library"))?
+            }
+        }
+    };
+
+    // Call the metadata function
+    let package_tasks_ptr = unsafe { get_metadata() };
+
+    if package_tasks_ptr.is_null() {
+        return Ok(vec![]);
+    }
+
+    let package_tasks = unsafe { &*package_tasks_ptr };
+
+    // Convert C strings and data to Rust structures
+    let mut tasks = Vec::new();
+
+    if package_tasks.task_count > 0 && !package_tasks.tasks.is_null() {
+        let tasks_slice = unsafe {
+            std::slice::from_raw_parts(package_tasks.tasks, package_tasks.task_count as usize)
+        };
+
+        for (index, task_metadata) in tasks_slice.iter().enumerate() {
+            let local_id = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.local_id)
+                    .to_str()
+                    .unwrap_or("unknown")
+                    .to_string()
+            };
+
+            let description = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.description)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
+
+            let source_location = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.source_location)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
+
+            let dependencies_json = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.dependencies_json)
+                    .to_str()
+                    .unwrap_or("[]")
+            };
+
+            // Parse dependencies JSON
+            let dependencies: Vec<String> =
+                serde_json::from_str(dependencies_json).unwrap_or_else(|_| vec![]);
+
+            tasks.push(TaskInfo {
+                index: index as u32,
+                id: local_id,
+                dependencies,
+                description,
+                source_location,
+            });
+        }
+    }
+
+    Ok(tasks)
+}
+
+/// Extract package names from source files by looking for #[packaged_workflow] attributes
+fn extract_package_names_from_source(project_path: &PathBuf) -> Result<Vec<String>> {
+    let src_path = project_path.join("src");
+    let mut package_names = Vec::new();
+
+    // Regex to find packaged_workflow attributes and extract package names
+    let packaged_workflow_regex =
+        Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
+            .expect("Failed to compile regex");
+
+    // Walk through .rs files in src directory
+    for entry in std::fs::read_dir(&src_path)
+        .with_context(|| format!("Failed to read src directory: {:?}", src_path))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            let content = std::fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read file: {:?}", path))?;
+
+            for captures in packaged_workflow_regex.captures_iter(&content) {
+                if let Some(package_name) = captures.get(1) {
+                    package_names.push(package_name.as_str().to_string());
+                }
+            }
+        }
+    }
+
+    Ok(package_names)
 }
 
 fn get_current_architecture() -> String {
@@ -864,6 +1057,31 @@ fn get_current_architecture() -> String {
         "x86_64-pc-windows-msvc".to_string()
     } else {
         "unknown".to_string()
+    }
+}
+
+fn check_cloacina_version_compatibility(package_version: &str) -> String {
+    // Parse the package's cloacina version
+    let package_ver = match Version::parse(package_version) {
+        Ok(v) => v,
+        Err(_) => return "unknown".to_string(),
+    };
+
+    // Parse current cloacina version
+    let current_ver = match Version::parse(CLOACINA_VERSION) {
+        Ok(v) => v,
+        Err(_) => return "unknown".to_string(),
+    };
+
+    // Check compatibility using semver rules
+    if package_ver.major != current_ver.major {
+        "incompatible (major version mismatch)".to_string()
+    } else if package_ver.minor == current_ver.minor {
+        "compatible".to_string()
+    } else if package_ver.minor < current_ver.minor {
+        "compatible (forward compatible)".to_string()
+    } else {
+        "incompatible (requires newer runtime)".to_string()
     }
 }
 
@@ -907,15 +1125,16 @@ fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageManife
         let mut entry = entry.context("Failed to read archive entry")?;
         let path = entry.path().context("Failed to get entry path")?;
 
-        if path == std::path::Path::new("manifest.json") {
+        if path == std::path::Path::new(MANIFEST_FILENAME) {
             // Read manifest content
             let mut manifest_content = String::new();
-            entry.read_to_string(&mut manifest_content)
+            entry
+                .read_to_string(&mut manifest_content)
                 .context("Failed to read manifest.json content")?;
 
             // Parse JSON
-            let manifest: PackageManifest = serde_json::from_str(&manifest_content)
-                .context("Failed to parse manifest.json")?;
+            let manifest: PackageManifest =
+                serde_json::from_str(&manifest_content).context("Failed to parse manifest.json")?;
 
             return Ok(manifest);
         }
@@ -925,8 +1144,8 @@ fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageManife
 }
 
 fn output_manifest_json(manifest: &PackageManifest, cli: &Cli) -> Result<()> {
-    let json_output = serde_json::to_string_pretty(manifest)
-        .context("Failed to serialize manifest to JSON")?;
+    let json_output =
+        serde_json::to_string_pretty(manifest).context("Failed to serialize manifest to JSON")?;
 
     if should_print(cli, LogLevel::Info) {
         println!("{}", json_output);
@@ -935,18 +1154,23 @@ fn output_manifest_json(manifest: &PackageManifest, cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn output_manifest_human(manifest: &PackageManifest, package_path: &PathBuf, cli: &Cli) -> Result<()> {
+fn output_manifest_human(
+    manifest: &PackageManifest,
+    package_path: &PathBuf,
+    cli: &Cli,
+) -> Result<()> {
     if should_print(cli, LogLevel::Info) {
         println!("Package Information:");
         println!("  File: {}", package_path.display());
         println!("  Package: {}", manifest.package.name);
         println!("  Version: {}", manifest.package.version);
         println!("  Description: {}", manifest.package.description);
-        println!("  ABI Version: {} ({})", 
-            manifest.package.abi_version,
-            if manifest.package.abi_version == 1 { "compatible" } else { "unknown" }
+        let compatibility =
+            check_cloacina_version_compatibility(&manifest.package.cloacina_version);
+        println!(
+            "  Cloacina Version: {} ({})",
+            manifest.package.cloacina_version, compatibility
         );
-        println!("  Cloacina Version: {}", manifest.package.cloacina_version);
         println!();
 
         println!("Library:");
@@ -1005,8 +1229,25 @@ fn debug_package(package_path: PathBuf, action: &DebugAction, cli: &Cli) -> Resu
         DebugAction::List => {
             debug_list_tasks(&manifest, cli)?;
         }
-        DebugAction::Execute { task, context } => {
-            debug_execute_task(&package_path, &manifest, task, context, cli)?;
+        DebugAction::Execute {
+            task,
+            context,
+            env_vars,
+            env_file,
+            include_env,
+            env_prefix,
+        } => {
+            debug_execute_task(
+                &package_path,
+                &manifest,
+                task,
+                context,
+                env_vars,
+                env_file,
+                include_env,
+                env_prefix,
+                cli,
+            )?;
         }
     }
 
@@ -1042,7 +1283,80 @@ fn debug_list_tasks(manifest: &PackageManifest, cli: &Cli) -> Result<()> {
         }
 
         if !manifest.execution_order.is_empty() {
-            println!("Suggested Execution Order: {}", manifest.execution_order.join(" → "));
+            println!(
+                "Suggested Execution Order: {}",
+                manifest.execution_order.join(" → ")
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Process environment variables and merge them into the context
+fn process_environment_variables(
+    context: &mut serde_json::Value,
+    env_vars: &[String],
+    env_file: &Option<PathBuf>,
+    include_env: &bool,
+    env_prefix: &Option<String>,
+) -> Result<()> {
+    // Ensure context is an object
+    if !context.is_object() {
+        anyhow::bail!("Context must be a JSON object to merge environment variables");
+    }
+
+    let context_obj = context.as_object_mut().unwrap();
+
+    // 1. Load from .env file if provided
+    if let Some(env_file_path) = env_file {
+        let env_content = std::fs::read_to_string(env_file_path)
+            .with_context(|| format!("Failed to read env file: {:?}", env_file_path))?;
+
+        for line in env_content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim().trim_matches('"').trim_matches('\'');
+                context_obj.insert(
+                    format!("env_{}", key),
+                    serde_json::Value::String(value.to_string()),
+                );
+            }
+        }
+    }
+
+    // 2. Include current environment variables if requested
+    if *include_env {
+        for (key, value) in std::env::vars() {
+            let should_include = if let Some(prefix) = env_prefix {
+                key.starts_with(prefix)
+            } else {
+                true
+            };
+
+            if should_include {
+                context_obj.insert(format!("env_{}", key), serde_json::Value::String(value));
+            }
+        }
+    }
+
+    // 3. Process explicit environment variables (these override others)
+    for env_var in env_vars {
+        if let Some((key, value)) = env_var.split_once('=') {
+            context_obj.insert(
+                format!("env_{}", key),
+                serde_json::Value::String(value.to_string()),
+            );
+        } else {
+            anyhow::bail!(
+                "Invalid environment variable format: '{}'. Expected KEY=VALUE",
+                env_var
+            );
         }
     }
 
@@ -1054,55 +1368,75 @@ fn debug_execute_task(
     manifest: &PackageManifest,
     task_identifier: &str,
     context_json: &str,
+    env_vars: &[String],
+    env_file: &Option<PathBuf>,
+    include_env: &bool,
+    env_prefix: &Option<String>,
     cli: &Cli,
 ) -> Result<()> {
     // Step 1: Parse and validate context JSON
-    let _context_value: serde_json::Value = serde_json::from_str(context_json)
+    let mut context_value: serde_json::Value = serde_json::from_str(context_json)
         .with_context(|| format!("Invalid JSON context: {}", context_json))?;
 
-    // Step 2: Find task by index or name
-    let task_index = find_task_index(manifest, task_identifier)?;
+    // Step 1a: Process environment variables
+    process_environment_variables(
+        &mut context_value,
+        env_vars,
+        env_file,
+        include_env,
+        env_prefix,
+    )?;
+
+    // Step 2: Resolve task name (convert index to name if needed)
+    let task_name = resolve_task_name(manifest, task_identifier)?;
+
+    // Convert the potentially modified context back to JSON string
+    let final_context_json =
+        serde_json::to_string(&context_value).context("Failed to serialize modified context")?;
 
     if should_print(cli, LogLevel::Info) {
-        let task = &manifest.tasks[task_index];
-        println!("Executing task: {} (index: {})", task.id, task.index);
-        println!("Context: {}", context_json);
+        println!("Executing task: {}", task_name);
+        println!("Context: {}", final_context_json);
     }
 
     // Step 3: Extract .so file from package
-    let temp_dir = tempfile::TempDir::new()
-        .context("Failed to create temporary directory")?;
-    
+    let temp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
+
     let library_path = extract_library_from_package(package_path, manifest, &temp_dir)?;
 
     // Step 4: Load library and execute task
-    execute_task_from_library(&library_path, task_index, context_json, cli)?;
+    execute_task_from_library(&library_path, &task_name, &final_context_json, cli)?;
 
     Ok(())
 }
 
-fn find_task_index(manifest: &PackageManifest, task_identifier: &str) -> Result<usize> {
-    // Try to parse as index first
+fn resolve_task_name(manifest: &PackageManifest, task_identifier: &str) -> Result<String> {
+    // Try to parse as index first - if successful, convert to task name
     if let Ok(index) = task_identifier.parse::<u32>() {
         let index = index as usize;
         if index < manifest.tasks.len() {
-            return Ok(index);
+            return Ok(manifest.tasks[index].id.clone());
         } else {
-            bail!("Task index {} is out of range. Available tasks: 0-{}", 
-                index, manifest.tasks.len().saturating_sub(1));
+            bail!(
+                "Task index {} is out of range. Available tasks: 0-{}",
+                index,
+                manifest.tasks.len().saturating_sub(1)
+            );
         }
     }
 
-    // Try to find by task name
-    for (i, task) in manifest.tasks.iter().enumerate() {
+    // Check if it's already a valid task name
+    for task in &manifest.tasks {
         if task.id == task_identifier {
-            return Ok(i);
+            return Ok(task.id.clone());
         }
     }
 
-    bail!("Task '{}' not found. Available tasks: {:?}", 
-        task_identifier, 
-        manifest.tasks.iter().map(|t| &t.id).collect::<Vec<_>>());
+    bail!(
+        "Task '{}' not found. Available tasks: {:?}",
+        task_identifier,
+        manifest.tasks.iter().map(|t| &t.id).collect::<Vec<_>>()
+    );
 }
 
 fn extract_library_from_package(
@@ -1123,7 +1457,8 @@ fn extract_library_from_package(
         let path = entry.path().context("Failed to get entry path")?;
 
         // Check if this matches the library filename
-        let filename = path.file_name()
+        let filename = path
+            .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
 
@@ -1135,8 +1470,12 @@ fn extract_library_from_package(
         if filename == manifest_filename || path.to_str() == Some(&manifest.library.filename) {
             // Extract to temporary directory
             let extract_path = temp_dir.path().join(filename);
-            let mut output_file = fs::File::create(&extract_path)
-                .with_context(|| format!("Failed to create extracted library file: {:?}", extract_path))?;
+            let mut output_file = fs::File::create(&extract_path).with_context(|| {
+                format!(
+                    "Failed to create extracted library file: {:?}",
+                    extract_path
+                )
+            })?;
 
             std::io::copy(&mut entry, &mut output_file)
                 .context("Failed to extract library file")?;
@@ -1145,12 +1484,15 @@ fn extract_library_from_package(
         }
     }
 
-    bail!("Library file '{}' not found in package archive", manifest.library.filename);
+    bail!(
+        "Library file '{}' not found in package archive",
+        manifest.library.filename
+    );
 }
 
 fn execute_task_from_library(
     library_path: &PathBuf,
-    task_index: usize,
+    task_name: &str,
     context_json: &str,
     cli: &Cli,
 ) -> Result<()> {
@@ -1165,32 +1507,41 @@ fn execute_task_from_library(
     };
 
     // Get the cloacina_execute_task symbol
-    let execute_task: Symbol<unsafe extern "C" fn(
-        task_index: u32,
-        context_json: *const u8,
-        context_len: u32,
-        result_buffer: *mut u8,
-        result_capacity: u32,
-        result_len: *mut u32,
-    ) -> i32> = unsafe {
-        lib.get(b"cloacina_execute_task")
+    let execute_task: Symbol<
+        unsafe extern "C" fn(
+            task_name: *const u8,
+            task_name_len: u32,
+            context_json: *const u8,
+            context_len: u32,
+            result_buffer: *mut u8,
+            result_capacity: u32,
+            result_len: *mut u32,
+        ) -> i32,
+    > = unsafe {
+        lib.get(EXECUTE_TASK_SYMBOL.as_bytes())
             .context("Symbol 'cloacina_execute_task' not found in library")?
     };
 
     // Prepare input parameters
+    let task_name_bytes = task_name.as_bytes();
     let context_bytes = context_json.as_bytes();
-    let mut result_buffer = vec![0u8; 4096]; // 4KB buffer for result
+    const RESULT_BUFFER_SIZE: usize = 4096;
+    let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE]; // 4KB buffer for result
     let mut result_len: u32 = 0;
 
     if should_print(cli, LogLevel::Debug) {
-        println!("Calling cloacina_execute_task with task_index={}, context_len={}", 
-            task_index, context_bytes.len());
+        println!(
+            "Calling cloacina_execute_task with task_name={}, context_len={}",
+            task_name,
+            context_bytes.len()
+        );
     }
 
     // Call the function
     let return_code = unsafe {
         execute_task(
-            task_index as u32,
+            task_name_bytes.as_ptr(),
+            task_name_bytes.len() as u32,
             context_bytes.as_ptr(),
             context_bytes.len() as u32,
             result_buffer.as_mut_ptr(),
@@ -1220,7 +1571,7 @@ fn execute_task_from_library(
         } else {
             format!("Unknown error (code: {})", return_code)
         };
-        
+
         bail!("Task execution failed: {}", error_msg);
     }
 
