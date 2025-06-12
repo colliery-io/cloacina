@@ -441,6 +441,7 @@ pub mod dal;
 pub mod database;
 pub mod error;
 pub mod executor;
+pub mod graph;
 pub mod logging;
 pub mod models;
 pub mod retry;
@@ -477,6 +478,9 @@ pub use executor::{
     EngineMode, ExecutionScope, ExecutorConfig, PipelineEngine, PipelineError, PipelineExecution,
     PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutorTrait, TaskResult,
     ThreadTaskExecutor,
+};
+pub use graph::{
+    DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,
 };
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 #[cfg(feature = "postgres")]

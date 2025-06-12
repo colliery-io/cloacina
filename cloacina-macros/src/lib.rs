@@ -776,6 +776,150 @@ fn find_similar_package_task_names(target: &str, available: &[String]) -> Vec<St
         .collect()
 }
 
+/// Build graph data structure for a packaged workflow
+///
+/// Creates a WorkflowGraphData structure that represents the task dependencies
+/// as a proper DAG, suitable for serialization into the package metadata.
+///
+/// # Arguments
+/// * `detected_tasks` - Map of task IDs to function names
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `package_name` - Name of the package for metadata
+///
+/// # Returns
+/// JSON string representation of the WorkflowGraphData
+fn build_package_graph_data(
+    detected_tasks: &HashMap<String, syn::Ident>,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    package_name: &str,
+) -> String {
+    // Create nodes for each task
+    let mut nodes = Vec::new();
+    for (task_id, _fn_name) in detected_tasks {
+        nodes.push(serde_json::json!({
+            "id": task_id,
+            "data": {
+                "id": task_id,
+                "name": task_id,
+                "description": format!("Task: {}", task_id),
+                "source_location": format!("src/{}.rs", package_name),
+                "metadata": {}
+            }
+        }));
+    }
+
+    // Create edges for dependencies
+    let mut edges = Vec::new();
+    for (task_id, dependencies) in task_dependencies {
+        for dependency in dependencies {
+            // Only include edges for tasks within this package
+            if detected_tasks.contains_key(dependency) {
+                edges.push(serde_json::json!({
+                    "from": dependency,
+                    "to": task_id,
+                    "data": {
+                        "dependency_type": "data",
+                        "weight": null,
+                        "metadata": {}
+                    }
+                }));
+            }
+        }
+    }
+
+    // Calculate graph metadata
+    let task_count = detected_tasks.len();
+    let edge_count = edges.len();
+    let root_tasks: Vec<&String> = detected_tasks
+        .keys()
+        .filter(|task_id| {
+            task_dependencies
+                .get(*task_id)
+                .map(|deps| deps.is_empty())
+                .unwrap_or(true)
+        })
+        .collect();
+    let leaf_tasks: Vec<&String> = detected_tasks
+        .keys()
+        .filter(|task_id| {
+            // A task is a leaf if no other task depends on it
+            !task_dependencies
+                .values()
+                .any(|deps| deps.contains(task_id))
+        })
+        .collect();
+
+    // Build the complete graph data structure
+    let graph_data = serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {
+            "task_count": task_count,
+            "edge_count": edge_count,
+            "has_cycles": false, // We already validated no cycles exist
+            "depth_levels": calculate_max_depth(task_dependencies),
+            "root_tasks": root_tasks,
+            "leaf_tasks": leaf_tasks
+        }
+    });
+
+    graph_data.to_string()
+}
+
+/// Calculate the maximum depth in the task dependency graph
+///
+/// # Arguments
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+///
+/// # Returns
+/// The maximum depth level in the graph (number of dependency levels)
+fn calculate_max_depth(task_dependencies: &HashMap<String, Vec<String>>) -> usize {
+    let mut max_depth = 0;
+
+    for task_id in task_dependencies.keys() {
+        let depth = calculate_task_depth(task_id, task_dependencies, &mut HashSet::new());
+        max_depth = max_depth.max(depth);
+    }
+
+    max_depth + 1 // Convert to number of levels
+}
+
+/// Calculate the depth of a specific task in the dependency graph
+///
+/// # Arguments
+/// * `task_id` - The task to calculate depth for
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `visited` - Set to track visited tasks and prevent infinite recursion
+///
+/// # Returns
+/// The depth of the task (0 for root tasks)
+fn calculate_task_depth(
+    task_id: &str,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+) -> usize {
+    if visited.contains(task_id) {
+        return 0; // Prevent infinite recursion
+    }
+
+    visited.insert(task_id.to_string());
+
+    let dependencies = task_dependencies.get(task_id);
+    match dependencies {
+        None => 0,
+        Some(deps) if deps.is_empty() => 0,
+        Some(deps) => {
+            let max_dep_depth = deps
+                .iter()
+                .filter(|dep| task_dependencies.contains_key(*dep)) // Only count local dependencies
+                .map(|dep| calculate_task_depth(dep, task_dependencies, visited))
+                .max()
+                .unwrap_or(0);
+            max_dep_depth + 1
+        }
+    }
+}
+
 /// Calculate the Levenshtein distance between two strings for packaged workflow validation
 ///
 /// Used for finding similar task names when suggesting fixes for typos
@@ -874,8 +1018,8 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     // Use a timeout to avoid hanging if there are mutex issues
     let file_path = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "unknown".to_string());
 
-    // Check if we're in a packaged workflow context by looking at the file path
-    let is_packaged_workflow = file_path.contains("packaged-workflow");
+    // Note: We no longer need to check if we're in a packaged workflow context
+    // since validation is deferred for all tasks
 
     let task_info = TaskInfo {
         id: attrs.id.clone(),
@@ -883,37 +1027,23 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
         file_path: file_path.clone(),
     };
 
-    let validation_result = {
-        // Skip validation for packaged workflows - they will be validated at the module level
-        if is_packaged_workflow {
-            Ok(())
-        } else {
-            // Try to acquire the lock with a timeout approach
-            match get_registry().try_lock() {
-                Ok(mut registry) => {
-                    // Register this task
-                    match registry.register_task(task_info) {
-                        Err(e) => Err(e),
-                        Ok(()) => {
-                            // Validate dependencies for this task
-                            registry.validate_dependencies(&attrs.id)
-                        }
-                    }
-                }
-                Err(_) => {
-                    // If we can't acquire the lock, skip validation to avoid hanging
-                    // This can happen during parallel compilation
-                    Ok(())
-                }
+    // PHASE 2: Register task without validation (validation happens later)
+    let _registration_result = {
+        // Try to acquire the lock with a timeout approach
+        match get_registry().try_lock() {
+            Ok(mut registry) => {
+                // Just register this task - validation will happen later
+                registry.register_task(task_info)
+            }
+            Err(_) => {
+                // If we can't acquire the lock, skip registration to avoid hanging
+                // This can happen during parallel compilation
+                Ok(())
             }
         }
     };
 
-    // PHASE 2: Generate validation errors if any
-    if let Err(e) = validation_result {
-        #[allow(clippy::useless_conversion)]
-        return e.to_compile_error().into();
-    }
+    // Note: We no longer validate immediately - validation will happen at the workflow level
 
     // PHASE 3: Generate the task implementation
     generate_task_impl(attrs, input_fn).into()
@@ -1543,6 +1673,10 @@ fn generate_packaged_workflow_impl(
     }
     let package_fingerprint = format!("{:016x}", hasher.finish());
 
+    // Build the workflow graph for this package
+    let graph_data_json =
+        build_package_graph_data(&detected_tasks, &task_dependencies, &package_name);
+
     // Generate task metadata structures for FFI export
     let task_metadata_items = if !detected_tasks.is_empty() {
         let mut task_metadata_entries = Vec::new();
@@ -1620,6 +1754,7 @@ fn generate_packaged_workflow_impl(
                 pub task_count: u32,
                 pub tasks: *const cloacina_ctl_task_metadata,
                 pub package_name: *const std::os::raw::c_char,
+                pub graph_data_json: *const std::os::raw::c_char,
             }
 
             // Safety: These pointers point to static data which is safe to share
@@ -1630,11 +1765,15 @@ fn generate_packaged_workflow_impl(
                 #(#task_metadata_entries),*
             ];
 
+            /// Static graph data as JSON
+            static GRAPH_DATA_JSON: &str = concat!(#graph_data_json, "\0");
+
             /// Static package tasks metadata
             static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
                 task_count: #task_count as u32,
                 tasks: TASK_METADATA_ARRAY.as_ptr(),
                 package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                graph_data_json: GRAPH_DATA_JSON.as_ptr() as *const std::os::raw::c_char,
             };
 
             /// Get task metadata for cloacina-ctl compilation
@@ -1784,15 +1923,19 @@ fn generate_packaged_workflow_impl(
                 pub task_count: u32,
                 pub tasks: *const cloacina_ctl_task_metadata,
                 pub package_name: *const std::os::raw::c_char,
+                pub graph_data_json: *const std::os::raw::c_char,
             }
 
             // Safety: These pointers point to static data which is safe to share
             unsafe impl Sync for cloacina_ctl_package_tasks {}
 
+            static EMPTY_GRAPH_DATA: &str = concat!("{\"nodes\":[],\"edges\":[],\"metadata\":{\"task_count\":0,\"edge_count\":0,\"has_cycles\":false,\"depth_levels\":0,\"root_tasks\":[],\"leaf_tasks\":[]}}", "\0");
+
             static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
                 task_count: 0,
                 tasks: std::ptr::null(),
                 package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                graph_data_json: EMPTY_GRAPH_DATA.as_ptr() as *const std::os::raw::c_char,
             };
 
             #[no_mangle]
