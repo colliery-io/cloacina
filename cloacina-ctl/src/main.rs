@@ -230,6 +230,23 @@ enum Commands {
         #[arg(long, default_value = "human")]
         format: String,
     },
+    /// Visualize workflow task dependencies as ASCII diagram
+    Visualize {
+        /// Path to the .cloacina package file
+        package_path: PathBuf,
+
+        /// Show detailed task information
+        #[arg(long)]
+        details: bool,
+
+        /// Layout style (horizontal, vertical, compact)
+        #[arg(long, default_value = "horizontal")]
+        layout: String,
+
+        /// Output format (ascii, dot)
+        #[arg(long, default_value = "ascii")]
+        format: String,
+    },
     /// Debug and execute tasks from a .cloacina package
     Debug {
         /// Path to the .cloacina package file
@@ -280,6 +297,14 @@ fn main() -> Result<()> {
             ref format,
         } => {
             inspect_package(package_path.clone(), format.clone(), &cli)?;
+        }
+        Commands::Visualize {
+            ref package_path,
+            details,
+            ref layout,
+            ref format,
+        } => {
+            visualize_package(package_path.clone(), details, layout.clone(), format.clone(), &cli)?;
         }
         Commands::Debug {
             ref package_path,
@@ -1576,6 +1601,342 @@ fn execute_task_from_library(
     }
 
     Ok(())
+}
+
+fn visualize_package(
+    package_path: PathBuf,
+    details: bool,
+    layout: String,
+    format: String,
+    cli: &Cli,
+) -> Result<()> {
+    if should_print(cli, LogLevel::Info) {
+        println!("Visualizing package: {:?}", package_path);
+    }
+
+    // Step 1: Validate package file exists
+    if !package_path.exists() {
+        bail!("Package file does not exist: {:?}", package_path);
+    }
+
+    if !package_path.is_file() {
+        bail!("Package path is not a file: {:?}", package_path);
+    }
+
+    // Step 2: Extract manifest from package
+    let manifest = extract_manifest_from_package(&package_path)?;
+
+    // Step 3: Generate visualization based on format
+    match format.as_str() {
+        "ascii" => generate_ascii_visualization(&manifest, &layout, details, cli)?,
+        "dot" => generate_dot_visualization(&manifest, cli)?,
+        _ => bail!("Unsupported format: {}. Use 'ascii' or 'dot'", format),
+    }
+
+    Ok(())
+}
+
+fn generate_ascii_visualization(
+    manifest: &PackageManifest,
+    layout: &str,
+    details: bool,
+    cli: &Cli,
+) -> Result<()> {
+    if should_print(cli, LogLevel::Info) {
+        // Print package header
+        println!("{} ({})", manifest.package.name, manifest.package.version);
+        if !manifest.package.description.is_empty() {
+            println!("{}", manifest.package.description);
+        }
+        println!();
+
+        match layout {
+            "horizontal" => generate_horizontal_ascii(&manifest.tasks, details)?,
+            "vertical" => generate_vertical_ascii(&manifest.tasks, details)?,
+            "compact" => generate_compact_ascii(&manifest.tasks, details)?,
+            _ => bail!("Unsupported layout: {}. Use 'horizontal', 'vertical', or 'compact'", layout),
+        }
+    }
+
+    Ok(())
+}
+
+fn generate_horizontal_ascii(tasks: &[TaskInfo], details: bool) -> Result<()> {
+    if tasks.is_empty() {
+        println!("No tasks defined in this package.");
+        return Ok(());
+    }
+
+    // Build dependency graph for topological ordering
+    let ordered_tasks = topological_sort_tasks(tasks)?;
+    
+    if details {
+        // Detailed view with task metadata
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            let box_width = 45;
+            let name_display = if task.id.len() > box_width - 4 {
+                format!("{}...", &task.id[..box_width - 7])
+            } else {
+                task.id.clone()
+            };
+
+            // Top border
+            println!("┌{:─<width$}┐", "", width = box_width - 2);
+            
+            // Task name
+            println!("│ {:<width$} │", name_display, width = box_width - 4);
+            
+            // Source location
+            if !task.source_location.is_empty() {
+                let source_display = if task.source_location.len() > box_width - 11 {
+                    format!("{}...", &task.source_location[..box_width - 14])
+                } else {
+                    task.source_location.clone()
+                };
+                println!("│ Source: {:<width$} │", source_display, width = box_width - 11);
+            }
+            
+            // Dependencies
+            if !task.dependencies.is_empty() {
+                let deps_str = task.dependencies.join(", ");
+                let deps_display = if deps_str.len() > box_width - 11 {
+                    format!("{}...", &deps_str[..box_width - 14])
+                } else {
+                    deps_str
+                };
+                println!("│ Deps: {:<width$} │", deps_display, width = box_width - 9);
+            } else {
+                println!("│ {:<width$} │", "No dependencies", width = box_width - 4);
+            }
+
+            // Bottom border
+            println!("└{:─<width$}┘", "", width = box_width - 2);
+
+            // Arrow to next task (except for last)
+            if i < ordered_tasks.len() - 1 {
+                let center = box_width / 2;
+                println!("{:>width$}", "│", width = center);
+                println!("{:>width$}", "▼", width = center);
+                println!();
+            }
+        }
+    } else {
+        // Simple horizontal flow - top borders
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            let box_width = std::cmp::max(task.id.len() + 4, 14);
+            
+            print!("┌{:─<width$}┐", "", width = box_width - 2);
+            
+            // Arrow between boxes
+            if i < ordered_tasks.len() - 1 {
+                print!("───▶");
+            }
+        }
+        println!();
+        
+        // Task names line
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            let box_width = std::cmp::max(task.id.len() + 4, 14);
+            
+            print!("│{:^width$}│", task.id, width = box_width - 2);
+            
+            // Space between boxes
+            if i < ordered_tasks.len() - 1 {
+                print!("    ");
+            }
+        }
+        println!();
+        
+        // Bottom borders line
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            let box_width = std::cmp::max(task.id.len() + 4, 14);
+            
+            print!("└{:─<width$}┘", "", width = box_width - 2);
+            
+            if i < ordered_tasks.len() - 1 {
+                print!("    ");
+            }
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn generate_vertical_ascii(tasks: &[TaskInfo], details: bool) -> Result<()> {
+    if tasks.is_empty() {
+        println!("No tasks defined in this package.");
+        return Ok(());
+    }
+
+    let ordered_tasks = topological_sort_tasks(tasks)?;
+    
+    for (i, task) in ordered_tasks.iter().enumerate() {
+        let box_width = if details { 40 } else { std::cmp::max(task.id.len() + 4, 16) };
+        
+        // Top border
+        println!("┌{:─<width$}┐", "", width = box_width - 2);
+        
+        // Task name
+        println!("│ {:<width$} │", task.id, width = box_width - 4);
+        
+        if details {
+            // Add source location
+            if !task.source_location.is_empty() {
+                let source_display = if task.source_location.len() > box_width - 11 {
+                    format!("{}...", &task.source_location[..box_width - 14])
+                } else {
+                    task.source_location.clone()
+                };
+                println!("│ Source: {:<width$} │", source_display, width = box_width - 11);
+            }
+            
+            // Add dependency info
+            if !task.dependencies.is_empty() {
+                let deps_str = task.dependencies.join(", ");
+                let deps_display = if deps_str.len() > box_width - 9 {
+                    format!("{}...", &deps_str[..box_width - 12])
+                } else {
+                    deps_str
+                };
+                println!("│ Deps: {:<width$} │", deps_display, width = box_width - 9);
+            } else {
+                println!("│ {:<width$} │", "No dependencies", width = box_width - 4);
+            }
+        }
+        
+        // Bottom border
+        println!("└{:─<width$}┘", "", width = box_width - 2);
+        
+        // Arrow down (except for last)
+        if i < ordered_tasks.len() - 1 {
+            let center = box_width / 2;
+            println!("{:>width$}", "│", width = center);
+            println!("{:>width$}", "▼", width = center);
+        }
+    }
+
+    Ok(())
+}
+
+fn generate_compact_ascii(tasks: &[TaskInfo], details: bool) -> Result<()> {
+    if tasks.is_empty() {
+        println!("No tasks defined in this package.");
+        return Ok(());
+    }
+
+    let ordered_tasks = topological_sort_tasks(tasks)?;
+    
+    if details {
+        // Compact with some metadata
+        println!("Execution Flow:");
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            let deps_info = if task.dependencies.is_empty() {
+                "".to_string()
+            } else {
+                format!(" (depends: {})", task.dependencies.join(", "))
+            };
+            
+            print!("{}. {}{}", i + 1, task.id, deps_info);
+            if i < ordered_tasks.len() - 1 {
+                print!(" → ");
+            }
+        }
+        println!();
+        
+        // Summary line
+        println!("\nTask count: {}", ordered_tasks.len());
+    } else {
+        // Ultra-compact: just task names with arrows
+        for (i, task) in ordered_tasks.iter().enumerate() {
+            print!("{}", task.id);
+            if i < ordered_tasks.len() - 1 {
+                print!(" → ");
+            }
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn generate_dot_visualization(manifest: &PackageManifest, cli: &Cli) -> Result<()> {
+    if should_print(cli, LogLevel::Info) {
+        println!("digraph \"{}\" {{", manifest.package.name);
+        println!("  rankdir=LR;");
+        println!("  node [shape=box];");
+        println!();
+
+        // Add nodes
+        for task in &manifest.tasks {
+            println!("  \"{}\" [label=\"{}\"];", task.id, task.id);
+        }
+
+        println!();
+
+        // Add edges
+        for task in &manifest.tasks {
+            for dependency in &task.dependencies {
+                println!("  \"{}\" -> \"{}\";", dependency, task.id);
+            }
+        }
+
+        println!("}}");
+    }
+
+    Ok(())
+}
+
+fn topological_sort_tasks(tasks: &[TaskInfo]) -> Result<Vec<&TaskInfo>> {
+    // Simple topological sort implementation
+    let mut result = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut visiting = std::collections::HashSet::new();
+    
+    // Create a map for quick task lookup
+    let task_map: std::collections::HashMap<String, &TaskInfo> = 
+        tasks.iter().map(|t| (t.id.clone(), t)).collect();
+
+    fn visit<'a>(
+        task: &'a TaskInfo,
+        task_map: &std::collections::HashMap<String, &'a TaskInfo>,
+        visited: &mut std::collections::HashSet<String>,
+        visiting: &mut std::collections::HashSet<String>,
+        result: &mut Vec<&'a TaskInfo>,
+    ) -> Result<()> {
+        if visiting.contains(&task.id) {
+            bail!("Circular dependency detected involving task: {}", task.id);
+        }
+        
+        if visited.contains(&task.id) {
+            return Ok(());
+        }
+
+        visiting.insert(task.id.clone());
+
+        // Visit dependencies first
+        for dep_id in &task.dependencies {
+            if let Some(dep_task) = task_map.get(dep_id) {
+                visit(dep_task, task_map, visited, visiting, result)?;
+            }
+            // Note: we ignore external dependencies not in this package
+        }
+
+        visiting.remove(&task.id);
+        visited.insert(task.id.clone());
+        result.push(task);
+
+        Ok(())
+    }
+
+    // Visit all tasks
+    for task in tasks {
+        if !visited.contains(&task.id) {
+            visit(task, &task_map, &mut visited, &mut visiting, &mut result)?;
+        }
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

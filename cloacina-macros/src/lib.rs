@@ -1454,17 +1454,24 @@ fn generate_packaged_workflow_impl(
                                 Ok(registry) => {
                                     if !registry.get_all_task_ids().contains(dependency) {
                                         // Generate improved error message with suggestions (consistent with regular workflow validation)
-                                        let available_package_tasks: Vec<String> = detected_tasks.keys().cloned().collect();
-                                        let package_suggestions = find_similar_package_task_names(dependency, &available_package_tasks);
-                                        let global_suggestions = find_similar_package_task_names(dependency, &registry.get_all_task_ids());
-                                        
+                                        let available_package_tasks: Vec<String> =
+                                            detected_tasks.keys().cloned().collect();
+                                        let package_suggestions = find_similar_package_task_names(
+                                            dependency,
+                                            &available_package_tasks,
+                                        );
+                                        let global_suggestions = find_similar_package_task_names(
+                                            dependency,
+                                            &registry.get_all_task_ids(),
+                                        );
+
                                         let mut error_msg = format!(
                                             "Task '{}' depends on undefined task '{}'. \
                                             This dependency is not defined within the '{}' package \
                                             and is not available in the global registry.\n\n",
                                             task_id, dependency, package_name
                                         );
-                                        
+
                                         // Add suggestions if any found
                                         if !package_suggestions.is_empty() {
                                             error_msg.push_str(&format!(
@@ -1472,14 +1479,14 @@ fn generate_packaged_workflow_impl(
                                                 package_suggestions.join("\n  ")
                                             ));
                                         }
-                                        
+
                                         if !global_suggestions.is_empty() {
                                             error_msg.push_str(&format!(
                                                 "Or did you mean one of these global tasks?\n  {}\n\n",
                                                 global_suggestions.join("\n  ")
                                             ));
                                         }
-                                        
+
                                         error_msg.push_str(&format!(
                                             "Available tasks in this package: [{}]\n\n\
                                             Hint: Make sure all task dependencies are either:\n\
@@ -1487,7 +1494,7 @@ fn generate_packaged_workflow_impl(
                                             2. Registered in the global task registry before this package is processed",
                                             available_package_tasks.join(", ")
                                         ));
-                                        
+
                                         Err(error_msg)
                                     } else {
                                         Ok(())
