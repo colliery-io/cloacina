@@ -119,6 +119,7 @@ psql -U cloacina -d cloacina -c "SELECT version();"
 ### Basic Multi-Tenant Setup
 
 ```python
+import sys
 import cloaca
 import time
 from datetime import datetime

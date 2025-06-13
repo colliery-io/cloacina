@@ -46,6 +46,7 @@ Cloaca provides built-in cron scheduling that runs within your application proce
 Let's start with a simple scheduled workflow:
 
 ```python
+import sys
 import cloaca
 from datetime import datetime
 import time
@@ -86,7 +87,7 @@ def basic_cron_scheduling():
     print("=== Basic Cron Scheduling Demo ===")
 
     # Create runner with cron scheduling enabled
-    runner = cloaca.DefaultRunner("sqlite:///:memory:")
+    runner = cloaca.DefaultRunner(":memory:")
 
     # Register workflow
     cloaca.register_workflow_constructor("daily_report", create_daily_report_workflow)

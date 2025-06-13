@@ -79,7 +79,6 @@ In Cloacina, a workflow is a collection of tasks that work together to accomplis
 4. **Error Handling**: Failed tasks can affect dependent tasks
 5. **Retry Strategies**: Tasks can be configured to retry on failure
 6. **DefaultRunner**: Manages workflow execution with persistence
-6. **DefaultRunner**: Manages workflow execution with persistence
 
 ### Workflow Structure
 
@@ -218,7 +217,7 @@ Now, create `src/main.rs` to define and execute our workflow:
 //! - Recovery from failures
 
 use cloacina::{workflow, Context};
-use cloacina::runner::DefaultRunner;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use serde_json::json;
 use tracing::info;
 
@@ -234,8 +233,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting ETL Example");
 
-    // Initialize runner with SQLite database
-    let runner = DefaultRunner::new("workflow_etl.db").await?;
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
+    )
+    .await?;
 
     // Create the ETL workflow
     let _pipeline = create_etl_workflow()?;
@@ -302,7 +305,11 @@ Let's walk through the code in execution order and understand why each component
        .init();
 
    // 2. Create the runner
-   let runner = DefaultRunner::new("workflow_etl.db").await?;
+   let runner = DefaultRunner::with_config(
+       "sqlite://tutorial-02.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+       DefaultRunnerConfig::default(),
+   )
+   .await?;
 
    // 3. Define the workflow
    let workflow = workflow! {
@@ -362,10 +369,6 @@ This will run the tutorial code with all necessary dependencies.
 ### Option 2: Manual Setup
 
 If you're building the project manually, simply run your workflow with:
-2. A database named "cloacina" created
-3. A user "cloacina" with password "cloacina" with access to the database
-
-Then run your workflow with:
 
 ```bash
 cargo run

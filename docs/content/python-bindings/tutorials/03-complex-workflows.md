@@ -93,6 +93,7 @@ Let's implement each pattern with a practical example. We'll build a comprehensi
 ### 1. Diamond Pattern - Data Processing Pipeline
 
 ```python
+import sys
 import cloaca
 import random
 import time
@@ -693,11 +694,11 @@ if __name__ == "__main__":
     print("=== Complex Workflows Tutorial ===")
 
     # Create runner
-    runner = cloaca.DefaultRunner("sqlite:///tutorial_04.db")
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Create initial context
     context = cloaca.Context({
-        "tutorial": "04",
+        "tutorial": "03",
         "analysis_type": "comprehensive_customer_analysis",
         "request_id": f"req_{int(time.time())}"
     })

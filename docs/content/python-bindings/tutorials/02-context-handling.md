@@ -53,6 +53,7 @@ graph TD
 Let's start with a simple example showing basic context operations:
 
 ```python
+import sys
 import cloaca
 
 @cloaca.task(id="context_basics")
@@ -316,7 +317,7 @@ if __name__ == "__main__":
     print("=== Context Handling Tutorial ===")
 
     # Create runner
-    runner = cloaca.DefaultRunner("sqlite:///tutorial_02.db")
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Create initial context with metadata
     context = cloaca.Context({

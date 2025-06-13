@@ -40,6 +40,7 @@ pip install cloaca[sqlite]
 Let's create a simple workflow with three tasks that demonstrates the core concepts. Create a new file called `first_workflow.py`:
 
 ```python
+import sys
 import cloaca
 
 # Define tasks using the @task decorator
@@ -117,16 +118,24 @@ cloaca.register_workflow_constructor("simple_workflow", create_simple_workflow)
 
 # Execute the workflow
 if __name__ == "__main__":
-    print("=== Cloacina Python Workflow Tutorial ===")
+    print("=== Cloacina Python Tutorial 01: Your First Workflow ===")
+    print()
+    print("This tutorial demonstrates:")
+    print("- Task definition with @cloaca.task decorator")
+    print("- Sequential task dependencies")
+    print("- Data flow through context")
+    print("- Workflow builder pattern")
+    print("- Basic execution and result handling")
+    print()
 
-    # Create a runner with SQLite database
-    runner = cloaca.DefaultRunner("sqlite:///tutorial_01.db")
+    # Create a runner with in-memory SQLite database
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Create initial context
     context = cloaca.Context({"tutorial": "01", "user": "learner"})
 
     # Execute the workflow
-    print("\nExecuting workflow...")
+    print("Executing workflow...")
     result = runner.execute("simple_workflow", context)
 
     # Check results
@@ -140,17 +149,27 @@ if __name__ == "__main__":
         summary = final_context.get("final_summary")
 
         print(f"Final Summary: {summary}")
-        print(f"All context data: {dict(final_context)}")
+        print(f"Items processed: {len(final_context.get('processed_items'))}")
 
     else:
         print(f"Workflow failed with status: {result.status}")
         if hasattr(result, 'error'):
             print(f"Error: {result.error}")
 
+        # Clean up before exiting
+        print("\nCleaning up...")
+        runner.shutdown()
+        sys.exit(1)
+
     # Clean up
     print("\nCleaning up...")
     runner.shutdown()
-    print("Tutorial completed!")
+    print("Tutorial 01 completed!")
+    print()
+    print("Next steps:")
+    print("- Try python_tutorial_02_context_handling.py for advanced context usage")
+    print("- Modify this example to add validation or parallel processing")
+    print("- Explore the API reference documentation")
 ```
 
 ## Understanding the Workflow
@@ -246,7 +265,7 @@ The builder pattern:
 cloaca.register_workflow_constructor("simple_workflow", create_simple_workflow)
 
 # Create runner and execute
-runner = cloaca.DefaultRunner("sqlite:///tutorial_01.db")
+runner = cloaca.DefaultRunner("sqlite://:memory:")
 result = runner.execute("simple_workflow", context)
 ```
 
@@ -266,7 +285,14 @@ python first_workflow.py
 You should see output like this:
 
 ```
-=== Cloacina Python Workflow Tutorial ===
+=== Cloacina Python Tutorial 01: Your First Workflow ===
+
+This tutorial demonstrates:
+- Task definition with @cloaca.task decorator
+- Sequential task dependencies
+- Data flow through context
+- Workflow builder pattern
+- Basic execution and result handling
 
 Executing workflow...
 Starting the workflow...
@@ -279,10 +305,15 @@ Process proc_001 completed successfully
 Workflow Status: Completed
 Success! Workflow completed.
 Final Summary: {'process_id': 'proc_001', 'start_time': '2025-01-07T10:00:00Z', 'items_processed': 10, 'status': 'completed'}
-All context data: {'tutorial': '01', 'user': 'learner', 'process_id': 'proc_001', 'start_time': '2025-01-07T10:00:00Z', 'items_to_process': 10, 'processed_items': ['item_0_processed', 'item_1_processed', ...], 'processing_complete': True, 'final_summary': {...}}
+Items processed: 10
 
 Cleaning up...
-Tutorial completed!
+Tutorial 01 completed!
+
+Next steps:
+- Try python_tutorial_02_context_handling.py for advanced context usage
+- Modify this example to add validation or parallel processing
+- Explore the API reference documentation
 ```
 
 ## Key Concepts Learned

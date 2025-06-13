@@ -209,11 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.cron_poll_interval = Duration::from_secs(5); // Check every 5 seconds
     config.cron_recovery_interval = Duration::from_secs(30); // Recovery check every 30 seconds
 
-    let runner = DefaultRunner::with_config(
-        "sqlite://cron-tutorial.db",
-        config,
-    )
-    .await?;
+    let runner = DefaultRunner::with_config("sqlite://cronscheduling.db", config).await?;
 
     info!("DefaultRunner initialized with cron scheduling enabled");
 

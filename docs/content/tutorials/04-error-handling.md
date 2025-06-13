@@ -187,8 +187,7 @@ Let's implement these tasks in our workflow. Create `src/main.rs` with the follo
 //! - Monitoring task execution outcomes
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::runner::DefaultRunner;
-use cloacina::runner::DefaultRunner;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use serde_json::json;
 use std::time::Duration;
 use tracing::{info, warn, error};
@@ -429,7 +428,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize runner with database
-    let runner = DefaultRunner::new("error_handling.db").await?;
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
+    )
+    .await?;
 
     // Create the workflow
     let _workflow = workflow! {

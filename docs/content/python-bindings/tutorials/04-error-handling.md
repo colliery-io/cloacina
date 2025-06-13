@@ -65,6 +65,7 @@ Cloacina workflows can encounter several types of errors:
 Let's start with basic error handling within tasks:
 
 ```python
+import sys
 import cloaca
 import random
 import time
@@ -480,7 +481,7 @@ if __name__ == "__main__":
     print("=== Error Handling Tutorial ===")
 
     # Create runner
-    runner = cloaca.DefaultRunner("sqlite:///tutorial_03.db")
+    runner = cloaca.DefaultRunner("sqlite://:memory:")
 
     # Test different scenarios
     scenarios = [

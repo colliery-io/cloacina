@@ -86,7 +86,7 @@ Let's create a simple workflow with a single task that prints a greeting message
 //! This example demonstrates the most basic usage of Cloacina with a single task.
 
 use cloacina::{task, workflow, Context, TaskError};
-use cloacina::runner::DefaultRunner;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use serde_json::json;
 use tracing::info;
 
@@ -107,13 +107,17 @@ async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), Tas
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("simple_example=debug,cloacina=debug")
+        .with_env_filter("tutorial_01=info,cloacina=debug")
         .init();
 
     info!("Starting Simple Cloacina Example");
 
-    // Initialize runner with SQLite database (migrations run automatically)
-    let runner = DefaultRunner::new("simple_workflow.db").await?;
+    // Initialize runner with SQLite database using WAL mode for better concurrency
+    let runner = DefaultRunner::with_config(
+        "sqlite://tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        DefaultRunnerConfig::default(),
+    )
+    .await?;
 
     // Create a simple workflow (automatically registers in global registry)
     let _workflow = workflow! {
@@ -152,7 +156,6 @@ Let's walk through the code in execution order and understand why each component
    ```rust
    use cloacina::{task, workflow, Context, TaskError};
    use cloacina::runner::DefaultRunner;
-   use cloacina::runner::DefaultRunner;
    ```
    These imports are needed because they define the core types and traits we'll use throughout the program. `DefaultRunner` provides the interface for executing workflows and managing task pipelines.
 
@@ -167,13 +170,17 @@ Let's walk through the code in execution order and understand why each component
    ```rust
    // 1. Initialize logging first - needed for all subsequent operations
    tracing_subscriber::fmt()
-       .with_env_filter("simple_example=debug,cloacina=debug")
+       .with_env_filter("tutorial_01=info,cloacina=debug")
        .init();
 
    // 2. Create the runner - this must happen before any workflow definition
    // because the workflow! macro registers workflows in a global registry
    // that the runner needs to access
-   let runner = DefaultRunner::new("simple_workflow.db").await?;
+   let runner = DefaultRunner::with_config(
+       "sqlite://tutorial-01.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+       DefaultRunnerConfig::default(),
+   )
+   .await?;
 
    // 3. Define the workflow - the workflow! macro will automatically register
    // it in the global registry that the executor uses
@@ -248,12 +255,12 @@ cargo run
 You should see output similar to:
 
 ```
-INFO  simple_example > Starting Simple Cloacina Example
-INFO  simple_example > Executing workflow
-INFO  simple_example > Hello from Cloacina!
-INFO  simple_example > Workflow completed with status: Success
-INFO  simple_example > Final context: {"message": "Hello World!"}
-INFO  simple_example > Simple example completed!
+INFO  tutorial_01 > Starting Simple Cloacina Example
+INFO  tutorial_01 > Executing workflow
+INFO  tutorial_01 > Hello from Cloacina!
+INFO  tutorial_01 > Workflow completed with status: Success
+INFO  tutorial_01 > Final context: {"message": "Hello World!"}
+INFO  tutorial_01 > Simple example completed!
 ```
 
 ## What's Next?
