@@ -107,6 +107,14 @@ try:
         Workflow = _backend_module.Workflow
     if hasattr(_backend_module, "register_workflow_constructor"):
         register_workflow_constructor = _backend_module.register_workflow_constructor
+    if hasattr(_backend_module, "DatabaseAdmin"):
+        DatabaseAdmin = _backend_module.DatabaseAdmin
+    if hasattr(_backend_module, "TenantConfig"):
+        TenantConfig = _backend_module.TenantConfig
+    if hasattr(_backend_module, "TenantCredentials"):
+        TenantCredentials = _backend_module.TenantCredentials
+    if hasattr(_backend_module, "CronSchedule"):
+        CronSchedule = _backend_module.CronSchedule
 
     print(__version__)
 
