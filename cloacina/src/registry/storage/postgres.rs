@@ -21,9 +21,12 @@
 //! database-level integrity constraints.
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use diesel::prelude::*;
 use uuid::Uuid;
 
+use crate::database::schema::workflow_registry;
+use crate::database::Database;
+use crate::models::workflow_registry::{NewWorkflowRegistryEntry, WorkflowRegistryEntry};
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
@@ -38,10 +41,10 @@ use crate::registry::traits::RegistryStorage;
 /// ```rust,no_run
 /// use cloacina::registry::storage::PostgresRegistryStorage;
 /// use cloacina::registry::RegistryStorage;
-/// use sqlx::PgPool;
+/// use cloacina::database::Database;
 ///
-/// # async fn example(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-/// let mut storage = PostgresRegistryStorage::new(pool);
+/// # async fn example(database: Database) -> Result<(), Box<dyn std::error::Error>> {
+/// let mut storage = PostgresRegistryStorage::new(database);
 ///
 /// // Store binary workflow data
 /// let workflow_data = std::fs::read("my_workflow.so")?;
@@ -56,7 +59,7 @@ use crate::registry::traits::RegistryStorage;
 /// ```
 #[derive(Debug, Clone)]
 pub struct PostgresRegistryStorage {
-    pool: PgPool,
+    database: Database,
 }
 
 impl PostgresRegistryStorage {
@@ -64,75 +67,86 @@ impl PostgresRegistryStorage {
     ///
     /// # Arguments
     ///
-    /// * `pool` - Database connection pool for PostgreSQL
+    /// * `database` - Database instance for PostgreSQL
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// use cloacina::registry::storage::PostgresRegistryStorage;
-    /// use sqlx::PgPool;
+    /// use cloacina::database::Database;
     ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let database_url = "postgresql://user:pass@localhost/cloacina";
-    /// let pool = PgPool::connect(database_url).await?;
-    /// let storage = PostgresRegistryStorage::new(pool);
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let database = Database::new("postgresql://user:pass@localhost", "cloacina", 5);
+    /// let storage = PostgresRegistryStorage::new(database);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(database: Database) -> Self {
+        Self { database }
     }
 
-    /// Get a reference to the underlying database pool.
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    /// Get a reference to the underlying database.
+    pub fn database(&self) -> &Database {
+        &self.database
     }
 }
 
 #[async_trait]
 impl RegistryStorage for PostgresRegistryStorage {
     async fn store_binary(&mut self, data: Vec<u8>) -> Result<String, StorageError> {
-        let id = Uuid::new_v4();
+        let conn = self
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
 
-        let result = sqlx::query!(
-            r#"
-            INSERT INTO workflow_registry (id, data, created_at)
-            VALUES ($1, $2, CURRENT_TIMESTAMP)
-            "#,
-            id,
-            data
-        )
-        .execute(&self.pool)
-        .await;
+        let new_entry = NewWorkflowRegistryEntry::new(data);
 
-        match result {
-            Ok(_) => Ok(id.to_string()),
-            Err(sqlx::Error::Database(db_err)) if db_err.constraint().is_some() => Err(
-                StorageError::Backend(format!("Constraint violation: {}", db_err.message())),
-            ),
-            Err(e) => Err(StorageError::Postgres(e)),
-        }
+        let entry: WorkflowRegistryEntry = conn
+            .interact(move |conn| {
+                diesel::insert_into(workflow_registry::table)
+                    .values(&new_entry)
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?
+            .map_err(|e| match e {
+                diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation,
+                    info,
+                ) => StorageError::Backend(format!("Constraint violation: {}", info.message())),
+                _ => StorageError::Backend(format!("Database error: {}", e)),
+            })?;
+
+        Ok(entry.id.to_string())
     }
 
     async fn retrieve_binary(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
         let uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
 
-        let result = sqlx::query!(
-            r#"
-            SELECT data
-            FROM workflow_registry
-            WHERE id = $1
-            "#,
-            uuid
-        )
-        .fetch_optional(&self.pool)
-        .await;
+        let conn = self
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+        let uuid_param = crate::database::universal_types::UniversalUuid::from(uuid);
+        let result: Result<Option<WorkflowRegistryEntry>, _> = conn
+            .interact(move |conn| {
+                workflow_registry::table
+                    .filter(workflow_registry::id.eq(uuid_param))
+                    .first::<WorkflowRegistryEntry>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?
+            .map_err(|e| StorageError::Backend(format!("Database error: {}", e)));
 
         match result {
-            Ok(Some(row)) => Ok(Some(row.data)),
+            Ok(Some(entry)) => Ok(Some(entry.data)),
             Ok(None) => Ok(None),
-            Err(e) => Err(StorageError::Postgres(e)),
+            Err(e) => Err(e),
         }
     }
 
@@ -140,35 +154,41 @@ impl RegistryStorage for PostgresRegistryStorage {
         let uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
 
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM workflow_registry
-            WHERE id = $1
-            "#,
-            uuid
-        )
-        .execute(&self.pool)
-        .await;
+        let conn = self
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
 
-        match result {
-            Ok(_) => Ok(()), // Idempotent - success even if no rows deleted
-            Err(e) => Err(StorageError::Postgres(e)),
-        }
+        let uuid_param = crate::database::universal_types::UniversalUuid::from(uuid);
+        let _rows_affected = conn
+            .interact(move |conn| {
+                diesel::delete(
+                    workflow_registry::table.filter(workflow_registry::id.eq(uuid_param)),
+                )
+                .execute(conn)
+            })
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?
+            .map_err(|e| StorageError::Backend(format!("Database error: {}", e)))?;
+
+        // Idempotent - success even if no rows deleted
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
+    use crate::database::Database;
 
     // Helper to create test storage (requires running PostgreSQL)
-    async fn create_test_storage() -> Result<PostgresRegistryStorage, sqlx::Error> {
+    async fn create_test_storage() -> Result<PostgresRegistryStorage, Box<dyn std::error::Error>> {
         let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgresql://postgres:password@localhost/cloacina_test".to_string()
         });
-        let pool = PgPool::connect(&database_url).await?;
-        Ok(PostgresRegistryStorage::new(pool))
+        let database = Database::new(&database_url, "cloacina_test", 5);
+        Ok(PostgresRegistryStorage::new(database))
     }
 
     #[tokio::test]
@@ -222,5 +242,68 @@ mod tests {
 
         let result = storage.retrieve_binary("not-a-uuid").await;
         assert!(matches!(result, Err(StorageError::InvalidId { .. })));
+
+        let mut storage = storage;
+        let result = storage.delete_binary("not-a-uuid").await;
+        assert!(matches!(result, Err(StorageError::InvalidId { .. })));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL database
+    async fn test_empty_data() {
+        let mut storage = create_test_storage().await.unwrap();
+
+        let empty_data = Vec::new();
+        let id = storage.store_binary(empty_data.clone()).await.unwrap();
+
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        assert_eq!(retrieved, Some(empty_data));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL database
+    async fn test_very_large_data() {
+        let mut storage = create_test_storage().await.unwrap();
+
+        // Test with 10MB of data
+        let large_data = vec![0xAB; 10 * 1024 * 1024];
+        let id = storage.store_binary(large_data.clone()).await.unwrap();
+
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        assert_eq!(retrieved, Some(large_data));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL database
+    async fn test_uuid_format() {
+        let mut storage = create_test_storage().await.unwrap();
+
+        let test_data = b"test data".to_vec();
+        let id = storage.store_binary(test_data).await.unwrap();
+
+        // Verify the returned ID is a valid UUID
+        let parsed_uuid = Uuid::parse_str(&id);
+        assert!(
+            parsed_uuid.is_ok(),
+            "Returned ID should be a valid UUID: {}",
+            id
+        );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires PostgreSQL database
+    async fn test_binary_data_integrity() {
+        let mut storage = create_test_storage().await.unwrap();
+
+        // Test with binary data containing all byte values
+        let mut binary_data = Vec::with_capacity(256);
+        for i in 0..=255u8 {
+            binary_data.push(i);
+        }
+
+        let id = storage.store_binary(binary_data.clone()).await.unwrap();
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+
+        assert_eq!(retrieved, Some(binary_data));
     }
 }

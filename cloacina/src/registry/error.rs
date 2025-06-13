@@ -155,12 +155,12 @@ pub enum StorageError {
     /// Database-specific error (for PostgreSQL storage).
     #[cfg(feature = "postgres")]
     #[error("PostgreSQL error: {0}")]
-    Postgres(#[from] sqlx::Error),
+    Postgres(#[from] diesel::result::Error),
 
     /// Database-specific error (for SQLite storage).
     #[cfg(feature = "sqlite")]
     #[error("SQLite error: {0}")]
-    Sqlite(#[from] sqlx::Error),
+    Sqlite(#[from] diesel::result::Error),
 }
 
 impl From<String> for RegistryError {

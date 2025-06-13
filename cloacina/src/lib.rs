@@ -417,6 +417,7 @@
 //! - [`context`]: Context management for sharing data between tasks
 //! - [`task`]: Core task trait and registry functionality
 //! - [`workflow`]: Workflow construction and dependency management
+//! - [`registry`]: Dynamic workflow package loading and storage
 //! - [`database`]: Database connection and persistence
 //! - [`error`]: Comprehensive error types
 //! - [`models`]: Database models and schemas
@@ -444,6 +445,7 @@ pub mod executor;
 pub mod graph;
 pub mod logging;
 pub mod models;
+pub mod registry;
 pub mod retry;
 pub mod runner;
 pub mod task;

@@ -24,6 +24,7 @@ pub mod error;
 pub mod executor;
 pub mod logging;
 pub mod models;
+pub mod registry_storage_tests;
 pub mod scheduler;
 pub mod task;
 pub mod workflow;

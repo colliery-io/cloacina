@@ -341,4 +341,104 @@ mod tests {
         let retrieved = storage.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, Some(test_data));
     }
+
+    #[tokio::test]
+    async fn test_file_permissions() {
+        let (mut storage, temp_dir) = create_test_storage().await;
+
+        let test_data = b"test permissions".to_vec();
+        let id = storage.store_binary(test_data.clone()).await.unwrap();
+
+        // Verify the file was created with correct extension
+        let file_path = temp_dir.path().join(format!("{}.so", id));
+        assert!(file_path.exists(), "File should exist");
+        assert_eq!(
+            file_path.extension().unwrap(),
+            "so",
+            "File should have .so extension"
+        );
+
+        // Verify we can read the file
+        let file_contents = fs::read(&file_path).await.unwrap();
+        assert_eq!(file_contents, test_data);
+    }
+
+    #[tokio::test]
+    async fn test_directory_creation() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_path = temp_dir.path().join("deeply").join("nested").join("path");
+
+        // Should create directories if they don't exist
+        let storage = FilesystemRegistryStorage::new(&nested_path).unwrap();
+
+        assert!(nested_path.exists(), "Nested directories should be created");
+        assert!(nested_path.is_dir(), "Path should be a directory");
+
+        // Should be able to store files in the nested directory
+        let mut storage = storage;
+        let test_data = b"test nested storage".to_vec();
+        let id = storage.store_binary(test_data.clone()).await.unwrap();
+
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        assert_eq!(retrieved, Some(test_data));
+    }
+
+    #[tokio::test]
+    async fn test_uuid_format() {
+        let (mut storage, _temp_dir) = create_test_storage().await;
+
+        let test_data = b"test data".to_vec();
+        let id = storage.store_binary(test_data).await.unwrap();
+
+        // Verify the returned ID is a valid UUID
+        let parsed_uuid = Uuid::parse_str(&id);
+        assert!(
+            parsed_uuid.is_ok(),
+            "Returned ID should be a valid UUID: {}",
+            id
+        );
+    }
+
+    #[tokio::test]
+    async fn test_binary_data_integrity() {
+        let (mut storage, _temp_dir) = create_test_storage().await;
+
+        // Test with binary data containing all byte values
+        let mut binary_data = Vec::with_capacity(256);
+        for i in 0..=255u8 {
+            binary_data.push(i);
+        }
+
+        let id = storage.store_binary(binary_data.clone()).await.unwrap();
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+
+        assert_eq!(retrieved, Some(binary_data));
+    }
+
+    #[tokio::test]
+    async fn test_very_large_file() {
+        let (mut storage, _temp_dir) = create_test_storage().await;
+
+        // Test with 1MB of data
+        let large_data = vec![0xAB; 1024 * 1024];
+        let id = storage.store_binary(large_data.clone()).await.unwrap();
+
+        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        assert_eq!(retrieved, Some(large_data));
+    }
+
+    #[tokio::test]
+    async fn test_storage_dir_access() {
+        let (storage, temp_dir) = create_test_storage().await;
+
+        assert_eq!(storage.storage_dir(), temp_dir.path());
+    }
+
+    #[tokio::test]
+    async fn test_check_disk_space() {
+        let (storage, _temp_dir) = create_test_storage().await;
+
+        let disk_space = storage.check_disk_space().await.unwrap();
+        assert!(disk_space > 0, "Should report some available disk space");
+    }
 }
