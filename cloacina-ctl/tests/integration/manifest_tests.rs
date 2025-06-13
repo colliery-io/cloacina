@@ -60,32 +60,33 @@ fn test_package_manifest_serialization() {
     assert!(json.contains("task2"));
 
     // Test deserialization
-    let deserialized: PackageManifest = serde_json::from_str(&json)
-        .expect("Failed to deserialize manifest");
-    
+    let deserialized: PackageManifest =
+        serde_json::from_str(&json).expect("Failed to deserialize manifest");
+
     assert_eq!(deserialized.package.name, manifest.package.name);
     assert_eq!(deserialized.package.version, manifest.package.version);
     assert_eq!(deserialized.library.filename, manifest.library.filename);
     assert_eq!(deserialized.tasks.len(), manifest.tasks.len());
     assert_eq!(deserialized.tasks[0].id, manifest.tasks[0].id);
-    assert_eq!(deserialized.tasks[1].dependencies, manifest.tasks[1].dependencies);
+    assert_eq!(
+        deserialized.tasks[1].dependencies,
+        manifest.tasks[1].dependencies
+    );
 }
 
 #[test]
 fn test_package_manifest_with_graph_data() {
     let graph_data = cloacina::WorkflowGraphData {
-        nodes: vec![
-            cloacina::GraphNode {
+        nodes: vec![cloacina::GraphNode {
+            id: "task1".to_string(),
+            data: cloacina::TaskNode {
                 id: "task1".to_string(),
-                data: cloacina::TaskNode {
-                    id: "task1".to_string(),
-                    name: "Task 1".to_string(),
-                    description: Some("First task".to_string()),
-                    source_location: Some("src/lib.rs:10".to_string()),
-                    metadata: HashMap::new(),
-                },
+                name: "Task 1".to_string(),
+                description: Some("First task".to_string()),
+                source_location: Some("src/lib.rs:10".to_string()),
+                metadata: HashMap::new(),
             },
-        ],
+        }],
         edges: vec![],
         metadata: cloacina::GraphMetadata {
             task_count: 1,
@@ -109,15 +110,13 @@ fn test_package_manifest_with_graph_data() {
             symbols: vec!["cloacina_execute_task".to_string()],
             architecture: "x86_64-unknown-linux-gnu".to_string(),
         },
-        tasks: vec![
-            TaskInfo {
-                index: 0,
-                id: "task1".to_string(),
-                dependencies: vec![],
-                description: "First task".to_string(),
-                source_location: "src/lib.rs:10".to_string(),
-            },
-        ],
+        tasks: vec![TaskInfo {
+            index: 0,
+            id: "task1".to_string(),
+            dependencies: vec![],
+            description: "First task".to_string(),
+            source_location: "src/lib.rs:10".to_string(),
+        }],
         execution_order: vec!["task1".to_string()],
         graph: Some(graph_data.clone()),
     };
@@ -130,9 +129,9 @@ fn test_package_manifest_with_graph_data() {
     assert!(json.contains("metadata"));
 
     // Test deserialization
-    let deserialized: PackageManifest = serde_json::from_str(&json)
-        .expect("Failed to deserialize manifest");
-    
+    let deserialized: PackageManifest =
+        serde_json::from_str(&json).expect("Failed to deserialize manifest");
+
     assert!(deserialized.graph.is_some());
     let graph = deserialized.graph.unwrap();
     assert_eq!(graph.nodes.len(), 1);
@@ -173,7 +172,9 @@ fn test_library_info_validation() {
 
     assert_eq!(library.filename, "libworkflow.so");
     assert_eq!(library.symbols.len(), 2);
-    assert!(library.symbols.contains(&"cloacina_execute_task".to_string()));
+    assert!(library
+        .symbols
+        .contains(&"cloacina_execute_task".to_string()));
     assert_eq!(library.architecture, "aarch64-apple-darwin");
 }
 
@@ -195,7 +196,7 @@ fn test_package_info_validation() {
 #[test]
 fn test_compile_result() {
     use std::path::PathBuf;
-    
+
     let manifest = PackageManifest {
         package: PackageInfo {
             name: "test".to_string(),
@@ -228,7 +229,7 @@ fn test_manifest_constants() {
     assert_eq!(EXECUTE_TASK_SYMBOL, "cloacina_execute_task");
 }
 
-#[test] 
+#[test]
 fn test_manifest_with_empty_tasks() {
     let manifest = PackageManifest {
         package: PackageInfo {
@@ -248,9 +249,9 @@ fn test_manifest_with_empty_tasks() {
     };
 
     let json = serde_json::to_string(&manifest).expect("Failed to serialize empty manifest");
-    let deserialized: PackageManifest = serde_json::from_str(&json)
-        .expect("Failed to deserialize empty manifest");
-    
+    let deserialized: PackageManifest =
+        serde_json::from_str(&json).expect("Failed to deserialize empty manifest");
+
     assert!(deserialized.tasks.is_empty());
     assert!(deserialized.execution_order.is_empty());
     assert!(deserialized.graph.is_none());
@@ -275,20 +276,20 @@ fn test_manifest_json_structure() {
         graph: None,
     };
 
-    let json_value: serde_json::Value = serde_json::to_value(&manifest)
-        .expect("Failed to convert to JSON value");
-    
+    let json_value: serde_json::Value =
+        serde_json::to_value(&manifest).expect("Failed to convert to JSON value");
+
     // Verify JSON structure
     assert!(json_value.is_object());
     assert!(json_value["package"].is_object());
     assert!(json_value["library"].is_object());
     assert!(json_value["tasks"].is_array());
     assert!(json_value["execution_order"].is_array());
-    
+
     // Verify package fields
     assert_eq!(json_value["package"]["name"], "test");
     assert_eq!(json_value["package"]["version"], "1.0.0");
-    
+
     // Verify library fields
     assert_eq!(json_value["library"]["filename"], "libtest.so");
     assert!(json_value["library"]["symbols"].is_array());

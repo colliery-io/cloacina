@@ -15,7 +15,7 @@
  */
 
 //! Complex DAG Example
-//! 
+//!
 //! This example demonstrates a sophisticated workflow with:
 //! - Multiple root tasks (no dependencies)
 //! - Tasks with multiple dependencies
@@ -27,7 +27,7 @@ use cloacina::{Context, TaskError};
 use cloacina_macros::{packaged_workflow, task};
 
 #[packaged_workflow(
-    package = "complex_dag_workflow", 
+    package = "complex_dag_workflow",
     version = "1.0.0",
     description = "Complex DAG structure for testing visualization capabilities",
     author = "Cloacina Team"
@@ -79,7 +79,9 @@ mod complex_dag_workflow {
     }
 
     #[task(id = "configure_monitoring", dependencies = ["init_logging", "init_config"])]
-    async fn configure_monitoring(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+    async fn configure_monitoring(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
         context.insert("monitoring_enabled", serde_json::Value::Bool(true))?;
         println!("Monitoring configured");
         Ok(())
@@ -133,7 +135,9 @@ mod complex_dag_workflow {
     // ============================================================================
 
     #[task(id = "transform_customers", dependencies = ["clean_data"])]
-    async fn transform_customers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+    async fn transform_customers(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
         context.insert("customers_transformed", serde_json::Value::Bool(true))?;
         println!("Customer data transformed");
         Ok(())
