@@ -34,14 +34,20 @@
 //! - [`traits`]: Core trait definitions for registry and storage
 //! - [`types`]: Data types for workflows, metadata, and errors
 //! - [`error`]: Error types for registry operations
+//! - [`storage`]: Storage backend implementations (PostgreSQL, filesystem)
 //!
 //! ## Usage Example
 //!
 //! ```rust,no_run
 //! use cloacina::registry::{WorkflowRegistry, WorkflowPackage};
+//! use cloacina::registry::storage::{PostgresRegistryStorage, FilesystemRegistryStorage};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create registry
+//! // Create storage backend (PostgreSQL or filesystem)
+//! let storage = PostgresRegistryStorage::new(db_pool);
+//! // or: let storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
+//!
+//! // Create registry with chosen storage
 //! let mut registry = WorkflowRegistryImpl::new(database, storage)?;
 //!
 //! // Register a packaged workflow
@@ -58,6 +64,7 @@
 //! ```
 
 pub mod error;
+pub mod storage;
 pub mod traits;
 pub mod types;
 
