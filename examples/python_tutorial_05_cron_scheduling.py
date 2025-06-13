@@ -7,7 +7,6 @@ Complete example demonstrating time-based workflow execution.
 import cloaca
 from datetime import datetime
 import time
-import os
 
 # Task definitions
 @cloaca.task(id="daily_report")

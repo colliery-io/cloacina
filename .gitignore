@@ -46,3 +46,6 @@ dist/
 *.db-shm
 *.db-wal
 *.db\?*
+
+# Packaged workflow files
+*.cloacina

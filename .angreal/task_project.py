@@ -22,4 +22,4 @@ from cloacina import all  # noqa: F401
 # Import demos module
 from demos import rust_demos  # noqa: F401
 from demos import python_demos  # noqa: F401
-from demos import all as demos_all  # noqa: F401
+# from demos import all as demos_all  # noqa: F401  # all.py removed

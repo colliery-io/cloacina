@@ -19,9 +19,9 @@
 //! This module provides the SQLite-specific implementation of the data access layer.
 //! It uses universal wrapper types to handle SQLite-specific storage requirements.
 
+use crate::database::Database;
 use deadpool_diesel::sqlite::Pool;
 use diesel::sqlite::SqliteConnection;
-use crate::database::Database;
 
 pub mod context;
 pub mod cron_execution;

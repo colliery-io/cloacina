@@ -86,9 +86,9 @@
 //! when operations complete. The pool size and other connection parameters can be
 //! configured when creating the database instance.
 
+use crate::database::Database;
 use deadpool_diesel::postgres::Pool;
 use diesel::pg::PgConnection;
-use crate::database::Database;
 
 pub mod context;
 pub mod cron_execution;
