@@ -1,5 +1,6 @@
 import angreal # type: ignore
 import shutil
+import subprocess
 from pathlib import Path
 
 from .cloaca_utils import write_file_safe
@@ -12,7 +13,14 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 @cloaca()
 @angreal.command(name="scrub", about="replace generated files with placeholder content and clean build artifacts")
-def scrub():
+@angreal.argument(
+    name="deep",
+    long="deep",
+    help="run cargo clean on all Cargo.toml files",
+    takes_value=False,
+    is_flag=True
+)
+def scrub(deep=False):
     """Replace generated files with placeholder content and clean build artifacts."""
     try:
         project_root = Path(angreal.get_root()).parent
@@ -125,6 +133,23 @@ def scrub():
 """
                 write_file_safe(placeholder_file, placeholder_content, backup=False)
                 print(f"  Created placeholder: {placeholder_file}")
+
+        # Deep clean: run cargo clean on all Cargo.toml files
+        if deep:
+            print("\nPerforming deep clean with cargo clean...")
+            try:
+                cmd = ['find', '.', '-name', 'Cargo.toml', '-execdir', 'cargo', 'clean', ';']
+                result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    print("Deep clean completed successfully!")
+                else:
+                    print(f"Deep clean warning: {result.stderr}")
+                    
+            except Exception as e:
+                print(f"Deep clean failed: {e}")
+                # Don't fail the entire command if deep clean fails
+                pass
 
         print("Successfully cleaned generated files and build artifacts!")
         return 0
