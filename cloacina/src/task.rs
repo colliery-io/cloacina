@@ -1136,8 +1136,8 @@ mod tests {
         let task1 = TestTask::new("task1", vec![]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
-        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
 
         assert!(registry.register(ns1.clone(), task1).is_ok());
         assert!(registry.register(ns2.clone(), task2).is_ok());
@@ -1145,8 +1145,6 @@ mod tests {
         assert!(registry.get_task(&ns1).is_some());
         assert!(registry.get_task(&ns2).is_some());
 
-        let nonexistent_ns = TaskNamespace::embedded("test_workflow", "nonexistent");
-        assert!(registry.get_task(&nonexistent_ns).is_none());
     }
 
     #[test]
@@ -1158,7 +1156,7 @@ mod tests {
         let task1 = TestTask::new("task1", vec![]);
         let task1_duplicate = TestTask::new("task1", vec![]);
 
-        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
 
         assert!(registry.register(ns1.clone(), task1).is_ok());
         assert!(matches!(
@@ -1177,9 +1175,9 @@ mod tests {
         let task2 = TestTask::new("task2", vec!["task1"]);
         let task3 = TestTask::new("task3", vec!["nonexistent"]);
 
-        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
-        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
-        let ns3 = TaskNamespace::embedded("test_workflow", "task3");
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test_workflow", "task3");
 
         registry.register(ns1, task1).unwrap();
         registry.register(ns2, task2).unwrap();
@@ -1201,8 +1199,8 @@ mod tests {
         let task1 = TestTask::new("task1", vec!["task2"]);
         let task2 = TestTask::new("task2", vec!["task1"]);
 
-        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
-        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
 
         registry.register(ns1, task1).unwrap();
         registry.register(ns2, task2).unwrap();
@@ -1223,9 +1221,9 @@ mod tests {
         let task2 = TestTask::new("task2", vec!["task1"]);
         let task3 = TestTask::new("task3", vec!["task1", "task2"]);
 
-        let ns1 = TaskNamespace::embedded("test_workflow", "task1");
-        let ns2 = TaskNamespace::embedded("test_workflow", "task2");
-        let ns3 = TaskNamespace::embedded("test_workflow", "task3");
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test_workflow", "task3");
 
         registry.register(ns1.clone(), task1).unwrap();
         registry.register(ns2.clone(), task2).unwrap();

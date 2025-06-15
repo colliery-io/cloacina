@@ -79,8 +79,8 @@ async fn test_task_registry_with_macro_tasks() {
     let mut registry = TaskRegistry::new();
 
     // Register macro-generated tasks
-    let ns1 = TaskNamespace::embedded("test_workflow", "macro-test-simple-task");
-    let ns2 = TaskNamespace::embedded("test_workflow", "macro-test-dependent-task");
+    let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-simple-task");
+    let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-dependent-task");
 
     registry.register(ns1.clone(), simple_task_task()).unwrap();
     registry
@@ -107,8 +107,8 @@ async fn test_task_registry_with_macro_tasks() {
 #[tokio::test]
 async fn test_task_execution_flow() {
     let mut registry = TaskRegistry::new();
-    let ns1 = TaskNamespace::embedded("test_workflow", "macro-test-simple-task");
-    let ns2 = TaskNamespace::embedded("test_workflow", "macro-test-dependent-task");
+    let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-simple-task");
+    let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-dependent-task");
 
     registry.register(ns1.clone(), simple_task_task()).unwrap();
     registry
