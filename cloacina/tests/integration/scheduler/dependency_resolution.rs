@@ -110,10 +110,12 @@ async fn test_task_dependency_initialization() {
         assert_eq!(task.status, "NotStarted");
     }
 
-    // Verify task names
+    // Verify task names (should be full namespaces now)
     let task_names: std::collections::HashSet<_> = tasks.iter().map(|t| &t.task_name).collect();
-    assert!(task_names.contains(&"task1".to_string()));
-    assert!(task_names.contains(&"task2".to_string()));
+    let expected_task1 = format!("{}::{}::{}::task1", workflow.tenant(), workflow.package(), workflow.name());
+    let expected_task2 = format!("{}::{}::{}::task2", workflow.tenant(), workflow.package(), workflow.name());
+    assert!(task_names.contains(&expected_task1));
+    assert!(task_names.contains(&expected_task2));
 }
 
 #[tokio::test]
@@ -179,8 +181,10 @@ async fn test_dependency_satisfaction_check() {
         assert_eq!(task.status, "NotStarted");
     }
 
-    // Verify task names
+    // Verify task names (should be full namespaces now)
     let task_names: std::collections::HashSet<_> = tasks.iter().map(|t| &t.task_name).collect();
-    assert!(task_names.contains(&"task1".to_string()));
-    assert!(task_names.contains(&"task2".to_string()));
+    let expected_task1 = format!("{}::{}::{}::task1", workflow.tenant(), workflow.package(), workflow.name());
+    let expected_task2 = format!("{}::{}::{}::task2", workflow.tenant(), workflow.package(), workflow.name());
+    assert!(task_names.contains(&expected_task1));
+    assert!(task_names.contains(&expected_task2));
 }

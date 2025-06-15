@@ -196,13 +196,39 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
         Span::call_site(),
     );
 
+    // Generate task registrations with proper namespace
+    let task_registrations: Vec<_> = tasks
+        .iter()
+        .map(|task| {
+            let task_id = task.to_string();
+            let constructor_name = syn::Ident::new(&format!("{}_task", task), task.span());
+            quote! {
+                {
+                    let namespace = cloacina::TaskNamespace::new(
+                        #workflow_tenant,
+                        #workflow_package,
+                        #workflow_name,
+                        #task_id
+                    );
+                    cloacina::register_task_constructor(
+                        namespace,
+                        || std::sync::Arc::new(#constructor_name())
+                    );
+                }
+            }
+        })
+        .collect();
+
     quote! {
         {
+            // Register all tasks with proper namespaces
+            #(#task_registrations)*
+
             // Define workflow constructor function
             fn #workflow_constructor_name() -> cloacina::Workflow {
                 let mut workflow = cloacina::Workflow::new(#workflow_name);
                 workflow.set_tenant(#workflow_tenant);
-                workflow.add_tag("package", #workflow_package);
+                workflow.set_package(#workflow_package);
                 #description_field
                 #author_field
 

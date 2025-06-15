@@ -680,18 +680,6 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         #fn_vis fn #task_constructor_name() -> #task_struct_name {
             #task_struct_name::new()
         }
-
-        // Auto-register the task in the global registry
-        const _: () = {
-            #[ctor::ctor]
-            fn auto_register() {
-                let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", #task_id);
-                cloacina::register_task_constructor(
-                    namespace,
-                    || std::sync::Arc::new(#task_struct_name::new())
-                );
-            }
-        };
     }
 }
 

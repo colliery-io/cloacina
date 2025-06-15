@@ -406,6 +406,7 @@ impl Default for DependencyGraph {
 pub struct Workflow {
     name: String,
     tenant: String,
+    package: String,
     tasks: HashMap<String, Arc<dyn Task>>,
     dependency_graph: DependencyGraph,
     metadata: WorkflowMetadata,
@@ -416,6 +417,7 @@ impl std::fmt::Debug for Workflow {
         f.debug_struct("Workflow")
             .field("name", &self.name)
             .field("tenant", &self.tenant)
+            .field("package", &self.package)
             .field("task_count", &self.tasks.len())
             .field("dependency_graph", &self.dependency_graph)
             .field("metadata", &self.metadata)
@@ -444,6 +446,7 @@ impl Workflow {
         Self {
             name: name.to_string(),
             tenant: "public".to_string(),
+            package: "embedded".to_string(),
             tasks: HashMap::new(),
             dependency_graph: DependencyGraph::new(),
             metadata: WorkflowMetadata::default(),
@@ -481,6 +484,16 @@ impl Workflow {
     /// Set the Workflow tenant
     pub fn set_tenant(&mut self, tenant: &str) {
         self.tenant = tenant.to_string();
+    }
+
+    /// Get the Workflow package
+    pub fn package(&self) -> &str {
+        &self.package
+    }
+
+    /// Set the Workflow package
+    pub fn set_package(&mut self, package: &str) {
+        self.package = package.to_string();
     }
 
     /// Get the Workflow metadata

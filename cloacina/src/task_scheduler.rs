@@ -433,9 +433,15 @@ impl TaskScheduler {
                 3 // Fallback default
             };
 
+            // Build full namespace for task
+            let tenant = workflow.tenant();
+            let package = workflow.package();
+            let workflow_name = workflow.name();
+            let full_task_name = format!("{}::{}::{}::{}", tenant, package, workflow_name, task_id);
+            
             let new_task = NewTaskExecution {
                 pipeline_execution_id: UniversalUuid(pipeline_execution_id),
-                task_name: task_id,
+                task_name: full_task_name,
                 status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts,

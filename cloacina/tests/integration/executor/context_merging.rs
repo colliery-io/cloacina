@@ -141,8 +141,9 @@ async fn merger_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 async fn test_context_merging_latest_wins() {
     let database = get_test_database().await;
 
-    // Create workflow using the #[task] functions
-    let workflow = Workflow::builder("merging_pipeline_test")
+    // Create workflow using the #[task] functions with unique name
+    let workflow_name = format!("merging_pipeline_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let workflow = Workflow::builder(&workflow_name)
         .description("Test pipeline for context merging")
         .add_task(Arc::new(WorkflowTask::new("early_producer_task", vec![])))
         .unwrap()
@@ -159,8 +160,33 @@ async fn test_context_merging_latest_wins() {
         .build()
         .unwrap();
 
+    // Register tasks with correct namespaces in global registry
+    let namespace1 = TaskNamespace::new(
+        workflow.tenant(),
+        workflow.package(),
+        workflow.name(),
+        "early_producer_task"
+    );
+    register_task_constructor(namespace1, || Arc::new(early_producer_task_task()));
+
+    let namespace2 = TaskNamespace::new(
+        workflow.tenant(),
+        workflow.package(),
+        workflow.name(),
+        "late_producer_task"
+    );
+    register_task_constructor(namespace2, || Arc::new(late_producer_task_task()));
+
+    let namespace3 = TaskNamespace::new(
+        workflow.tenant(),
+        workflow.package(),
+        workflow.name(),
+        "merger_task"
+    );
+    register_task_constructor(namespace3, || Arc::new(merger_task_task()));
+
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("merging_pipeline_test".to_string(), {
+    register_workflow_constructor(workflow_name.clone(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -177,7 +203,7 @@ async fn test_context_merging_latest_wins() {
     }
     let pipeline_id = scheduler
         .schedule_workflow_execution(
-            "merging_pipeline_test",
+            &workflow_name,
             input_context.lock().await.clone_data(),
         )
         .await
@@ -202,9 +228,11 @@ async fn test_context_merging_latest_wins() {
 
     // Check merger task results
     let dal = cloacina::dal::DAL::new(database.clone());
+    let full_merger_task_name = format!("{}::{}::{}::merger_task", 
+        workflow.tenant(), workflow.package(), workflow.name());
     let merger_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "merger_task")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_merger_task_name)
         .await
         .unwrap();
 
@@ -265,16 +293,26 @@ async fn scope_inspector_task(context: &mut Context<Value>) -> Result<(), TaskEr
 async fn test_execution_scope_context_setup() {
     let database = get_test_database().await;
 
-    // Create workflow
-    let workflow = Workflow::builder("scope_pipeline_test")
+    // Create workflow with unique name
+    let workflow_name = format!("scope_pipeline_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let workflow = Workflow::builder(&workflow_name)
         .description("Test pipeline for execution scope")
         .add_task(Arc::new(WorkflowTask::new("scope_inspector_task", vec![])))
         .unwrap()
         .build()
         .unwrap();
 
+    // Register task with correct namespace in global registry
+    let namespace = TaskNamespace::new(
+        workflow.tenant(),
+        workflow.package(),
+        workflow.name(),
+        "scope_inspector_task"
+    );
+    register_task_constructor(namespace, || Arc::new(scope_inspector_task_task()));
+
     // Register workflow in global registry for scheduler to find
-    register_workflow_constructor("scope_pipeline_test".to_string(), {
+    register_workflow_constructor(workflow_name.clone(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -287,7 +325,7 @@ async fn test_execution_scope_context_setup() {
         .insert("scope_test", Value::String("execution_scope".to_string()))
         .unwrap();
     let pipeline_id = scheduler
-        .schedule_workflow_execution("scope_pipeline_test", input_context)
+        .schedule_workflow_execution(&workflow_name, input_context)
         .await
         .unwrap();
 
@@ -310,9 +348,11 @@ async fn test_execution_scope_context_setup() {
 
     // Check that scope information was captured
     let dal = cloacina::dal::DAL::new(database.clone());
+    let full_task_name = format!("{}::{}::{}::scope_inspector_task", 
+        workflow.tenant(), workflow.package(), workflow.name());
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), "scope_inspector_task")
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_task_name)
         .await
         .unwrap();
 
@@ -351,7 +391,11 @@ async fn test_execution_scope_context_setup() {
         if let Some(task_name) = scope_obj.get("task_name") {
             // task_name is an Option<String> in ExecutionScope, so it gets serialized as such
             if let Value::String(name) = task_name {
-                assert_eq!(name, "scope_inspector_task");
+                // Should contain the full namespace now
+                assert!(name.ends_with("::scope_inspector_task"), 
+                    "Task name should end with ::scope_inspector_task, got: {}", name);
+                assert!(name.contains(&workflow_name), 
+                    "Task name should contain workflow name, got: {}", name);
             } else {
                 panic!("Expected task_name to be a string, got: {:?}", task_name);
             }

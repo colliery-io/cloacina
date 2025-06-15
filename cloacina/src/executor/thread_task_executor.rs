@@ -39,8 +39,8 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
-use crate::task::get_task_by_id;
-use crate::{Context, Database, Task, TaskRegistry};
+use crate::task::get_task;
+use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
 
 /// ThreadTaskExecutor is a thread-based implementation of task execution.
@@ -214,9 +214,17 @@ impl ThreadTaskExecutor {
             };
 
             // Get task from global registry to determine dependencies
-            let task = get_task_by_id(&claimed_task.task_name)
+            let namespace = parse_namespace(&claimed_task.task_name)
+                .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+            let task = get_task(&namespace)
                 .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-            let dependencies = task.dependencies().to_vec();
+            let raw_dependencies = task.dependencies().to_vec();
+            
+            // Convert dependency task IDs to full namespaces 
+            let dependencies: Vec<String> = raw_dependencies.iter()
+                .map(|dep_id| format!("{}::{}::{}::{}", 
+                    namespace.tenant_id, namespace.package_name, namespace.workflow_id, dep_id))
+                .collect();
 
             // Build context using DAL methods
             let context = self
@@ -394,7 +402,9 @@ impl ThreadTaskExecutor {
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
         // 1. Resolve task from global registry
-        let task = get_task_by_id(&claimed_task.task_name)
+        let namespace = parse_namespace(&claimed_task.task_name)
+            .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+        let task = get_task(&namespace)
             .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
 
         // 2. Execute task with pre-loaded context (skip context building)
@@ -455,7 +465,9 @@ impl ThreadTaskExecutor {
             }
             Err(error) => {
                 // Get task retry policy to determine if we should retry
-                let task = get_task_by_id(&claimed_task.task_name)
+                let namespace = parse_namespace(&claimed_task.task_name)
+                    .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+                let task = get_task(&namespace)
                     .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
                 let retry_policy = task.retry_policy();
 

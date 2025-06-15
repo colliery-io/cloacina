@@ -1046,14 +1046,6 @@ pub fn get_task(namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
     registry.get(namespace).map(|constructor| constructor())
 }
 
-/// Get a task instance by task ID using default namespace
-///
-/// This is a convenience function for backward compatibility.
-/// Uses default namespace: public::embedded::default::{task_id}
-pub fn get_task_by_id(task_id: &str) -> Option<Arc<dyn Task>> {
-    let namespace = TaskNamespace::new("public", "embedded", "default", task_id);
-    get_task(&namespace)
-}
 
 #[cfg(test)]
 mod tests {
