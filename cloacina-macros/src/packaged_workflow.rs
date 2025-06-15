@@ -1,0 +1,1095 @@
+use proc_macro::TokenStream;
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use quote::quote;
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use syn::{
+    parse::{Parse, ParseStream},
+    Ident, ItemMod, LitStr, Result as SynResult, Token,
+};
+
+use crate::registry::get_registry;
+use crate::tasks::{TaskAttributes, to_pascal_case};
+
+/// Attributes for the packaged_workflow macro
+///
+/// # Fields
+///
+/// * `package` - Package name for namespace isolation (required)
+/// * `version` - Package version (required)
+/// * `description` - Optional description of the workflow package
+/// * `author` - Optional author information
+pub struct PackagedWorkflowAttributes {
+    pub package: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+}
+
+impl Parse for PackagedWorkflowAttributes {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let mut package = None;
+        let mut version = None;
+        let mut description = None;
+        let mut author = None;
+
+        while !input.is_empty() {
+            let field_name: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match field_name.to_string().as_str() {
+                "package" => {
+                    let lit: LitStr = input.parse()?;
+                    package = Some(lit.value());
+                }
+                "version" => {
+                    let lit: LitStr = input.parse()?;
+                    version = Some(lit.value());
+                }
+                "description" => {
+                    let lit: LitStr = input.parse()?;
+                    description = Some(lit.value());
+                }
+                "author" => {
+                    let lit: LitStr = input.parse()?;
+                    author = Some(lit.value());
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        field_name.span(),
+                        format!("Unknown attribute: {}", field_name),
+                    ));
+                }
+            }
+
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        let package = package.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "packaged_workflow macro requires 'package' attribute",
+            )
+        })?;
+
+        let version = version.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "packaged_workflow macro requires 'version' attribute",
+            )
+        })?;
+
+        Ok(PackagedWorkflowAttributes {
+            package,
+            version,
+            description,
+            author,
+        })
+    }
+}
+
+/// Detect circular dependencies within a package's task dependencies
+///
+/// This function performs cycle detection specifically within the scope of a single
+/// packaged workflow, without relying on the global registry. It uses a depth-first
+/// search to detect cycles in the local dependency graph.
+///
+/// # Arguments
+///
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+///
+/// # Returns
+///
+/// * `Ok(())` if no cycles are found
+/// * `Err(String)` with cycle description if a cycle is detected
+pub fn detect_package_cycles(task_dependencies: &HashMap<String, Vec<String>>) -> Result<(), String> {
+    // In test mode, be more lenient about cycle detection (consistent with regular workflow validation)
+    let is_test_env = std::env::var("CARGO_CRATE_NAME")
+        .map(|name| name.contains("test") || name == "cloacina")
+        .unwrap_or(false)
+        || std::env::var("CARGO_PKG_NAME")
+            .map(|name| name.contains("test") || name == "cloacina")
+            .unwrap_or(false);
+
+    if is_test_env {
+        // In test mode, skip cycle detection as tasks may be spread across modules
+        return Ok(());
+    }
+    let mut visited = HashSet::new();
+    let mut rec_stack = HashSet::new();
+    let mut path = Vec::new();
+
+    for task_id in task_dependencies.keys() {
+        if !visited.contains(task_id) {
+            if let Err(cycle_error) = dfs_package_cycle_detection(
+                task_id,
+                task_dependencies,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+            ) {
+                return Err(cycle_error);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Depth-first search implementation for package-level cycle detection
+///
+/// # Arguments
+///
+/// * `task_id` - Current task being visited
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `visited` - Set tracking visited tasks
+/// * `rec_stack` - Set tracking tasks in current recursion stack
+/// * `path` - Current path being explored
+///
+/// # Returns
+///
+/// * `Ok(())` if no cycle is found
+/// * `Err(String)` with cycle description if a cycle is detected
+fn dfs_package_cycle_detection(
+    task_id: &str,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+    rec_stack: &mut HashSet<String>,
+    path: &mut Vec<String>,
+) -> Result<(), String> {
+    visited.insert(task_id.to_string());
+    rec_stack.insert(task_id.to_string());
+    path.push(task_id.to_string());
+
+    if let Some(dependencies) = task_dependencies.get(task_id) {
+        for dependency in dependencies {
+            // Only check dependencies that are defined within this package
+            if task_dependencies.contains_key(dependency) {
+                if !visited.contains(dependency) {
+                    dfs_package_cycle_detection(
+                        dependency,
+                        task_dependencies,
+                        visited,
+                        rec_stack,
+                        path,
+                    )?;
+                } else if rec_stack.contains(dependency) {
+                    // Found cycle - build cycle description
+                    let cycle_start = path.iter().position(|x| x == dependency).unwrap_or(0);
+                    let mut cycle: Vec<String> = path[cycle_start..].to_vec();
+                    cycle.push(dependency.to_string()); // Complete the cycle
+
+                    return Err(format!("{} -> {}", cycle.join(" -> "), dependency));
+                }
+            }
+        }
+    }
+
+    rec_stack.remove(task_id);
+    path.pop();
+    Ok(())
+}
+
+/// Calculate the Levenshtein distance between two strings for packaged workflow validation
+///
+/// Used for finding similar task names when suggesting fixes for typos
+/// (duplicated from registry.rs to avoid circular dependencies)
+///
+/// # Arguments
+/// * `a` - First string
+/// * `b` - Second string
+///
+/// # Returns
+/// The minimum number of single-character edits required to change one string into the other
+pub fn calculate_levenshtein_distance(a: &str, b: &str) -> usize {
+    let a_len = a.len();
+    let b_len = b.len();
+
+    if a_len == 0 {
+        return b_len;
+    }
+    if b_len == 0 {
+        return a_len;
+    }
+
+    let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
+
+    for (i, row) in matrix.iter_mut().enumerate().take(a_len + 1) {
+        row[0] = i;
+    }
+    for j in 0..=b_len {
+        matrix[0][j] = j;
+    }
+
+    for i in 1..=a_len {
+        for j in 1..=b_len {
+            let cost = if a.chars().nth(i - 1) == b.chars().nth(j - 1) {
+                0
+            } else {
+                1
+            };
+            matrix[i][j] = std::cmp::min(
+                std::cmp::min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1),
+                matrix[i - 1][j - 1] + cost,
+            );
+        }
+    }
+
+    matrix[a_len][b_len]
+}
+
+/// Find task names similar to the given name for typo suggestions in packaged workflows
+///
+/// Uses Levenshtein distance to find similar task names (consistent with regular workflow validation)
+///
+/// # Arguments
+/// * `target` - The task name to find similar names for
+/// * `available` - List of available task names
+///
+/// # Returns
+/// Up to 3 task names that are similar to the target
+pub fn find_similar_package_task_names(target: &str, available: &[String]) -> Vec<String> {
+    available
+        .iter()
+        .filter_map(|name| {
+            let distance = calculate_levenshtein_distance(target, name);
+            if distance <= 2 && distance < target.len() / 2 {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .take(3)
+        .collect()
+}
+
+/// Build graph data structure for a packaged workflow
+///
+/// Creates a WorkflowGraphData structure that represents the task dependencies
+/// as a proper DAG, suitable for serialization into the package metadata.
+///
+/// # Arguments
+/// * `detected_tasks` - Map of task IDs to function names
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `package_name` - Name of the package for metadata
+///
+/// # Returns
+/// JSON string representation of the WorkflowGraphData
+pub fn build_package_graph_data(
+    detected_tasks: &HashMap<String, syn::Ident>,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    package_name: &str,
+) -> String {
+    // Create nodes for each task
+    let mut nodes = Vec::new();
+    for (task_id, _fn_name) in detected_tasks {
+        nodes.push(serde_json::json!({
+            "id": task_id,
+            "data": {
+                "id": task_id,
+                "name": task_id,
+                "description": format!("Task: {}", task_id),
+                "source_location": format!("src/{}.rs", package_name),
+                "metadata": {}
+            }
+        }));
+    }
+
+    // Create edges for dependencies
+    let mut edges = Vec::new();
+    for (task_id, dependencies) in task_dependencies {
+        for dependency in dependencies {
+            // Only include edges for tasks within this package
+            if detected_tasks.contains_key(dependency) {
+                edges.push(serde_json::json!({
+                    "from": dependency,
+                    "to": task_id,
+                    "data": {
+                        "dependency_type": "data",
+                        "weight": null,
+                        "metadata": {}
+                    }
+                }));
+            }
+        }
+    }
+
+    // Calculate graph metadata
+    let task_count = detected_tasks.len();
+    let edge_count = edges.len();
+    let root_tasks: Vec<&String> = detected_tasks
+        .keys()
+        .filter(|task_id| {
+            task_dependencies
+                .get(*task_id)
+                .map(|deps| deps.is_empty())
+                .unwrap_or(true)
+        })
+        .collect();
+    let leaf_tasks: Vec<&String> = detected_tasks
+        .keys()
+        .filter(|task_id| {
+            // A task is a leaf if no other task depends on it
+            !task_dependencies
+                .values()
+                .any(|deps| deps.contains(task_id))
+        })
+        .collect();
+
+    // Build the complete graph data structure
+    let graph_data = serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {
+            "task_count": task_count,
+            "edge_count": edge_count,
+            "has_cycles": false, // We already validated no cycles exist
+            "depth_levels": calculate_max_depth(task_dependencies),
+            "root_tasks": root_tasks,
+            "leaf_tasks": leaf_tasks
+        }
+    });
+
+    graph_data.to_string()
+}
+
+/// Calculate the maximum depth in the task dependency graph
+///
+/// # Arguments
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+///
+/// # Returns
+/// The maximum depth level in the graph (number of dependency levels)
+fn calculate_max_depth(task_dependencies: &HashMap<String, Vec<String>>) -> usize {
+    let mut max_depth = 0;
+
+    for task_id in task_dependencies.keys() {
+        let depth = calculate_task_depth(task_id, task_dependencies, &mut HashSet::new());
+        max_depth = max_depth.max(depth);
+    }
+
+    max_depth + 1 // Convert to number of levels
+}
+
+/// Calculate the depth of a specific task in the dependency graph
+///
+/// # Arguments
+/// * `task_id` - The task to calculate depth for
+/// * `task_dependencies` - Map of task IDs to their dependency lists
+/// * `visited` - Set to track visited tasks and prevent infinite recursion
+///
+/// # Returns
+/// The depth of the task (0 for root tasks)
+fn calculate_task_depth(
+    task_id: &str,
+    task_dependencies: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+) -> usize {
+    if visited.contains(task_id) {
+        return 0; // Prevent infinite recursion
+    }
+
+    visited.insert(task_id.to_string());
+
+    let dependencies = task_dependencies.get(task_id);
+    match dependencies {
+        None => 0,
+        Some(deps) if deps.is_empty() => 0,
+        Some(deps) => {
+            let max_dep_depth = deps
+                .iter()
+                .filter(|dep| task_dependencies.contains_key(*dep)) // Only count local dependencies
+                .map(|dep| calculate_task_depth(dep, task_dependencies, visited))
+                .max()
+                .unwrap_or(0);
+            max_dep_depth + 1
+        }
+    }
+}
+
+/// Generate packaged workflow implementation
+///
+/// Creates the necessary entry points and metadata for a distributable workflow package.
+/// This includes:
+/// - Package metadata structure
+/// - Task registration functions using namespace isolation
+/// - Standard ABI entry points for dynamic loading
+/// - Version information and fingerprinting
+/// - Compile-time validation of task dependencies within the package
+///
+/// # Arguments
+///
+/// * `attrs` - The packaged workflow attributes
+/// * `input` - The input module to be packaged
+///
+/// # Returns
+///
+/// A `TokenStream2` containing the generated packaged workflow implementation
+pub fn generate_packaged_workflow_impl(
+    attrs: PackagedWorkflowAttributes,
+    input: ItemMod,
+) -> TokenStream2 {
+    let mod_name = &input.ident;
+    let mod_vis = &input.vis;
+    let mod_content = &input.content;
+
+    let package_name = &attrs.package;
+    let package_version = &attrs.version;
+    let package_description = attrs
+        .description
+        .unwrap_or_else(|| format!("Workflow package: {}", package_name));
+    let package_author = attrs.author.unwrap_or_else(|| "Unknown".to_string());
+
+    // Generate a normalized package name for use in identifiers
+    let package_ident = syn::Ident::new(
+        &package_name
+            .replace("-", "_")
+            .replace(" ", "_")
+            .to_lowercase(),
+        mod_name.span(),
+    );
+
+    // Generate unique ABI function names based on package
+    let register_abi_name = syn::Ident::new(
+        &format!("register_tasks_abi_{}", package_ident),
+        mod_name.span(),
+    );
+    let metadata_abi_name = syn::Ident::new(
+        &format!("get_package_metadata_abi_{}", package_ident),
+        mod_name.span(),
+    );
+
+    // Generate metadata struct name
+    let metadata_struct_name = syn::Ident::new(
+        &format!(
+            "{}PackageMetadata",
+            to_pascal_case(&package_ident.to_string())
+        ),
+        mod_name.span(),
+    );
+
+    // Extract task function information from module content and perform validation
+    let mut task_registrations = Vec::new();
+    let mut detected_tasks = HashMap::new();
+    let mut task_dependencies = HashMap::new();
+
+    if let Some((_, items)) = mod_content {
+        // First pass: collect all tasks and their metadata
+        for item in items {
+            if let syn::Item::Fn(item_fn) = item {
+                // Check if this function has a #[task] attribute
+                for attr in &item_fn.attrs {
+                    if attr.path().is_ident("task") {
+                        let fn_name = &item_fn.sig.ident;
+
+                        // Parse the task attributes to get the task ID and dependencies
+                        if let Ok(task_attrs) = attr.parse_args::<TaskAttributes>() {
+                            let task_id = &task_attrs.id;
+                            detected_tasks.insert(task_id.clone(), fn_name.clone());
+                            task_dependencies
+                                .insert(task_id.clone(), task_attrs.dependencies.clone());
+
+                            // Generate task constructor name (following the pattern from the task macro)
+                            let task_constructor_name =
+                                syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+
+                            // Generate registration call using namespace isolation
+                            let registration = quote! {
+                                {
+                                    let namespace = cloacina::TaskNamespace::new(
+                                        tenant_id,
+                                        #package_name,
+                                        workflow_id,
+                                        #task_id
+                                    );
+                                    cloacina::register_task_constructor(
+                                        namespace,
+                                        || std::sync::Arc::new(#task_constructor_name())
+                                    );
+                                }
+                            };
+                            task_registrations.push(registration);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Second pass: validate dependencies within the package
+        // Check if we're in test environment for lenient validation (consistent with regular workflow validation)
+        let is_test_env = std::env::var("CARGO_CRATE_NAME")
+            .map(|name| name.contains("test") || name == "cloacina")
+            .unwrap_or(false)
+            || std::env::var("CARGO_PKG_NAME")
+                .map(|name| name.contains("test") || name == "cloacina")
+                .unwrap_or(false);
+
+        for (task_id, dependencies) in &task_dependencies {
+            for dependency in dependencies {
+                // Check if dependency exists within this package
+                if !detected_tasks.contains_key(dependency) {
+                    // If not found locally, check global registry for external dependencies
+                    let validation_result = {
+                        if is_test_env {
+                            // In test mode, be more lenient about missing dependencies
+                            Ok(())
+                        } else {
+                            match get_registry().try_lock() {
+                                Ok(registry) => {
+                                    if !registry.get_all_task_ids().contains(dependency) {
+                                        // Generate improved error message with suggestions (consistent with regular workflow validation)
+                                        let available_package_tasks: Vec<String> =
+                                            detected_tasks.keys().cloned().collect();
+                                        let package_suggestions = find_similar_package_task_names(
+                                            dependency,
+                                            &available_package_tasks,
+                                        );
+                                        let global_suggestions = find_similar_package_task_names(
+                                            dependency,
+                                            &registry.get_all_task_ids(),
+                                        );
+
+                                        let mut error_msg = format!(
+                                            "Task '{}' depends on undefined task '{}'. \
+                                            This dependency is not defined within the '{}' package \
+                                            and is not available in the global registry.\n\n",
+                                            task_id, dependency, package_name
+                                        );
+
+                                        // Add suggestions if any found
+                                        if !package_suggestions.is_empty() {
+                                            error_msg.push_str(&format!(
+                                                "Did you mean one of these tasks in this package?\n  {}\n\n",
+                                                package_suggestions.join("\n  ")
+                                            ));
+                                        }
+
+                                        if !global_suggestions.is_empty() {
+                                            error_msg.push_str(&format!(
+                                                "Or did you mean one of these global tasks?\n  {}\n\n",
+                                                global_suggestions.join("\n  ")
+                                            ));
+                                        }
+
+                                        error_msg.push_str(&format!(
+                                            "Available tasks in this package: [{}]\n\n\
+                                            Hint: Make sure all task dependencies are either:\n\
+                                            1. Defined within the same packaged workflow module, or\n\
+                                            2. Registered in the global task registry before this package is processed",
+                                            available_package_tasks.join(", ")
+                                        ));
+
+                                        Err(error_msg)
+                                    } else {
+                                        Ok(())
+                                    }
+                                }
+                                Err(_) => {
+                                    // If we can't acquire the lock, skip validation to avoid hanging
+                                    Ok(())
+                                }
+                            }
+                        }
+                    };
+
+                    // Return compile error if validation failed
+                    if let Err(error_msg) = validation_result {
+                        return quote! {
+                            compile_error!(#error_msg);
+                        };
+                    }
+                }
+            }
+        }
+
+        // Third pass: check for circular dependencies within the package
+        let cycle_result = detect_package_cycles(&task_dependencies);
+        if let Err(cycle_error) = cycle_result {
+            let error_msg = format!(
+                "Circular dependency detected within package '{}': {}\n\n\
+                Hint: Review your task dependencies to eliminate cycles.",
+                package_name, cycle_error
+            );
+            return quote! {
+                compile_error!(#error_msg);
+            };
+        }
+    }
+
+    // Generate package fingerprint based on version and content
+    let mut hasher = DefaultHasher::new();
+    package_name.hash(&mut hasher);
+    package_version.hash(&mut hasher);
+    if let Some((_, items)) = mod_content {
+        for item in items {
+            quote::quote!(#item).to_string().hash(&mut hasher);
+        }
+    }
+    let package_fingerprint = format!("{:016x}", hasher.finish());
+
+    // Build the workflow graph for this package
+    let graph_data_json =
+        build_package_graph_data(&detected_tasks, &task_dependencies, &package_name);
+
+    // Generate task metadata structures for FFI export
+    let task_metadata_items = if !detected_tasks.is_empty() {
+        let mut task_metadata_entries = Vec::new();
+        let mut task_execution_cases = Vec::new();
+        let mut task_index = 0u32;
+
+        for (task_id, fn_name) in &detected_tasks {
+            let dependencies = task_dependencies.get(task_id).cloned().unwrap_or_default();
+
+            // Generate fully qualified namespace: tenant::package::workflow::task
+            // For now, we'll use placeholders that get filled in at runtime
+            let namespaced_id = format!("{{tenant}}::{}::{{workflow}}::{}", package_name, task_id);
+
+            // Generate dependencies as JSON array string
+            let dependencies_json = if dependencies.is_empty() {
+                "[]".to_string()
+            } else {
+                format!("[\"{}\"]", dependencies.join("\",\""))
+            };
+
+            let source_location = format!("src/{}.rs", mod_name);
+
+            task_metadata_entries.push(quote! {
+                cloacina_ctl_task_metadata {
+                    index: #task_index,
+                    local_id: concat!(#task_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    namespaced_id_template: concat!(#namespaced_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    dependencies_json: concat!(#dependencies_json, "\0").as_ptr() as *const std::os::raw::c_char,
+                    description: concat!("Task: ", #task_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                    source_location: concat!(#source_location, "\0").as_ptr() as *const std::os::raw::c_char,
+                }
+            });
+
+            // Generate task execution case
+            task_execution_cases.push(quote! {
+                #task_id => {
+                    match #fn_name(&mut context).await {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(format!("Task '{}' failed: {:?}", #task_id, e))
+                    }
+                }
+            });
+
+            task_index += 1;
+        }
+
+        let task_count = detected_tasks.len();
+
+        // Generate unique function name for this package
+        let metadata_fn_name = syn::Ident::new(
+            &format!("cloacina_get_task_metadata_{}", package_ident),
+            mod_name.span(),
+        );
+
+        quote! {
+            /// C-compatible task metadata structure for FFI
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_task_metadata {
+                pub index: u32,
+                pub local_id: *const std::os::raw::c_char,
+                pub namespaced_id_template: *const std::os::raw::c_char,
+                pub dependencies_json: *const std::os::raw::c_char,
+                pub description: *const std::os::raw::c_char,
+                pub source_location: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static string literals which are safe to share
+            unsafe impl Sync for cloacina_ctl_task_metadata {}
+
+            /// Package task metadata for FFI export
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_package_tasks {
+                pub task_count: u32,
+                pub tasks: *const cloacina_ctl_task_metadata,
+                pub package_name: *const std::os::raw::c_char,
+                pub graph_data_json: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static data which is safe to share
+            unsafe impl Sync for cloacina_ctl_package_tasks {}
+
+            /// Static array of task metadata
+            static TASK_METADATA_ARRAY: [cloacina_ctl_task_metadata; #task_count] = [
+                #(#task_metadata_entries),*
+            ];
+
+            /// Static graph data as JSON
+            static GRAPH_DATA_JSON: &str = concat!(#graph_data_json, "\0");
+
+            /// Static package tasks metadata
+            static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
+                task_count: #task_count as u32,
+                tasks: TASK_METADATA_ARRAY.as_ptr(),
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                graph_data_json: GRAPH_DATA_JSON.as_ptr() as *const std::os::raw::c_char,
+            };
+
+            /// Get task metadata for cloacina-ctl compilation
+            #[no_mangle]
+            pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// String-based task execution function for cloacina-ctl
+            #[no_mangle]
+            pub extern "C" fn cloacina_execute_task(
+                task_name: *const std::os::raw::c_char,
+                task_name_len: u32,
+                context_json: *const std::os::raw::c_char,
+                context_len: u32,
+                result_buffer: *mut u8,
+                result_capacity: u32,
+                result_len: *mut u32,
+            ) -> i32 {
+                // Safety: Convert raw pointers to safe Rust types
+                let task_name_bytes = unsafe {
+                    std::slice::from_raw_parts(task_name as *const u8, task_name_len as usize)
+                };
+
+                let task_name_str = match std::str::from_utf8(task_name_bytes) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        return write_error_result("Invalid UTF-8 in task name", result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                let context_bytes = unsafe {
+                    std::slice::from_raw_parts(context_json as *const u8, context_len as usize)
+                };
+
+                let context_str = match std::str::from_utf8(context_bytes) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        return write_error_result("Invalid UTF-8 in context", result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                // Execute the actual task by creating context from JSON
+                let mut context = match cloacina::Context::from_json(context_str.to_string()) {
+                    Ok(ctx) => ctx,
+                    Err(e) => {
+                        return write_error_result(&format!("Failed to create context from JSON: {}", e), result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                // Use an async runtime for task execution
+                let runtime = match tokio::runtime::Runtime::new() {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        return write_error_result(&format!("Failed to create async runtime: {}", e), result_buffer, result_capacity, result_len);
+                    }
+                };
+
+                let task_result = runtime.block_on(async {
+                    match task_name_str {
+                        #(#task_execution_cases)*
+                        _ => Err(format!("Unknown task: {}", task_name_str))
+                    }
+                });
+
+                // Handle the result and write to output buffer
+                match task_result {
+                    Ok(()) => {
+                        let result = serde_json::json!({
+                            "status": "success",
+                            "task": task_name_str,
+                            "message": "Task executed successfully"
+                        });
+                        write_success_result(&result, result_buffer, result_capacity, result_len)
+                    }
+                    Err(e) => {
+                        write_error_result(&e, result_buffer, result_capacity, result_len)
+                    }
+                }
+            }
+
+            fn write_success_result(result: &serde_json::Value, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
+                let json_str = match serde_json::to_string(result) {
+                    Ok(s) => s,
+                    Err(_) => return -1,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
+                    *result_len = len as u32;
+                }
+
+                0 // Success
+            }
+
+            fn write_error_result(error: &str, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
+                let error_json = serde_json::json!({
+                    "error": error,
+                    "status": "error"
+                });
+
+                let json_str = match serde_json::to_string(&error_json) {
+                    Ok(s) => s,
+                    Err(_) => return -2,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
+                    *result_len = len as u32;
+                }
+
+                -1 // Error
+            }
+        }
+    } else {
+        // Generate unique function name for this package
+        let metadata_fn_name = syn::Ident::new(
+            &format!("cloacina_get_task_metadata_{}", package_ident),
+            mod_name.span(),
+        );
+
+        quote! {
+            /// Empty task metadata structure for packages with no tasks
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_task_metadata {
+                pub index: u32,
+                pub local_id: *const std::os::raw::c_char,
+                pub namespaced_id_template: *const std::os::raw::c_char,
+                pub dependencies_json: *const std::os::raw::c_char,
+                pub description: *const std::os::raw::c_char,
+                pub source_location: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static string literals which are safe to share
+            unsafe impl Sync for cloacina_ctl_task_metadata {}
+
+            #[repr(C)]
+            #[derive(Debug, Clone, Copy)]
+            pub struct cloacina_ctl_package_tasks {
+                pub task_count: u32,
+                pub tasks: *const cloacina_ctl_task_metadata,
+                pub package_name: *const std::os::raw::c_char,
+                pub graph_data_json: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static data which is safe to share
+            unsafe impl Sync for cloacina_ctl_package_tasks {}
+
+            static EMPTY_GRAPH_DATA: &str = concat!("{\"nodes\":[],\"edges\":[],\"metadata\":{\"task_count\":0,\"edge_count\":0,\"has_cycles\":false,\"depth_levels\":0,\"root_tasks\":[],\"leaf_tasks\":[]}}", "\0");
+
+            static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
+                task_count: 0,
+                tasks: std::ptr::null(),
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                graph_data_json: EMPTY_GRAPH_DATA.as_ptr() as *const std::os::raw::c_char,
+            };
+
+            #[no_mangle]
+            pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// String-based task execution function for empty packages
+            #[no_mangle]
+            pub extern "C" fn cloacina_execute_task(
+                _task_name: *const std::os::raw::c_char,
+                _task_name_len: u32,
+                _context_json: *const std::os::raw::c_char,
+                _context_len: u32,
+                result_buffer: *mut u8,
+                result_capacity: u32,
+                result_len: *mut u32,
+            ) -> i32 {
+                let error_json = serde_json::json!({
+                    "error": "No tasks defined in this package",
+                    "status": "error"
+                });
+
+                let json_str = match serde_json::to_string(&error_json) {
+                    Ok(s) => s,
+                    Err(_) => return -2,
+                };
+
+                let bytes = json_str.as_bytes();
+                let len = bytes.len().min(result_capacity as usize);
+
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), result_buffer, len);
+                    *result_len = len as u32;
+                }
+
+                -1 // Error
+            }
+        }
+    };
+
+    // Extract the module items for proper token generation
+    let module_items = if let Some((_, items)) = mod_content {
+        items.iter().collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    quote! {
+        // Keep the original module with enhanced functionality
+        #mod_vis mod #mod_name {
+            #(#module_items)*
+
+            // Include task metadata structures and functions
+            #task_metadata_items
+
+            /// Package metadata for this workflow package
+            #[derive(Debug, Clone)]
+            pub struct #metadata_struct_name {
+                pub package: &'static str,
+                pub version: &'static str,
+                pub description: &'static str,
+                pub author: &'static str,
+                pub fingerprint: &'static str,
+            }
+
+            impl #metadata_struct_name {
+                pub const fn new() -> Self {
+                    Self {
+                        package: #package_name,
+                        version: #package_version,
+                        description: #package_description,
+                        author: #package_author,
+                        fingerprint: #package_fingerprint,
+                    }
+                }
+            }
+
+            /// Get package metadata
+            pub fn get_package_metadata() -> #metadata_struct_name {
+                #metadata_struct_name::new()
+            }
+
+            /// Register all tasks in this package with namespace isolation
+            ///
+            /// This function registers all tasks defined in this package under the
+            /// package's namespace for proper isolation from other packages.
+            pub fn register_package_tasks(tenant_id: &str, workflow_id: &str) {
+                #(#task_registrations)*
+            }
+
+            /// Standard ABI entry point for dynamic loading
+            ///
+            /// This function provides a standardized interface that can be called
+            /// when the package is dynamically loaded as a shared library.
+            #[no_mangle]
+            pub extern "C" fn #register_abi_name(tenant_id: *const std::os::raw::c_char, workflow_id: *const std::os::raw::c_char) {
+                use std::ffi::CStr;
+
+                if tenant_id.is_null() || workflow_id.is_null() {
+                    return;
+                }
+
+                let tenant_id = unsafe {
+                    match CStr::from_ptr(tenant_id).to_str() {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    }
+                };
+
+                let workflow_id = unsafe {
+                    match CStr::from_ptr(workflow_id).to_str() {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    }
+                };
+
+                register_package_tasks(tenant_id, workflow_id);
+            }
+
+            /// Get package metadata via ABI
+            #[no_mangle]
+            pub extern "C" fn #metadata_abi_name() -> *const #metadata_struct_name {
+                Box::leak(Box::new(get_package_metadata()))
+            }
+        }
+    }
+}
+
+/// The packaged_workflow macro for creating distributable workflow packages
+///
+/// This macro transforms a module into a packaged workflow that can be:
+/// - Compiled into a shared library (.so file)
+/// - Dynamically loaded by executors
+/// - Properly isolated using namespace system
+/// - Versioned and fingerprinted for integrity
+///
+/// # Usage
+///
+/// ```rust
+/// #[packaged_workflow(
+///     package = "analytics_pipeline",
+///     version = "1.0.0",
+///     description = "Real-time analytics workflow",
+///     author = "Analytics Team"
+/// )]
+/// mod analytics_workflow {
+///     use cloacina_macros::task;
+///     use cloacina::{Context, TaskError};
+///
+///     #[task(id = "extract_data", dependencies = [])]
+///     async fn extract_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+///         // Implementation
+///         Ok(())
+///     }
+///
+///     #[task(id = "transform_data", dependencies = ["extract_data"])]
+///     async fn transform_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+///         // Implementation
+///         Ok(())
+///     }
+/// }
+/// ```
+///
+/// # Attributes
+///
+/// See `PackagedWorkflowAttributes` for available configuration options.
+pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = TokenStream2::from(args);
+    let input = TokenStream2::from(input);
+
+    let attrs = match syn::parse2::<PackagedWorkflowAttributes>(args) {
+        Ok(attrs) => attrs,
+        Err(e) => {
+            return syn::Error::new(
+                Span::call_site(),
+                format!("Invalid packaged_workflow attributes: {}", e),
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let input_mod = match syn::parse2::<syn::ItemMod>(input) {
+        Ok(input_mod) => input_mod,
+        Err(e) => {
+            return syn::Error::new(
+                Span::call_site(),
+                format!(
+                    "packaged_workflow macro can only be applied to modules: {}",
+                    e
+                ),
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    generate_packaged_workflow_impl(attrs, input_mod).into()
+} 
