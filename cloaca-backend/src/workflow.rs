@@ -49,20 +49,40 @@ impl PyWorkflowBuilder {
         if let Ok(task_id) = task.extract::<String>(py) {
             // It's a string task ID - look it up in the registry
             let registry = cloacina::task::global_task_registry();
+            
+            // Look up the task from the default namespace and create an instance
+            let default_namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
             let guard = registry.read().map_err(|e| {
                 PyValueError::new_err(format!("Failed to access task registry: {}", e))
             })?;
-
-            let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
-            let constructor = guard.get(&namespace).ok_or_else(|| {
+            
+            let constructor = guard.get(&default_namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
                 ))
             })?;
-
+            
             // Create the task instance
             let task_instance = constructor();
+            
+            // Also register the task under the workflow namespace for future lookups
+            // by storing a reference to the default namespace constructor
+            let workflow_namespace = cloacina::TaskNamespace::new("public", "embedded", self.inner.name(), &task_id);
+            let default_ns_for_closure = default_namespace.clone();
+            drop(guard); // Release the read lock before acquiring write lock
+            
+            cloacina::register_task_constructor(workflow_namespace, move || {
+                // Look up from the default namespace each time to get a fresh instance
+                let registry = cloacina::task::global_task_registry();
+                if let Ok(guard) = registry.read() {
+                    if let Some(constructor) = guard.get(&default_ns_for_closure) {
+                        return constructor();
+                    }
+                }
+                // Fallback - this should never happen but prevents panic
+                panic!("Task constructor not found for {}", default_ns_for_closure.task_id);
+            });
 
             // Add to workflow builder
             self.inner = self
@@ -82,20 +102,39 @@ impl PyWorkflowBuilder {
                                 Ok(func_name) => {
                                     // Look up by function name
                                     let registry = cloacina::task::global_task_registry();
+                                    
+                                    // Look up the task from the default namespace and create an instance
+                                    let default_namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &func_name);
                                     let guard = registry.read().map_err(|e| {
                                         PyValueError::new_err(format!("Failed to access task registry: {}", e))
                                     })?;
-
-                                    let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &func_name);
-                                    let constructor = guard.get(&namespace).ok_or_else(|| {
+                                    
+                                    let constructor = guard.get(&default_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
-
+                                    
                                     // Create the task instance
                                     let task_instance = constructor();
+                                    
+                                    // Also register the task under the workflow namespace for future lookups
+                                    let workflow_namespace = cloacina::TaskNamespace::new("public", "embedded", self.inner.name(), &func_name);
+                                    let default_ns_for_closure = default_namespace.clone();
+                                    drop(guard); // Release the read lock before acquiring write lock
+                                    
+                                    cloacina::register_task_constructor(workflow_namespace, move || {
+                                        // Look up from the default namespace each time to get a fresh instance
+                                        let registry = cloacina::task::global_task_registry();
+                                        if let Ok(guard) = registry.read() {
+                                            if let Some(constructor) = guard.get(&default_ns_for_closure) {
+                                                return constructor();
+                                            }
+                                        }
+                                        // Fallback - this should never happen but prevents panic
+                                        panic!("Task constructor not found for {}", default_ns_for_closure.task_id);
+                                    });
 
                                     // Add to workflow builder
                                     self.inner = self.inner.clone().add_task(task_instance)

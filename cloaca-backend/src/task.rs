@@ -176,7 +176,7 @@ fn build_retry_policy(
 
 /// Decorator class that holds task configuration
 #[pyclass]
-struct TaskDecorator {
+pub struct TaskDecorator {
     id: Option<String>,          // Now optional - can be derived from function name
     dependencies: Vec<PyObject>, // Now supports both strings and function objects
     retry_policy: cloacina::retry::RetryPolicy,
@@ -184,7 +184,7 @@ struct TaskDecorator {
 
 #[pymethods]
 impl TaskDecorator {
-    fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
+    pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
         // Determine task ID - use provided ID or derive from function name
         let task_id = if let Some(id) = &self.id {
             id.clone()
