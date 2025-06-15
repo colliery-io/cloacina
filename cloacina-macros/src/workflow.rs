@@ -13,18 +13,27 @@ use crate::registry::get_registry;
 /// # Fields
 ///
 /// * `name` - Unique identifier for the workflow (required)
+/// * `tenant` - Tenant identifier for the workflow (optional, defaults to "public")
+/// * `package` - Package name for namespace isolation (optional, defaults to "embedded")
 /// * `description` - Optional description of the workflow
+/// * `author` - Optional author information
 /// * `tasks` - List of task identifiers to include in the workflow (at least one required)
 pub struct WorkflowAttributes {
     pub name: String,
+    pub tenant: String,
+    pub package: String,
     pub description: Option<String>,
+    pub author: Option<String>,
     pub tasks: Vec<Ident>,
 }
 
 impl Parse for WorkflowAttributes {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let mut name = None;
+        let mut tenant = None;
+        let mut package = None;
         let mut description = None;
+        let mut author = None;
         let mut tasks = Vec::new();
 
         while !input.is_empty() {
@@ -36,9 +45,21 @@ impl Parse for WorkflowAttributes {
                     let lit: LitStr = input.parse()?;
                     name = Some(lit.value());
                 }
+                "tenant" => {
+                    let lit: LitStr = input.parse()?;
+                    tenant = Some(lit.value());
+                }
+                "package" => {
+                    let lit: LitStr = input.parse()?;
+                    package = Some(lit.value());
+                }
                 "description" => {
                     let lit: LitStr = input.parse()?;
                     description = Some(lit.value());
+                }
+                "author" => {
+                    let lit: LitStr = input.parse()?;
+                    author = Some(lit.value());
                 }
                 "tasks" => {
                     let content;
@@ -79,7 +100,10 @@ impl Parse for WorkflowAttributes {
 
         Ok(WorkflowAttributes {
             name,
+            tenant: tenant.unwrap_or_else(|| "public".to_string()),
+            package: package.unwrap_or_else(|| "embedded".to_string()),
             description,
+            author,
             tasks,
         })
     }
@@ -99,7 +123,10 @@ impl Parse for WorkflowAttributes {
 /// A `TokenStream2` containing the generated workflow implementation
 pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
     let workflow_name = &attrs.name;
+    let workflow_tenant = &attrs.tenant;
+    let workflow_package = &attrs.package;
     let description = attrs.description;
+    let author = attrs.author;
     let tasks = &attrs.tasks;
 
     // Convert task identifiers to strings for validation
@@ -154,6 +181,12 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
         quote! {}
     };
 
+    let author_field = if let Some(auth) = author {
+        quote! { workflow.add_tag("author", #auth); }
+    } else {
+        quote! {}
+    };
+
     // Generate a unique variable name for the workflow constructor
     let workflow_constructor_name = syn::Ident::new(
         &format!(
@@ -168,7 +201,10 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
             // Define workflow constructor function
             fn #workflow_constructor_name() -> cloacina::Workflow {
                 let mut workflow = cloacina::Workflow::new(#workflow_name);
+                workflow.set_tenant(#workflow_tenant);
+                workflow.add_tag("package", #workflow_package);
                 #description_field
+                #author_field
 
                 #(
                     workflow.add_task(std::sync::Arc::new(#task_constructors)).expect("Failed to add task to workflow");

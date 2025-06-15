@@ -16,12 +16,14 @@ use crate::tasks::{TaskAttributes, to_pascal_case};
 /// # Fields
 ///
 /// * `package` - Package name for namespace isolation (required)
-/// * `version` - Package version (required)
+/// * `name` - Unique identifier for the workflow (required)
+/// * `tenant` - Tenant identifier for the workflow (optional, defaults to "public")
 /// * `description` - Optional description of the workflow package
 /// * `author` - Optional author information
 pub struct PackagedWorkflowAttributes {
     pub package: String,
-    pub version: String,
+    pub name: String,
+    pub tenant: String,
     pub description: Option<String>,
     pub author: Option<String>,
 }
@@ -29,7 +31,8 @@ pub struct PackagedWorkflowAttributes {
 impl Parse for PackagedWorkflowAttributes {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let mut package = None;
-        let mut version = None;
+        let mut name = None;
+        let mut tenant = None;
         let mut description = None;
         let mut author = None;
 
@@ -42,9 +45,13 @@ impl Parse for PackagedWorkflowAttributes {
                     let lit: LitStr = input.parse()?;
                     package = Some(lit.value());
                 }
-                "version" => {
+                "name" => {
                     let lit: LitStr = input.parse()?;
-                    version = Some(lit.value());
+                    name = Some(lit.value());
+                }
+                "tenant" => {
+                    let lit: LitStr = input.parse()?;
+                    tenant = Some(lit.value());
                 }
                 "description" => {
                     let lit: LitStr = input.parse()?;
@@ -74,16 +81,17 @@ impl Parse for PackagedWorkflowAttributes {
             )
         })?;
 
-        let version = version.ok_or_else(|| {
+        let name = name.ok_or_else(|| {
             syn::Error::new(
                 Span::call_site(),
-                "packaged_workflow macro requires 'version' attribute",
+                "packaged_workflow macro requires 'name' attribute",
             )
         })?;
 
         Ok(PackagedWorkflowAttributes {
             package,
-            version,
+            name,
+            tenant: tenant.unwrap_or_else(|| "public".to_string()),
             description,
             author,
         })
@@ -436,7 +444,7 @@ pub fn generate_packaged_workflow_impl(
     let mod_content = &input.content;
 
     let package_name = &attrs.package;
-    let package_version = &attrs.version;
+    let package_tenant = &attrs.tenant;
     let package_description = attrs
         .description
         .unwrap_or_else(|| format!("Workflow package: {}", package_name));
@@ -622,7 +630,6 @@ pub fn generate_packaged_workflow_impl(
     // Generate package fingerprint based on version and content
     let mut hasher = DefaultHasher::new();
     package_name.hash(&mut hasher);
-    package_version.hash(&mut hasher);
     if let Some((_, items)) = mod_content {
         for item in items {
             quote::quote!(#item).to_string().hash(&mut hasher);
@@ -953,7 +960,7 @@ pub fn generate_packaged_workflow_impl(
             #[derive(Debug, Clone)]
             pub struct #metadata_struct_name {
                 pub package: &'static str,
-                pub version: &'static str,
+                pub tenant: &'static str,
                 pub description: &'static str,
                 pub author: &'static str,
                 pub fingerprint: &'static str,
@@ -963,7 +970,7 @@ pub fn generate_packaged_workflow_impl(
                 pub const fn new() -> Self {
                     Self {
                         package: #package_name,
-                        version: #package_version,
+                        tenant: #package_tenant,
                         description: #package_description,
                         author: #package_author,
                         fingerprint: #package_fingerprint,

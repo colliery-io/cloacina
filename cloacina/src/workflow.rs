@@ -364,6 +364,7 @@ impl Default for DependencyGraph {
 /// # Fields
 ///
 /// * `name`: String - Unique identifier for the workflow
+/// * `tenant`: String - Unique identifier for the tenant
 /// * `tasks`: HashMap<String, Arc<dyn Task>> - Map of task IDs to task implementations
 /// * `dependency_graph`: DependencyGraph - Internal representation of task dependencies
 /// * `metadata`: WorkflowMetadata - Versioning and metadata information
@@ -404,6 +405,7 @@ impl Default for DependencyGraph {
 #[derive(Clone)]
 pub struct Workflow {
     name: String,
+    tenant: String,
     tasks: HashMap<String, Arc<dyn Task>>,
     dependency_graph: DependencyGraph,
     metadata: WorkflowMetadata,
@@ -413,6 +415,7 @@ impl std::fmt::Debug for Workflow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Workflow")
             .field("name", &self.name)
+            .field("tenant", &self.tenant)
             .field("task_count", &self.tasks.len())
             .field("dependency_graph", &self.dependency_graph)
             .field("metadata", &self.metadata)
@@ -440,6 +443,7 @@ impl Workflow {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
+            tenant: "public".to_string(),
             tasks: HashMap::new(),
             dependency_graph: DependencyGraph::new(),
             metadata: WorkflowMetadata::default(),
@@ -467,6 +471,16 @@ impl Workflow {
     /// Get the Workflow name
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Get the Workflow tenant
+    pub fn tenant(&self) -> &str {
+        &self.tenant
+    }
+
+    /// Set the Workflow tenant
+    pub fn set_tenant(&mut self, tenant: &str) {
+        self.tenant = tenant.to_string();
     }
 
     /// Get the Workflow metadata
@@ -1076,6 +1090,7 @@ impl Workflow {
     fn hash_configuration(&self, hasher: &mut DefaultHasher) {
         // Hash Workflow-level configuration (excluding version and timestamps)
         self.name.hash(hasher);
+        self.tenant.hash(hasher);
         self.metadata.description.hash(hasher);
 
         // Hash tags in deterministic order
@@ -1273,6 +1288,12 @@ impl WorkflowBuilder {
     /// Set the workflow description
     pub fn description(mut self, description: &str) -> Self {
         self.workflow.set_description(description);
+        self
+    }
+
+    /// Set the workflow tenant
+    pub fn tenant(mut self, tenant: &str) -> Self {
+        self.workflow.tenant = tenant.to_string();
         self
     }
 
