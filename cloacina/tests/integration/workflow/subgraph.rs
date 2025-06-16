@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow, Context, SubgraphError, TaskError};
+use cloacina::{task, workflow, Context, SubgraphError, TaskError, TaskNamespace};
 
 // Define a set of tasks for subgraph testing
 #[task(id = "root-task-a", dependencies = [])]
@@ -57,15 +57,17 @@ fn test_subgraph_unsupported_operation() {
     };
 
     // Attempt to create subgraph
-    let result = workflow.subgraph(&["root-task-a", "middle-task-c"]);
+    let root_a_ns = TaskNamespace::new("public", "embedded", "full-workflow", "root-task-a");
+    let middle_c_ns = TaskNamespace::new("public", "embedded", "full-workflow", "middle-task-c");
+    let result = workflow.subgraph(&[&root_a_ns, &middle_c_ns]);
 
     // Should succeed and create a valid subgraph
     assert!(result.is_ok());
     let subgraph = result.unwrap();
 
     // Verify subgraph contains requested tasks and their dependencies
-    assert!(subgraph.get_task("root-task-a").is_some());
-    assert!(subgraph.get_task("middle-task-c").is_some());
+    assert!(subgraph.get_task(&root_a_ns).is_ok());
+    assert!(subgraph.get_task(&middle_c_ns).is_ok());
 
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "full-workflow-subgraph");
@@ -79,12 +81,14 @@ fn test_subgraph_with_nonexistent_task() {
     };
 
     // Try to create subgraph with non-existent task
-    let result = workflow.subgraph(&["root-task-a", "nonexistent-task"]);
+    let root_a_ns = TaskNamespace::new("public", "embedded", "test-workflow", "root-task-a");
+    let nonexistent_ns = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent-task");
+    let result = workflow.subgraph(&[&root_a_ns, &nonexistent_ns]);
 
     assert!(result.is_err());
     match result.unwrap_err() {
         SubgraphError::TaskNotFound(task_id) => {
-            assert_eq!(task_id, "nonexistent-task");
+            assert_eq!(task_id, "public::embedded::test-workflow::nonexistent-task");
         }
         _ => panic!("Expected TaskNotFound error"),
     }
@@ -107,23 +111,29 @@ fn test_subgraph_dependency_collection() {
     // by manually checking dependencies
 
     // For final_task_e, we should need: root_task_a, root_task_b, middle_task_c, middle_task_d, final_task_e
-    let task_e = workflow.get_task("final-task-e").unwrap();
+    let final_e_ns = TaskNamespace::new("public", "embedded", "dependency-test", "final-task-e");
+    let middle_c_ns = TaskNamespace::new("public", "embedded", "dependency-test", "middle-task-c");
+    let middle_d_ns = TaskNamespace::new("public", "embedded", "dependency-test", "middle-task-d");
+    let root_a_ns = TaskNamespace::new("public", "embedded", "dependency-test", "root-task-a");
+    let root_b_ns = TaskNamespace::new("public", "embedded", "dependency-test", "root-task-b");
+    
+    let task_e = workflow.get_task(&final_e_ns).unwrap();
     let dependencies = task_e.dependencies();
 
     assert_eq!(dependencies.len(), 2);
-    assert!(dependencies.contains(&"middle-task-c".to_string()));
-    assert!(dependencies.contains(&"middle-task-d".to_string()));
+    assert!(dependencies.contains(&middle_c_ns));
+    assert!(dependencies.contains(&middle_d_ns));
 
     // Check transitive dependencies
-    let task_c = workflow.get_task("middle-task-c").unwrap();
+    let task_c = workflow.get_task(&middle_c_ns).unwrap();
     let c_deps = task_c.dependencies();
     assert_eq!(c_deps.len(), 1);
-    assert!(c_deps.contains(&"root-task-a".to_string()));
+    assert!(c_deps.contains(&root_a_ns));
 
-    let task_d = workflow.get_task("middle-task-d").unwrap();
+    let task_d = workflow.get_task(&middle_d_ns).unwrap();
     let d_deps = task_d.dependencies();
     assert_eq!(d_deps.len(), 1);
-    assert!(d_deps.contains(&"root-task-b".to_string()));
+    assert!(d_deps.contains(&root_b_ns));
 }
 
 #[test]
@@ -155,14 +165,15 @@ fn test_single_task_subgraph() {
     };
 
     // Test subgraph with just one task
-    let result = workflow.subgraph(&["root-task-a"]);
+    let root_a_ns = TaskNamespace::new("public", "embedded", "single-task-workflow", "root-task-a");
+    let result = workflow.subgraph(&[&root_a_ns]);
 
     // Should succeed and create a valid subgraph
     assert!(result.is_ok());
     let subgraph = result.unwrap();
 
     // Verify subgraph contains the requested task
-    assert!(subgraph.get_task("root-task-a").is_some());
+    assert!(subgraph.get_task(&root_a_ns).is_ok());
 
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "single-task-workflow-subgraph");
@@ -204,15 +215,17 @@ fn test_subgraph_with_partial_dependencies() {
     };
 
     // Test requesting just the dependent task
-    let result = valid_workflow.subgraph(&["middle-task-c"]);
+    let middle_c_ns = TaskNamespace::new("public", "embedded", "valid-workflow", "middle-task-c");
+    let result = valid_workflow.subgraph(&[&middle_c_ns]);
 
     // Should succeed and include both the requested task and its dependencies
     assert!(result.is_ok());
     let subgraph = result.unwrap();
 
     // Verify subgraph contains both the requested task and its dependency
-    assert!(subgraph.get_task("middle-task-c").is_some());
-    assert!(subgraph.get_task("root-task-a").is_some());
+    let root_a_ns = TaskNamespace::new("public", "embedded", "valid-workflow", "root-task-a");
+    assert!(subgraph.get_task(&middle_c_ns).is_ok());
+    assert!(subgraph.get_task(&root_a_ns).is_ok());
 
     // Verify subgraph name is correct
     assert_eq!(subgraph.name(), "valid-workflow-subgraph");

@@ -34,14 +34,14 @@ async fn get_test_database() -> Database {
 #[derive(Debug)]
 struct WorkflowTask {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<TaskNamespace>,
 }
 
 impl WorkflowTask {
     fn new(id: &str, deps: Vec<&str>) -> Self {
         Self {
             id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
+            dependencies: deps.into_iter().map(|s| TaskNamespace::from_string(s).unwrap()).collect(),
         }
     }
 }
@@ -59,7 +59,7 @@ impl Task for WorkflowTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
     }
 }
@@ -143,24 +143,23 @@ async fn test_context_merging_latest_wins() {
 
     // Create workflow using the #[task] functions with unique name
     let workflow_name = format!("merging_pipeline_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    
+    // Create TaskNamespace objects for dependencies
+    let early_ns = TaskNamespace::new("public", "embedded", &workflow_name, "early_producer_task");
+    let late_ns = TaskNamespace::new("public", "embedded", &workflow_name, "late_producer_task");
+    
     let workflow = Workflow::builder(&workflow_name)
         .description("Test pipeline for context merging")
-        .add_task(Arc::new(WorkflowTask::new("early_producer_task", vec![])))
+        .add_task(Arc::new(early_producer_task_task()))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new(
-            "late_producer_task",
-            vec!["early_producer_task"],
-        )))
+        .add_task(Arc::new(late_producer_task_task().with_dependencies(vec![early_ns.clone()])))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new(
-            "merger_task",
-            vec!["early_producer_task", "late_producer_task"],
-        )))
+        .add_task(Arc::new(merger_task_task().with_dependencies(vec![early_ns.clone(), late_ns.clone()])))
         .unwrap()
         .build()
         .unwrap();
 
-    // Register tasks with correct namespaces in global registry
+    // Register tasks with correct namespaces and dependencies in global registry
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
@@ -175,7 +174,8 @@ async fn test_context_merging_latest_wins() {
         workflow.name(),
         "late_producer_task"
     );
-    register_task_constructor(namespace2, || Arc::new(late_producer_task_task()));
+    let early_ns_for_closure = early_ns.clone();
+    register_task_constructor(namespace2, move || Arc::new(late_producer_task_task().with_dependencies(vec![early_ns_for_closure.clone()])));
 
     let namespace3 = TaskNamespace::new(
         workflow.tenant(),
@@ -183,7 +183,9 @@ async fn test_context_merging_latest_wins() {
         workflow.name(),
         "merger_task"
     );
-    register_task_constructor(namespace3, || Arc::new(merger_task_task()));
+    let early_ns_for_merger = early_ns.clone();
+    let late_ns_for_merger = late_ns.clone();
+    register_task_constructor(namespace3, move || Arc::new(merger_task_task().with_dependencies(vec![early_ns_for_merger.clone(), late_ns_for_merger.clone()])));
 
     // Register workflow in global registry for scheduler to find
     register_workflow_constructor(workflow_name.clone(), {
@@ -228,11 +230,11 @@ async fn test_context_merging_latest_wins() {
 
     // Check merger task results
     let dal = cloacina::dal::DAL::new(database.clone());
-    let full_merger_task_name = format!("{}::{}::{}::merger_task", 
-        workflow.tenant(), workflow.package(), workflow.name());
+    let merger_task_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "merger_task");
     let merger_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_merger_task_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &merger_task_namespace)
         .await
         .unwrap();
 
@@ -348,11 +350,11 @@ async fn test_execution_scope_context_setup() {
 
     // Check that scope information was captured
     let dal = cloacina::dal::DAL::new(database.clone());
-    let full_task_name = format!("{}::{}::{}::scope_inspector_task", 
-        workflow.tenant(), workflow.package(), workflow.name());
+    let task_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "scope_inspector_task");
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_task_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
         .await
         .unwrap();
 

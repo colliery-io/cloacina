@@ -25,7 +25,7 @@ use crate::registry::{get_registry, TaskInfo};
 /// * `trigger_rules` - Rules that determine when the task should be executed
 pub struct TaskAttributes {
     pub id: String,
-    pub dependencies: Vec<String>,
+    pub dependencies: Vec<String>, // Will need to convert to TaskNamespace during code generation
     pub retry_attempts: Option<i32>,
     pub retry_backoff: Option<String>,
     pub retry_delay_ms: Option<i32>,
@@ -612,14 +612,23 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         // Generate the task struct
         #[derive(Debug)]
         #fn_vis struct #task_struct_name {
-            dependencies: Vec<String>,
+            dependencies: Vec<cloacina::TaskNamespace>,
         }
 
         impl #task_struct_name {
             pub fn new() -> Self {
                 Self {
-                    dependencies: vec![#(#dependencies.to_string()),*],
+                    dependencies: Vec::new(), // Will be populated by workflow builder
                 }
+            }
+            
+            pub fn with_dependencies(mut self, dependencies: Vec<cloacina::TaskNamespace>) -> Self {
+                self.dependencies = dependencies;
+                self
+            }
+            
+            pub fn dependency_task_ids() -> &'static [&'static str] {
+                &[#(#dependencies),*]
             }
 
             /// Get the code fingerprint for this task
@@ -659,7 +668,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 #task_id
             }
 
-            fn dependencies(&self) -> &[String] {
+            fn dependencies(&self) -> &[cloacina::TaskNamespace] {
                 &self.dependencies
             }
 

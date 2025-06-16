@@ -55,7 +55,7 @@ async fn test_macro_generated_task() {
     let task = simple_task_task();
 
     assert_eq!(task.id(), "macro-test-simple-task");
-    assert_eq!(task.dependencies(), &[] as &[String]);
+    assert_eq!(task.dependencies(), &[] as &[TaskNamespace]);
 
     // Test execution
     let context = Context::new();
@@ -71,7 +71,10 @@ async fn test_macro_with_dependencies() {
     let task = dependent_task_task();
 
     assert_eq!(task.id(), "macro-test-dependent-task");
-    assert_eq!(task.dependencies(), &["macro-test-simple-task".to_string()]);
+    // Test the static dependency IDs
+    assert_eq!(DependentTaskTask::dependency_task_ids(), &["macro-test-simple-task"]);
+    // Runtime dependencies are empty until populated by workflow builder
+    assert_eq!(task.dependencies(), &[] as &[TaskNamespace]);
 }
 
 #[tokio::test]
@@ -82,10 +85,12 @@ async fn test_task_registry_with_macro_tasks() {
     let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-simple-task");
     let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-dependent-task");
 
-    registry.register(ns1.clone(), simple_task_task()).unwrap();
-    registry
-        .register(ns2.clone(), dependent_task_task())
-        .unwrap();
+    // When testing tasks outside a workflow, we need to manually set up dependencies
+    let simple_task = simple_task_task();
+    let dependent_task = dependent_task_task().with_dependencies(vec![ns1.clone()]);
+    
+    registry.register(ns1.clone(), simple_task).unwrap();
+    registry.register(ns2.clone(), dependent_task).unwrap();
 
     // Validate dependencies
     assert!(registry.validate_dependencies().is_ok());
@@ -110,10 +115,12 @@ async fn test_task_execution_flow() {
     let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-simple-task");
     let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "macro-test-dependent-task");
 
-    registry.register(ns1.clone(), simple_task_task()).unwrap();
-    registry
-        .register(ns2.clone(), dependent_task_task())
-        .unwrap();
+    // When testing tasks outside a workflow, we need to manually set up dependencies
+    let simple_task = simple_task_task();
+    let dependent_task = dependent_task_task().with_dependencies(vec![ns1.clone()]);
+    
+    registry.register(ns1.clone(), simple_task).unwrap();
+    registry.register(ns2.clone(), dependent_task).unwrap();
 
     let sorted = registry.topological_sort().unwrap();
     let mut context = Context::new();

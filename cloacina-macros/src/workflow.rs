@@ -166,12 +166,27 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
         return e.to_compile_error().into();
     }
 
-    // Generate task constructor calls
-    let task_constructors: Vec<_> = tasks
+    // Generate task constructor calls and struct names
+    let task_info: Vec<_> = tasks
         .iter()
         .map(|task| {
             let constructor_name = syn::Ident::new(&format!("{}_task", task), task.span());
-            quote! { #constructor_name() }
+            
+            // Convert snake_case to PascalCase for struct name
+            let task_str = task.to_string();
+            let parts: Vec<&str> = task_str.split('_').collect();
+            let pascal_case = parts.iter()
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<String>();
+            let struct_name = syn::Ident::new(&format!("{}Task", pascal_case), task.span());
+            
+            (constructor_name, struct_name)
         })
         .collect();
 
@@ -196,29 +211,73 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
         Span::call_site(),
     );
 
-    // Generate task registrations with proper namespace
-    let task_registrations: Vec<_> = tasks
-        .iter()
-        .map(|task| {
-            let task_id = task.to_string();
-            let constructor_name = syn::Ident::new(&format!("{}_task", task), task.span());
-            quote! {
-                {
-                    let namespace = cloacina::TaskNamespace::new(
+    // Generate task registrations with proper namespace and dependencies
+    let task_registrations: Vec<_> = task_info.iter().map(|(constructor, struct_name)| {
+        let task_id = constructor.to_string().replace("_task", "");
+        quote! {
+            {
+                let namespace = cloacina::TaskNamespace::new(
+                    #workflow_tenant,
+                    #workflow_package,
+                    #workflow_name,
+                    #task_id
+                );
+                
+                cloacina::register_task_constructor(
+                    namespace,
+                    || {
+                        let task = #constructor();
+                        
+                        // Get the task's static dependencies
+                        let dep_ids = #struct_name::dependency_task_ids();
+                        
+                        // Convert dependency IDs to full namespaces within this workflow
+                        let dep_namespaces: Vec<cloacina::TaskNamespace> = dep_ids.iter()
+                            .map(|dep_id| cloacina::TaskNamespace::new(
+                                #workflow_tenant,
+                                #workflow_package,
+                                #workflow_name,
+                                dep_id
+                            ))
+                            .collect();
+                        
+                        // Create task with resolved dependencies
+                        let task_with_deps = task.with_dependencies(dep_namespaces);
+                        std::sync::Arc::new(task_with_deps)
+                    }
+                );
+            }
+        }
+    }).collect();
+
+    // Generate task addition code
+    let task_additions: Vec<_> = task_info.iter().map(|(constructor, struct_name)| {
+        quote! {
+            {
+                let task = #constructor();
+                
+                // Get the task's static dependencies
+                let dep_ids = #struct_name::dependency_task_ids();
+                
+                // Convert dependency IDs to full namespaces within this workflow
+                let dep_namespaces: Vec<cloacina::TaskNamespace> = dep_ids.iter()
+                    .map(|dep_id| cloacina::TaskNamespace::new(
                         #workflow_tenant,
                         #workflow_package,
                         #workflow_name,
-                        #task_id
-                    );
-                    cloacina::register_task_constructor(
-                        namespace,
-                        || std::sync::Arc::new(#constructor_name())
-                    );
-                }
+                        dep_id
+                    ))
+                    .collect();
+                
+                // Create task with resolved dependencies
+                let task_with_deps = task.with_dependencies(dep_namespaces);
+                
+                workflow.add_task(std::sync::Arc::new(task_with_deps))
+                    .expect("Failed to add task to workflow");
             }
-        })
-        .collect();
-
+        }
+    }).collect();
+    
     quote! {
         {
             // Register all tasks with proper namespaces
@@ -232,9 +291,8 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
                 #description_field
                 #author_field
 
-                #(
-                    workflow.add_task(std::sync::Arc::new(#task_constructors)).expect("Failed to add task to workflow");
-                )*
+                // Add tasks with resolved dependencies
+                #(#task_additions)*
 
                 workflow.validate().expect("Workflow validation failed");
                 // Auto-calculate version when finalizing

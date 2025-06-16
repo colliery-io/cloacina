@@ -35,14 +35,14 @@ async fn get_test_database() -> Database {
 #[derive(Debug)]
 struct WorkflowTask {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<TaskNamespace>,
 }
 
 impl WorkflowTask {
     fn new(id: &str, deps: Vec<&str>) -> Self {
         Self {
             id: id.to_string(),
-            dependencies: deps.into_iter().map(|s| s.to_string()).collect(),
+            dependencies: deps.into_iter().map(|s| TaskNamespace::from_string(s).unwrap()).collect(),
         }
     }
 }
@@ -60,7 +60,7 @@ impl Task for WorkflowTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
     }
 }
@@ -219,14 +219,15 @@ async fn test_task_executor_dependency_loading() {
 
     // Create workflow with dependencies using the #[task] functions
     let workflow_name = format!("dependency_pipeline_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    
+    // Create namespaces for dependencies
+    let producer_ns = TaskNamespace::new("public", "embedded", &workflow_name, "producer_task");
+    
     let workflow = Workflow::builder(&workflow_name)
         .description("Test pipeline with dependencies")
-        .add_task(Arc::new(WorkflowTask::new("producer_task", vec![])))
+        .add_task(Arc::new(producer_task_task()))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new(
-            "consumer_task",
-            vec!["producer_task"],
-        )))
+        .add_task(Arc::new(consumer_task_task().with_dependencies(vec![producer_ns.clone()])))
         .unwrap()
         .build()
         .unwrap();
@@ -246,7 +247,8 @@ async fn test_task_executor_dependency_loading() {
         workflow.name(),
         "consumer_task"
     );
-    register_task_constructor(namespace2, || Arc::new(consumer_task_task()));
+    let producer_ns_for_closure = producer_ns.clone();
+    register_task_constructor(namespace2, move || Arc::new(consumer_task_task().with_dependencies(vec![producer_ns_for_closure.clone()])));
 
     // Register workflow in global registry for scheduler to find
     register_workflow_constructor(workflow.name().to_string(), {
@@ -285,11 +287,11 @@ async fn test_task_executor_dependency_loading() {
 
     // Check that consumer task successfully loaded dependency data
     let dal = cloacina::dal::DAL::new(database.clone());
-    let consumer_full_name = format!("{}::{}::{}::consumer_task", 
-        workflow.tenant(), workflow.package(), workflow.name());
+    let consumer_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "consumer_task");
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_full_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_namespace)
         .await
         .unwrap();
 
@@ -475,9 +477,11 @@ async fn test_pipeline_engine_unified_mode() {
     let dal = cloacina::dal::DAL::new(database.clone());
     let full_task_name = format!("{}::{}::{}::unified_task_test", 
         workflow.tenant(), workflow.package(), workflow.name());
+    let task_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "unified_task_test");
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_task_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
         .await;
 
     // If the task was executed, metadata should exist
@@ -611,9 +615,11 @@ async fn test_task_executor_context_loading_no_dependencies() {
     );
 
     // Check the output context contains processed data
+    let task_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "initial_context_task_test");
     let task_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &full_task_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
         .await
         .unwrap();
 
@@ -705,19 +711,20 @@ async fn test_task_executor_context_loading_with_dependencies() {
 
     // Create workflow with dependency chain using the #[task] functions
     let workflow_name = format!("dependency_context_pipeline_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    
+    // Create namespaces for dependencies
+    let producer_ns = TaskNamespace::new("public", "embedded", &workflow_name, "producer_context_task");
+    
     let workflow = Workflow::builder(&workflow_name)
         .description("Test pipeline for dependency context loading")
-        .add_task(Arc::new(WorkflowTask::new("producer_context_task", vec![])))
+        .add_task(Arc::new(producer_context_task_task()))
         .unwrap()
-        .add_task(Arc::new(WorkflowTask::new(
-            "consumer_context_task",
-            vec!["producer_context_task"],
-        )))
+        .add_task(Arc::new(consumer_context_task_task().with_dependencies(vec![producer_ns.clone()])))
         .unwrap()
         .build()
         .unwrap();
 
-    // Register tasks with correct namespaces in global registry
+    // Register tasks with correct namespaces and dependencies in global registry
     let namespace1 = TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
@@ -732,7 +739,8 @@ async fn test_task_executor_context_loading_with_dependencies() {
         workflow.name(),
         "consumer_context_task"
     );
-    register_task_constructor(namespace2, || Arc::new(consumer_context_task_task()));
+    let producer_ns_for_closure = producer_ns.clone();
+    register_task_constructor(namespace2, move || Arc::new(consumer_context_task_task().with_dependencies(vec![producer_ns_for_closure.clone()])));
 
     // Register workflow in global registry for scheduler to find
     register_workflow_constructor(workflow.name().to_string(), {
@@ -794,9 +802,11 @@ async fn test_task_executor_context_loading_with_dependencies() {
     );
 
     // Check the consumer's output context
+    let consumer_namespace = cloacina::TaskNamespace::new(
+        workflow.tenant(), workflow.package(), workflow.name(), "consumer_context_task");
     let consumer_metadata = dal
         .task_execution_metadata()
-        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_full_name)
+        .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &consumer_namespace)
         .await
         .unwrap();
 

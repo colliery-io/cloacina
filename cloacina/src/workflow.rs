@@ -84,7 +84,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, RwLock};
 
 use crate::error::{SubgraphError, ValidationError, WorkflowError};
-use crate::task::Task;
+use crate::task::{Task, TaskNamespace};
 
 /// Metadata information for a Workflow.
 ///
@@ -146,8 +146,8 @@ impl Default for WorkflowMetadata {
 ///
 /// # Fields
 ///
-/// * `nodes`: HashSet<String> - Set of all task IDs in the graph
-/// * `edges`: HashMap<String, Vec<String>> - Map from task ID to its dependencies
+/// * `nodes`: HashSet<TaskNamespace> - Set of all task namespaces in the graph
+/// * `edges`: HashMap<TaskNamespace, Vec<TaskNamespace>> - Map from task namespace to its dependencies
 ///
 /// # Implementation Details
 ///
@@ -172,8 +172,8 @@ impl Default for WorkflowMetadata {
 /// ```
 #[derive(Debug, Clone)]
 pub struct DependencyGraph {
-    nodes: HashSet<String>,
-    edges: HashMap<String, Vec<String>>,
+    nodes: HashSet<TaskNamespace>,
+    edges: HashMap<TaskNamespace, Vec<TaskNamespace>>,
 }
 
 impl DependencyGraph {
@@ -186,13 +186,13 @@ impl DependencyGraph {
     }
 
     /// Add a node (task) to the graph
-    pub fn add_node(&mut self, node_id: String) {
+    pub fn add_node(&mut self, node_id: TaskNamespace) {
         self.nodes.insert(node_id.clone());
         self.edges.entry(node_id).or_insert_with(Vec::new);
     }
 
     /// Add an edge (dependency) to the graph
-    pub fn add_edge(&mut self, from: String, to: String) {
+    pub fn add_edge(&mut self, from: TaskNamespace, to: TaskNamespace) {
         self.nodes.insert(from.clone());
         self.nodes.insert(to.clone());
         self.edges.entry(from).or_insert_with(Vec::new).push(to);
@@ -200,7 +200,7 @@ impl DependencyGraph {
 
     /// Remove a node (task) from the graph
     /// This also removes all edges involving this node
-    pub fn remove_node(&mut self, node_id: &str) {
+    pub fn remove_node(&mut self, node_id: &TaskNamespace) {
         self.nodes.remove(node_id);
         self.edges.remove(node_id);
 
@@ -211,23 +211,23 @@ impl DependencyGraph {
     }
 
     /// Remove a specific edge (dependency) from the graph
-    pub fn remove_edge(&mut self, from: &str, to: &str) {
+    pub fn remove_edge(&mut self, from: &TaskNamespace, to: &TaskNamespace) {
         if let Some(deps) = self.edges.get_mut(from) {
             deps.retain(|dep| dep != to);
         }
     }
 
     /// Get dependencies for a task
-    pub fn get_dependencies(&self, node_id: &str) -> Option<&Vec<String>> {
+    pub fn get_dependencies(&self, node_id: &TaskNamespace) -> Option<&Vec<TaskNamespace>> {
         self.edges.get(node_id)
     }
 
     /// Get tasks that depend on the given task
-    pub fn get_dependents(&self, node_id: &str) -> Vec<String> {
+    pub fn get_dependents(&self, node_id: &TaskNamespace) -> Vec<TaskNamespace> {
         self.edges
             .iter()
             .filter_map(|(k, v)| {
-                if v.contains(&node_id.to_string()) {
+                if v.contains(node_id) {
                     Some(k.clone())
                 } else {
                     None
@@ -238,7 +238,7 @@ impl DependencyGraph {
 
     /// Check if the graph contains cycles
     pub fn has_cycles(&self) -> bool {
-        let mut graph = Graph::<String, (), Directed>::new();
+        let mut graph = Graph::<TaskNamespace, (), Directed>::new();
         let mut node_indices = HashMap::new();
 
         // Add nodes
@@ -262,14 +262,14 @@ impl DependencyGraph {
     }
 
     /// Get tasks in topological order
-    pub fn topological_sort(&self) -> Result<Vec<String>, ValidationError> {
+    pub fn topological_sort(&self) -> Result<Vec<TaskNamespace>, ValidationError> {
         if self.has_cycles() {
             return Err(ValidationError::CyclicDependency {
-                cycle: self.find_cycle().unwrap_or_default(),
+                cycle: self.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect(),
             });
         }
 
-        let mut graph = Graph::<String, (), Directed>::new();
+        let mut graph = Graph::<TaskNamespace, (), Directed>::new();
         let mut node_indices = HashMap::new();
 
         // Add nodes
@@ -295,12 +295,12 @@ impl DependencyGraph {
                 Ok(result)
             }
             Err(_) => Err(ValidationError::CyclicDependency {
-                cycle: self.find_cycle().unwrap_or_default(),
+                cycle: self.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect(),
             }),
         }
     }
 
-    fn find_cycle(&self) -> Option<Vec<String>> {
+    fn find_cycle(&self) -> Option<Vec<TaskNamespace>> {
         // Simple DFS-based cycle detection
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
@@ -318,14 +318,14 @@ impl DependencyGraph {
 
     fn dfs_cycle(
         &self,
-        node: &str,
-        visited: &mut HashSet<String>,
-        rec_stack: &mut HashSet<String>,
-        path: &mut Vec<String>,
-    ) -> Option<Vec<String>> {
-        visited.insert(node.to_string());
-        rec_stack.insert(node.to_string());
-        path.push(node.to_string());
+        node: &TaskNamespace,
+        visited: &mut HashSet<TaskNamespace>,
+        rec_stack: &mut HashSet<TaskNamespace>,
+        path: &mut Vec<TaskNamespace>,
+    ) -> Option<Vec<TaskNamespace>> {
+        visited.insert(node.clone());
+        rec_stack.insert(node.clone());
+        path.push(node.clone());
 
         if let Some(deps) = self.edges.get(node) {
             for dep in deps {
@@ -365,7 +365,7 @@ impl Default for DependencyGraph {
 ///
 /// * `name`: String - Unique identifier for the workflow
 /// * `tenant`: String - Unique identifier for the tenant
-/// * `tasks`: HashMap<String, Arc<dyn Task>> - Map of task IDs to task implementations
+/// * `tasks`: HashMap<TaskNamespace, Arc<dyn Task>> - Map of task namespaces to task implementations
 /// * `dependency_graph`: DependencyGraph - Internal representation of task dependencies
 /// * `metadata`: WorkflowMetadata - Versioning and metadata information
 ///
@@ -407,7 +407,7 @@ pub struct Workflow {
     name: String,
     tenant: String,
     package: String,
-    tasks: HashMap<String, Arc<dyn Task>>,
+    tasks: HashMap<TaskNamespace, Arc<dyn Task>>,
     dependency_graph: DependencyGraph,
     metadata: WorkflowMetadata,
 }
@@ -599,23 +599,23 @@ impl Workflow {
     /// # Ok::<(), WorkflowError>(())
     /// ```
     pub fn add_task(&mut self, task: Arc<dyn Task>) -> Result<(), WorkflowError> {
-        let task_id = task.id().to_string();
+        let task_namespace = TaskNamespace::new(&self.tenant, &self.package, &self.name, task.id());
 
-        // Check for duplicate task ID
-        if self.tasks.contains_key(&task_id) {
-            return Err(WorkflowError::DuplicateTask(task_id));
+        // Check for duplicate task namespace
+        if self.tasks.contains_key(&task_namespace) {
+            return Err(WorkflowError::DuplicateTask(task_namespace.to_string()));
         }
 
         // Add task to dependency graph
-        self.dependency_graph.add_node(task_id.clone());
+        self.dependency_graph.add_node(task_namespace.clone());
 
         // Add dependencies
         for dep in task.dependencies() {
-            self.dependency_graph.add_edge(task_id.clone(), dep.clone());
+            self.dependency_graph.add_edge(task_namespace.clone(), dep.clone());
         }
 
         // Store the task
-        self.tasks.insert(task_id, task);
+        self.tasks.insert(task_namespace, task);
 
         Ok(())
     }
@@ -646,12 +646,12 @@ impl Workflow {
     /// assert!(workflow.get_task("task1").is_none());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn remove_task(&mut self, task_id: &str) -> Option<Arc<dyn Task>> {
+    pub fn remove_task(&mut self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
         // Remove from dependency graph first
-        self.dependency_graph.remove_node(task_id);
+        self.dependency_graph.remove_node(namespace);
 
         // Remove and return the task
-        self.tasks.remove(task_id)
+        self.tasks.remove(namespace)
     }
 
     /// Remove a dependency between two tasks
@@ -676,7 +676,7 @@ impl Workflow {
     /// workflow.remove_dependency("task2", "task1");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn remove_dependency(&mut self, from_task: &str, to_task: &str) {
+    pub fn remove_dependency(&mut self, from_task: &TaskNamespace, to_task: &TaskNamespace) {
         self.dependency_graph.remove_edge(from_task, to_task);
     }
 
@@ -709,12 +709,12 @@ impl Workflow {
         }
 
         // Check for missing dependencies
-        for (task_id, task) in &self.tasks {
+        for (task_namespace, task) in &self.tasks {
             for dependency in task.dependencies() {
                 if !self.tasks.contains_key(dependency) {
                     return Err(ValidationError::MissingDependency {
-                        task: task_id.clone(),
-                        dependency: dependency.clone(),
+                        task: task_namespace.to_string(),
+                        dependency: dependency.to_string(),
                     });
                 }
             }
@@ -722,7 +722,7 @@ impl Workflow {
 
         // Check for cycles
         if self.dependency_graph.has_cycles() {
-            let cycle = self.dependency_graph.find_cycle().unwrap_or_default();
+            let cycle = self.dependency_graph.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect();
             return Err(ValidationError::CyclicDependency { cycle });
         }
 
@@ -747,37 +747,40 @@ impl Workflow {
     /// println!("Execute tasks in order: {:?}", execution_order);
     /// # Ok::<(), ValidationError>(())
     /// ```
-    pub fn topological_sort(&self) -> Result<Vec<String>, ValidationError> {
+    pub fn topological_sort(&self) -> Result<Vec<TaskNamespace>, ValidationError> {
         self.validate()?;
         self.dependency_graph.topological_sort()
     }
 
-    /// Get a task by ID
+    /// Get a task by namespace
     ///
     /// # Arguments
     ///
-    /// * `id` - Task ID to look up
+    /// * `namespace` - Task namespace to look up
     ///
     /// # Returns
     ///
-    /// * `Some(Arc<dyn Task>)` - If the task exists
-    /// * `None` - If no task with that ID exists
-    pub fn get_task(&self, id: &str) -> Option<Arc<dyn Task>> {
-        self.tasks.get(id).cloned()
+    /// * `Ok(Arc<dyn Task>)` - If the task exists
+    /// * `Err(WorkflowError)` - If no task with that namespace exists
+    pub fn get_task(&self, namespace: &TaskNamespace) -> Result<Arc<dyn Task>, WorkflowError> {
+        self.tasks.get(namespace).cloned()
+            .ok_or_else(|| WorkflowError::TaskNotFound(namespace.to_string()))
     }
 
     /// Get dependencies for a task
     ///
     /// # Arguments
     ///
-    /// * `task_id` - Task ID to get dependencies for
+    /// * `namespace` - Task namespace to get dependencies for
     ///
     /// # Returns
     ///
-    /// * `Some(&[String])` - Array of dependency task IDs
-    /// * `None` - If the task doesn't exist
-    pub fn get_dependencies(&self, task_id: &str) -> Option<&[String]> {
-        self.tasks.get(task_id).map(|task| task.dependencies())
+    /// * `Ok(&[TaskNamespace])` - Array of dependency task namespaces
+    /// * `Err(WorkflowError)` - If the task doesn't exist
+    pub fn get_dependencies(&self, namespace: &TaskNamespace) -> Result<&[TaskNamespace], WorkflowError> {
+        self.tasks.get(namespace)
+            .map(|task| task.dependencies())
+            .ok_or_else(|| WorkflowError::TaskNotFound(namespace.to_string()))
     }
 
     /// Get dependents of a task
@@ -786,22 +789,31 @@ impl Workflow {
     ///
     /// # Arguments
     ///
-    /// * `task_id` - Task ID to get dependents for
+    /// * `namespace` - Task namespace to get dependents for
     ///
     /// # Returns
     ///
-    /// Vector of task IDs that depend on the given task
+    /// * `Ok(Vec<TaskNamespace>)` - Vector of task namespaces that depend on the given task
+    /// * `Err(WorkflowError)` - If the task doesn't exist
     ///
     /// # Examples
     ///
     /// ```rust
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
-    /// let dependents = workflow.get_dependents("extract_data");
+    /// let namespace = TaskNamespace::new("public", "embedded", "test", "extract_data");
+    /// let dependents = workflow.get_dependents(&namespace)?;
     /// println!("Tasks depending on extract_data: {:?}", dependents);
+    /// # Ok::<(), WorkflowError>(())
     /// ```
-    pub fn get_dependents(&self, task_id: &str) -> Vec<String> {
-        self.dependency_graph.get_dependents(task_id)
+    pub fn get_dependents(&self, namespace: &TaskNamespace) -> Result<Vec<TaskNamespace>, WorkflowError> {
+        // First check if the task exists
+        if !self.tasks.contains_key(namespace) {
+            return Err(WorkflowError::TaskNotFound(namespace.to_string()));
+        }
+        
+        // Return dependents (may be empty if no tasks depend on this one)
+        Ok(self.dependency_graph.get_dependents(namespace))
     }
 
     /// Create a subgraph containing only specified tasks and their dependencies
@@ -814,51 +826,51 @@ impl Workflow {
     ///
     /// * `Ok(Workflow)` - New workflow containing only specified tasks
     /// * `Err(SubgraphError)` - If any tasks don't exist or other errors
-    pub fn subgraph(&self, task_ids: &[&str]) -> Result<Workflow, SubgraphError> {
+    pub fn subgraph(&self, task_namespaces: &[&TaskNamespace]) -> Result<Workflow, SubgraphError> {
         let mut subgraph_tasks = HashSet::new();
 
         // Add specified tasks and recursively add their dependencies
-        for &task_id in task_ids {
-            if !self.tasks.contains_key(task_id) {
-                return Err(SubgraphError::TaskNotFound(task_id.to_string()));
+        for &task_namespace in task_namespaces {
+            if !self.tasks.contains_key(task_namespace) {
+                return Err(SubgraphError::TaskNotFound(task_namespace.to_string()));
             }
-            self.collect_dependencies(task_id, &mut subgraph_tasks);
+            self.collect_dependencies(task_namespace, &mut subgraph_tasks);
         }
 
         // Create new Workflow with subset of tasks
         let mut workflow = Workflow::new(&format!("{}-subgraph", self.name));
         workflow.metadata = self.metadata.clone();
 
-        for task_id in &subgraph_tasks {
-            if let Some(task) = self.tasks.get(task_id) {
+        for task_namespace in &subgraph_tasks {
+            if let Some(task) = self.tasks.get(task_namespace) {
                 // Clone the Arc<dyn Task> to share between workflows
-                workflow.tasks.insert(task_id.clone(), task.clone());
+                workflow.tasks.insert(task_namespace.clone(), task.clone());
 
                 // Copy dependency graph edges for this task
-                workflow.dependency_graph.add_node(task_id.clone());
+                workflow.dependency_graph.add_node(task_namespace.clone());
                 for dep in task.dependencies() {
                     if subgraph_tasks.contains(dep) {
                         workflow
                             .dependency_graph
-                            .add_edge(task_id.clone(), dep.clone());
+                            .add_edge(task_namespace.clone(), dep.clone());
                     }
                 }
             } else {
-                return Err(SubgraphError::TaskNotFound(task_id.clone()));
+                return Err(SubgraphError::TaskNotFound(task_namespace.to_string()));
             }
         }
 
         Ok(workflow)
     }
 
-    fn collect_dependencies(&self, task_id: &str, collected: &mut HashSet<String>) {
-        if collected.contains(task_id) {
+    fn collect_dependencies(&self, task_namespace: &TaskNamespace, collected: &mut HashSet<TaskNamespace>) {
+        if collected.contains(task_namespace) {
             return;
         }
 
-        collected.insert(task_id.to_string());
+        collected.insert(task_namespace.clone());
 
-        if let Some(task) = self.tasks.get(task_id) {
+        if let Some(task) = self.tasks.get(task_namespace) {
             for dep in task.dependencies() {
                 self.collect_dependencies(dep, collected);
             }
@@ -889,33 +901,33 @@ impl Workflow {
     /// }
     /// # Ok::<(), ValidationError>(())
     /// ```
-    pub fn get_execution_levels(&self) -> Result<Vec<Vec<String>>, ValidationError> {
+    pub fn get_execution_levels(&self) -> Result<Vec<Vec<TaskNamespace>>, ValidationError> {
         let sorted = self.topological_sort()?;
         let mut levels = Vec::new();
-        let mut remaining: HashSet<String> = sorted.into_iter().collect();
+        let mut remaining: HashSet<TaskNamespace> = sorted.into_iter().collect();
         let mut completed = HashSet::new();
 
         while !remaining.is_empty() {
             let mut current_level = Vec::new();
 
             // Find tasks with all dependencies completed
-            for task_id in &remaining {
-                if let Some(task) = self.tasks.get(task_id) {
+            for task_namespace in &remaining {
+                if let Some(task) = self.tasks.get(task_namespace) {
                     let all_deps_done = task
                         .dependencies()
                         .iter()
                         .all(|dep| completed.contains(dep));
 
                     if all_deps_done {
-                        current_level.push(task_id.clone());
+                        current_level.push(task_namespace.clone());
                     }
                 }
             }
 
             // Remove current level tasks from remaining
-            for task_id in &current_level {
-                remaining.remove(task_id);
-                completed.insert(task_id.clone());
+            for task_namespace in &current_level {
+                remaining.remove(task_namespace);
+                completed.insert(task_namespace.clone());
             }
 
             levels.push(current_level);
@@ -938,12 +950,12 @@ impl Workflow {
     /// let roots = workflow.get_roots();
     /// println!("Starting tasks: {:?}", roots);
     /// ```
-    pub fn get_roots(&self) -> Vec<String> {
+    pub fn get_roots(&self) -> Vec<TaskNamespace> {
         self.tasks
             .iter()
-            .filter_map(|(id, task)| {
+            .filter_map(|(namespace, task)| {
                 if task.dependencies().is_empty() {
-                    Some(id.clone())
+                    Some(namespace.clone())
                 } else {
                     None
                 }
@@ -965,8 +977,8 @@ impl Workflow {
     /// let leaves = workflow.get_leaves();
     /// println!("Final tasks: {:?}", leaves);
     /// ```
-    pub fn get_leaves(&self) -> Vec<String> {
-        let all_dependencies: HashSet<String> = self
+    pub fn get_leaves(&self) -> Vec<TaskNamespace> {
+        let all_dependencies: HashSet<TaskNamespace> = self
             .tasks
             .values()
             .flat_map(|task| task.dependencies().iter().cloned())
@@ -974,7 +986,7 @@ impl Workflow {
 
         self.tasks
             .keys()
-            .filter(|&id| !all_dependencies.contains(id))
+            .filter(|&namespace| !all_dependencies.contains(namespace))
             .cloned()
             .collect()
     }
@@ -999,12 +1011,12 @@ impl Workflow {
     ///     println!("These tasks can run simultaneously");
     /// }
     /// ```
-    pub fn can_run_parallel(&self, task_a: &str, task_b: &str) -> bool {
+    pub fn can_run_parallel(&self, task_a: &TaskNamespace, task_b: &TaskNamespace) -> bool {
         // Tasks can run in parallel if neither depends on the other
         !self.has_path(task_a, task_b) && !self.has_path(task_b, task_a)
     }
 
-    fn has_path(&self, from: &str, to: &str) -> bool {
+    fn has_path(&self, from: &TaskNamespace, to: &TaskNamespace) -> bool {
         if from == to {
             return true;
         }
@@ -1112,27 +1124,27 @@ impl Workflow {
         tags.hash(hasher);
     }
 
-    fn get_task_code_hash(&self, task_id: &str) -> Option<String> {
+    fn get_task_code_hash(&self, task_namespace: &TaskNamespace) -> Option<String> {
         self.tasks
-            .get(task_id)
+            .get(task_namespace)
             .and_then(|task| task.code_fingerprint())
     }
 
-    /// Get all task IDs in the workflow
+    /// Get all task namespaces in the workflow
     ///
     /// # Returns
     ///
-    /// Vector of all task IDs currently in the workflow
+    /// Vector of all task namespaces currently in the workflow
     ///
     /// # Examples
     ///
     /// ```rust
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
-    /// let task_ids = workflow.get_task_ids();
-    /// println!("Tasks in workflow: {:?}", task_ids);
+    /// let task_namespaces = workflow.get_task_ids();
+    /// println!("Tasks in workflow: {:?}", task_namespaces);
     /// ```
-    pub fn get_task_ids(&self) -> Vec<String> {
+    pub fn get_task_ids(&self) -> Vec<TaskNamespace> {
         self.tasks.keys().cloned().collect()
     }
 
@@ -1174,13 +1186,12 @@ impl Workflow {
         })?;
 
         // Recreate all tasks from the registry
-        for task_id in self.get_task_ids() {
-            // Use default namespace for workflow recreation
-            let namespace = crate::TaskNamespace::new("public", "embedded", "default", &task_id);
-            let constructor = guard.get(&namespace).ok_or_else(|| {
+        for task_namespace in self.get_task_ids() {
+            // Use the existing namespace
+            let constructor = guard.get(&task_namespace).ok_or_else(|| {
                 WorkflowError::TaskNotFound(format!(
                     "Task '{}' not found in global registry during workflow recreation",
-                    task_id
+                    task_namespace
                 ))
             })?;
 
@@ -1191,7 +1202,7 @@ impl Workflow {
             new_workflow.add_task(task).map_err(|e| {
                 WorkflowError::TaskError(format!(
                     "Failed to add task '{}' during recreation: {}",
-                    task_id, e
+                    task_namespace, e
                 ))
             })?;
         }
@@ -1405,15 +1416,15 @@ mod tests {
     // Test task implementation
     struct TestTask {
         id: String,
-        dependencies: Vec<String>,
+        dependencies: Vec<TaskNamespace>,
         fingerprint: Option<String>,
     }
 
     impl TestTask {
-        fn new(id: &str, dependencies: Vec<&str>) -> Self {
+        fn new(id: &str, dependencies: Vec<TaskNamespace>) -> Self {
             Self {
                 id: id.to_string(),
-                dependencies: dependencies.into_iter().map(|s| s.to_string()).collect(),
+                dependencies,
                 fingerprint: None,
             }
         }
@@ -1437,7 +1448,7 @@ mod tests {
             &self.id
         }
 
-        fn dependencies(&self) -> &[String] {
+        fn dependencies(&self) -> &[TaskNamespace] {
             &self.dependencies
         }
 
@@ -1462,9 +1473,10 @@ mod tests {
 
         let mut workflow = Workflow::new("test-workflow");
         let task = TestTask::new("task1", vec![]);
+        let task_namespace = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
 
         assert!(workflow.add_task(Arc::new(task)).is_ok());
-        assert!(workflow.get_task("task1").is_some());
+        assert!(workflow.get_task(&task_namespace).is_ok());
     }
 
     #[test]
@@ -1473,8 +1485,9 @@ mod tests {
 
         let mut workflow = Workflow::new("test-workflow");
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
+        let task2 = TestTask::new("task2", vec![ns1]);
 
         workflow.add_task(Arc::new(task1)).unwrap();
         workflow.add_task(Arc::new(task2)).unwrap();
@@ -1488,8 +1501,10 @@ mod tests {
 
         let mut workflow = Workflow::new("test-workflow");
 
-        let task1 = TestTask::new("task1", vec!["task2"]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let task1 = TestTask::new("task1", vec![ns2]);
+        let task2 = TestTask::new("task2", vec![ns1]);
 
         workflow.add_task(Arc::new(task1)).unwrap();
         workflow.add_task(Arc::new(task2)).unwrap();
@@ -1506,9 +1521,13 @@ mod tests {
 
         let mut workflow = Workflow::new("test-workflow");
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let _ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+
         let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
-        let task3 = TestTask::new("task3", vec!["task1", "task2"]);
+        let task2 = TestTask::new("task2", vec![ns1.clone()]);
+        let task3 = TestTask::new("task3", vec![ns1.clone(), ns2.clone()]);
 
         workflow.add_task(Arc::new(task1)).unwrap();
         workflow.add_task(Arc::new(task2)).unwrap();
@@ -1516,9 +1535,9 @@ mod tests {
 
         let sorted = workflow.topological_sort().unwrap();
 
-        let pos1 = sorted.iter().position(|x| x == "task1").unwrap();
-        let pos2 = sorted.iter().position(|x| x == "task2").unwrap();
-        let pos3 = sorted.iter().position(|x| x == "task3").unwrap();
+        let pos1 = sorted.iter().position(|x| x.task_id == "task1").unwrap();
+        let pos2 = sorted.iter().position(|x| x.task_id == "task2").unwrap();
+        let pos3 = sorted.iter().position(|x| x.task_id == "task3").unwrap();
 
         assert!(pos1 < pos2);
         assert!(pos1 < pos3);
@@ -1529,8 +1548,9 @@ mod tests {
     fn test_workflow_builder_auto_versioning() {
         init_test_logging();
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
+        let task2 = TestTask::new("task2", vec![ns1]);
 
         let workflow = Workflow::builder("test-workflow")
             .description("Test Workflow with auto-versioning")
@@ -1564,10 +1584,13 @@ mod tests {
 
         let mut workflow = Workflow::new("test-workflow");
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
         let task1 = TestTask::new("task1", vec![]);
         let task2 = TestTask::new("task2", vec![]);
-        let task3 = TestTask::new("task3", vec!["task1", "task2"]);
-        let task4 = TestTask::new("task4", vec!["task3"]);
+        let task3 = TestTask::new("task3", vec![ns1.clone(), ns2.clone()]);
+        let task4 = TestTask::new("task4", vec![ns3]);
 
         workflow.add_task(Arc::new(task1)).unwrap();
         workflow.add_task(Arc::new(task2)).unwrap();
@@ -1578,24 +1601,27 @@ mod tests {
 
         // Level 0: task1, task2 (no dependencies)
         assert_eq!(levels[0].len(), 2);
-        assert!(levels[0].contains(&"task1".to_string()));
-        assert!(levels[0].contains(&"task2".to_string()));
+        assert!(levels[0].contains(&ns1));
+        assert!(levels[0].contains(&ns2));
 
         // Level 1: task3 (depends on task1, task2)
         assert_eq!(levels[1].len(), 1);
-        assert!(levels[1].contains(&"task3".to_string()));
+        let expected_ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+        assert!(levels[1].contains(&expected_ns3));
 
         // Level 2: task4 (depends on task3)
         assert_eq!(levels[2].len(), 1);
-        assert!(levels[2].contains(&"task4".to_string()));
+        let expected_ns4 = TaskNamespace::new("public", "embedded", "test-workflow", "task4");
+        assert!(levels[2].contains(&expected_ns4));
     }
 
     #[test]
     fn test_workflow_version_consistency() {
         init_test_logging();
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
+        let task2 = TestTask::new("task2", vec![ns1]);
 
         // Build same Workflow twice
         let workflow1 = Workflow::builder("test-workflow")
@@ -1607,8 +1633,9 @@ mod tests {
             .build()
             .unwrap();
 
+        let ns1_copy = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1_copy = TestTask::new("task1", vec![]);
-        let task2_copy = TestTask::new("task2", vec!["task1"]);
+        let task2_copy = TestTask::new("task2", vec![ns1_copy]);
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Test Workflow")
@@ -1627,8 +1654,9 @@ mod tests {
     fn test_workflow_version_changes() {
         init_test_logging();
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
+        let task2 = TestTask::new("task2", vec![ns1]);
 
         let workflow1 = Workflow::builder("test-workflow")
             .description("Original description")
@@ -1639,8 +1667,9 @@ mod tests {
             .build()
             .unwrap();
 
+        let ns1_copy = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1_copy = TestTask::new("task1", vec![]);
-        let task2_copy = TestTask::new("task2", vec!["task1"]);
+        let task2_copy = TestTask::new("task2", vec![ns1_copy]);
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Changed description") // Different description
@@ -1676,8 +1705,9 @@ mod tests {
     fn test_workflow_version_with_code_fingerprints() {
         init_test_logging();
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = TestTask::new("task1", vec![]).with_fingerprint("fingerprint1");
-        let task2 = TestTask::new("task2", vec!["task1"]).with_fingerprint("fingerprint2");
+        let task2 = TestTask::new("task2", vec![ns1]).with_fingerprint("fingerprint2");
 
         let workflow1 = Workflow::builder("test-workflow")
             .description("Test workflow")
@@ -1689,8 +1719,9 @@ mod tests {
             .unwrap();
 
         // Different fingerprint should produce different version
+        let ns1_diff = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1_diff = TestTask::new("task1", vec![]).with_fingerprint("different_fingerprint");
-        let task2_same = TestTask::new("task2", vec!["task1"]).with_fingerprint("fingerprint2");
+        let task2_same = TestTask::new("task2", vec![ns1_diff]).with_fingerprint("fingerprint2");
 
         let workflow2 = Workflow::builder("test-workflow")
             .description("Test workflow")
@@ -1712,8 +1743,9 @@ mod tests {
         let mut workflow = Workflow::new("test-workflow");
 
         // Add tasks
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
         let task1 = Arc::new(TestTask::new("task1", vec![]));
-        let task2 = Arc::new(TestTask::new("task2", vec!["task1"]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
         workflow.add_task(task1).unwrap();
         workflow.add_task(task2).unwrap();
 
@@ -1722,10 +1754,10 @@ mod tests {
         workflow.add_tag("team", "eng");
 
         // Test task removal
-        assert!(workflow.get_task("task1").is_some());
-        let removed_task = workflow.remove_task("task1");
+        assert!(workflow.get_task(&ns1).is_ok());
+        let removed_task = workflow.remove_task(&ns1);
         assert!(removed_task.is_some());
-        assert!(workflow.get_task("task1").is_none());
+        assert!(workflow.get_task(&ns1).is_err());
 
         // Test tag removal
         assert_eq!(
@@ -1737,7 +1769,8 @@ mod tests {
         assert!(workflow.metadata().tags.get("env").is_none());
 
         // Test dependency removal (task2 should still exist but with no deps)
-        workflow.remove_dependency("task2", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        workflow.remove_dependency(&ns2, &ns1);
         // We can't easily test this without exposing dependency graph methods
         // but it should not panic
     }

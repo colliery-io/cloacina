@@ -58,7 +58,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 /// The namespace components form a hierarchy from most general (tenant) to
 /// most specific (task), enabling precise task resolution while supporting
 /// fallback strategies for compatibility.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaskNamespace {
     /// Tenant identifier for multi-tenancy support.
     /// Default: "public" for single-tenant or public access
@@ -98,6 +98,35 @@ impl TaskNamespace {
             workflow_id: workflow_id.to_string(),
             task_id: task_id.to_string(),
         }
+    }
+
+    /// Create a TaskNamespace from a string representation.
+    ///
+    /// Parses a namespace string in the format "tenant::package::workflow::task"
+    /// into a TaskNamespace struct.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace_str` - String in format "tenant::package::workflow::task"
+    ///
+    /// # Returns
+    ///
+    /// * `Result<TaskNamespace, String>` - Successfully parsed namespace or error message
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina::TaskNamespace;
+    ///
+    /// let ns = TaskNamespace::from_string("public::embedded::etl::extract").unwrap();
+    /// assert_eq!(ns.tenant_id, "public");
+    /// assert_eq!(ns.task_id, "extract");
+    ///
+    /// // Invalid format
+    /// assert!(TaskNamespace::from_string("invalid_format").is_err());
+    /// ```
+    pub fn from_string(namespace_str: &str) -> Result<Self, String> {
+        parse_namespace(namespace_str)
     }
 
     /// Check if this is a public (non-tenant-specific) namespace.

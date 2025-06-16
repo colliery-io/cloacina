@@ -79,14 +79,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ///
     /// # Arguments
     /// * `pipeline_id` - The UUID of the pipeline execution
-    /// * `task_name` - The name of the task
+    /// * `task_namespace` - The namespace of the task
     ///
     /// # Returns
     /// * `Result<TaskExecutionMetadata, ValidationError>` - The metadata record or an error
     pub async fn get_by_pipeline_and_task(
         &self,
         pipeline_id: UniversalUuid,
-        task_name: &str,
+        task_namespace: &crate::task::TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self
             .dal
@@ -95,7 +95,8 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let task_name_owned = task_name.to_string();
+        // Convert TaskNamespace to string for database query
+        let task_name_owned = task_namespace.to_string();
         let metadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
@@ -265,11 +266,11 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     pub async fn get_dependency_metadata_with_contexts(
         &self,
         pipeline_id: UniversalUuid,
-        dependency_task_names: &[String],
+        dependency_task_namespaces: &[crate::task::TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
         use crate::database::schema::contexts;
 
-        if dependency_task_names.is_empty() {
+        if dependency_task_namespaces.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -280,7 +281,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let dependency_task_names_owned = dependency_task_names.to_vec();
+        // Convert TaskNamespace objects to string format for database query
+        let dependency_task_names_owned: Vec<String> = dependency_task_namespaces.iter()
+            .map(|ns| ns.to_string())
+            .collect();
         let results = conn
             .interact(move |conn| {
                 task_execution_metadata::table

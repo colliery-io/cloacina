@@ -25,7 +25,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct MockTask {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<TaskNamespace>,
 }
 
 #[async_trait]
@@ -42,7 +42,7 @@ impl Task for MockTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
     }
 }
@@ -64,9 +64,10 @@ async fn test_task_dependency_initialization() {
         dependencies: vec![],
     };
 
+    let task1_ns = TaskNamespace::new("public", "embedded", "dependency-test", "task1");
     let task2 = MockTask {
         id: "task2".to_string(),
-        dependencies: vec!["task1".to_string()],
+        dependencies: vec![task1_ns],
     };
 
     let workflow = Workflow::builder("dependency-test")
@@ -135,9 +136,10 @@ async fn test_dependency_satisfaction_check() {
         dependencies: vec![],
     };
 
+    let task1_ns = TaskNamespace::new("public", "embedded", "dependency-chain", "task1");
     let task2 = MockTask {
         id: "task2".to_string(),
-        dependencies: vec!["task1".to_string()],
+        dependencies: vec![task1_ns],
     };
 
     let workflow = Workflow::builder("dependency-chain")

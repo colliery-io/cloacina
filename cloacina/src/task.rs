@@ -591,11 +591,11 @@ pub trait Task: Send + Sync {
     /// It's used for dependency resolution and task lookup.
     fn id(&self) -> &str;
 
-    /// Returns the list of task IDs that this task depends on.
+    /// Returns the list of task namespaces that this task depends on.
     ///
     /// Dependencies define the execution order - this task will only
     /// execute after all its dependencies have completed successfully.
-    fn dependencies(&self) -> &[String];
+    fn dependencies(&self) -> &[TaskNamespace];
 
     /// Saves a checkpoint for this task.
     ///
@@ -837,7 +837,7 @@ impl TaskRegistry {
     /// Validate all task dependencies
     ///
     /// Checks that:
-    /// - All dependencies exist as registered tasks within the same workflow
+    /// - All dependencies exist as registered tasks
     /// - No circular dependencies exist
     ///
     /// # Returns
@@ -847,19 +847,11 @@ impl TaskRegistry {
     pub fn validate_dependencies(&self) -> Result<(), ValidationError> {
         // Check for missing dependencies
         for (namespace, task) in &self.tasks {
-            for dependency in task.dependencies() {
-                // Create dependency namespace (same tenant/package/workflow, different task)
-                let dependency_namespace = TaskNamespace::new(
-                    &namespace.tenant_id,
-                    &namespace.package_name,
-                    &namespace.workflow_id,
-                    dependency,
-                );
-
-                if !self.tasks.contains_key(&dependency_namespace) {
+            for dependency_namespace in task.dependencies() {
+                if !self.tasks.contains_key(dependency_namespace) {
                     return Err(ValidationError::MissingDependencyOld {
                         task_id: namespace.to_string(),
-                        dependency: dependency.clone(),
+                        dependency: dependency_namespace.to_string(),
                     });
                 }
             }
@@ -891,22 +883,14 @@ impl TaskRegistry {
         rec_stack.insert(namespace.clone(), true);
 
         if let Some(task) = self.tasks.get(namespace) {
-            for dependency in task.dependencies() {
-                // Create dependency namespace (same tenant/package/workflow, different task)
-                let dependency_namespace = TaskNamespace::new(
-                    &namespace.tenant_id,
-                    &namespace.package_name,
-                    &namespace.workflow_id,
-                    dependency,
-                );
-
-                if !visited.get(&dependency_namespace).unwrap_or(&false) {
-                    if let Err(cycle) = self.check_cycles(&dependency_namespace, visited, rec_stack)
+            for dependency_namespace in task.dependencies() {
+                if !visited.get(dependency_namespace).unwrap_or(&false) {
+                    if let Err(cycle) = self.check_cycles(dependency_namespace, visited, rec_stack)
                     {
                         return Err(format!("{} -> {}", namespace.task_id, cycle));
                     }
-                } else if *rec_stack.get(&dependency_namespace).unwrap_or(&false) {
-                    return Err(format!("{} -> {}", namespace.task_id, dependency));
+                } else if *rec_stack.get(dependency_namespace).unwrap_or(&false) {
+                    return Err(format!("{} -> {}", namespace.task_id, dependency_namespace.task_id));
                 }
             }
         }
@@ -939,16 +923,8 @@ impl TaskRegistry {
 
         // Build adjacency list and calculate in-degrees
         for (namespace, task) in &self.tasks {
-            for dependency in task.dependencies() {
-                // Create dependency namespace (same tenant/package/workflow, different task)
-                let dependency_namespace = TaskNamespace::new(
-                    &namespace.tenant_id,
-                    &namespace.package_name,
-                    &namespace.workflow_id,
-                    dependency,
-                );
-
-                if let Some(adj_list_entry) = adj_list.get_mut(&dependency_namespace) {
+            for dependency_namespace in task.dependencies() {
+                if let Some(adj_list_entry) = adj_list.get_mut(dependency_namespace) {
                     adj_list_entry.push(namespace.clone());
                     *in_degree.get_mut(namespace).unwrap() += 1;
                 }
@@ -1055,15 +1031,15 @@ mod tests {
     // Test task implementation
     struct TestTask {
         id: String,
-        dependencies: Vec<String>,
+        dependencies: Vec<TaskNamespace>,
         fingerprint: Option<String>,
     }
 
     impl TestTask {
-        fn new(id: &str, dependencies: Vec<&str>) -> Self {
+        fn new(id: &str, dependencies: Vec<TaskNamespace>) -> Self {
             Self {
                 id: id.to_string(),
-                dependencies: dependencies.into_iter().map(|s| s.to_string()).collect(),
+                dependencies,
                 fingerprint: None,
             }
         }
@@ -1088,7 +1064,7 @@ mod tests {
             &self.id
         }
 
-        fn dependencies(&self) -> &[String] {
+        fn dependencies(&self) -> &[TaskNamespace] {
             &self.dependencies
         }
 
@@ -1133,11 +1109,11 @@ mod tests {
 
         let mut registry = TaskRegistry::new();
 
-        let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
-
         let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
         let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
+
+        let task1 = TestTask::new("task1", vec![]);
+        let task2 = TestTask::new("task2", vec![ns1.clone()]);
 
         assert!(registry.register(ns1.clone(), task1).is_ok());
         assert!(registry.register(ns2.clone(), task2).is_ok());
@@ -1153,10 +1129,10 @@ mod tests {
 
         let mut registry = TaskRegistry::new();
 
+        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
+
         let task1 = TestTask::new("task1", vec![]);
         let task1_duplicate = TestTask::new("task1", vec![]);
-
-        let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
 
         assert!(registry.register(ns1.clone(), task1).is_ok());
         assert!(matches!(
@@ -1171,13 +1147,14 @@ mod tests {
 
         let mut registry = TaskRegistry::new();
 
-        let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
-        let task3 = TestTask::new("task3", vec!["nonexistent"]);
-
         let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
         let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
         let ns3 = TaskNamespace::new("public", "embedded", "test_workflow", "task3");
+        let nonexistent_ns = TaskNamespace::new("public", "embedded", "test_workflow", "nonexistent");
+
+        let task1 = TestTask::new("task1", vec![]);
+        let task2 = TestTask::new("task2", vec![ns1.clone()]);
+        let task3 = TestTask::new("task3", vec![nonexistent_ns]);
 
         registry.register(ns1, task1).unwrap();
         registry.register(ns2, task2).unwrap();
@@ -1196,11 +1173,11 @@ mod tests {
 
         let mut registry = TaskRegistry::new();
 
-        let task1 = TestTask::new("task1", vec!["task2"]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
-
         let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
         let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
+
+        let task1 = TestTask::new("task1", vec![ns2.clone()]);
+        let task2 = TestTask::new("task2", vec![ns1.clone()]);
 
         registry.register(ns1, task1).unwrap();
         registry.register(ns2, task2).unwrap();
@@ -1217,13 +1194,13 @@ mod tests {
 
         let mut registry = TaskRegistry::new();
 
-        let task1 = TestTask::new("task1", vec![]);
-        let task2 = TestTask::new("task2", vec!["task1"]);
-        let task3 = TestTask::new("task3", vec!["task1", "task2"]);
-
         let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
         let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
         let ns3 = TaskNamespace::new("public", "embedded", "test_workflow", "task3");
+
+        let task1 = TestTask::new("task1", vec![]);
+        let task2 = TestTask::new("task2", vec![ns1.clone()]);
+        let task3 = TestTask::new("task3", vec![ns1.clone(), ns2.clone()]);
 
         registry.register(ns1.clone(), task1).unwrap();
         registry.register(ns2.clone(), task2).unwrap();

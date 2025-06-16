@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow};
+use cloacina::{task, workflow, TaskNamespace};
 
 #[task(id = "basic-workflow-task", dependencies = [])]
 async fn simple_task(
@@ -31,5 +31,6 @@ fn test_simple_workflow_creation() {
     };
 
     assert_eq!(simple_workflow.name(), "simple-pipeline");
-    assert!(simple_workflow.get_task("basic-workflow-task").is_some());
+    let task_ns = TaskNamespace::new("public", "embedded", "simple-pipeline", "basic-workflow-task");
+    assert!(simple_workflow.get_task(&task_ns).is_ok());
 }

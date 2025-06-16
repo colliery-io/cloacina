@@ -218,17 +218,11 @@ impl ThreadTaskExecutor {
                 .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
             let task = get_task(&namespace)
                 .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-            let raw_dependencies = task.dependencies().to_vec();
-            
-            // Convert dependency task IDs to full namespaces 
-            let dependencies: Vec<String> = raw_dependencies.iter()
-                .map(|dep_id| format!("{}::{}::{}::{}", 
-                    namespace.tenant_id, namespace.package_name, namespace.workflow_id, dep_id))
-                .collect();
+            let dependencies = task.dependencies();
 
             // Build context using DAL methods
             let context = self
-                .build_task_context(&claimed_task, &dependencies)
+                .build_task_context(&claimed_task, dependencies)
                 .await?;
 
             info!(
@@ -253,7 +247,7 @@ impl ThreadTaskExecutor {
     async fn build_task_context(
         &self,
         claimed_task: &ClaimedTask,
-        dependencies: &[String],
+        dependencies: &[crate::task::TaskNamespace],
     ) -> Result<Context<serde_json::Value>, ExecutorError> {
         let execution_scope = ExecutionScope {
             pipeline_execution_id: claimed_task.pipeline_execution_id,
@@ -304,6 +298,7 @@ impl ThreadTaskExecutor {
         // Batch load dependency contexts in a single query (eager loading strategy)
         // This provides better performance for tasks that access many dependency values
         if !dependencies.is_empty() {
+            debug!("Loading dependency contexts for {} dependencies: {:?}", dependencies.len(), dependencies);
             if let Ok(dep_metadata_with_contexts) = self
                 .dal
                 .task_execution_metadata()
@@ -313,10 +308,14 @@ impl ThreadTaskExecutor {
                 )
                 .await
             {
+                debug!("Found {} dependency metadata records", dep_metadata_with_contexts.len());
                 for (_task_metadata, context_json) in dep_metadata_with_contexts {
                     if let Some(json_str) = context_json {
                         // Parse the JSON context data
                         if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
+                            debug!("Merging dependency context with {} keys: {:?}", 
+                                   dep_context.data().len(), 
+                                   dep_context.data().keys().collect::<Vec<_>>());
                             // Merge context data (smart merging strategy)
                             for (key, value) in dep_context.data() {
                                 if let Some(existing_value) = context.get(key) {
@@ -329,12 +328,20 @@ impl ThreadTaskExecutor {
                                     let _ = context.insert(key, value.clone());
                                 }
                             }
+                        } else {
+                            debug!("Failed to parse dependency context JSON");
                         }
                     }
                 }
+            } else {
+                debug!("Failed to load dependency metadata for dependencies: {:?}", dependencies);
             }
         }
 
+        debug!("Final context for task {} has {} keys: {:?}", 
+               claimed_task.task_name, 
+               context.data().len(),
+               context.data().keys().collect::<Vec<_>>());
         Ok(context)
     }
 
