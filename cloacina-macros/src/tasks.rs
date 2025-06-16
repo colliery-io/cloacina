@@ -321,6 +321,10 @@ pub fn parse_trigger_rules_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 );
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskSuccess trigger rule with task_name: '{}'",
+                                task_name
+                            );
                             let condition =
                                 serde_json::json!({"type": "TaskSuccess", "task_name": task_name});
                             Ok(serde_json::json!({"type": "All", "conditions": [condition]}))
@@ -330,6 +334,10 @@ pub fn parse_trigger_rules_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 return Err("task_failed requires exactly one argument".to_string());
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskFailed trigger rule with task_name: '{}'",
+                                task_name
+                            );
                             let condition =
                                 serde_json::json!({"type": "TaskFailed", "task_name": task_name});
                             Ok(serde_json::json!({"type": "All", "conditions": [condition]}))
@@ -341,6 +349,10 @@ pub fn parse_trigger_rules_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 );
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskSkipped trigger rule with task_name: '{}'",
+                                task_name
+                            );
                             let condition =
                                 serde_json::json!({"type": "TaskSkipped", "task_name": task_name});
                             Ok(serde_json::json!({"type": "All", "conditions": [condition]}))
@@ -398,6 +410,10 @@ fn parse_trigger_condition_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 );
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskSuccess condition with task_name: '{}'",
+                                task_name
+                            );
                             Ok(serde_json::json!({"type": "TaskSuccess", "task_name": task_name}))
                         }
                         "task_failed" => {
@@ -405,6 +421,10 @@ fn parse_trigger_condition_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 return Err("task_failed requires exactly one argument".to_string());
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskFailed condition with task_name: '{}'",
+                                task_name
+                            );
                             Ok(serde_json::json!({"type": "TaskFailed", "task_name": task_name}))
                         }
                         "task_skipped" => {
@@ -414,6 +434,10 @@ fn parse_trigger_condition_expr(expr: &Expr) -> Result<serde_json::Value, String
                                 );
                             }
                             let task_name = extract_string_literal(&call.args[0])?;
+                            println!(
+                                "[DEBUG] Task macro generating TaskSkipped condition with task_name: '{}'",
+                                task_name
+                            );
                             Ok(serde_json::json!({"type": "TaskSkipped", "task_name": task_name}))
                         }
                         "context_value" => {

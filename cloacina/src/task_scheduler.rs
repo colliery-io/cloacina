@@ -921,6 +921,10 @@ impl TaskScheduler {
     ) -> Result<bool, ValidationError> {
         match condition {
             TriggerCondition::TaskSuccess { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()
@@ -934,6 +938,10 @@ impl TaskScheduler {
                 Ok(result)
             }
             TriggerCondition::TaskFailed { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()
@@ -947,6 +955,10 @@ impl TaskScheduler {
                 Ok(result)
             }
             TriggerCondition::TaskSkipped { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()

@@ -8,6 +8,66 @@ use syn::{
 
 use crate::registry::get_registry;
 
+/// Rewrite task names in trigger rules JSON to use full namespaces
+///
+/// This function takes trigger rules JSON and converts any simple task names
+/// to full namespaced task names within the workflow context.
+fn rewrite_trigger_rules_with_namespace(
+    tenant: &str,
+    package: &str,
+    workflow_name: &str,
+) -> TokenStream2 {
+    quote! {
+        {
+            let trigger_rules = task.trigger_rules();
+            let mut rules_json: serde_json::Value = trigger_rules;
+            
+            // Helper function to rewrite task names in trigger conditions
+            fn rewrite_task_names_in_value(
+                value: &mut serde_json::Value,
+                tenant: &str,
+                package: &str,
+                workflow_name: &str,
+            ) {
+                match value {
+                    serde_json::Value::Object(map) => {
+                        // Check if this is a task status condition
+                        if let (Some(condition_type), Some(task_name)) = (
+                            map.get("type").and_then(|v| v.as_str()),
+                            map.get("task_name").and_then(|v| v.as_str())
+                        ) {
+                            if matches!(condition_type, "TaskSuccess" | "TaskFailed" | "TaskSkipped") {
+                                // Check if task_name is a simple name (no :: separator)
+                                if !task_name.contains("::") {
+                                    let full_name = format!("{}::{}::{}::{}", tenant, package, workflow_name, task_name);
+                                    map.insert("task_name".to_string(), serde_json::Value::String(full_name));
+                                }
+                            }
+                        }
+                        
+                        // Recursively process all values in the object
+                        for (_, v) in map.iter_mut() {
+                            rewrite_task_names_in_value(v, tenant, package, workflow_name);
+                        }
+                    }
+                    serde_json::Value::Array(arr) => {
+                        // Recursively process all values in the array
+                        for item in arr.iter_mut() {
+                            rewrite_task_names_in_value(item, tenant, package, workflow_name);
+                        }
+                    }
+                    _ => {
+                        // Primitive values don't need processing
+                    }
+                }
+            }
+            
+            rewrite_task_names_in_value(&mut rules_json, #tenant, #package, #workflow_name);
+            rules_json
+        }
+    }
+}
+
 /// Workflow macro attributes
 ///
 /// # Fields
@@ -214,6 +274,8 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
     // Generate task registrations with proper namespace and dependencies
     let task_registrations: Vec<_> = task_info.iter().map(|(constructor, struct_name)| {
         let task_id = constructor.to_string().replace("_task", "");
+        let rewrite_trigger_rules = rewrite_trigger_rules_with_namespace(workflow_tenant, workflow_package, workflow_name);
+        
         quote! {
             {
                 let namespace = cloacina::TaskNamespace::new(
@@ -227,6 +289,9 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
                     namespace,
                     || {
                         let task = #constructor();
+                        
+                        // Get trigger rules before moving the task
+                        let rewritten_trigger_rules = #rewrite_trigger_rules;
                         
                         // Get the task's static dependencies
                         let dep_ids = #struct_name::dependency_task_ids();
@@ -243,7 +308,47 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
                         
                         // Create task with resolved dependencies
                         let task_with_deps = task.with_dependencies(dep_namespaces);
-                        std::sync::Arc::new(task_with_deps)
+                        
+                        // Create a wrapper that rewrites trigger rules with full namespaces
+                        struct TaskWithNamespacedTriggers<T> {
+                            inner: T,
+                            rewritten_trigger_rules: serde_json::Value,
+                        }
+                        
+                        #[async_trait::async_trait]
+                        impl<T: cloacina::Task> cloacina::Task for TaskWithNamespacedTriggers<T> {
+                            async fn execute(&self, context: cloacina::Context<serde_json::Value>) 
+                                -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
+                                self.inner.execute(context).await
+                            }
+                            
+                            fn id(&self) -> &str {
+                                self.inner.id()
+                            }
+                            
+                            fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+                                self.inner.dependencies()
+                            }
+                            
+                            fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
+                                self.inner.retry_policy()
+                            }
+                            
+                            fn trigger_rules(&self) -> serde_json::Value {
+                                self.rewritten_trigger_rules.clone()
+                            }
+                            
+                            fn code_fingerprint(&self) -> Option<String> {
+                                self.inner.code_fingerprint()
+                            }
+                        }
+                        
+                        let wrapper = TaskWithNamespacedTriggers {
+                            inner: task_with_deps,
+                            rewritten_trigger_rules,
+                        };
+                        
+                        std::sync::Arc::new(wrapper)
                     }
                 );
             }
@@ -252,9 +357,14 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
 
     // Generate task addition code
     let task_additions: Vec<_> = task_info.iter().map(|(constructor, struct_name)| {
+        let rewrite_trigger_rules = rewrite_trigger_rules_with_namespace(workflow_tenant, workflow_package, workflow_name);
+        
         quote! {
             {
                 let task = #constructor();
+                
+                // Get trigger rules before moving the task
+                let rewritten_trigger_rules = #rewrite_trigger_rules;
                 
                 // Get the task's static dependencies
                 let dep_ids = #struct_name::dependency_task_ids();
@@ -272,7 +382,46 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
                 // Create task with resolved dependencies
                 let task_with_deps = task.with_dependencies(dep_namespaces);
                 
-                workflow.add_task(std::sync::Arc::new(task_with_deps))
+                // Create a wrapper that rewrites trigger rules with full namespaces
+                struct TaskWithNamespacedTriggers<T> {
+                    inner: T,
+                    rewritten_trigger_rules: serde_json::Value,
+                }
+                
+                #[async_trait::async_trait]
+                impl<T: cloacina::Task> cloacina::Task for TaskWithNamespacedTriggers<T> {
+                    async fn execute(&self, context: cloacina::Context<serde_json::Value>) 
+                        -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
+                        self.inner.execute(context).await
+                    }
+                    
+                    fn id(&self) -> &str {
+                        self.inner.id()
+                    }
+                    
+                    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+                        self.inner.dependencies()
+                    }
+                    
+                    fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
+                        self.inner.retry_policy()
+                    }
+                    
+                    fn trigger_rules(&self) -> serde_json::Value {
+                        self.rewritten_trigger_rules.clone()
+                    }
+                    
+                    fn code_fingerprint(&self) -> Option<String> {
+                        self.inner.code_fingerprint()
+                    }
+                }
+                
+                let wrapper = TaskWithNamespacedTriggers {
+                    inner: task_with_deps,
+                    rewritten_trigger_rules,
+                };
+                
+                workflow.add_task(std::sync::Arc::new(wrapper))
                     .expect("Failed to add task to workflow");
             }
         }
