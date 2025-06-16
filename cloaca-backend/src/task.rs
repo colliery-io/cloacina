@@ -25,7 +25,7 @@ use std::sync::Arc;
 /// as tasks within the Cloacina execution engine.
 pub struct PythonTaskWrapper {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<cloacina::TaskNamespace>,
     retry_policy: cloacina::retry::RetryPolicy,
     python_function: PyObject, // Stored Python function
 }
@@ -91,7 +91,7 @@ impl cloacina::Task for PythonTaskWrapper {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
         &self.dependencies
     }
 
@@ -193,8 +193,8 @@ impl TaskDecorator {
             func.getattr(py, "__name__")?.extract::<String>(py)?
         };
 
-        // Convert dependencies from mixed PyObject list to string list
-        let deps = match self.convert_dependencies_to_strings(py) {
+        // Convert dependencies from mixed PyObject list to TaskNamespace list
+        let deps = match self.convert_dependencies_to_namespaces(py) {
             Ok(deps) => deps,
             Err(e) => {
                 eprintln!("Error converting dependencies: {}", e);
@@ -226,21 +226,23 @@ impl TaskDecorator {
         // Return the original function (decorator behavior)
         Ok(func)
     }
+}
 
-    /// Convert mixed dependencies (strings and function objects) to string task IDs
-    fn convert_dependencies_to_strings(&self, py: Python) -> PyResult<Vec<String>> {
-        let mut string_deps = Vec::new();
+impl TaskDecorator {
+    /// Convert mixed dependencies (strings and function objects) to TaskNamespace objects
+    fn convert_dependencies_to_namespaces(&self, py: Python) -> PyResult<Vec<cloacina::TaskNamespace>> {
+        let mut namespace_deps = Vec::new();
 
         for (i, dep) in self.dependencies.iter().enumerate() {
-            if let Ok(string_dep) = dep.extract::<String>(py) {
+            let task_name = if let Ok(string_dep) = dep.extract::<String>(py) {
                 // It's a string - use directly
-                string_deps.push(string_dep);
+                string_dep
             } else {
                 // Try to get function name
                 match dep.bind(py).hasattr("__name__") {
                     Ok(true) => match dep.getattr(py, "__name__") {
                         Ok(name_obj) => match name_obj.extract::<String>(py) {
-                            Ok(func_name) => string_deps.push(func_name),
+                            Ok(func_name) => func_name,
                             Err(e) => {
                                 return Err(PyValueError::new_err(format!(
                                     "Dependency {} has __name__ but it's not a string: {}",
@@ -268,10 +270,14 @@ impl TaskDecorator {
                         )));
                     }
                 }
-            }
+            };
+            
+            // TODO: This hardcoded namespace should be configurable
+            // Currently using default namespace, but this should come from workflow context
+            namespace_deps.push(cloacina::TaskNamespace::new("public", "embedded", "default", &task_name));
         }
 
-        Ok(string_deps)
+        Ok(namespace_deps)
     }
 }
 

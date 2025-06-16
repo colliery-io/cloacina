@@ -21,6 +21,7 @@ mod admin;
 mod context;
 mod runner;
 mod task;
+mod value_objects;
 mod workflow;
 
 #[cfg(feature = "postgres")]
@@ -28,6 +29,7 @@ use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 use context::{PyContext, PyDefaultRunnerConfig};
 use runner::{PyDefaultRunner, PyPipelineResult};
 use task::task as task_decorator;
+use value_objects::{PyTaskNamespace, PyWorkflowContext, PyRetryPolicy, PyRetryPolicyBuilder, PyBackoffStrategy, PyRetryCondition};
 use workflow::{register_workflow_constructor, PyWorkflow, PyWorkflowBuilder};
 
 /// A simple hello world class for testing
@@ -108,6 +110,14 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDefaultRunner>()?;
     m.add_class::<PyPipelineResult>()?;
 
+    // Value objects
+    m.add_class::<PyTaskNamespace>()?;
+    m.add_class::<PyWorkflowContext>()?;
+    m.add_class::<PyRetryPolicy>()?;
+    m.add_class::<PyRetryPolicyBuilder>()?;
+    m.add_class::<PyBackoffStrategy>()?;
+    m.add_class::<PyRetryCondition>()?;
+
     // Admin classes (PostgreSQL only)
     #[cfg(feature = "postgres")]
     {
@@ -149,6 +159,14 @@ fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Runner classes
     m.add_class::<PyDefaultRunner>()?;
     m.add_class::<PyPipelineResult>()?;
+
+    // Value objects
+    m.add_class::<PyTaskNamespace>()?;
+    m.add_class::<PyWorkflowContext>()?;
+    m.add_class::<PyRetryPolicy>()?;
+    m.add_class::<PyRetryPolicyBuilder>()?;
+    m.add_class::<PyBackoffStrategy>()?;
+    m.add_class::<PyRetryCondition>()?;
 
     // Module metadata (version automatically added by maturin from Cargo.toml)
     m.add("__backend__", "sqlite")?;

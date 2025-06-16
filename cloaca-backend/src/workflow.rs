@@ -251,6 +251,7 @@ impl PyWorkflow {
     pub fn topological_sort(&self) -> PyResult<Vec<String>> {
         self.inner
             .topological_sort()
+            .map(|namespaces| namespaces.into_iter().map(|ns| ns.to_string()).collect())
             .map_err(|e| PyValueError::new_err(format!("Failed to sort tasks: {}", e)))
     }
 
@@ -258,23 +259,23 @@ impl PyWorkflow {
     pub fn get_execution_levels(&self) -> PyResult<Vec<Vec<String>>> {
         self.inner
             .get_execution_levels()
+            .map(|levels| levels.into_iter().map(|level| 
+                level.into_iter().map(|ns| ns.to_string()).collect()
+            ).collect())
             .map_err(|e| PyValueError::new_err(format!("Failed to get execution levels: {}", e)))
     }
 
     /// Get root tasks (no dependencies)
     pub fn get_roots(&self) -> Vec<String> {
-        self.inner.get_roots()
+        self.inner.get_roots().into_iter().map(|ns| ns.to_string()).collect()
     }
 
     /// Get leaf tasks (no dependents)
     pub fn get_leaves(&self) -> Vec<String> {
-        self.inner.get_leaves()
+        self.inner.get_leaves().into_iter().map(|ns| ns.to_string()).collect()
     }
 
-    /// Check if two tasks can run in parallel
-    pub fn can_run_parallel(&self, task1: &str, task2: &str) -> bool {
-        self.inner.can_run_parallel(task1, task2)
-    }
+    // Note: Removed can_run_parallel - the runner handles parallelism automatically
 
     /// Validate the workflow
     pub fn validate(&self) -> PyResult<()> {
