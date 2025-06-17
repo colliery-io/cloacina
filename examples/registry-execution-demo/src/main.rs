@@ -32,21 +32,28 @@ cargo run
 
 use std::path::PathBuf;
 use tempfile::TempDir;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use chrono::{Duration as ChronoDuration, Utc};
 use cloacina::database::Database;
+use cloacina::registry::error::RegistryError;
 use cloacina::registry::storage::FilesystemRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{init_logging, Context, PipelineExecutor};
+use cloacina::{Context, PipelineExecutor};
+use std::time::Duration;
 
 // Import cloacina-ctl for package building
 use cloacina_ctl::commands::package_workflow;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    init_logging(None);
+    // Initialize logging with info level
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_target(true).with_line_number(true))
+        .with(EnvFilter::from_default_env().add_directive("info".parse().unwrap()))
+        .init();
 
     println!("🚀 Cloacina Registry Execution Demo\n");
 
@@ -57,13 +64,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 2: Set up shared database and storage
     println!("📋 Setting up shared storage and database...");
-    let temp_storage = TempDir::new()?;
-    let storage = FilesystemRegistryStorage::new(temp_storage.path().to_path_buf())?;
+    let storage_path = "/tmp/cloacina_demo_storage";
+    std::fs::create_dir_all(storage_path)?;
+    let storage = FilesystemRegistryStorage::new(storage_path)?;
+    println!("📋 Storage directory: {}", storage_path);
 
-    // Use a temporary file-based database that both registry and runner can share
-    let temp_db = tempfile::NamedTempFile::new()?;
-    let db_path = temp_db.path().to_string_lossy();
+    // Use a persistent file-based database that both registry and runner can share
+    let db_path = "/tmp/cloacina_debug.db";
     let db_url = format!("sqlite://{}?mode=rwc", db_path);
+    println!("📋 Database will be saved to: {}", db_path);
 
     let database = Database::new(&db_url, "", 5);
     let conn = database.pool().get().await?;
@@ -73,15 +82,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 3: Register the workflow package
     println!("📋 Registering workflow package...");
     let mut registry = WorkflowRegistryImpl::new(storage, database)?;
-    let package_id = registry.register_workflow(package_data).await?;
-    println!("✅ Package registered with ID: {}\n", package_id);
+    match registry.register_workflow(package_data).await {
+        Ok(package_id) => {
+            println!("✅ Package registered with ID: {}", package_id);
+        }
+        Err(RegistryError::PackageExists {
+            package_name,
+            version,
+        }) => {
+            println!(
+                "⚠️  Package already exists: {} v{} - continuing with existing package",
+                package_name, version
+            );
+            // For demo purposes, we'll continue with the existing package
+            // In production, you might want to check versions or handle differently
+        }
+        Err(e) => return Err(e.into()),
+    };
+    println!();
 
     // Step 4: List available workflows
     println!("🔍 Available workflows:");
     let workflows = registry.list_workflows().await?;
     for workflow in &workflows {
         println!(
-            "  - {} (v{}) - {} tasks",
+            "  - {} from package {} (v{}) - {} tasks",
+            "data_processing", // TODO: Extract actual workflow name from metadata
             workflow.package_name,
             workflow.version,
             workflow.tasks.len()
@@ -111,13 +137,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Configure DefaultRunner with registry reconciler enabled and storage path
     let mut config = DefaultRunnerConfig::default();
     config.enable_registry_reconciler = true;
-    config.registry_storage_path = Some(temp_storage.path().to_path_buf());
+    config.registry_storage_path = Some(PathBuf::from(storage_path));
+    // Enable cron scheduling for automatic workflow execution
+    config.enable_cron_scheduling = true;
+    config.cron_enable_recovery = true;
+    config.cron_poll_interval = Duration::from_secs(5); // Check every 5 seconds for demo
+    config.cron_recovery_interval = Duration::from_secs(30); // Recovery check every 30 seconds
 
     let runner = DefaultRunner::with_config(&db_url, config).await?;
 
     // Step 7: Wait for registry reconciler to load the workflow
     println!("⏳ Waiting for registry reconciler to load workflow...");
-    let workflow_name = "analytics_workflow"; // Use the workflow name, not package name
+    let workflow_name = "data_processing"; // Use the workflow name from simple-packaged-demo
 
     // Give the reconciler some time to complete startup reconciliation and register tasks
     println!("   Waiting for reconciler startup and task registration (10 seconds)...");
@@ -159,17 +190,72 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Step 9: Set up cron scheduling for automated execution
+    println!("\n⏰ Setting up cron scheduling for automated workflow execution...");
+
+    // Register a cron schedule to run the workflow every 30 seconds for demo purposes
+    let schedule_id = runner
+        .register_cron_workflow(
+            workflow_name,
+            "*/30 * * * * *", // Every 30 seconds for demo visibility
+            "UTC",
+        )
+        .await?;
+
+    println!(
+        "✅ Cron schedule registered (ID: {}) - workflow will run every 30 seconds",
+        schedule_id
+    );
+
+    // Step 10: Let the scheduled executions run for a demo period
+    println!("🕐 Running scheduled executions for 2 minutes (you can monitor the logs)...");
+    println!("   Press Ctrl+C to shutdown gracefully before the 2 minutes are up");
+
+    let runtime_duration = Duration::from_secs(120); // 2 minutes demo
+
+    // Sleep for demo duration or until interrupted
+    tokio::select! {
+        _ = tokio::time::sleep(runtime_duration) => {
+            println!("⏰ Demo time completed");
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("🛑 Received shutdown signal");
+        }
+    }
+
+    // Step 11: Show execution statistics before shutdown
+    println!("\n📊 Gathering execution statistics...");
+    let stats = runner
+        .get_cron_execution_stats(Utc::now() - ChronoDuration::try_hours(1).unwrap())
+        .await?;
+
+    println!("📈 Execution Statistics (last hour):");
+    println!("   Total executions: {}", stats.total_executions);
+    println!("   Successful executions: {}", stats.successful_executions);
+    println!(
+        "   Failed executions: {}",
+        stats.total_executions - stats.successful_executions
+    );
+    if stats.total_executions > 0 {
+        println!(
+            "   Success rate: {:.1}%",
+            (stats.successful_executions as f64 / stats.total_executions as f64) * 100.0
+        );
+    }
+
     // Cleanup
+    println!("\n🔧 Shutting down gracefully...");
     runner.shutdown().await?;
 
-    println!("\n🎉 Demo complete!");
+    println!("🎉 Registry Execution Demo with Cron Scheduling complete!");
+    println!("   Database saved at: {}", db_path);
     Ok(())
 }
 
 async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Build the package using the same approach as the tests
     let workspace_root = find_workspace_root()?;
-    let project_path = workspace_root.join("examples/packaged-workflow-example");
+    let project_path = workspace_root.join("examples/simple-packaged-demo");
 
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("package.cloacina");
@@ -188,7 +274,7 @@ async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
             cargo_flags: vec![
                 "--no-default-features".to_string(),
                 "--features".to_string(),
-                "sqlite".to_string(),
+                "postgres".to_string(),
             ],
         },
     };
