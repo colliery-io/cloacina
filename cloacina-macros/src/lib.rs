@@ -1562,7 +1562,10 @@ fn generate_packaged_workflow_impl(
                         // Parse the task attributes to get the task ID and dependencies
                         if let Ok(task_attrs) = attr.parse_args::<TaskAttributes>() {
                             // Construct full namespace as the key for detected_tasks
-                            let full_namespace = format!("public::{}::{}::{}", package_name, mod_name, task_attrs.id);
+                            let full_namespace = format!(
+                                "public::{}::{}::{}",
+                                package_name, mod_name, task_attrs.id
+                            );
                             detected_tasks.insert(full_namespace.clone(), fn_name.clone());
                             task_dependencies
                                 .insert(full_namespace.clone(), task_attrs.dependencies.clone());
@@ -1721,7 +1724,8 @@ fn generate_packaged_workflow_impl(
 
             // Generate fully qualified namespace: tenant::package::workflow::task
             // Use the workflow name from the macro attributes
-            let namespaced_id = format!("{{tenant}}::{}::{}::{}", package_name, attrs.name, task_id);
+            let namespaced_id =
+                format!("{{tenant}}::{}::{}::{}", package_name, attrs.name, task_id);
 
             // Generate dependencies as JSON array string
             let dependencies_json = if dependencies.is_empty() {

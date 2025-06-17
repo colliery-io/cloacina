@@ -167,7 +167,9 @@ impl ThreadTaskExecutor {
                     let executor = self.clone();
 
                     // Extract task name for logging
-                    let task_name = if let Ok(ns) = crate::task::TaskNamespace::from_string(&claimed_task.task_namespace) {
+                    let task_name = if let Ok(ns) =
+                        crate::task::TaskNamespace::from_string(&claimed_task.task_namespace)
+                    {
                         ns.task_id.clone()
                     } else {
                         claimed_task.task_namespace.clone()
@@ -221,8 +223,9 @@ impl ThreadTaskExecutor {
             };
 
             // Get task from global registry using full namespace
-            let task_namespace = crate::task::TaskNamespace::from_string(&claimed_task.task_namespace)
-                .map_err(|e| ExecutorError::InvalidScope(e))?;
+            let task_namespace =
+                crate::task::TaskNamespace::from_string(&claimed_task.task_namespace)
+                    .map_err(|e| ExecutorError::InvalidScope(e))?;
             let task = crate::task::get_task(&task_namespace)
                 .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_namespace.clone()))?;
             let task_name = &task_namespace.task_id; // Extract task ID for logging

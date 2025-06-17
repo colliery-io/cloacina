@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 7: Wait for registry reconciler to load the workflow
     println!("⏳ Waiting for registry reconciler to load workflow...");
-    let workflow_name = "analytics_workflow";  // Use the workflow name, not package name
+    let workflow_name = "analytics_workflow"; // Use the workflow name, not package name
 
     // Give the reconciler some time to complete startup reconciliation and register tasks
     println!("   Waiting for reconciler startup and task registration (10 seconds)...");

@@ -436,7 +436,8 @@ impl TaskScheduler {
             };
 
             // Construct full namespace - first try to find the actual namespace in global registry
-            let task_namespace = self.find_task_namespace(&task_id, workflow_name)
+            let task_namespace = self
+                .find_task_namespace(&task_id, workflow_name)
                 .unwrap_or_else(|| {
                     // Fallback to embedded namespace format for non-packaged workflows
                     format!("public::embedded::{}::{}", workflow_name, task_id)
