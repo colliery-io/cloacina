@@ -16,39 +16,35 @@ class TestMultiTaskWorkflowDependenciesBuilder:
         """Test complex workflow construction with builder pattern."""
         import cloaca
 
-        # Define multiple tasks
-        @cloaca.task(id="builder_init_task")
-        def builder_init_task(context):
-            context.set("pipeline_started", True)
-            context.set("stage", "initialization")
-            return context
-
-        @cloaca.task(id="builder_process_task", dependencies=["builder_init_task"])
-        def builder_process_task(context):
-            context.set("data_processed", True)
-            context.set("stage", "processing")
-            return context
-
-        @cloaca.task(id="builder_validate_task", dependencies=["builder_process_task"])
-        def builder_validate_task(context):
-            context.set("data_validated", True)
-            context.set("stage", "validation")
-            return context
-
-        @cloaca.task(id="builder_finalize_task", dependencies=["builder_validate_task"])
-        def builder_finalize_task(context):
-            context.set("pipeline_completed", True)
-            context.set("stage", "finalized")
-            return context
-
-        # Build workflow with context manager
+        # Build workflow with context manager and define tasks within
         with cloaca.WorkflowBuilder("complex_builder_workflow") as builder:
             builder.description("Multi-stage pipeline with dependencies")
             builder.tag("complexity", "high")
-            builder.add_task("builder_init_task")
-            builder.add_task("builder_process_task")
-            builder.add_task("builder_validate_task")
-            builder.add_task("builder_finalize_task")
+            
+            # Define multiple tasks within workflow context
+            @cloaca.task(id="builder_init_task")
+            def builder_init_task(context):
+                context.set("pipeline_started", True)
+                context.set("stage", "initialization")
+                return context
+
+            @cloaca.task(id="builder_process_task", dependencies=["builder_init_task"])
+            def builder_process_task(context):
+                context.set("data_processed", True)
+                context.set("stage", "processing")
+                return context
+
+            @cloaca.task(id="builder_validate_task", dependencies=["builder_process_task"])
+            def builder_validate_task(context):
+                context.set("data_validated", True)
+                context.set("stage", "validation")
+                return context
+
+            @cloaca.task(id="builder_finalize_task", dependencies=["builder_validate_task"])
+            def builder_finalize_task(context):
+                context.set("pipeline_completed", True)
+                context.set("stage", "finalized")
+                return context
 
         # Execute the workflow
         context = cloaca.Context({"pipeline_name": "complex_builder_test"})

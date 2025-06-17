@@ -16,45 +16,32 @@ class TestMultipleWorkflowExecutionRunner:
         """Run several workflows in sequence with shared runner."""
         import cloaca
 
-        # Define tasks for different workflows
-        @cloaca.task(id="workflow_a_task")
-        def workflow_a_task(context):
-            context.set("workflow_a_executed", True)
-            return context
-
-        @cloaca.task(id="workflow_b_task")
-        def workflow_b_task(context):
-            context.set("workflow_b_executed", True)
-            return context
-
-        @cloaca.task(id="workflow_c_task")
-        def workflow_c_task(context):
-            context.set("workflow_c_executed", True)
-            return context
-
-        # Create workflow builders
-        def create_workflow_a():
-            builder = cloaca.WorkflowBuilder("sequential_test_workflow_a")
+        # Create workflow A using workflow-scoped pattern
+        with cloaca.WorkflowBuilder("sequential_test_workflow_a") as builder:
             builder.description("Sequential test workflow A")
-            builder.add_task("workflow_a_task")
-            return builder.build()
+            
+            @cloaca.task(id="workflow_a_task")
+            def workflow_a_task(context):
+                context.set("workflow_a_executed", True)
+                return context
 
-        def create_workflow_b():
-            builder = cloaca.WorkflowBuilder("sequential_test_workflow_b")
+        # Create workflow B using workflow-scoped pattern
+        with cloaca.WorkflowBuilder("sequential_test_workflow_b") as builder:
             builder.description("Sequential test workflow B")
-            builder.add_task("workflow_b_task")
-            return builder.build()
+            
+            @cloaca.task(id="workflow_b_task")
+            def workflow_b_task(context):
+                context.set("workflow_b_executed", True)
+                return context
 
-        def create_workflow_c():
-            builder = cloaca.WorkflowBuilder("sequential_test_workflow_c")
+        # Create workflow C using workflow-scoped pattern
+        with cloaca.WorkflowBuilder("sequential_test_workflow_c") as builder:
             builder.description("Sequential test workflow C")
-            builder.add_task("workflow_c_task")
-            return builder.build()
-
-        # Register all workflows
-        cloaca.register_workflow_constructor("sequential_test_workflow_a", create_workflow_a)
-        cloaca.register_workflow_constructor("sequential_test_workflow_b", create_workflow_b)
-        cloaca.register_workflow_constructor("sequential_test_workflow_c", create_workflow_c)
+            
+            @cloaca.task(id="workflow_c_task")
+            def workflow_c_task(context):
+                context.set("workflow_c_executed", True)
+                return context
 
         # Execute workflows in sequence
         results = []

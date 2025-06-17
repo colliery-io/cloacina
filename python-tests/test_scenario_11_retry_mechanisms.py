@@ -16,24 +16,19 @@ class TestRetryMechanisms:
         """Test task with retry configuration executes successfully."""
         import cloaca
 
-        @cloaca.task(
-            id="retry_task",
-            retry_attempts=3,
-            retry_backoff="exponential",
-            retry_delay_ms=100
-        )
-        def retry_task(context):
-            context.set("retry_task_executed", True)
-            context.set("retry_attempts_configured", 3)
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("retry_workflow")
+        with cloaca.WorkflowBuilder("retry_workflow") as builder:
             builder.description("Retry policy test")
-            builder.add_task("retry_task")
-            return builder.build()
-
-        cloaca.register_workflow_constructor("retry_workflow", create_workflow)
+            
+            @cloaca.task(
+                id="retry_task",
+                retry_attempts=3,
+                retry_backoff="exponential",
+                retry_delay_ms=100
+            )
+            def retry_task(context):
+                context.set("retry_task_executed", True)
+                context.set("retry_attempts_configured", 3)
+                return context
 
         # Execute workflow
         context = cloaca.Context({"test_type": "retry"})

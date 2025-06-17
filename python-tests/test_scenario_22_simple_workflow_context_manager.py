@@ -16,18 +16,18 @@ class TestSimpleWorkflowContextManager:
         """Test basic workflow creation and registration with context manager."""
         import cloaca
 
-        @cloaca.task(id="context_manager_task")
-        def context_manager_task(context):
-            context.set("context_manager_used", True)
-            context.set("workflow_pattern", "builder")
-            return context
-
-        # Use context manager for workflow creation
+        # Use context manager for workflow creation with workflow-scoped task definition
         with cloaca.WorkflowBuilder("context_manager_workflow") as builder:
             builder.description("Workflow created with context manager")
             builder.tag("pattern", "context_manager")
             builder.tag("test_type", "builder_pattern")
-            builder.add_task("context_manager_task")
+            
+            # Define task within workflow scope - automatically added to workflow
+            @cloaca.task(id="context_manager_task")
+            def context_manager_task(context):
+                context.set("context_manager_used", True)
+                context.set("workflow_pattern", "builder")
+                return context
 
         # Execute the workflow
         context = cloaca.Context({"test_input": "context_manager_test"})

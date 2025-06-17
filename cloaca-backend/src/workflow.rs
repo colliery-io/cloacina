@@ -16,20 +16,41 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use crate::value_objects::PyWorkflowContext;
+use crate::task::{push_workflow_context, pop_workflow_context};
 
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]
 pub struct PyWorkflowBuilder {
     inner: cloacina::WorkflowBuilder,
+    context: PyWorkflowContext,
 }
 
 #[pymethods]
 impl PyWorkflowBuilder {
-    /// Create a new WorkflowBuilder
+    /// Create a new WorkflowBuilder with namespace context
     #[new]
-    pub fn new(name: &str) -> Self {
+    #[pyo3(signature = (name, *, tenant = None, package = None, workflow = None))]
+    pub fn new(
+        name: &str, 
+        tenant: Option<&str>, 
+        package: Option<&str>,
+        workflow: Option<&str>
+    ) -> Self {
+        let context = PyWorkflowContext::new(
+            tenant.unwrap_or("public"),
+            package.unwrap_or("embedded"), 
+            workflow.unwrap_or(name),
+        );
+        
+        // Create workflow builder with correct tenant
+        let (tenant_id, _package_name, _workflow_id) = context.as_components();
+        let workflow_builder = cloacina::Workflow::builder(name)
+            .tenant(tenant_id);
+        
         PyWorkflowBuilder {
-            inner: cloacina::Workflow::builder(name),
+            inner: workflow_builder,
+            context,
         }
     }
 
@@ -50,13 +71,14 @@ impl PyWorkflowBuilder {
             // It's a string task ID - look it up in the registry
             let registry = cloacina::task::global_task_registry();
             
-            // Look up the task from the default namespace and create an instance
-            let default_namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
+            // Look up the task from the workflow context namespace
+            let (tenant_id, package_name, workflow_id) = self.context.as_components();
+            let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
             let guard = registry.read().map_err(|e| {
                 PyValueError::new_err(format!("Failed to access task registry: {}", e))
             })?;
             
-            let constructor = guard.get(&default_namespace).ok_or_else(|| {
+            let constructor = guard.get(&task_namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
@@ -65,24 +87,6 @@ impl PyWorkflowBuilder {
             
             // Create the task instance
             let task_instance = constructor();
-            
-            // Also register the task under the workflow namespace for future lookups
-            // by storing a reference to the default namespace constructor
-            let workflow_namespace = cloacina::TaskNamespace::new("public", "embedded", self.inner.name(), &task_id);
-            let default_ns_for_closure = default_namespace.clone();
-            drop(guard); // Release the read lock before acquiring write lock
-            
-            cloacina::register_task_constructor(workflow_namespace, move || {
-                // Look up from the default namespace each time to get a fresh instance
-                let registry = cloacina::task::global_task_registry();
-                if let Ok(guard) = registry.read() {
-                    if let Some(constructor) = guard.get(&default_ns_for_closure) {
-                        return constructor();
-                    }
-                }
-                // Fallback - this should never happen but prevents panic
-                panic!("Task constructor not found for {}", default_ns_for_closure.task_id);
-            });
 
             // Add to workflow builder
             self.inner = self
@@ -103,13 +107,14 @@ impl PyWorkflowBuilder {
                                     // Look up by function name
                                     let registry = cloacina::task::global_task_registry();
                                     
-                                    // Look up the task from the default namespace and create an instance
-                                    let default_namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &func_name);
+                                    // Look up the task from the workflow context namespace
+                                    let (tenant_id, package_name, workflow_id) = self.context.as_components();
+                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
                                     let guard = registry.read().map_err(|e| {
                                         PyValueError::new_err(format!("Failed to access task registry: {}", e))
                                     })?;
                                     
-                                    let constructor = guard.get(&default_namespace).ok_or_else(|| {
+                                    let constructor = guard.get(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
@@ -118,23 +123,6 @@ impl PyWorkflowBuilder {
                                     
                                     // Create the task instance
                                     let task_instance = constructor();
-                                    
-                                    // Also register the task under the workflow namespace for future lookups
-                                    let workflow_namespace = cloacina::TaskNamespace::new("public", "embedded", self.inner.name(), &func_name);
-                                    let default_ns_for_closure = default_namespace.clone();
-                                    drop(guard); // Release the read lock before acquiring write lock
-                                    
-                                    cloacina::register_task_constructor(workflow_namespace, move || {
-                                        // Look up from the default namespace each time to get a fresh instance
-                                        let registry = cloacina::task::global_task_registry();
-                                        if let Ok(guard) = registry.read() {
-                                            if let Some(constructor) = guard.get(&default_ns_for_closure) {
-                                                return constructor();
-                                            }
-                                        }
-                                        // Fallback - this should never happen but prevents panic
-                                        panic!("Task constructor not found for {}", default_ns_for_closure.task_id);
-                                    });
 
                                     // Add to workflow builder
                                     self.inner = self.inner.clone().add_task(task_instance)
@@ -183,29 +171,59 @@ impl PyWorkflowBuilder {
         Ok(PyWorkflow { inner: workflow })
     }
 
-    /// Context manager entry
+    /// Context manager entry - establish workflow context for task decorators
     pub fn __enter__(slf: PyRef<Self>) -> PyRef<Self> {
+        push_workflow_context(slf.context.clone());
         slf
     }
 
-    /// Context manager exit - automatically build and register workflow
+    /// Context manager exit - clean up context and build workflow
     pub fn __exit__(
-        &self,
+        &mut self,
+        _py: Python,
         _exc_type: Option<&Bound<PyAny>>,
         _exc_value: Option<&Bound<PyAny>>,
         _traceback: Option<&Bound<PyAny>>,
     ) -> PyResult<bool> {
-        // Build the workflow
-        let workflow = self
-            .inner
-            .clone()
-            .build()
-            .map_err(|e| PyValueError::new_err(format!("Failed to build workflow: {}", e)))?;
+        // Pop the workflow context
+        pop_workflow_context();
+        
+        let (tenant_id, package_name, workflow_id) = self.context.as_components();
+        
+        // CRITICAL: Create a new workflow with the correct namespace context
+        // following the same pattern as the Rust workflow! macro
+        let mut workflow = cloacina::Workflow::new(workflow_id);
+        workflow.set_tenant(tenant_id);
+        workflow.set_package(package_name);
+        
+        // Collect all tasks registered with this workflow's namespace
+        let registry = cloacina::task::global_task_registry();
+        let guard = registry.read().map_err(|e| {
+            PyValueError::new_err(format!("Failed to access task registry: {}", e))
+        })?;
+        
+        // Find all tasks that belong to this workflow's namespace
+        for (namespace, constructor) in guard.iter() {
+            if namespace.tenant_id == tenant_id 
+                && namespace.package_name == package_name 
+                && namespace.workflow_id == workflow_id {
+                let task_instance = constructor();
+                workflow.add_task(task_instance)
+                    .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+            }
+        }
+        
+        // Drop the read guard before building
+        drop(guard);
+        
+        // Validate and finalize the workflow
+        workflow.validate()
+            .map_err(|e| PyValueError::new_err(format!("Workflow validation failed: {}", e)))?;
+        let final_workflow = workflow.finalize();
 
         // Register it automatically
-        let workflow_name = workflow.name().to_string();
-
-        cloacina::workflow::register_workflow_constructor(workflow_name, move || workflow.clone());
+        let workflow_name = final_workflow.name().to_string();
+        cloacina::workflow::register_workflow_constructor(workflow_name, move || final_workflow.clone());
 
         Ok(false) // Don't suppress exceptions
     }

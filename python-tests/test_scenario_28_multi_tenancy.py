@@ -140,19 +140,12 @@ class TestMultiTenancyIntegration:
 
     def test_tenant_workflow_concepts(self):
         """Test that multi-tenant concepts work with workflow system."""
-        # Define a simple task for testing
-        @cloaca.task(id="tenant_test_task", dependencies=[])
-        def tenant_test_task(context):
-            context.set("tenant_task_completed", True)
-            return context
-
-        # Create a workflow
-        builder = cloaca.WorkflowBuilder("tenant_test_workflow")
-        builder.add_task("tenant_test_task")
-        workflow = builder.build()
-
-        # Register the workflow
-        cloaca.register_workflow_constructor("tenant_test_workflow", lambda: workflow)
+        # Create a workflow using the new pattern
+        with cloaca.WorkflowBuilder("tenant_test_workflow") as builder:
+            @cloaca.task(id="tenant_test_task", dependencies=[])
+            def tenant_test_task(context):
+                context.set("tenant_task_completed", True)
+                return context
 
         # Test that schema creation would work with workflows (fails due to connection)
         with pytest.raises(ValueError, match="Failed to create DefaultRunner with schema"):

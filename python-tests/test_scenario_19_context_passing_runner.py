@@ -16,34 +16,30 @@ class TestContextPassingRunner:
         """Ensure context data flows correctly through execution."""
         import cloaca
 
-        @cloaca.task(id="context_pass_task")
-        def context_pass_task(context):
-            # Read initial data
-            initial_value = context.get("initial_data", "none")
-            counter = context.get("counter", 0)
-
-            # Modify context
-            context.set("initial_data_received", initial_value)
-            context.set("counter", counter + 1)
-            context.set("processed_by", "shared_runner")
-
-            # Add nested data
-            context.set("nested_data", {
-                "level1": {
-                    "level2": {
-                        "value": "deep_value"
-                    }
-                }
-            })
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("context_pass_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("context_pass_workflow") as builder:
             builder.description("Context passing test")
-            builder.add_task("context_pass_task")
-            return builder.build()
+            
+            @cloaca.task(id="context_pass_task")
+            def context_pass_task(context):
+                # Read initial data
+                initial_value = context.get("initial_data", "none")
+                counter = context.get("counter", 0)
 
-        cloaca.register_workflow_constructor("context_pass_workflow", create_workflow)
+                # Modify context
+                context.set("initial_data_received", initial_value)
+                context.set("counter", counter + 1)
+                context.set("processed_by", "shared_runner")
+
+                # Add nested data
+                context.set("nested_data", {
+                    "level1": {
+                        "level2": {
+                            "value": "deep_value"
+                        }
+                    }
+                })
+                return context
 
         # Execute with rich context
         context = cloaca.Context({

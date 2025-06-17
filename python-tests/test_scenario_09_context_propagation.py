@@ -16,37 +16,31 @@ class TestContextPropagation:
         """Test data flowing through a pipeline of tasks."""
         import cloaca
 
-        @cloaca.task(id="data_source")
-        def data_source(context):
-            context.set("data", {"value": 10, "status": "initial"})
-            return context
-
-        @cloaca.task(id="data_processor", dependencies=["data_source"])
-        def data_processor(context):
-            data = context.get("data", {})
-            data["value"] = data.get("value", 0) * 2
-            data["status"] = "processed"
-            context.set("data", data)
-            return context
-
-        @cloaca.task(id="data_finalizer", dependencies=["data_processor"])
-        def data_finalizer(context):
-            data = context.get("data", {})
-            data["status"] = "finalized"
-            data["final"] = True
-            context.set("data", data)
-            context.set("pipeline_complete", True)
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("data_pipeline_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("data_pipeline_workflow") as builder:
             builder.description("Data pipeline test")
-            builder.add_task("data_source")
-            builder.add_task("data_processor")
-            builder.add_task("data_finalizer")
-            return builder.build()
+            
+            @cloaca.task(id="data_source")
+            def data_source(context):
+                context.set("data", {"value": 10, "status": "initial"})
+                return context
 
-        cloaca.register_workflow_constructor("data_pipeline_workflow", create_workflow)
+            @cloaca.task(id="data_processor", dependencies=["data_source"])
+            def data_processor(context):
+                data = context.get("data", {})
+                data["value"] = data.get("value", 0) * 2
+                data["status"] = "processed"
+                context.set("data", data)
+                return context
+
+            @cloaca.task(id="data_finalizer", dependencies=["data_processor"])
+            def data_finalizer(context):
+                data = context.get("data", {})
+                data["status"] = "finalized"
+                data["final"] = True
+                context.set("data", data)
+                context.set("pipeline_complete", True)
+                return context
 
         # Execute workflow
         context = cloaca.Context({"test_type": "data_flow"})

@@ -43,78 +43,67 @@ Let's create a simple workflow with three tasks that demonstrates the core conce
 import sys
 import cloaca
 
-# Define tasks using the @task decorator
-@cloaca.task(id="start_process")
-def start_process(context):
-    """Initialize the workflow with some data."""
-    print("Starting the workflow...")
-
-    # Add initial data to the context
-    context.set("process_id", "proc_001")
-    context.set("start_time", "2025-01-07T10:00:00Z")
-    context.set("items_to_process", 10)
-
-    print(f"Process {context.get('process_id')} initialized")
-    return context
-
-@cloaca.task(id="process_data", dependencies=["start_process"])
-def process_data(context):
-    """Process the data from the previous task."""
-    print("Processing data...")
-
-    # Get data from the previous task
-    process_id = context.get("process_id")
-    items_count = context.get("items_to_process")
-
-    # Simulate processing
-    processed_items = []
-    for i in range(items_count):
-        processed_items.append(f"item_{i}_processed")
-
-    # Store results in context
-    context.set("processed_items", processed_items)
-    context.set("processing_complete", True)
-
-    print(f"Processed {len(processed_items)} items for {process_id}")
-    return context
-
-@cloaca.task(id="finalize_process", dependencies=["process_data"])
-def finalize_process(context):
-    """Finalize the workflow and generate summary."""
-    print("Finalizing process...")
-
-    # Get all the data
-    process_id = context.get("process_id")
-    start_time = context.get("start_time")
-    processed_items = context.get("processed_items")
-
-    # Create summary
-    summary = {
-        "process_id": process_id,
-        "start_time": start_time,
-        "items_processed": len(processed_items),
-        "status": "completed"
-    }
-
-    context.set("final_summary", summary)
-    print(f"Process {process_id} completed successfully")
-    return context
-
-# Create workflow builder function
-def create_simple_workflow():
-    """Build and return the workflow."""
-    builder = cloaca.WorkflowBuilder("simple_workflow")
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("simple_workflow") as builder:
     builder.description("A simple three-task workflow demonstrating basic concepts")
+    
+    # Define tasks using the @task decorator within workflow scope
+    @cloaca.task(id="start_process")
+    def start_process(context):
+        """Initialize the workflow with some data."""
+        print("Starting the workflow...")
 
-    # Add tasks to the workflow
-    builder.add_task("start_process")
-    builder.add_task("process_data")
-    builder.add_task("finalize_process")
+        # Add initial data to the context
+        context.set("process_id", "proc_001")
+        context.set("start_time", "2025-01-07T10:00:00Z")
+        context.set("items_to_process", 10)
 
-    return builder.build()
+        print(f"Process {context.get('process_id')} initialized")
+        return context
 
-# Register the workflow
-cloaca.register_workflow_constructor("simple_workflow", create_simple_workflow)
+    @cloaca.task(id="process_data", dependencies=["start_process"])
+    def process_data(context):
+        """Process the data from the previous task."""
+        print("Processing data...")
+
+        # Get data from the previous task
+        process_id = context.get("process_id")
+        items_count = context.get("items_to_process")
+
+        # Simulate processing
+        processed_items = []
+        for i in range(items_count):
+            processed_items.append(f"item_{i}_processed")
+
+        # Store results in context
+        context.set("processed_items", processed_items)
+        context.set("processing_complete", True)
+
+        print(f"Processed {len(processed_items)} items for {process_id}")
+        return context
+
+    @cloaca.task(id="finalize_process", dependencies=["process_data"])
+    def finalize_process(context):
+        """Finalize the workflow and generate summary."""
+        print("Finalizing process...")
+
+        # Get all the data
+        process_id = context.get("process_id")
+        start_time = context.get("start_time")
+        processed_items = context.get("processed_items")
+
+        # Create summary
+        summary = {
+            "process_id": process_id,
+            "start_time": start_time,
+            "items_processed": len(processed_items),
+            "status": "completed"
+        }
+
+        context.set("final_summary", summary)
+        print(f"Process {process_id} completed successfully")
+        return context
+    # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Execute the workflow
 if __name__ == "__main__":
@@ -200,17 +189,20 @@ Let's walk through each component:
 ### 1. Task Definition
 
 ```python
-@cloaca.task(id="start_process")
-def start_process(context):
-    # Task logic here
-    return context
+with cloaca.WorkflowBuilder("my_workflow") as builder:
+    @cloaca.task(id="start_process")
+    def start_process(context):
+        # Task logic here
+        return context
 ```
 
 Key points:
+- Define tasks within a WorkflowBuilder context manager
 - Use the `@cloaca.task` decorator
 - Provide a unique `id` for each task
 - Tasks receive a `context` parameter
 - Always return the context (modified or unmodified)
+- Tasks are automatically registered when defined within workflow scope
 
 ### 2. Task Dependencies
 
@@ -244,25 +236,32 @@ The context provides:
 ### 4. Workflow Builder
 
 ```python
-def create_simple_workflow():
-    builder = cloaca.WorkflowBuilder("simple_workflow")
+with cloaca.WorkflowBuilder("simple_workflow") as builder:
     builder.description("A simple three-task workflow")
-    builder.add_task("start_process")
-    builder.add_task("process_data")
-    builder.add_task("finalize_process")
-    return builder.build()
+    
+    @cloaca.task(id="start_process")
+    def start_process(context):
+        return context
+    
+    @cloaca.task(id="process_data", dependencies=["start_process"])
+    def process_data(context):
+        return context
+    
+    @cloaca.task(id="finalize_process", dependencies=["process_data"])
+    def finalize_process(context):
+        return context
 ```
 
-The builder pattern:
-- Creates workflows programmatically
-- Validates task dependencies
-- Generates executable workflow objects
+The workflow-scoped pattern:
+- Creates workflows using context manager pattern
+- Tasks defined within scope are automatically registered
+- Validates task dependencies automatically
+- Generates executable workflow objects on context exit
 
 ### 5. Workflow Registration and Execution
 
 ```python
-# Register the workflow constructor
-cloaca.register_workflow_constructor("simple_workflow", create_simple_workflow)
+# Workflow is automatically registered when context exits
 
 # Create runner and execute
 runner = cloaca.DefaultRunner("sqlite://:memory:")
@@ -270,7 +269,7 @@ result = runner.execute("simple_workflow", context)
 ```
 
 Execution involves:
-- Registering workflow constructors globally
+- Workflows are automatically registered when context manager exits
 - Creating a runner with database connection
 - Executing by workflow name with initial context
 

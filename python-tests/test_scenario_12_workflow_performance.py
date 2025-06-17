@@ -17,32 +17,27 @@ class TestPerformanceCharacteristics:
         """Test comprehensive performance including timing and multiple executions."""
         import cloaca
 
-        @cloaca.task(id="perf_task")
-        def perf_task(context):
-            execution_id = context.get("execution_id", 0)
-            start_time = time.time()
-
-            # Record timing information
-            context.set("task_start_time", start_time)
-            context.set("perf_task_executed", True)
-            context.set("execution_id", execution_id)
-
-            # Simulate some work
-            time.sleep(0.01)  # 10ms of work
-
-            end_time = time.time()
-            context.set("task_end_time", end_time)
-            context.set("task_duration", end_time - start_time)
-
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("comprehensive_perf_workflow")
+        with cloaca.WorkflowBuilder("comprehensive_perf_workflow") as builder:
             builder.description("Comprehensive performance test workflow")
-            builder.add_task("perf_task")
-            return builder.build()
+            
+            @cloaca.task(id="perf_task")
+            def perf_task(context):
+                execution_id = context.get("execution_id", 0)
+                start_time = time.time()
 
-        cloaca.register_workflow_constructor("comprehensive_perf_workflow", create_workflow)
+                # Record timing information
+                context.set("task_start_time", start_time)
+                context.set("perf_task_executed", True)
+                context.set("execution_id", execution_id)
+
+                # Simulate some work
+                time.sleep(0.01)  # 10ms of work
+
+                end_time = time.time()
+                context.set("task_end_time", end_time)
+                context.set("task_duration", end_time - start_time)
+
+                return context
 
         # Test 1: Single workflow execution timing
         print("\nTesting single workflow execution timing...")
