@@ -20,7 +20,7 @@ CREATE TABLE pipeline_executions (
 CREATE TABLE task_executions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pipeline_execution_id UUID NOT NULL REFERENCES pipeline_executions(id),
-    task_namespace VARCHAR NOT NULL,
+    task_name VARCHAR NOT NULL,
     status VARCHAR NOT NULL CHECK (status IN ('NotStarted', 'Ready', 'Running', 'Completed', 'Failed', 'Skipped')),
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
@@ -49,7 +49,7 @@ CREATE TABLE task_execution_metadata (
 
     -- Constraints
     UNIQUE(task_execution_id),                    -- One metadata per task execution
-    UNIQUE(pipeline_execution_id, task_namespace)      -- Unique task namespace per pipeline
+    UNIQUE(pipeline_execution_id, task_name)      -- Unique task name per pipeline
 );
 
 -- Recovery audit trail for debugging and monitoring
@@ -67,12 +67,12 @@ CREATE TABLE recovery_events (
 -- Indexes for efficient querying
 CREATE INDEX task_executions_status_idx ON task_executions(status);
 CREATE INDEX task_executions_pipeline_idx ON task_executions(pipeline_execution_id);
-CREATE INDEX task_executions_task_namespace_idx ON task_executions(task_namespace);
+CREATE INDEX task_executions_task_name_idx ON task_executions(task_name);
 CREATE INDEX task_executions_running_idx ON task_executions(status) WHERE status = 'Running';
 CREATE INDEX pipeline_executions_status_idx ON pipeline_executions(status);
 CREATE INDEX pipeline_executions_name_version_idx ON pipeline_executions(pipeline_name, pipeline_version);
 CREATE INDEX task_execution_metadata_pipeline_idx ON task_execution_metadata(pipeline_execution_id);
-CREATE INDEX task_execution_metadata_lookup_idx ON task_execution_metadata(pipeline_execution_id, task_namespace);
+CREATE INDEX task_execution_metadata_lookup_idx ON task_execution_metadata(pipeline_execution_id, task_name);
 CREATE INDEX task_execution_metadata_context_idx ON task_execution_metadata(context_id);
 CREATE INDEX recovery_events_pipeline_idx ON recovery_events(pipeline_execution_id);
 CREATE INDEX recovery_events_task_idx ON recovery_events(task_execution_id) WHERE task_execution_id IS NOT NULL;

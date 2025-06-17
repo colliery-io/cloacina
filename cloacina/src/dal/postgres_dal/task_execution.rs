@@ -872,7 +872,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, pipeline_execution_id, task_namespace, attempt
+                RETURNING id, pipeline_execution_id, task_name, attempt
                 "#,
                 )
                 .get_result(conn)
@@ -897,9 +897,9 @@ pub struct ClaimResult {
     /// ID of the pipeline execution this task belongs to
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub pipeline_execution_id: UniversalUuid,
-    /// Full namespace of the task that was claimed
+    /// Name of the task that was claimed
     #[diesel(sql_type = diesel::sql_types::Text)]
-    pub task_namespace: String,
+    pub task_name: String,
     /// Current attempt number for this task
     #[diesel(sql_type = diesel::sql_types::Integer)]
     pub attempt: i32,

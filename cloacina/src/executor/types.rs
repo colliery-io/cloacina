@@ -111,7 +111,9 @@ impl DependencyLoader {
             {
                 let mut cache = self.loaded_contexts.write().await;
                 if !cache.contains_key(&dep_task_name) {
-                    let dep_context_data = self.load_dependency_context_data(dep_task_namespace).await?;
+                    let dep_context_data = self
+                        .load_dependency_context_data(dep_task_namespace)
+                        .await?;
                     cache.insert(dep_task_name.clone(), dep_context_data);
                 }
 
@@ -209,8 +211,8 @@ pub struct ClaimedTask {
     pub task_execution_id: UniversalUuid,
     /// ID of the pipeline this task belongs to
     pub pipeline_execution_id: UniversalUuid,
-    /// Full namespace of the task being executed
-    pub task_namespace: String,
+    /// Name of the task being executed
+    pub task_name: String,
     /// Current attempt number for this task execution
     pub attempt: i32,
 }

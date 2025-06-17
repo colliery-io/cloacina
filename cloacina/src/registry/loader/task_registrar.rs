@@ -430,7 +430,7 @@ impl Task for DynamicPackageTask {
     }
 
     /// Get the list of task dependencies (empty for dynamic tasks).
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &[] // Dynamic tasks don't declare dependencies through the trait
     }
 }

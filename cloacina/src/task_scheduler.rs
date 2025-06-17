@@ -125,8 +125,8 @@ use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
-use crate::{Context, Database, Workflow};
 use crate::task::TaskNamespace;
+use crate::{Context, Database, Workflow};
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
 ///
@@ -436,7 +436,7 @@ impl TaskScheduler {
 
             // Use the TaskNamespace directly as it's already a full namespace
             let full_task_name = task_id.to_string();
-            
+
             let new_task = NewTaskExecution {
                 pipeline_execution_id: UniversalUuid(pipeline_execution_id),
                 task_name: full_task_name,
@@ -766,7 +766,7 @@ impl TaskScheduler {
         // Parse the task name string to TaskNamespace
         let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
             .map_err(|e| ValidationError::InvalidTaskName(e))?;
-            
+
         let dependencies = workflow
             .get_dependencies(&task_namespace)
             .map_err(|e| ValidationError::InvalidTaskName(e.to_string()))?;
@@ -801,7 +801,11 @@ impl TaskScheduler {
     }
 
     /// Gets trigger rules for a specific task from the task implementation.
-    fn get_task_trigger_rules(&self, workflow: &Workflow, task_namespace: &TaskNamespace) -> serde_json::Value {
+    fn get_task_trigger_rules(
+        &self,
+        workflow: &Workflow,
+        task_namespace: &TaskNamespace,
+    ) -> serde_json::Value {
         workflow
             .get_task(task_namespace)
             .map(|task| task.trigger_rules())
@@ -809,7 +813,11 @@ impl TaskScheduler {
     }
 
     /// Gets task configuration (currently returns empty object).
-    fn get_task_configuration(&self, _workflow: &Workflow, _task_namespace: &TaskNamespace) -> serde_json::Value {
+    fn get_task_configuration(
+        &self,
+        _workflow: &Workflow,
+        _task_namespace: &TaskNamespace,
+    ) -> serde_json::Value {
         // In the future, this could include task-specific configuration
         serde_json::json!({})
     }
@@ -1020,7 +1028,7 @@ impl TaskScheduler {
         // Parse the task name string to TaskNamespace
         let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
             .map_err(|e| ValidationError::InvalidTaskName(e))?;
-            
+
         let dependencies = workflow
             .get_dependencies(&task_namespace)
             .map_err(|e| ValidationError::InvalidTaskName(e.to_string()))?;
@@ -1100,7 +1108,10 @@ impl TaskScheduler {
                 if let Ok(task_metadata) = self
                     .dal
                     .task_execution_metadata()
-                    .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_namespace)
+                    .get_by_pipeline_and_task(
+                        task_execution.pipeline_execution_id,
+                        dep_task_namespace,
+                    )
                     .await
                 {
                     if let Some(context_id) = task_metadata.context_id {
@@ -1474,7 +1485,9 @@ impl TaskScheduler {
                 if let Some(completed_at) = task.completed_at {
                     // Check if this task has a context stored
                     let task_namespace = crate::task::TaskNamespace::from_string(&task.task_name)
-                        .map_err(|_| crate::error::ValidationError::InvalidTaskName(task.task_name.clone()))?;
+                        .map_err(|_| {
+                        crate::error::ValidationError::InvalidTaskName(task.task_name.clone())
+                    })?;
                     if let Ok(task_metadata) = self
                         .dal
                         .task_execution_metadata()

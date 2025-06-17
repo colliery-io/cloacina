@@ -53,10 +53,10 @@
 //! };
 //! ```
 
+mod packaged_workflow;
 mod registry;
 mod tasks;
 mod workflow;
-mod packaged_workflow;
 
 use proc_macro::TokenStream;
 

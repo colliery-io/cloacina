@@ -31,6 +31,11 @@ fn test_simple_workflow_creation() {
     };
 
     assert_eq!(simple_workflow.name(), "simple-pipeline");
-    let task_ns = TaskNamespace::new("public", "embedded", "simple-pipeline", "basic-workflow-task");
+    let task_ns = TaskNamespace::new(
+        "public",
+        "embedded",
+        "simple-pipeline",
+        "basic-workflow-task",
+    );
     assert!(simple_workflow.get_task(&task_ns).is_ok());
 }

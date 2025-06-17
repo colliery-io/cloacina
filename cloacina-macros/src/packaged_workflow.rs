@@ -1,3 +1,19 @@
+/*
+ *  Copyright 2025 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
@@ -9,20 +25,20 @@ use syn::{
 };
 
 use crate::registry::get_registry;
-use crate::tasks::{TaskAttributes, to_pascal_case};
+use crate::tasks::{to_pascal_case, TaskAttributes};
 
 /// Attributes for the packaged_workflow macro
 ///
 /// # Fields
 ///
-/// * `package` - Package name for namespace isolation (required)
 /// * `name` - Unique identifier for the workflow (required)
+/// * `package` - Package name for namespace isolation (required)
 /// * `tenant` - Tenant identifier for the workflow (optional, defaults to "public")
 /// * `description` - Optional description of the workflow package
 /// * `author` - Optional author information
 pub struct PackagedWorkflowAttributes {
-    pub package: String,
     pub name: String,
+    pub package: String,
     pub tenant: String,
     pub description: Option<String>,
     pub author: Option<String>,
@@ -30,8 +46,8 @@ pub struct PackagedWorkflowAttributes {
 
 impl Parse for PackagedWorkflowAttributes {
     fn parse(input: ParseStream) -> SynResult<Self> {
-        let mut package = None;
         let mut name = None;
+        let mut package = None;
         let mut tenant = None;
         let mut description = None;
         let mut author = None;
@@ -112,7 +128,9 @@ impl Parse for PackagedWorkflowAttributes {
 ///
 /// * `Ok(())` if no cycles are found
 /// * `Err(String)` with cycle description if a cycle is detected
-pub fn detect_package_cycles(task_dependencies: &HashMap<String, Vec<String>>) -> Result<(), String> {
+pub fn detect_package_cycles(
+    task_dependencies: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
     // In test mode, be more lenient about cycle detection (consistent with regular workflow validation)
     let is_test_env = std::env::var("CARGO_CRATE_NAME")
         .map(|name| name.contains("test") || name == "cloacina")
@@ -689,11 +707,8 @@ pub fn generate_packaged_workflow_impl(
 
         let task_count = detected_tasks.len();
 
-        // Generate unique function name for this package
-        let metadata_fn_name = syn::Ident::new(
-            &format!("cloacina_get_task_metadata_{}", package_ident),
-            mod_name.span(),
-        );
+        // Generate standard function name expected by the loader
+        let metadata_fn_name = syn::Ident::new("cloacina_get_task_metadata", mod_name.span());
 
         quote! {
             /// C-compatible task metadata structure for FFI
@@ -859,11 +874,8 @@ pub fn generate_packaged_workflow_impl(
             }
         }
     } else {
-        // Generate unique function name for this package
-        let metadata_fn_name = syn::Ident::new(
-            &format!("cloacina_get_task_metadata_{}", package_ident),
-            mod_name.span(),
-        );
+        // Generate standard function name expected by the loader
+        let metadata_fn_name = syn::Ident::new("cloacina_get_task_metadata", mod_name.span());
 
         quote! {
             /// Empty task metadata structure for packages with no tasks
@@ -1099,4 +1111,4 @@ pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     generate_packaged_workflow_impl(attrs, input_mod).into()
-} 
+}

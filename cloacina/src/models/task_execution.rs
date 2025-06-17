@@ -37,8 +37,8 @@ pub struct TaskExecution {
     pub id: UniversalUuid,
     /// Reference to the parent pipeline execution
     pub pipeline_execution_id: UniversalUuid,
-    /// Full namespace of the task being executed
-    pub task_namespace: String,
+    /// Name of the task being executed
+    pub task_name: String,
     /// Current status of the task execution (e.g., "pending", "running", "completed", "failed")
     pub status: String,
     /// Timestamp when the task execution started

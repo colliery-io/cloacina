@@ -1,3 +1,19 @@
+/*
+ *  Copyright 2025 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
@@ -645,12 +661,12 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                     dependencies: Vec::new(), // Will be populated by workflow builder
                 }
             }
-            
+
             pub fn with_dependencies(mut self, dependencies: Vec<cloacina::TaskNamespace>) -> Self {
                 self.dependencies = dependencies;
                 self
             }
-            
+
             pub fn dependency_task_ids() -> &'static [&'static str] {
                 &[#(#dependencies),*]
             }
@@ -795,4 +811,4 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
 
     // PHASE 3: Generate the task implementation
     generate_task_impl(attrs, input_fn).into()
-} 
+}

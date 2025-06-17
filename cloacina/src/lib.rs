@@ -490,8 +490,7 @@ pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
 pub use task::namespace::parse_namespace;
 pub use task::{
-    global_task_registry, register_task_constructor, Task, TaskNamespace,
-    TaskRegistry, TaskState,
+    global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
 };
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{

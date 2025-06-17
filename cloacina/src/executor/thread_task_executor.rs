@@ -221,9 +221,7 @@ impl ThreadTaskExecutor {
             let dependencies = task.dependencies();
 
             // Build context using DAL methods
-            let context = self
-                .build_task_context(&claimed_task, dependencies)
-                .await?;
+            let context = self.build_task_context(&claimed_task, dependencies).await?;
 
             info!(
                 "Task state change: Ready -> Running (task: {}, pipeline: {}, attempt: {})",
@@ -298,7 +296,11 @@ impl ThreadTaskExecutor {
         // Batch load dependency contexts in a single query (eager loading strategy)
         // This provides better performance for tasks that access many dependency values
         if !dependencies.is_empty() {
-            debug!("Loading dependency contexts for {} dependencies: {:?}", dependencies.len(), dependencies);
+            debug!(
+                "Loading dependency contexts for {} dependencies: {:?}",
+                dependencies.len(),
+                dependencies
+            );
             if let Ok(dep_metadata_with_contexts) = self
                 .dal
                 .task_execution_metadata()
@@ -308,14 +310,19 @@ impl ThreadTaskExecutor {
                 )
                 .await
             {
-                debug!("Found {} dependency metadata records", dep_metadata_with_contexts.len());
+                debug!(
+                    "Found {} dependency metadata records",
+                    dep_metadata_with_contexts.len()
+                );
                 for (_task_metadata, context_json) in dep_metadata_with_contexts {
                     if let Some(json_str) = context_json {
                         // Parse the JSON context data
                         if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
-                            debug!("Merging dependency context with {} keys: {:?}", 
-                                   dep_context.data().len(), 
-                                   dep_context.data().keys().collect::<Vec<_>>());
+                            debug!(
+                                "Merging dependency context with {} keys: {:?}",
+                                dep_context.data().len(),
+                                dep_context.data().keys().collect::<Vec<_>>()
+                            );
                             // Merge context data (smart merging strategy)
                             for (key, value) in dep_context.data() {
                                 if let Some(existing_value) = context.get(key) {
@@ -334,14 +341,19 @@ impl ThreadTaskExecutor {
                     }
                 }
             } else {
-                debug!("Failed to load dependency metadata for dependencies: {:?}", dependencies);
+                debug!(
+                    "Failed to load dependency metadata for dependencies: {:?}",
+                    dependencies
+                );
             }
         }
 
-        debug!("Final context for task {} has {} keys: {:?}", 
-               claimed_task.task_name, 
-               context.data().len(),
-               context.data().keys().collect::<Vec<_>>());
+        debug!(
+            "Final context for task {} has {} keys: {:?}",
+            claimed_task.task_name,
+            context.data().len(),
+            context.data().keys().collect::<Vec<_>>()
+        );
         Ok(context)
     }
 
@@ -472,8 +484,9 @@ impl ThreadTaskExecutor {
             }
             Err(error) => {
                 // Get task retry policy to determine if we should retry
-                let namespace = parse_namespace(&claimed_task.task_name)
-                    .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+                let namespace = parse_namespace(&claimed_task.task_name).map_err(|e| {
+                    ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e))
+                })?;
                 let task = get_task(&namespace)
                     .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
                 let retry_policy = task.retry_policy();

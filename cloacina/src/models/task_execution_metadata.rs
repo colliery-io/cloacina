@@ -39,8 +39,8 @@ pub struct TaskExecutionMetadata {
     pub task_execution_id: UniversalUuid,
     /// Reference to the parent pipeline execution
     pub pipeline_execution_id: UniversalUuid,
-    /// Full namespace of the task this metadata belongs to
-    pub task_namespace: String,
+    /// Name of the task this metadata belongs to
+    pub task_name: String,
     /// Reference to the context record containing the task's output data
     pub context_id: Option<UniversalUuid>,
     /// Timestamp when this metadata was created

@@ -49,7 +49,7 @@ mod postgres_schema {
         task_executions (id) {
             id -> Uuid,
             pipeline_execution_id -> Uuid,
-            task_namespace -> Varchar,
+            task_name -> Varchar,
             status -> Varchar,
             started_at -> Nullable<Timestamp>,
             completed_at -> Nullable<Timestamp>,
@@ -93,6 +93,28 @@ mod postgres_schema {
     }
 
     diesel::table! {
+        workflow_registry (id) {
+            id -> Uuid,
+            created_at -> Timestamp,
+            data -> Bytea,
+        }
+    }
+
+    diesel::table! {
+        workflow_packages (id) {
+            id -> Uuid,
+            registry_id -> Uuid,
+            package_name -> Varchar,
+            version -> Varchar,
+            description -> Nullable<Text>,
+            author -> Nullable<Varchar>,
+            metadata -> Text,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
         cron_schedules (id) {
             id -> Uuid,
             workflow_name -> Varchar,
@@ -121,28 +143,6 @@ mod postgres_schema {
         }
     }
 
-    diesel::table! {
-        workflow_registry (id) {
-            id -> Uuid,
-            created_at -> Timestamp,
-            data -> Bytea,
-        }
-    }
-
-    diesel::table! {
-        workflow_packages (id) {
-            id -> Uuid,
-            registry_id -> Uuid,
-            package_name -> Varchar,
-            version -> Varchar,
-            description -> Nullable<Text>,
-            author -> Nullable<Varchar>,
-            metadata -> Text,
-            created_at -> Timestamp,
-            updated_at -> Timestamp,
-        }
-    }
-
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -162,8 +162,8 @@ mod postgres_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
-        workflow_registry,
         workflow_packages,
+        workflow_registry,
     );
 }
 
@@ -200,7 +200,7 @@ mod sqlite_schema {
         task_executions (id) {
             id -> Binary,
             pipeline_execution_id -> Binary,
-            task_namespace -> Text,
+            task_name -> Text,
             status -> Text,
             started_at -> Nullable<Text>,
             completed_at -> Nullable<Text>,
@@ -244,6 +244,28 @@ mod sqlite_schema {
     }
 
     diesel::table! {
+        workflow_registry (id) {
+            id -> Binary,
+            created_at -> Text,
+            data -> Binary,
+        }
+    }
+
+    diesel::table! {
+        workflow_packages (id) {
+            id -> Binary,
+            registry_id -> Binary,
+            package_name -> Text,
+            version -> Text,
+            description -> Nullable<Text>,
+            author -> Nullable<Text>,
+            metadata -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
         cron_schedules (id) {
             id -> Binary,
             workflow_name -> Text,
@@ -272,28 +294,6 @@ mod sqlite_schema {
         }
     }
 
-    diesel::table! {
-        workflow_registry (id) {
-            id -> Binary,
-            created_at -> Text,
-            data -> Binary,
-        }
-    }
-
-    diesel::table! {
-        workflow_packages (id) {
-            id -> Binary,
-            registry_id -> Binary,
-            package_name -> Text,
-            version -> Text,
-            description -> Nullable<Text>,
-            author -> Nullable<Text>,
-            metadata -> Text,
-            created_at -> Text,
-            updated_at -> Text,
-        }
-    }
-
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -303,7 +303,6 @@ mod sqlite_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
-    diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
@@ -313,8 +312,6 @@ mod sqlite_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
-        workflow_registry,
-        workflow_packages,
     );
 }
 

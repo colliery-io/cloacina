@@ -117,6 +117,32 @@ impl TestFixture {
         self.db.clone()
     }
 
+    /// Create a storage backend using this fixture's database
+    /// Returns the appropriate backend based on active feature flags
+    #[cfg(feature = "postgres")]
+    pub fn create_storage(&self) -> cloacina::registry::storage::PostgresRegistryStorage {
+        cloacina::registry::storage::PostgresRegistryStorage::new(self.db.clone())
+    }
+
+    /// Create a storage backend using this fixture's database
+    /// Returns the appropriate backend based on active feature flags
+    #[cfg(feature = "sqlite")]
+    pub fn create_storage(&self) -> cloacina::registry::storage::SqliteRegistryStorage {
+        cloacina::registry::storage::SqliteRegistryStorage::new(self.db.clone())
+    }
+
+    /// Create a PostgreSQL storage backend using this fixture's database
+    #[cfg(feature = "postgres")]
+    pub fn create_postgres_storage(&self) -> cloacina::registry::storage::PostgresRegistryStorage {
+        cloacina::registry::storage::PostgresRegistryStorage::new(self.db.clone())
+    }
+
+    /// Create a SQLite storage backend using this fixture's database
+    #[cfg(feature = "sqlite")]
+    pub fn create_sqlite_storage(&self) -> cloacina::registry::storage::SqliteRegistryStorage {
+        cloacina::registry::storage::SqliteRegistryStorage::new(self.db.clone())
+    }
+
     /// Initialize the fixture with additional setup
     pub async fn initialize(&mut self) {
         // Initialize the database schema

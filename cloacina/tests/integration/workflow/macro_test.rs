@@ -68,27 +68,37 @@ fn test_workflow_macro_basic() {
     );
 
     // Verify all tasks are present
-    let fetch_ns = TaskNamespace::new("public", "embedded", "document-processing", "fetch-document");
-    let extract_ns = TaskNamespace::new("public", "embedded", "document-processing", "extract-text");
-    let embeddings_ns = TaskNamespace::new("public", "embedded", "document-processing", "generate-embeddings");
-    
-    assert!(document_processing_workflow
-        .get_task(&fetch_ns)
-        .is_ok());
-    assert!(document_processing_workflow
-        .get_task(&extract_ns)
-        .is_ok());
+    let fetch_ns = TaskNamespace::new(
+        "public",
+        "embedded",
+        "document-processing",
+        "fetch-document",
+    );
+    let extract_ns =
+        TaskNamespace::new("public", "embedded", "document-processing", "extract-text");
+    let embeddings_ns = TaskNamespace::new(
+        "public",
+        "embedded",
+        "document-processing",
+        "generate-embeddings",
+    );
+
+    assert!(document_processing_workflow.get_task(&fetch_ns).is_ok());
+    assert!(document_processing_workflow.get_task(&extract_ns).is_ok());
     assert!(document_processing_workflow
         .get_task(&embeddings_ns)
         .is_ok());
-    let store_ns = TaskNamespace::new("public", "embedded", "document-processing", "store-embeddings");
-    assert!(document_processing_workflow
-        .get_task(&store_ns)
-        .is_ok());
+    let store_ns = TaskNamespace::new(
+        "public",
+        "embedded",
+        "document-processing",
+        "store-embeddings",
+    );
+    assert!(document_processing_workflow.get_task(&store_ns).is_ok());
 
     // Verify topological order
     let execution_order = document_processing_workflow.topological_sort().unwrap();
-    
+
     let fetch_pos = execution_order
         .iter()
         .position(|x| x.task_id == "fetch-document")

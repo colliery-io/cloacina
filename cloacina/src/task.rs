@@ -890,7 +890,10 @@ impl TaskRegistry {
                         return Err(format!("{} -> {}", namespace.task_id, cycle));
                     }
                 } else if *rec_stack.get(dependency_namespace).unwrap_or(&false) {
-                    return Err(format!("{} -> {}", namespace.task_id, dependency_namespace.task_id));
+                    return Err(format!(
+                        "{} -> {}",
+                        namespace.task_id, dependency_namespace.task_id
+                    ));
                 }
             }
         }
@@ -1022,7 +1025,6 @@ pub fn get_task(namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
     registry.get(namespace).map(|constructor| constructor())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1120,7 +1122,6 @@ mod tests {
 
         assert!(registry.get_task(&ns1).is_some());
         assert!(registry.get_task(&ns2).is_some());
-
     }
 
     #[test]
@@ -1150,7 +1151,8 @@ mod tests {
         let ns1 = TaskNamespace::new("public", "embedded", "test_workflow", "task1");
         let ns2 = TaskNamespace::new("public", "embedded", "test_workflow", "task2");
         let ns3 = TaskNamespace::new("public", "embedded", "test_workflow", "task3");
-        let nonexistent_ns = TaskNamespace::new("public", "embedded", "test_workflow", "nonexistent");
+        let nonexistent_ns =
+            TaskNamespace::new("public", "embedded", "test_workflow", "nonexistent");
 
         let task1 = TestTask::new("task1", vec![]);
         let task2 = TestTask::new("task2", vec![ns1.clone()]);
