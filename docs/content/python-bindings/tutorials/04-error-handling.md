@@ -157,7 +157,7 @@ from typing import Dict, Any
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("error_handling_demo") as builder:
     builder.description("Comprehensive error handling and recovery demonstration")
-    
+
     # Data fetching with failures
     @cloaca.task(
         id="fetch_external_data",
@@ -460,13 +460,13 @@ with cloaca.WorkflowBuilder("error_handling_demo") as builder:
                 print(f"  - Validation: {len(error_report['validation_stage']['errors'])} errors")
 
         return context
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("error_handling_demo") as builder:
     builder.description("Comprehensive error handling and recovery demonstration")
-    
+
     # Data fetching with failures
     @cloaca.task(
         id="fetch_external_data",
@@ -769,7 +769,7 @@ with cloaca.WorkflowBuilder("error_handling_demo") as builder:
                 print(f"  - Validation: {len(error_report['validation_stage']['errors'])} errors")
 
         return context
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Main execution

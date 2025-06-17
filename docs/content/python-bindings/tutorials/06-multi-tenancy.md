@@ -149,7 +149,7 @@ def test_tenant_isolation():
     # Define a simple workflow
     with cloaca.WorkflowBuilder("tenant_isolation_test") as builder:
         builder.description("Test workflow for tenant isolation")
-        
+
         @cloaca.task(id="tenant_task")
         def tenant_task(context):
             tenant_id = context.get("tenant_id")
@@ -160,7 +160,7 @@ def test_tenant_isolation():
 
             print(f"Task executed for tenant: {tenant_id}")
             return context
-        
+
         # Task is automatically registered when defined within WorkflowBuilder context
 
     # Execute workflow for each tenant
@@ -275,7 +275,7 @@ def demonstrate_tenant_manager():
     # Define multi-tenant workflow
     with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
         builder.description("Multi-tenant data processing workflow")
-        
+
         @cloaca.task(id="process_tenant_data")
         def process_tenant_data(context):
             tenant_id = context.get("tenant_id")
@@ -293,7 +293,7 @@ def demonstrate_tenant_manager():
             print(f"Processed {data_type} data for tenant {tenant_id}")
 
             return context
-        
+
         # Task is automatically registered when defined within WorkflowBuilder context
 
     # Simulate multiple tenants with different workloads
@@ -430,7 +430,7 @@ class ConfigurableTenantManager:
 # Tenant-aware workflow
 with cloaca.WorkflowBuilder("configurable_tenant_workflow") as builder:
     builder.description("Workflow that adapts to tenant configuration")
-    
+
     @cloaca.task(id="configurable_task")
     def configurable_task(context):
         """Task that adapts behavior based on tenant configuration."""
@@ -477,7 +477,7 @@ with cloaca.WorkflowBuilder("configurable_tenant_workflow") as builder:
 
         context.set("processing_result", result)
         return context
-    
+
     # Task is automatically registered when defined within WorkflowBuilder context
 
 # Demonstration
@@ -837,7 +837,7 @@ def demonstrate_tenant_recovery():
 
     with cloaca.WorkflowBuilder("recovery_test_workflow") as builder:
         builder.description("Workflow for testing recovery")
-        
+
         @cloaca.task(id="long_running_task")
         def long_running_task(context):
             tenant_id = context.get("tenant_id")
@@ -850,7 +850,7 @@ def demonstrate_tenant_recovery():
             # This task would normally take a long time
             # In real scenarios, this might be interrupted by server restart
             return context
-        
+
         # Task is automatically registered when defined within WorkflowBuilder context
 
     # First runner - simulate this gets interrupted

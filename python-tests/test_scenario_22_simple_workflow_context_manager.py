@@ -21,7 +21,7 @@ class TestSimpleWorkflowContextManager:
             builder.description("Workflow created with context manager")
             builder.tag("pattern", "context_manager")
             builder.tag("test_type", "builder_pattern")
-            
+
             # Define task within workflow scope - automatically added to workflow
             @cloaca.task(id="context_manager_task")
             def context_manager_task(context):

@@ -30,7 +30,7 @@ from datetime import datetime
 # Build the complex workflow with multiple patterns using workflow-scoped pattern
 with cloaca.WorkflowBuilder("complex_workflow") as builder:
     builder.description("Complex workflow demonstrating diamond, fan-out, fan-in, and multi-level chain patterns")
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
     # Diamond Pattern: Fork-Join Processing
     @cloaca.task(id="prepare_dataset")

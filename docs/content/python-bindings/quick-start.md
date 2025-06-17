@@ -52,7 +52,7 @@ import cloaca
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("data_processing_workflow") as builder:
     builder.description("A simple data processing pipeline")
-    
+
     # Define your tasks using the @task decorator within workflow scope
     @cloaca.task(id="fetch_data")
     def fetch_data(context):
@@ -215,7 +215,7 @@ raw_data = context.get("raw_data")
 ```python
 with cloaca.WorkflowBuilder("my_workflow") as builder:
     builder.description("Description here")
-    
+
     @cloaca.task(id="my_task")
     def my_task(context):
         return context

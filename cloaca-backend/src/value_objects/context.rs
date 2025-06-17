@@ -14,8 +14,8 @@
  *  limitations under the License.
  */
 
-use pyo3::prelude::*;
 use super::namespace::PyTaskNamespace;
+use pyo3::prelude::*;
 
 /// WorkflowContext provides namespace management for Python workflows
 #[pyclass(name = "WorkflowContext")]
@@ -90,7 +90,10 @@ impl PyWorkflowContext {
 
     /// String representation
     pub fn __str__(&self) -> String {
-        format!("{}::{}::{}", self.tenant_id, self.package_name, self.workflow_id)
+        format!(
+            "{}::{}::{}",
+            self.tenant_id, self.package_name, self.workflow_id
+        )
     }
 
     /// String representation

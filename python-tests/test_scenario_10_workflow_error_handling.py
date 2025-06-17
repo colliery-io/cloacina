@@ -19,7 +19,7 @@ class TestErrorHandling:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("success_workflow") as builder:
             builder.description("Success test workflow")
-            
+
             @cloaca.task(id="success_task")
             def success_task(context):
                 context.set("success", True)

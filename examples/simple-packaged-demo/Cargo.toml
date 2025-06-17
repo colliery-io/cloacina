@@ -8,8 +8,12 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["sqlite"]
+sqlite = ["cloacina/sqlite", "cloacina/macros"]
+
 [dependencies]
-cloacina = { path = "../../cloacina", features = ["postgres"] }
+cloacina = { path = "../../cloacina", default-features = false, features = ["macros"] }
 cloacina-macros = { path = "../../cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
@@ -17,6 +21,7 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 tempfile = "3.0"
 uuid = { version = "1.0", features = ["v4"] }
+tracing = "0.1"
 
 [[example]]
 name = "end_to_end_demo"

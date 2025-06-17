@@ -23,7 +23,7 @@ class TestComplexDependencyChains:
 
         with cloaca.WorkflowBuilder("diamond_dependency_workflow") as builder:
             builder.description("Diamond dependency pattern test")
-            
+
             @cloaca.task(id="diamond_start")
             def diamond_start(context):
                 context.set("diamond_start_executed", True)
@@ -77,7 +77,7 @@ class TestComplexDependencyChains:
 
         with cloaca.WorkflowBuilder("fanout_dependency_workflow") as builder:
             builder.description("Fan-out dependency pattern test")
-            
+
             @cloaca.task(id="fanout_trigger")
             def fanout_trigger(context):
                 context.set("fanout_trigger_executed", True)
@@ -136,7 +136,7 @@ class TestComplexDependencyChains:
 
         with cloaca.WorkflowBuilder("fanin_dependency_workflow") as builder:
             builder.description("Fan-in dependency pattern test")
-            
+
             @cloaca.task(id="fanin_source_1")
             def fanin_source_1(context):
                 context.set("fanin_source_1_executed", True)
@@ -185,7 +185,7 @@ class TestComplexDependencyChains:
 
         with cloaca.WorkflowBuilder("chain_dependency_workflow") as builder:
             builder.description("Multi-level dependency chain test")
-            
+
             @cloaca.task(id="chain_level_1")
             def chain_level_1(context):
                 context.set("chain_level_1_executed", True)
@@ -234,7 +234,7 @@ class TestComplexDependencyChains:
 
         with cloaca.WorkflowBuilder("mixed_dependency_workflow") as builder:
             builder.description("Complex mixed dependency pattern test")
-            
+
             @cloaca.task(id="mixed_start")
             def mixed_start(context):
                 context.set("mixed_start_executed", True)

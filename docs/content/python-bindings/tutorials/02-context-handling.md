@@ -59,7 +59,7 @@ import cloaca
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("context_basics") as builder:
     builder.description("Basic context operations")
-    
+
     @cloaca.task(id="context_basics")
     def context_basics(context):
         """Demonstrate basic context operations."""
@@ -92,7 +92,7 @@ from datetime import datetime
 # Create data transformation pipeline using workflow-scoped pattern
 with cloaca.WorkflowBuilder("data_pipeline") as builder:
     builder.description("Complete data extraction, transformation, validation, and reporting pipeline")
-    
+
     # Data transformation pipeline - tasks defined within workflow scope
     @cloaca.task(id="extract_data")
     def extract_data(context):

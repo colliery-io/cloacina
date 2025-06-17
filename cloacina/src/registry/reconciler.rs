@@ -568,11 +568,11 @@ impl RegistryReconciler {
             // Use workflow_id as the workflow name for registration
             let workflow_name = workflow_id.clone();
 
-            // Call the workflow constructor FFI function from the package
-            let _workflow = self.create_workflow_from_package(
-                package_data,
-                &self.config.default_tenant_id,
+            // Create the workflow directly using host registries (avoid FFI isolation issues)
+            let workflow = self.create_workflow_from_host_registry(
+                &metadata.package_name,
                 &workflow_id,
+                &self.config.default_tenant_id,
             )?;
 
             // Register workflow constructor with global workflow registry
@@ -584,30 +584,29 @@ impl RegistryReconciler {
                         message: format!("Failed to access workflow registry: {}", e),
                     })?;
 
-            // Create a constructor that calls the package's FFI function
+            // Create a constructor that recreates the workflow from host registry each time
             let workflow_name_for_closure = workflow_name.clone();
-            let package_data_for_closure = package_data.to_vec();
-            let tenant_id_for_closure = self.config.default_tenant_id.clone();
+            let package_name_for_closure = metadata.package_name.clone();
             let workflow_id_for_closure = workflow_id.clone();
+            let tenant_id_for_closure = self.config.default_tenant_id.clone();
 
             registry.insert(
                 workflow_name.clone(),
                 Box::new(move || {
                     debug!(
-                        "Creating workflow instance for {} using FFI constructor",
+                        "Creating workflow instance for {} using host registry",
                         workflow_name_for_closure
                     );
 
-                    // We could store the workflow and clone it, but for now we'll create a new one each time
-                    // In a real implementation, we might want to cache the created workflow
-                    match Self::call_workflow_constructor_ffi(
-                        &package_data_for_closure,
-                        &tenant_id_for_closure,
+                    // Recreate the workflow from the host task registry each time
+                    match Self::create_workflow_from_host_registry_static(
+                        &package_name_for_closure,
                         &workflow_id_for_closure,
+                        &tenant_id_for_closure,
                     ) {
                         Ok(workflow) => workflow,
                         Err(e) => {
-                            error!("Failed to create workflow from FFI constructor: {}", e);
+                            error!("Failed to create workflow from host registry: {}", e);
                             // Fallback to empty workflow
                             crate::workflow::Workflow::new(&workflow_name_for_closure)
                         }
@@ -630,7 +629,116 @@ impl RegistryReconciler {
         }
     }
 
-    /// Create a workflow from a package using its FFI constructor function
+    /// Create a workflow using the host's global task registry (avoiding FFI isolation)
+    fn create_workflow_from_host_registry(
+        &self,
+        package_name: &str,
+        workflow_id: &str,
+        tenant_id: &str,
+    ) -> Result<crate::workflow::Workflow, RegistryError> {
+        // Create workflow and add registered tasks from host registry
+        let mut workflow = crate::workflow::Workflow::new(workflow_id);
+        workflow.set_tenant(tenant_id);
+        workflow.set_package(package_name);
+
+        // Add tasks from the host's global task registry
+        let task_registry = crate::task::global_task_registry();
+        let registry = task_registry
+            .read()
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to access task registry: {}", e),
+            })?;
+
+        let mut found_tasks = 0;
+        for (namespace, task_constructor) in registry.iter() {
+            // Only include tasks from this package, workflow, and tenant
+            if namespace.package_name == package_name
+                && namespace.workflow_id == workflow_id
+                && namespace.tenant_id == tenant_id
+            {
+                let task = task_constructor();
+                workflow
+                    .add_task(task)
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "Failed to add task {} to workflow: {:?}",
+                            namespace.task_id, e
+                        ),
+                    })?;
+                found_tasks += 1;
+            }
+        }
+
+        debug!(
+            "Created workflow '{}' with {} tasks from host registry",
+            workflow_id, found_tasks
+        );
+
+        // Validate and finalize the workflow
+        workflow
+            .validate()
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Workflow validation failed: {:?}", e),
+            })?;
+
+        Ok(workflow.finalize())
+    }
+
+    /// Static version of create_workflow_from_host_registry for use in closures
+    fn create_workflow_from_host_registry_static(
+        package_name: &str,
+        workflow_id: &str,
+        tenant_id: &str,
+    ) -> Result<crate::workflow::Workflow, RegistryError> {
+        // Create workflow and add registered tasks from host registry
+        let mut workflow = crate::workflow::Workflow::new(workflow_id);
+        workflow.set_tenant(tenant_id);
+        workflow.set_package(package_name);
+
+        // Add tasks from the host's global task registry
+        let task_registry = crate::task::global_task_registry();
+        let registry = task_registry
+            .read()
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to access task registry: {}", e),
+            })?;
+
+        let mut found_tasks = 0;
+        for (namespace, task_constructor) in registry.iter() {
+            // Only include tasks from this package, workflow, and tenant
+            if namespace.package_name == package_name
+                && namespace.workflow_id == workflow_id
+                && namespace.tenant_id == tenant_id
+            {
+                let task = task_constructor();
+                workflow
+                    .add_task(task)
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "Failed to add task {} to workflow: {:?}",
+                            namespace.task_id, e
+                        ),
+                    })?;
+                found_tasks += 1;
+            }
+        }
+
+        debug!(
+            "Created workflow '{}' with {} tasks from host registry (static)",
+            workflow_id, found_tasks
+        );
+
+        // Validate and finalize the workflow
+        workflow
+            .validate()
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Workflow validation failed: {:?}", e),
+            })?;
+
+        Ok(workflow.finalize())
+    }
+
+    /// Create a workflow from a package using its FFI constructor function (legacy method)
     fn create_workflow_from_package(
         &self,
         package_data: &[u8],

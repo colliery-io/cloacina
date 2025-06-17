@@ -19,7 +19,7 @@ class TestSingleTaskWorkflowExecution:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("context_manipulation_workflow") as builder:
             builder.description("Context manipulation test")
-            
+
             @cloaca.task(id="context_manipulation_task")
             def context_manipulation_task(context):
                 # Read input

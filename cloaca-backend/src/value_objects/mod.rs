@@ -14,10 +14,10 @@
  *  limitations under the License.
  */
 
-pub mod namespace;
 pub mod context;
+pub mod namespace;
 pub mod retry;
 
-pub use namespace::PyTaskNamespace;
 pub use context::PyWorkflowContext;
-pub use retry::{PyRetryPolicy, PyRetryPolicyBuilder, PyBackoffStrategy, PyRetryCondition};
+pub use namespace::PyTaskNamespace;
+pub use retry::{PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder};

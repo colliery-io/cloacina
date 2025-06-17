@@ -247,6 +247,19 @@ impl ThreadTaskExecutor {
         claimed_task: &ClaimedTask,
         dependencies: &[crate::task::TaskNamespace],
     ) -> Result<Context<serde_json::Value>, ExecutorError> {
+        // Debug: Log dependencies for troubleshooting
+        tracing::debug!(
+            "Building context for task '{}' with {} dependencies: {:?}",
+            claimed_task.task_name,
+            dependencies.len(),
+            dependencies
+        );
+        eprintln!(
+            "DEBUG: Building context for task '{}' with {} dependencies: {:?}",
+            claimed_task.task_name,
+            dependencies.len(),
+            dependencies
+        );
         let execution_scope = ExecutionScope {
             pipeline_execution_id: claimed_task.pipeline_execution_id,
             task_execution_id: Some(claimed_task.task_execution_id),

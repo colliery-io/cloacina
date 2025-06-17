@@ -103,7 +103,7 @@ from typing import Dict, List, Any
 # Diamond Pattern: Fork-Join Processing
 with cloaca.WorkflowBuilder("complex_customer_analysis") as builder:
     # All tasks are automatically registered when defined within the WorkflowBuilder context
-    
+
     @cloaca.task(id="prepare_dataset")
     def prepare_dataset(context):
         """Prepare initial dataset for parallel processing."""

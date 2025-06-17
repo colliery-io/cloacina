@@ -12,7 +12,7 @@ import time
 # Daily report workflow
 with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics")
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
     @cloaca.task(id="daily_report")
     def daily_report(context):
@@ -36,7 +36,7 @@ with cloaca.WorkflowBuilder("daily_report") as builder:
 # Backup workflow
 with cloaca.WorkflowBuilder("system_backup") as builder:
     builder.description("System data backup")
-    
+
     @cloaca.task(id="system_backup")
     def system_backup(context):
         """Perform system backup."""
@@ -52,7 +52,7 @@ with cloaca.WorkflowBuilder("system_backup") as builder:
 # Cleanup workflow
 with cloaca.WorkflowBuilder("data_cleanup") as builder:
     builder.description("Data cleanup and maintenance")
-    
+
     @cloaca.task(id="data_cleanup")
     def data_cleanup(context):
         """Clean up old data."""
@@ -74,7 +74,7 @@ with cloaca.WorkflowBuilder("data_cleanup") as builder:
 # Health check workflow
 with cloaca.WorkflowBuilder("health_check") as builder:
     builder.description("System health monitoring")
-    
+
     @cloaca.task(id="health_check")
     def health_check(context):
         """Perform system health check."""

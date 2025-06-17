@@ -159,7 +159,10 @@ impl PyBackoffStrategy {
                 format!("BackoffStrategy.Linear(multiplier={})", multiplier)
             }
             cloacina::retry::BackoffStrategy::Exponential { base, multiplier } => {
-                format!("BackoffStrategy.Exponential(base={}, multiplier={})", base, multiplier)
+                format!(
+                    "BackoffStrategy.Exponential(base={}, multiplier={})",
+                    base, multiplier
+                )
             }
             cloacina::retry::BackoffStrategy::Custom { function_name } => {
                 format!("BackoffStrategy.Custom(function_name='{}')", function_name)
@@ -206,7 +209,9 @@ impl PyRetryCondition {
     pub fn __repr__(&self) -> String {
         match &self.inner {
             cloacina::retry::RetryCondition::Never => "RetryCondition.Never".to_string(),
-            cloacina::retry::RetryCondition::TransientOnly => "RetryCondition.TransientOnly".to_string(),
+            cloacina::retry::RetryCondition::TransientOnly => {
+                "RetryCondition.TransientOnly".to_string()
+            }
             cloacina::retry::RetryCondition::AllErrors => "RetryCondition.AllErrors".to_string(),
             cloacina::retry::RetryCondition::ErrorPattern { patterns } => {
                 format!("RetryCondition.ErrorPattern(patterns={:?})", patterns)

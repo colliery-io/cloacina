@@ -20,7 +20,7 @@ class TestParameterizedWorkflows:
         with cloaca.WorkflowBuilder("parameterized_test_workflow") as builder:
             builder.description("Parameterized workflow: parameterized_test_workflow")
             builder.tag("type", "parameterized")
-            
+
             # Define parameterized task factory that works within workflow context
             def create_parameterized_task(task_id, multiplier):
                 @cloaca.task(id=task_id)
@@ -31,7 +31,7 @@ class TestParameterizedWorkflows:
                     context.set(f"{task_id}_multiplier", multiplier)
                     return context
                 return parameterized_task
-            
+
             # Create tasks with different parameters within workflow context
             task_double = create_parameterized_task("param_task_double", 2)
             task_triple = create_parameterized_task("param_task_triple", 3)

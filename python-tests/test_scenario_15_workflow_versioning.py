@@ -23,7 +23,7 @@ class TestWorkflowVersioning:
         with cloaca.WorkflowBuilder("version_test_workflow") as builder:
             builder.description("Workflow for versioning test")
             builder.tag("type", "version_test")
-            
+
             @cloaca.task(id="version_test_task_1")
             def version_test_task_1(context):
                 context.set("task_1_executed", True)
@@ -37,7 +37,7 @@ class TestWorkflowVersioning:
         # Execute the workflow to ensure it was registered correctly
         context = cloaca.Context({"test_type": "version_test"})
         result = shared_runner.execute("version_test_workflow", context)
-        
+
         assert result is not None
         assert result.status == "Completed"
         print("✓ Workflow registered and executed successfully")
@@ -49,7 +49,7 @@ class TestWorkflowVersioning:
             builder.description("Different workflow for versioning test")
             builder.tag("type", "version_test")
             builder.tag("variant", "different")
-            
+
             @cloaca.task(id="version_test_task_1")
             def version_test_task_1(context):
                 context.set("task_1_executed", True)
@@ -69,7 +69,7 @@ class TestWorkflowVersioning:
         # Execute the second workflow
         context = cloaca.Context({"test_type": "version_test_v2"})
         result = shared_runner.execute("version_test_workflow_v2", context)
-        
+
         assert result is not None
         assert result.status == "Completed"
         print("✓ Multiple workflow versions can coexist")
@@ -80,7 +80,7 @@ class TestWorkflowVersioning:
         with cloaca.WorkflowBuilder("version_test_workflow_replace") as builder:
             builder.description("Original workflow")
             builder.tag("version", "original")
-            
+
             @cloaca.task(id="original_task")
             def original_task(context):
                 context.set("version", "original")
@@ -96,7 +96,7 @@ class TestWorkflowVersioning:
         with cloaca.WorkflowBuilder("version_test_workflow_replace") as builder:
             builder.description("Replaced workflow")
             builder.tag("version", "replaced")
-            
+
             @cloaca.task(id="replaced_task")
             def replaced_task(context):
                 context.set("version", "replaced")

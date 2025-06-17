@@ -33,7 +33,7 @@ from typing import Dict, Optional
 # Create tenant onboarding workflow
 with cloaca.WorkflowBuilder("tenant_onboarding") as builder:
     builder.description("New tenant onboarding workflow")
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
     @cloaca.task(id="tenant_onboarding")
     def tenant_onboarding(context):
@@ -78,7 +78,7 @@ with cloaca.WorkflowBuilder("tenant_onboarding") as builder:
 # Create tenant data processing workflow
 with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
     builder.description("Tenant-specific data processing and reporting")
-    
+
     @cloaca.task(id="process_tenant_data")
     def process_tenant_data(context):
         """Process tenant-specific data."""

@@ -23,7 +23,7 @@ class TestSimpleWorkflowExecution:
         # Create workflow using context manager
         with cloaca.WorkflowBuilder("simple_workflow") as builder:
             builder.description("Simple workflow test")
-            
+
             @cloaca.task(id="simple_task")
             def simple_task(context):
                 context.set("task_executed", True)

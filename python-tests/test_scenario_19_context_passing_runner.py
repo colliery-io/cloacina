@@ -19,7 +19,7 @@ class TestContextPassingRunner:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("context_pass_workflow") as builder:
             builder.description("Context passing test")
-            
+
             @cloaca.task(id="context_pass_task")
             def context_pass_task(context):
                 # Read initial data

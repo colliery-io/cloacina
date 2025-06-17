@@ -20,7 +20,7 @@ class TestMultiTaskWorkflowDependenciesBuilder:
         with cloaca.WorkflowBuilder("complex_builder_workflow") as builder:
             builder.description("Multi-stage pipeline with dependencies")
             builder.tag("complexity", "high")
-            
+
             # Define multiple tasks within workflow context
             @cloaca.task(id="builder_init_task")
             def builder_init_task(context):

@@ -20,7 +20,7 @@ class TestSuccessValidationRunner:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("success_validation_workflow") as builder:
             builder.description("Success validation test")
-            
+
             @cloaca.task(id="success_validation_task")
             def success_validation_task(context):
                 # Record execution details

@@ -19,7 +19,7 @@ class TestMultipleWorkflowExecutionRunner:
         # Create workflow A using workflow-scoped pattern
         with cloaca.WorkflowBuilder("sequential_test_workflow_a") as builder:
             builder.description("Sequential test workflow A")
-            
+
             @cloaca.task(id="workflow_a_task")
             def workflow_a_task(context):
                 context.set("workflow_a_executed", True)
@@ -28,7 +28,7 @@ class TestMultipleWorkflowExecutionRunner:
         # Create workflow B using workflow-scoped pattern
         with cloaca.WorkflowBuilder("sequential_test_workflow_b") as builder:
             builder.description("Sequential test workflow B")
-            
+
             @cloaca.task(id="workflow_b_task")
             def workflow_b_task(context):
                 context.set("workflow_b_executed", True)
@@ -37,7 +37,7 @@ class TestMultipleWorkflowExecutionRunner:
         # Create workflow C using workflow-scoped pattern
         with cloaca.WorkflowBuilder("sequential_test_workflow_c") as builder:
             builder.description("Sequential test workflow C")
-            
+
             @cloaca.task(id="workflow_c_task")
             def workflow_c_task(context):
                 context.set("workflow_c_executed", True)

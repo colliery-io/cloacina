@@ -28,7 +28,7 @@ from datetime import datetime
 # Build the complete data transformation pipeline using workflow-scoped pattern
 with cloaca.WorkflowBuilder("data_pipeline") as builder:
     builder.description("Complete data extraction, transformation, validation, and reporting pipeline")
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
     @cloaca.task(id="extract_data")
     def extract_data(context):

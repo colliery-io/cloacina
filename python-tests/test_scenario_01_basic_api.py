@@ -265,12 +265,12 @@ class TestTaskDecorator:
             def dep1_task(context):
                 context.set("dep1_executed", True)
                 return context
-            
+
             @cloaca.task(id="dep2")
             def dep2_task(context):
                 context.set("dep2_executed", True)
                 return context
-            
+
             @cloaca.task(id="task_with_deps", dependencies=["dep1", "dep2"])
             def task_with_deps(context):
                 context.set("deps_task_executed", True)
@@ -412,11 +412,11 @@ class TestWorkflowBuilder:
 
         # Create workflow to test after context exit
         workflow_data = {}
-        
+
         # Task decorator now requires WorkflowBuilder context
         with cloaca.WorkflowBuilder("task_workflow") as builder:
             builder.description("Workflow with tasks")
-            
+
             # Register some tasks first - they're automatically added to workflow
             @cloaca.task(id="workflow_task_1")
             def task1(context):
@@ -431,11 +431,11 @@ class TestWorkflowBuilder:
             # Store workflow info for testing (can't access workflow object after context exits)
             workflow_data['name'] = "task_workflow"  # We know the name from the builder constructor
             workflow_data['description'] = "Workflow with tasks"
-        
+
         # Test workflow was created properly (basic validation)
         assert workflow_data['name'] == "task_workflow"
         assert workflow_data['description'] == "Workflow with tasks"
-        
+
         # Since we can't access the workflow object directly in the new pattern,
         # this test validates the workflow was properly constructed
         # Full workflow validation would require execution testing

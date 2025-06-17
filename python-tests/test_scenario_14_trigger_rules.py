@@ -21,7 +21,7 @@ class TestTriggerRules:
 
         with cloaca.WorkflowBuilder("all_success_workflow") as builder:
             builder.description("All success trigger rule test")
-            
+
             @cloaca.task(id="success_dep_1")
             def success_dep_1(context):
                 context.set("success_dep_1_executed", True)
@@ -52,7 +52,7 @@ class TestTriggerRules:
 
         with cloaca.WorkflowBuilder("one_success_workflow") as builder:
             builder.description("One success trigger rule simulation")
-            
+
             @cloaca.task(id="condition_source_1")
             def condition_source_1(context):
                 context.set("condition_source_1_executed", True)
@@ -93,7 +93,7 @@ class TestTriggerRules:
 
         with cloaca.WorkflowBuilder("none_failed_workflow") as builder:
             builder.description("None failed trigger rule simulation")
-            
+
             @cloaca.task(id="none_failed_dep_1")
             def none_failed_dep_1(context):
                 context.set("none_failed_dep_1_executed", True)
@@ -134,7 +134,7 @@ class TestTriggerRules:
 
         with cloaca.WorkflowBuilder("complex_trigger_workflow") as builder:
             builder.description("Complex trigger condition patterns")
-            
+
             @cloaca.task(id="complex_source_a")
             def complex_source_a(context):
                 context.set("complex_source_a_executed", True)
@@ -190,7 +190,7 @@ class TestTriggerRules:
 
         with cloaca.WorkflowBuilder("validation_trigger_workflow") as builder:
             builder.description("Trigger rule dependency validation")
-            
+
             @cloaca.task(id="validation_dep_1")
             def validation_dep_1(context):
                 context.set("validation_dep_1_executed", True)

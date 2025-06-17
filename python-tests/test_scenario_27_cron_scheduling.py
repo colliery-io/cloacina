@@ -20,7 +20,7 @@ class TestCronScheduling:
         # Register test workflow
         with cloaca.WorkflowBuilder("cron_test_workflow") as builder:
             builder.description("Test workflow for cron scheduling")
-            
+
             @cloaca.task(id="cron_test_task_1")
             def cron_test_task_1(context):
                 context.set("cron_task_1_executed", True)
