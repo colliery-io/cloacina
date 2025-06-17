@@ -39,8 +39,8 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
-use crate::task::get_task_by_id;
-use crate::{Context, Database, Task, TaskRegistry};
+use crate::task::get_task;
+use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
 
 /// ThreadTaskExecutor is a thread-based implementation of task execution.
@@ -214,13 +214,15 @@ impl ThreadTaskExecutor {
             };
 
             // Get task from global registry to determine dependencies
-            let task = get_task_by_id(&claimed_task.task_name)
+            let namespace = parse_namespace(&claimed_task.task_name)
+                .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+            let task = get_task(&namespace)
                 .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-            let dependencies = task.dependencies().to_vec();
+            let dependencies = task.dependencies();
 
             // Build context using DAL methods
             let context = self
-                .build_task_context(&claimed_task, &dependencies)
+                .build_task_context(&claimed_task, dependencies)
                 .await?;
 
             info!(
@@ -245,7 +247,7 @@ impl ThreadTaskExecutor {
     async fn build_task_context(
         &self,
         claimed_task: &ClaimedTask,
-        dependencies: &[String],
+        dependencies: &[crate::task::TaskNamespace],
     ) -> Result<Context<serde_json::Value>, ExecutorError> {
         let execution_scope = ExecutionScope {
             pipeline_execution_id: claimed_task.pipeline_execution_id,
@@ -296,6 +298,7 @@ impl ThreadTaskExecutor {
         // Batch load dependency contexts in a single query (eager loading strategy)
         // This provides better performance for tasks that access many dependency values
         if !dependencies.is_empty() {
+            debug!("Loading dependency contexts for {} dependencies: {:?}", dependencies.len(), dependencies);
             if let Ok(dep_metadata_with_contexts) = self
                 .dal
                 .task_execution_metadata()
@@ -305,10 +308,14 @@ impl ThreadTaskExecutor {
                 )
                 .await
             {
+                debug!("Found {} dependency metadata records", dep_metadata_with_contexts.len());
                 for (_task_metadata, context_json) in dep_metadata_with_contexts {
                     if let Some(json_str) = context_json {
                         // Parse the JSON context data
                         if let Ok(dep_context) = Context::<serde_json::Value>::from_json(json_str) {
+                            debug!("Merging dependency context with {} keys: {:?}", 
+                                   dep_context.data().len(), 
+                                   dep_context.data().keys().collect::<Vec<_>>());
                             // Merge context data (smart merging strategy)
                             for (key, value) in dep_context.data() {
                                 if let Some(existing_value) = context.get(key) {
@@ -321,12 +328,20 @@ impl ThreadTaskExecutor {
                                     let _ = context.insert(key, value.clone());
                                 }
                             }
+                        } else {
+                            debug!("Failed to parse dependency context JSON");
                         }
                     }
                 }
+            } else {
+                debug!("Failed to load dependency metadata for dependencies: {:?}", dependencies);
             }
         }
 
+        debug!("Final context for task {} has {} keys: {:?}", 
+               claimed_task.task_name, 
+               context.data().len(),
+               context.data().keys().collect::<Vec<_>>());
         Ok(context)
     }
 
@@ -394,7 +409,9 @@ impl ThreadTaskExecutor {
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
         // 1. Resolve task from global registry
-        let task = get_task_by_id(&claimed_task.task_name)
+        let namespace = parse_namespace(&claimed_task.task_name)
+            .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+        let task = get_task(&namespace)
             .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
 
         // 2. Execute task with pre-loaded context (skip context building)
@@ -455,7 +472,9 @@ impl ThreadTaskExecutor {
             }
             Err(error) => {
                 // Get task retry policy to determine if we should retry
-                let task = get_task_by_id(&claimed_task.task_name)
+                let namespace = parse_namespace(&claimed_task.task_name)
+                    .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
+                let task = get_task(&namespace)
                     .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
                 let retry_policy = task.retry_policy();
 

@@ -147,25 +147,21 @@ def test_tenant_isolation():
     runners = create_tenant_runners()
 
     # Define a simple workflow
-    @cloaca.task(id="tenant_task")
-    def tenant_task(context):
-        tenant_id = context.get("tenant_id")
-        timestamp = datetime.now().isoformat()
-
-        context.set("task_executed_at", timestamp)
-        context.set("tenant_specific_data", f"Data for {tenant_id}")
-
-        print(f"Task executed for tenant: {tenant_id}")
-        return context
-
-    def create_tenant_workflow():
-        builder = cloaca.WorkflowBuilder("tenant_isolation_test")
+    with cloaca.WorkflowBuilder("tenant_isolation_test") as builder:
         builder.description("Test workflow for tenant isolation")
-        builder.add_task("tenant_task")
-        return builder.build()
+        
+        @cloaca.task(id="tenant_task")
+        def tenant_task(context):
+            tenant_id = context.get("tenant_id")
+            timestamp = datetime.now().isoformat()
 
-    # Register workflow (shared across all tenants)
-    cloaca.register_workflow_constructor("tenant_isolation_test", create_tenant_workflow)
+            context.set("task_executed_at", timestamp)
+            context.set("tenant_specific_data", f"Data for {tenant_id}")
+
+            print(f"Task executed for tenant: {tenant_id}")
+            return context
+        
+        # Task is automatically registered when defined within WorkflowBuilder context
 
     # Execute workflow for each tenant
     results = {}
@@ -277,31 +273,28 @@ def demonstrate_tenant_manager():
     manager = TenantManager(database_url)
 
     # Define multi-tenant workflow
-    @cloaca.task(id="process_tenant_data")
-    def process_tenant_data(context):
-        tenant_id = context.get("tenant_id")
-        data_type = context.get("data_type", "default")
-
-        # Simulate tenant-specific processing
-        processed_data = {
-            "tenant": tenant_id,
-            "type": data_type,
-            "processed_at": datetime.now().isoformat(),
-            "status": "completed"
-        }
-
-        context.set("processed_data", processed_data)
-        print(f"Processed {data_type} data for tenant {tenant_id}")
-
-        return context
-
-    def create_tenant_workflow():
-        builder = cloaca.WorkflowBuilder("tenant_data_processing")
+    with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
         builder.description("Multi-tenant data processing workflow")
-        builder.add_task("process_tenant_data")
-        return builder.build()
+        
+        @cloaca.task(id="process_tenant_data")
+        def process_tenant_data(context):
+            tenant_id = context.get("tenant_id")
+            data_type = context.get("data_type", "default")
 
-    cloaca.register_workflow_constructor("tenant_data_processing", create_tenant_workflow)
+            # Simulate tenant-specific processing
+            processed_data = {
+                "tenant": tenant_id,
+                "type": data_type,
+                "processed_at": datetime.now().isoformat(),
+                "status": "completed"
+            }
+
+            context.set("processed_data", processed_data)
+            print(f"Processed {data_type} data for tenant {tenant_id}")
+
+            return context
+        
+        # Task is automatically registered when defined within WorkflowBuilder context
 
     # Simulate multiple tenants with different workloads
     tenant_workloads = [
@@ -435,60 +428,57 @@ class ConfigurableTenantManager:
         self.runners.clear()
 
 # Tenant-aware workflow
-@cloaca.task(id="configurable_task")
-def configurable_task(context):
-    """Task that adapts behavior based on tenant configuration."""
-
-    tenant_config = context.get("tenant_config", {})
-    tenant_id = tenant_config.get("tenant_id", "unknown")
-    features = tenant_config.get("features", {})
-    limits = tenant_config.get("limits", {})
-    settings = tenant_config.get("settings", {})
-
-    print(f"Executing configurable task for {tenant_id}")
-
-    # Adapt behavior based on tenant features
-    processing_options = {
-        "basic_processing": True,
-        "advanced_analytics": features.get("advanced_analytics", False),
-        "real_time_processing": features.get("real_time", False),
-        "data_retention_days": settings.get("data_retention_days", 30)
-    }
-
-    # Respect tenant limits
-    max_items = limits.get("max_items_per_workflow", 1000)
-    input_data = context.get("input_data", [])
-
-    if len(input_data) > max_items:
-        limited_data = input_data[:max_items]
-        context.set("data_limited", True)
-        context.set("original_count", len(input_data))
-        context.set("processed_count", len(limited_data))
-        print(f"Limited processing to {max_items} items for {tenant_id}")
-    else:
-        limited_data = input_data
-        context.set("data_limited", False)
-        context.set("processed_count", len(limited_data))
-
-    # Process with tenant-specific options
-    result = {
-        "tenant_id": tenant_id,
-        "processing_options": processing_options,
-        "items_processed": len(limited_data),
-        "features_used": [k for k, v in features.items() if v],
-        "completed_at": datetime.now().isoformat()
-    }
-
-    context.set("processing_result", result)
-    return context
-
-def create_configurable_workflow():
-    builder = cloaca.WorkflowBuilder("configurable_tenant_workflow")
+with cloaca.WorkflowBuilder("configurable_tenant_workflow") as builder:
     builder.description("Workflow that adapts to tenant configuration")
-    builder.add_task("configurable_task")
-    return builder.build()
+    
+    @cloaca.task(id="configurable_task")
+    def configurable_task(context):
+        """Task that adapts behavior based on tenant configuration."""
 
-cloaca.register_workflow_constructor("configurable_tenant_workflow", create_configurable_workflow)
+        tenant_config = context.get("tenant_config", {})
+        tenant_id = tenant_config.get("tenant_id", "unknown")
+        features = tenant_config.get("features", {})
+        limits = tenant_config.get("limits", {})
+        settings = tenant_config.get("settings", {})
+
+        print(f"Executing configurable task for {tenant_id}")
+
+        # Adapt behavior based on tenant features
+        processing_options = {
+            "basic_processing": True,
+            "advanced_analytics": features.get("advanced_analytics", False),
+            "real_time_processing": features.get("real_time", False),
+            "data_retention_days": settings.get("data_retention_days", 30)
+        }
+
+        # Respect tenant limits
+        max_items = limits.get("max_items_per_workflow", 1000)
+        input_data = context.get("input_data", [])
+
+        if len(input_data) > max_items:
+            limited_data = input_data[:max_items]
+            context.set("data_limited", True)
+            context.set("original_count", len(input_data))
+            context.set("processed_count", len(limited_data))
+            print(f"Limited processing to {max_items} items for {tenant_id}")
+        else:
+            limited_data = input_data
+            context.set("data_limited", False)
+            context.set("processed_count", len(limited_data))
+
+        # Process with tenant-specific options
+        result = {
+            "tenant_id": tenant_id,
+            "processing_options": processing_options,
+            "items_processed": len(limited_data),
+            "features_used": [k for k, v in features.items() if v],
+            "completed_at": datetime.now().isoformat()
+        }
+
+        context.set("processing_result", result)
+        return context
+    
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 # Demonstration
 def demonstrate_configurable_tenants():
@@ -845,26 +835,23 @@ def demonstrate_tenant_recovery():
     # Step 1: Create tenant and start a long-running workflow
     print("Step 1: Starting workflow for tenant...")
 
-    @cloaca.task(id="long_running_task")
-    def long_running_task(context):
-        tenant_id = context.get("tenant_id")
-        print(f"Long-running task started for {tenant_id}")
-
-        # Simulate work that might be interrupted
-        context.set("task_started", datetime.now().isoformat())
-        context.set("progress", "50%")
-
-        # This task would normally take a long time
-        # In real scenarios, this might be interrupted by server restart
-        return context
-
-    def create_recovery_workflow():
-        builder = cloaca.WorkflowBuilder("recovery_test_workflow")
+    with cloaca.WorkflowBuilder("recovery_test_workflow") as builder:
         builder.description("Workflow for testing recovery")
-        builder.add_task("long_running_task")
-        return builder.build()
+        
+        @cloaca.task(id="long_running_task")
+        def long_running_task(context):
+            tenant_id = context.get("tenant_id")
+            print(f"Long-running task started for {tenant_id}")
 
-    cloaca.register_workflow_constructor("recovery_test_workflow", create_recovery_workflow)
+            # Simulate work that might be interrupted
+            context.set("task_started", datetime.now().isoformat())
+            context.set("progress", "50%")
+
+            # This task would normally take a long time
+            # In real scenarios, this might be interrupted by server restart
+            return context
+        
+        # Task is automatically registered when defined within WorkflowBuilder context
 
     # First runner - simulate this gets interrupted
     tenant_id = "recovery_test_tenant"

@@ -29,148 +29,137 @@ import random
 from datetime import datetime
 from typing import Dict, Optional
 
-# Multi-tenant workflow definitions
-@cloaca.task(id="tenant_onboarding")
-def tenant_onboarding(context):
-    """Handle new tenant onboarding workflow."""
-    print("Starting tenant onboarding...")
-
-    tenant_info = context.get("tenant_info", {})
-    tenant_id = tenant_info.get("tenant_id", "unknown")
-
-    # Simulate onboarding steps
-    onboarding_steps = [
-        "account_creation",
-        "initial_configuration",
-        "data_migration",
-        "user_setup",
-        "integration_configuration"
-    ]
-
-    completed_steps = []
-    for step in onboarding_steps:
-        # Simulate step execution (would be real operations in production)
-        print(f"  Executing step: {step}")
-        completed_steps.append({
-            "step": step,
-            "completed_at": datetime.now().isoformat(),
-            "status": "completed"
-        })
-
-    onboarding_result = {
-        "tenant_id": tenant_id,
-        "onboarding_started": context.get("onboarding_started", datetime.now().isoformat()),
-        "onboarding_completed": datetime.now().isoformat(),
-        "steps_completed": completed_steps,
-        "total_steps": len(onboarding_steps),
-        "status": "completed"
-    }
-
-    context.set("onboarding_result", onboarding_result)
-    print(f"Tenant {tenant_id} onboarding completed")
-    return context
-
-@cloaca.task(id="process_tenant_data")
-def process_tenant_data(context):
-    """Process tenant-specific data."""
-    print("Processing tenant data...")
-
-    tenant_info = context.get("tenant_info", {})
-    tenant_id = tenant_info.get("tenant_id", "unknown")
-
-    # Simulate tenant data processing
-    data_volume = random.randint(100, 1000)
-    processing_time = data_volume * 0.01  # Simulate processing time
-
-    processed_data = {
-        "tenant_id": tenant_id,
-        "records_processed": data_volume,
-        "processing_time_seconds": processing_time,
-        "processed_at": datetime.now().isoformat(),
-        "data_categories": {
-            "user_data": random.randint(10, 100),
-            "transaction_data": random.randint(50, 500),
-            "configuration_data": random.randint(5, 50)
-        }
-    }
-
-    context.set("processed_data", processed_data)
-    print(f"Processed {data_volume} records for tenant {tenant_id}")
-    return context
-
-@cloaca.task(id="generate_tenant_report", dependencies=["process_tenant_data"])
-def generate_tenant_report(context):
-    """Generate tenant-specific analytics report."""
-    print("Generating tenant report...")
-
-    tenant_info = context.get("tenant_info", {})
-    processed_data = context.get("processed_data", {})
-    tenant_id = tenant_info.get("tenant_id", "unknown")
-
-    # Generate tenant-specific insights
-    total_records = processed_data.get("records_processed", 0)
-    categories = processed_data.get("data_categories", {})
-
-    analytics = {
-        "summary": {
-            "tenant_id": tenant_id,
-            "total_records": total_records,
-            "processing_efficiency": random.uniform(0.85, 0.98),
-            "data_quality_score": random.uniform(0.90, 1.0)
-        },
-        "breakdown": categories,
-        "insights": [],
-        "recommendations": [],
-        "generated_at": datetime.now().isoformat()
-    }
-
-    # Generate insights
-    insights = []
-    if categories.get("transaction_data", 0) > 300:
-        insights.append("High transaction volume detected - consider premium features")
-    if categories.get("user_data", 0) > 80:
-        insights.append("Growing user base - monitor performance metrics")
-
-    # Generate recommendations
-    recommendations = []
-    if total_records > 800:
-        recommendations.append("Consider upgrading to higher performance tier")
-    if analytics["summary"]["data_quality_score"] < 0.95:
-        recommendations.append("Review data validation processes")
-
-    analytics["insights"] = insights
-    analytics["recommendations"] = recommendations
-
-    tenant_report = {
-        "tenant_id": tenant_id,
-        "report_type": "analytics",
-        "analytics": analytics,
-        "report_generated_at": datetime.now().isoformat()
-    }
-
-    context.set("tenant_report", tenant_report)
-    print(f"Report generated for tenant {tenant_id}")
-    return context
-
-# Create workflow definitions
-def create_onboarding_workflow():
-    """Create tenant onboarding workflow."""
-    builder = cloaca.WorkflowBuilder("tenant_onboarding")
+# Multi-tenant workflow definitions using workflow-scoped pattern
+# Create tenant onboarding workflow
+with cloaca.WorkflowBuilder("tenant_onboarding") as builder:
     builder.description("New tenant onboarding workflow")
-    builder.add_task("tenant_onboarding")
-    return builder.build()
+    
+    # Tasks are automatically registered when defined within WorkflowBuilder context
+    @cloaca.task(id="tenant_onboarding")
+    def tenant_onboarding(context):
+        """Handle new tenant onboarding workflow."""
+        print("Starting tenant onboarding...")
 
-def create_data_processing_workflow():
-    """Create tenant data processing workflow."""
-    builder = cloaca.WorkflowBuilder("tenant_data_processing")
+        tenant_info = context.get("tenant_info", {})
+        tenant_id = tenant_info.get("tenant_id", "unknown")
+
+        # Simulate onboarding steps
+        onboarding_steps = [
+            "account_creation",
+            "initial_configuration",
+            "data_migration",
+            "user_setup",
+            "integration_configuration"
+        ]
+
+        completed_steps = []
+        for step in onboarding_steps:
+            # Simulate step execution (would be real operations in production)
+            print(f"  Executing step: {step}")
+            completed_steps.append({
+                "step": step,
+                "completed_at": datetime.now().isoformat(),
+                "status": "completed"
+            })
+
+        onboarding_result = {
+            "tenant_id": tenant_id,
+            "onboarding_started": context.get("onboarding_started", datetime.now().isoformat()),
+            "onboarding_completed": datetime.now().isoformat(),
+            "steps_completed": completed_steps,
+            "total_steps": len(onboarding_steps),
+            "status": "completed"
+        }
+
+        context.set("onboarding_result", onboarding_result)
+        print(f"Tenant {tenant_id} onboarding completed")
+        return context
+
+# Create tenant data processing workflow
+with cloaca.WorkflowBuilder("tenant_data_processing") as builder:
     builder.description("Tenant-specific data processing and reporting")
-    builder.add_task("process_tenant_data")
-    builder.add_task("generate_tenant_report")
-    return builder.build()
+    
+    @cloaca.task(id="process_tenant_data")
+    def process_tenant_data(context):
+        """Process tenant-specific data."""
+        print("Processing tenant data...")
 
-# Register workflows
-cloaca.register_workflow_constructor("tenant_onboarding", create_onboarding_workflow)
-cloaca.register_workflow_constructor("tenant_data_processing", create_data_processing_workflow)
+        tenant_info = context.get("tenant_info", {})
+        tenant_id = tenant_info.get("tenant_id", "unknown")
+
+        # Simulate tenant data processing
+        data_volume = random.randint(100, 1000)
+        processing_time = data_volume * 0.01  # Simulate processing time
+
+        processed_data = {
+            "tenant_id": tenant_id,
+            "records_processed": data_volume,
+            "processing_time_seconds": processing_time,
+            "processed_at": datetime.now().isoformat(),
+            "data_categories": {
+                "user_data": random.randint(10, 100),
+                "transaction_data": random.randint(50, 500),
+                "configuration_data": random.randint(5, 50)
+            }
+        }
+
+        context.set("processed_data", processed_data)
+        print(f"Processed {data_volume} records for tenant {tenant_id}")
+        return context
+
+    @cloaca.task(id="generate_tenant_report", dependencies=["process_tenant_data"])
+    def generate_tenant_report(context):
+        """Generate tenant-specific analytics report."""
+        print("Generating tenant report...")
+
+        tenant_info = context.get("tenant_info", {})
+        processed_data = context.get("processed_data", {})
+        tenant_id = tenant_info.get("tenant_id", "unknown")
+
+        # Generate tenant-specific insights
+        total_records = processed_data.get("records_processed", 0)
+        categories = processed_data.get("data_categories", {})
+
+        analytics = {
+            "summary": {
+                "tenant_id": tenant_id,
+                "total_records": total_records,
+                "processing_efficiency": random.uniform(0.85, 0.98),
+                "data_quality_score": random.uniform(0.90, 1.0)
+            },
+            "breakdown": categories,
+            "insights": [],
+            "recommendations": [],
+            "generated_at": datetime.now().isoformat()
+        }
+
+        # Generate insights
+        insights = []
+        if categories.get("transaction_data", 0) > 300:
+            insights.append("High transaction volume detected - consider premium features")
+        if categories.get("user_data", 0) > 80:
+            insights.append("Growing user base - monitor performance metrics")
+
+        # Generate recommendations
+        recommendations = []
+        if total_records > 800:
+            recommendations.append("Consider upgrading to higher performance tier")
+        if analytics["summary"]["data_quality_score"] < 0.95:
+            recommendations.append("Review data validation processes")
+
+        analytics["insights"] = insights
+        analytics["recommendations"] = recommendations
+
+        tenant_report = {
+            "tenant_id": tenant_id,
+            "report_type": "analytics",
+            "analytics": analytics,
+            "report_generated_at": datetime.now().isoformat()
+        }
+
+        context.set("tenant_report", tenant_report)
+        print(f"Report generated for tenant {tenant_id}")
+        return context
 
 # Tenant Management System
 class TenantManager:

@@ -282,7 +282,7 @@ async fn final_report(context: &mut Context<serde_json::Value>) -> Result<(), Ta
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("tutorial_04=info,cloacina=info")
+        .with_env_filter("tutorial_04=info,cloacina=debug")
         .init();
 
     info!("Starting Tutorial 04: Error Handling and Retries");

@@ -117,7 +117,7 @@ fn extract_task_info_and_graph_from_library(
             Err(_) => {
                 // If that fails, try to find package-specific functions by reading package names from Cargo.toml
                 let cargo_toml_path = project_path.join("Cargo.toml");
-                let cargo_content = std::fs::read_to_string(&cargo_toml_path)
+                let _cargo_content = std::fs::read_to_string(&cargo_toml_path)
                     .context("Failed to read Cargo.toml for package name extraction")?;
 
                 // Look for packaged_workflow attributes in source files to find package names

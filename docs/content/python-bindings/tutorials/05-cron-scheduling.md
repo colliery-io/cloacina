@@ -51,36 +51,34 @@ import cloaca
 from datetime import datetime
 import time
 
-# Define a scheduled task
-@cloaca.task(id="daily_report")
-def daily_report(context):
-    """Generate daily business report."""
-    current_time = datetime.now()
-
-    # Simulate report generation
-    report_data = {
-        "generated_at": current_time.isoformat(),
-        "total_orders": 150,
-        "revenue": 12500.50,
-        "active_users": 89
-    }
-
-    print(f"📊 Daily Report Generated at {current_time}")
-    print(f"   Orders: {report_data['total_orders']}")
-    print(f"   Revenue: ${report_data['revenue']}")
-    print(f"   Users: {report_data['active_users']}")
-
-    context.set("report_data", report_data)
-    context.set("report_type", "daily")
-
-    return context
-
-def create_daily_report_workflow():
-    """Create the daily report workflow."""
-    builder = cloaca.WorkflowBuilder("daily_report")
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics report")
-    builder.add_task("daily_report")
-    return builder.build()
+    
+    # Define a scheduled task within workflow scope
+    @cloaca.task(id="daily_report")
+    def daily_report(context):
+        """Generate daily business report."""
+        current_time = datetime.now()
+
+        # Simulate report generation
+        report_data = {
+            "generated_at": current_time.isoformat(),
+            "total_orders": 150,
+            "revenue": 12500.50,
+            "active_users": 89
+        }
+
+        print(f"📊 Daily Report Generated at {current_time}")
+        print(f"   Orders: {report_data['total_orders']}")
+        print(f"   Revenue: ${report_data['revenue']}")
+        print(f"   Users: {report_data['active_users']}")
+
+        context.set("report_data", report_data)
+        context.set("report_type", "daily")
+
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 def basic_cron_scheduling():
     """Demonstrate basic cron scheduling."""
@@ -89,8 +87,7 @@ def basic_cron_scheduling():
     # Create runner with cron scheduling enabled
     runner = cloaca.DefaultRunner(":memory:")
 
-    # Register workflow
-    cloaca.register_workflow_constructor("daily_report", create_daily_report_workflow)
+    # Workflow is automatically registered when context exits
 
     # Create cron schedule
     schedule = cloaca.CronSchedule(
@@ -136,109 +133,118 @@ import cloaca
 from datetime import datetime, timezone
 import json
 
-@cloaca.task(id="data_backup")
-def data_backup(context):
-    """Perform database backup."""
-    backup_type = context.get("backup_type", "incremental")
-    timestamp = datetime.now().isoformat()
+# Create maintenance workflows using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("full_backup") as builder:
+    builder.description("Weekly full database backup")
+    
+    @cloaca.task(id="data_backup")
+    def data_backup(context):
+        """Perform database backup."""
+        backup_type = context.get("backup_type", "incremental")
+        timestamp = datetime.now().isoformat()
 
-    print(f"💾 Performing {backup_type} backup at {timestamp}")
+        print(f"💾 Performing {backup_type} backup at {timestamp}")
 
-    # Simulate backup process
-    if backup_type == "full":
-        print("   Full backup: All tables exported")
-        backup_size = "2.5GB"
-    else:
-        print("   Incremental backup: Changed records only")
-        backup_size = "150MB"
+        # Simulate backup process
+        if backup_type == "full":
+            print("   Full backup: All tables exported")
+            backup_size = "2.5GB"
+        else:
+            print("   Incremental backup: Changed records only")
+            backup_size = "150MB"
 
-    context.set("backup_completed_at", timestamp)
-    context.set("backup_size", backup_size)
-    context.set("backup_type", backup_type)
+        context.set("backup_completed_at", timestamp)
+        context.set("backup_size", backup_size)
+        context.set("backup_type", backup_type)
 
-    return context
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
-@cloaca.task(id="cleanup_logs")
-def cleanup_logs(context):
-    """Clean up old log files."""
-    retention_days = context.get("retention_days", 30)
-    timestamp = datetime.now().isoformat()
+with cloaca.WorkflowBuilder("incremental_backup") as builder:
+    builder.description("Daily incremental backup")
+    
+    @cloaca.task(id="data_backup")
+    def data_backup_incremental(context):
+        """Perform database backup."""
+        backup_type = context.get("backup_type", "incremental")
+        timestamp = datetime.now().isoformat()
 
-    print(f"🧹 Cleaning logs older than {retention_days} days at {timestamp}")
+        print(f"💾 Performing {backup_type} backup at {timestamp}")
 
-    # Simulate cleanup
-    files_removed = 47
-    space_freed = "1.2GB"
+        # Simulate backup process
+        if backup_type == "full":
+            print("   Full backup: All tables exported")
+            backup_size = "2.5GB"
+        else:
+            print("   Incremental backup: Changed records only")
+            backup_size = "150MB"
 
-    context.set("cleanup_completed_at", timestamp)
-    context.set("files_removed", files_removed)
-    context.set("space_freed", space_freed)
+        context.set("backup_completed_at", timestamp)
+        context.set("backup_size", backup_size)
+        context.set("backup_type", backup_type)
 
-    return context
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
-@cloaca.task(id="system_health_check")
-def system_health_check(context):
-    """Perform system health monitoring."""
-    timestamp = datetime.now().isoformat()
+with cloaca.WorkflowBuilder("log_cleanup") as builder:
+    builder.description("Weekly log file cleanup")
+    
+    @cloaca.task(id="cleanup_logs")
+    def cleanup_logs(context):
+        """Clean up old log files."""
+        retention_days = context.get("retention_days", 30)
+        timestamp = datetime.now().isoformat()
 
-    print(f"🏥 System health check at {timestamp}")
+        print(f"🧹 Cleaning logs older than {retention_days} days at {timestamp}")
 
-    # Simulate health checks
-    health_status = {
-        "cpu_usage": 45.2,
-        "memory_usage": 62.8,
-        "disk_usage": 73.1,
-        "active_connections": 234,
-        "response_time_ms": 145
-    }
+        # Simulate cleanup
+        files_removed = 47
+        space_freed = "1.2GB"
 
-    # Determine overall health
-    if health_status["cpu_usage"] > 80 or health_status["memory_usage"] > 90:
-        overall_status = "warning"
-    elif health_status["cpu_usage"] > 95 or health_status["memory_usage"] > 95:
-        overall_status = "critical"
-    else:
-        overall_status = "healthy"
+        context.set("cleanup_completed_at", timestamp)
+        context.set("files_removed", files_removed)
+        context.set("space_freed", space_freed)
 
-    print(f"   Status: {overall_status.upper()}")
-    print(f"   CPU: {health_status['cpu_usage']}%")
-    print(f"   Memory: {health_status['memory_usage']}%")
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
-    context.set("health_check_at", timestamp)
-    context.set("health_status", health_status)
-    context.set("overall_status", overall_status)
+with cloaca.WorkflowBuilder("health_check") as builder:
+    builder.description("Hourly system health monitoring")
+    
+    @cloaca.task(id="system_health_check")
+    def system_health_check(context):
+        """Perform system health monitoring."""
+        timestamp = datetime.now().isoformat()
 
-    return context
+        print(f"🏥 System health check at {timestamp}")
 
-def create_maintenance_workflows():
-    """Create various maintenance workflows."""
+        # Simulate health checks
+        health_status = {
+            "cpu_usage": 45.2,
+            "memory_usage": 62.8,
+            "disk_usage": 73.1,
+            "active_connections": 234,
+            "response_time_ms": 145
+        }
 
-    # Full backup workflow
-    full_backup_builder = cloaca.WorkflowBuilder("full_backup")
-    full_backup_builder.description("Weekly full database backup")
-    full_backup_builder.add_task("data_backup")
+        # Determine overall health
+        if health_status["cpu_usage"] > 80 or health_status["memory_usage"] > 90:
+            overall_status = "warning"
+        elif health_status["cpu_usage"] > 95 or health_status["memory_usage"] > 95:
+            overall_status = "critical"
+        else:
+            overall_status = "healthy"
 
-    # Incremental backup workflow
-    incremental_backup_builder = cloaca.WorkflowBuilder("incremental_backup")
-    incremental_backup_builder.description("Daily incremental backup")
-    incremental_backup_builder.add_task("data_backup")
+        print(f"   Status: {overall_status.upper()}")
+        print(f"   CPU: {health_status['cpu_usage']}%")
+        print(f"   Memory: {health_status['memory_usage']}%")
 
-    # Log cleanup workflow
-    cleanup_builder = cloaca.WorkflowBuilder("log_cleanup")
-    cleanup_builder.description("Weekly log file cleanup")
-    cleanup_builder.add_task("cleanup_logs")
+        context.set("health_check_at", timestamp)
+        context.set("health_status", health_status)
+        context.set("overall_status", overall_status)
 
-    # Health check workflow
-    health_builder = cloaca.WorkflowBuilder("health_check")
-    health_builder.description("Hourly system health monitoring")
-    health_builder.add_task("system_health_check")
-
-    return {
-        "full_backup": full_backup_builder.build(),
-        "incremental_backup": incremental_backup_builder.build(),
-        "log_cleanup": cleanup_builder.build(),
-        "health_check": health_builder.build()
-    }
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 def demonstrate_multiple_schedules():
     """Demonstrate multiple cron schedules for different maintenance tasks."""
@@ -247,10 +253,7 @@ def demonstrate_multiple_schedules():
     # Create runner
     runner = cloaca.DefaultRunner("sqlite:///:memory:")
 
-    # Register workflows
-    workflows = create_maintenance_workflows()
-    for name, workflow in workflows.items():
-        cloaca.register_workflow_constructor(name, lambda w=workflow: w)
+    # Workflows are automatically registered when WorkflowBuilder context exits
 
     # Define schedules with different patterns
     schedules = [
@@ -337,40 +340,38 @@ import cloaca
 from datetime import datetime, timezone, timedelta
 import time
 
-@cloaca.task(id="global_sync")
-def global_sync(context):
-    """Synchronize data across global regions."""
-    region = context.get("region", "unknown")
-    sync_type = context.get("sync_type", "delta")
-    current_time = datetime.now()
-
-    print(f"🌍 Global sync for {region} at {current_time}")
-    print(f"   Sync type: {sync_type}")
-
-    # Simulate region-specific processing
-    if region == "us-east":
-        records_synced = 15420
-    elif region == "eu-west":
-        records_synced = 8930
-    elif region == "asia-pacific":
-        records_synced = 12150
-    else:
-        records_synced = 5000
-
-    print(f"   Records synced: {records_synced}")
-
-    context.set("sync_completed_at", current_time.isoformat())
-    context.set("records_synced", records_synced)
-    context.set("region", region)
-
-    return context
-
-def create_global_sync_workflow():
-    """Create global synchronization workflow."""
-    builder = cloaca.WorkflowBuilder("global_sync")
+# Create global synchronization workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("global_sync") as builder:
     builder.description("Cross-region data synchronization")
-    builder.add_task("global_sync")
-    return builder.build()
+    
+    @cloaca.task(id="global_sync")
+    def global_sync(context):
+        """Synchronize data across global regions."""
+        region = context.get("region", "unknown")
+        sync_type = context.get("sync_type", "delta")
+        current_time = datetime.now()
+
+        print(f"🌍 Global sync for {region} at {current_time}")
+        print(f"   Sync type: {sync_type}")
+
+        # Simulate region-specific processing
+        if region == "us-east":
+            records_synced = 15420
+        elif region == "eu-west":
+            records_synced = 8930
+        elif region == "asia-pacific":
+            records_synced = 12150
+        else:
+            records_synced = 5000
+
+        print(f"   Records synced: {records_synced}")
+
+        context.set("sync_completed_at", current_time.isoformat())
+        context.set("records_synced", records_synced)
+        context.set("region", region)
+
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 def demonstrate_timezone_scheduling():
     """Demonstrate timezone-aware scheduling and recovery policies."""
@@ -379,8 +380,7 @@ def demonstrate_timezone_scheduling():
     # Create runner with recovery settings
     runner = cloaca.DefaultRunner("sqlite:///:memory:")
 
-    # Register workflow
-    cloaca.register_workflow_constructor("global_sync", create_global_sync_workflow)
+    # Workflow is automatically registered when WorkflowBuilder context exits
 
     # Create timezone-specific schedules
     regional_schedules = [
@@ -475,38 +475,43 @@ from datetime import datetime
 import time
 import json
 
-@cloaca.task(id="schedule_monitor")
-def schedule_monitor(context):
-    """Monitor and report on schedule execution."""
-    monitor_type = context.get("monitor_type", "health")
-    timestamp = datetime.now()
+# Create schedule monitoring workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("schedule_monitor") as builder:
+    builder.description("Schedule execution monitoring")
+    
+    @cloaca.task(id="schedule_monitor")
+    def schedule_monitor(context):
+        """Monitor and report on schedule execution."""
+        monitor_type = context.get("monitor_type", "health")
+        timestamp = datetime.now()
 
-    print(f"📊 Schedule monitoring ({monitor_type}) at {timestamp}")
+        print(f"📊 Schedule monitoring ({monitor_type}) at {timestamp}")
 
-    # Simulate monitoring data
-    if monitor_type == "health":
-        metrics = {
-            "active_schedules": 12,
-            "successful_executions_24h": 87,
-            "failed_executions_24h": 2,
-            "average_execution_time_ms": 1250,
-            "next_execution": (datetime.now() + timedelta(minutes=30)).isoformat()
-        }
-    else:  # performance
-        metrics = {
-            "peak_concurrent_workflows": 8,
-            "resource_utilization": 34.5,
-            "queue_length": 3,
-            "avg_wait_time_ms": 150
-        }
+        # Simulate monitoring data
+        if monitor_type == "health":
+            metrics = {
+                "active_schedules": 12,
+                "successful_executions_24h": 87,
+                "failed_executions_24h": 2,
+                "average_execution_time_ms": 1250,
+                "next_execution": (datetime.now() + timedelta(minutes=30)).isoformat()
+            }
+        else:  # performance
+            metrics = {
+                "peak_concurrent_workflows": 8,
+                "resource_utilization": 34.5,
+                "queue_length": 3,
+                "avg_wait_time_ms": 150
+            }
 
-    print(f"   Metrics: {json.dumps(metrics, indent=2)}")
+        print(f"   Metrics: {json.dumps(metrics, indent=2)}")
 
-    context.set("monitoring_data", metrics)
-    context.set("monitor_type", monitor_type)
-    context.set("measured_at", timestamp.isoformat())
+        context.set("monitoring_data", metrics)
+        context.set("monitor_type", monitor_type)
+        context.set("measured_at", timestamp.isoformat())
 
-    return context
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 class ScheduleManager:
     """Advanced schedule management with monitoring."""
@@ -516,8 +521,10 @@ class ScheduleManager:
         self.active_schedules = {}
 
     def register_workflow(self, name: str, constructor):
-        """Register a workflow constructor."""
-        cloaca.register_workflow_constructor(name, constructor)
+        """Register a workflow constructor (not needed with new workflow-scoped pattern)."""
+        # With the new workflow-scoped pattern, workflows are automatically registered
+        # when the WorkflowBuilder context exits, so this method is not needed
+        pass
 
     def add_schedule(self, schedule_id: str, schedule: cloaca.CronSchedule):
         """Add a named schedule for management."""
@@ -564,15 +571,8 @@ def demonstrate_schedule_management():
     # Create schedule manager
     manager = ScheduleManager("sqlite:///:memory:")
 
-    # Create monitoring workflow
-    def create_monitor_workflow():
-        builder = cloaca.WorkflowBuilder("schedule_monitor")
-        builder.description("Schedule execution monitoring")
-        builder.add_task("schedule_monitor")
-        return builder.build()
-
-    # Register workflows
-    manager.register_workflow("schedule_monitor", create_monitor_workflow)
+    # Monitoring workflow is automatically registered when WorkflowBuilder context exits
+    # No need to manually register workflows with the new pattern
 
     # Add various schedules
     schedules = {
@@ -633,55 +633,45 @@ from datetime import datetime, timedelta
 import time
 import json
 
-# Import all our task definitions
-@cloaca.task(id="daily_report")
-def daily_report(context):
-    """Generate daily business report."""
-    current_time = datetime.now()
-    report_data = {
-        "generated_at": current_time.isoformat(),
-        "total_orders": 150,
-        "revenue": 12500.50,
-        "active_users": 89
-    }
+# Create all workflow definitions using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("daily_report") as builder:
+    builder.description("Daily business analytics")
+    
+    @cloaca.task(id="daily_report")
+    def daily_report(context):
+        """Generate daily business report."""
+        current_time = datetime.now()
+        report_data = {
+            "generated_at": current_time.isoformat(),
+            "total_orders": 150,
+            "revenue": 12500.50,
+            "active_users": 89
+        }
 
-    print(f"📊 Daily Report Generated at {current_time}")
-    print(f"   Orders: {report_data['total_orders']}")
-    print(f"   Revenue: ${report_data['revenue']}")
-    print(f"   Users: {report_data['active_users']}")
+        print(f"📊 Daily Report Generated at {current_time}")
+        print(f"   Orders: {report_data['total_orders']}")
+        print(f"   Revenue: ${report_data['revenue']}")
+        print(f"   Users: {report_data['active_users']}")
 
-    context.set("report_data", report_data)
-    return context
+        context.set("report_data", report_data)
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
-@cloaca.task(id="system_backup")
-def system_backup(context):
-    """Perform system backup."""
-    backup_type = context.get("backup_type", "incremental")
-    timestamp = datetime.now()
+with cloaca.WorkflowBuilder("system_backup") as builder:
+    builder.description("System data backup")
+    
+    @cloaca.task(id="system_backup")
+    def system_backup(context):
+        """Perform system backup."""
+        backup_type = context.get("backup_type", "incremental")
+        timestamp = datetime.now()
 
-    print(f"💾 {backup_type.title()} backup at {timestamp}")
+        print(f"💾 {backup_type.title()} backup at {timestamp}")
 
-    context.set("backup_completed", timestamp.isoformat())
-    context.set("backup_type", backup_type)
-    return context
-
-def create_workflows():
-    """Create all workflow definitions."""
-
-    # Daily report workflow
-    report_builder = cloaca.WorkflowBuilder("daily_report")
-    report_builder.description("Daily business analytics")
-    report_builder.add_task("daily_report")
-
-    # Backup workflow
-    backup_builder = cloaca.WorkflowBuilder("system_backup")
-    backup_builder.description("System data backup")
-    backup_builder.add_task("system_backup")
-
-    return {
-        "daily_report": report_builder.build(),
-        "system_backup": backup_builder.build()
-    }
+        context.set("backup_completed", timestamp.isoformat())
+        context.set("backup_type", backup_type)
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 
 def main():
     """Main tutorial demonstration."""
@@ -692,10 +682,7 @@ def main():
     runner = cloaca.DefaultRunner("sqlite:///:memory:")
 
     try:
-        # Register workflows
-        workflows = create_workflows()
-        for name, workflow in workflows.items():
-            cloaca.register_workflow_constructor(name, lambda w=workflow: w)
+        # Workflows are automatically registered when WorkflowBuilder context exits
 
         # Create schedules
         schedules = [

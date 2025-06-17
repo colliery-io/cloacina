@@ -16,29 +16,27 @@ class TestAsyncTaskSupport:
         """Test workflows with asynchronous task functions."""
         import cloaca
 
-        # Note: This test assumes async task support is available
-        # If not supported, this test should verify proper error handling
-
-        @cloaca.task(id="sync_task_simulating_async")
-        def sync_task_simulating_async(context):
-            """Simulate async behavior in a sync task."""
-            # Since we may not have true async support yet,
-            # simulate async-like behavior with sync code
-            context.set("async_simulation_started", True)
-
-            # Simulate async operation result
-            async_result = context.get("async_input", 0) + 100
-            context.set("async_result", async_result)
-
-            # Mark completion
-            context.set("async_simulation_completed", True)
-            return context
-
-        # Build workflow with "async" task
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("async_test_workflow") as builder:
             builder.description("Workflow testing async task patterns")
             builder.tag("async", "simulation")
-            builder.add_task("sync_task_simulating_async")
+            
+            # Note: This test assumes async task support is available
+            # If not supported, this test should verify proper error handling
+            @cloaca.task(id="sync_task_simulating_async")
+            def sync_task_simulating_async(context):
+                """Simulate async behavior in a sync task."""
+                # Since we may not have true async support yet,
+                # simulate async-like behavior with sync code
+                context.set("async_simulation_started", True)
+
+                # Simulate async operation result
+                async_result = context.get("async_input", 0) + 100
+                context.set("async_result", async_result)
+
+                # Mark completion
+                context.set("async_simulation_completed", True)
+                return context
 
         # Execute the workflow
         context = cloaca.Context({"async_input": 42})

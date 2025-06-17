@@ -16,19 +16,15 @@ class TestBasicSharedRunnerFunctionality:
         """Verify runner can execute a simple workflow."""
         import cloaca
 
-        @cloaca.task(id="basic_runner_task")
-        def basic_runner_task(context):
-            context.set("runner_test_executed", True)
-            context.set("runner_name", "shared_runner")
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("basic_runner_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("basic_runner_workflow") as builder:
             builder.description("Basic shared runner test")
-            builder.add_task("basic_runner_task")
-            return builder.build()
-
-        cloaca.register_workflow_constructor("basic_runner_workflow", create_workflow)
+            
+            @cloaca.task(id="basic_runner_task")
+            def basic_runner_task(context):
+                context.set("runner_test_executed", True)
+                context.set("runner_name", "shared_runner")
+                return context
 
         # Execute workflow
         context = cloaca.Context({"test_type": "runner_basic"})

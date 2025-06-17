@@ -41,7 +41,7 @@ impl Task for SimpleTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &[]
     }
 }

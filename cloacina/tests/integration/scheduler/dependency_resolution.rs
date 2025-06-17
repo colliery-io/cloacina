@@ -25,7 +25,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct MockTask {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<TaskNamespace>,
 }
 
 #[async_trait]
@@ -42,7 +42,7 @@ impl Task for MockTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
     }
 }
@@ -64,9 +64,10 @@ async fn test_task_dependency_initialization() {
         dependencies: vec![],
     };
 
+    let task1_ns = TaskNamespace::new("public", "embedded", "dependency-test", "task1");
     let task2 = MockTask {
         id: "task2".to_string(),
-        dependencies: vec!["task1".to_string()],
+        dependencies: vec![task1_ns],
     };
 
     let workflow = Workflow::builder("dependency-test")
@@ -110,10 +111,12 @@ async fn test_task_dependency_initialization() {
         assert_eq!(task.status, "NotStarted");
     }
 
-    // Verify task names
+    // Verify task names (should be full namespaces now)
     let task_names: std::collections::HashSet<_> = tasks.iter().map(|t| &t.task_name).collect();
-    assert!(task_names.contains(&"task1".to_string()));
-    assert!(task_names.contains(&"task2".to_string()));
+    let expected_task1 = format!("{}::{}::{}::task1", workflow.tenant(), workflow.package(), workflow.name());
+    let expected_task2 = format!("{}::{}::{}::task2", workflow.tenant(), workflow.package(), workflow.name());
+    assert!(task_names.contains(&expected_task1));
+    assert!(task_names.contains(&expected_task2));
 }
 
 #[tokio::test]
@@ -133,9 +136,10 @@ async fn test_dependency_satisfaction_check() {
         dependencies: vec![],
     };
 
+    let task1_ns = TaskNamespace::new("public", "embedded", "dependency-chain", "task1");
     let task2 = MockTask {
         id: "task2".to_string(),
-        dependencies: vec!["task1".to_string()],
+        dependencies: vec![task1_ns],
     };
 
     let workflow = Workflow::builder("dependency-chain")
@@ -179,8 +183,10 @@ async fn test_dependency_satisfaction_check() {
         assert_eq!(task.status, "NotStarted");
     }
 
-    // Verify task names
+    // Verify task names (should be full namespaces now)
     let task_names: std::collections::HashSet<_> = tasks.iter().map(|t| &t.task_name).collect();
-    assert!(task_names.contains(&"task1".to_string()));
-    assert!(task_names.contains(&"task2".to_string()));
+    let expected_task1 = format!("{}::{}::{}::task1", workflow.tenant(), workflow.package(), workflow.name());
+    let expected_task2 = format!("{}::{}::{}::task2", workflow.tenant(), workflow.package(), workflow.name());
+    assert!(task_names.contains(&expected_task1));
+    assert!(task_names.contains(&expected_task2));
 }

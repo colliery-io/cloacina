@@ -43,8 +43,8 @@ fn create_test_workflow_project(temp_dir: &TempDir) -> PathBuf {
         r#"
 [package]
 name = "test_workflow"
-version = "0.1.0"
 edition = "2021"
+version = "0.0.0"
 
 [lib]
 crate-type = ["cdylib"]
@@ -73,8 +73,9 @@ use cloacina::{Context, TaskError};
 use cloacina_macros::{packaged_workflow, task};
 
 #[packaged_workflow(
-    package = "test_workflow",
-    version = "0.1.0",
+    package = "test_package",
+    tenant = "test_tenant",
+    name = "test_workflow",
     description = "Test workflow for functional tests"
 )]
 pub mod test_workflow {

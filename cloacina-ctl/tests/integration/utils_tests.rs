@@ -16,7 +16,7 @@
 
 use cloacina_ctl::cli::Cli;
 use cloacina_ctl::utils::*;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

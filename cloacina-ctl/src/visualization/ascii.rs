@@ -572,7 +572,7 @@ pub fn generate_compact_ascii_from_graph(
         let level_indicators: Vec<String> = levels
             .iter()
             .enumerate()
-            .map(|(idx, level)| {
+            .map(|(_idx, level)| {
                 if level.len() == 1 {
                     level[0].clone()
                 } else {

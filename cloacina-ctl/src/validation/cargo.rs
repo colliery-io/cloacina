@@ -18,7 +18,7 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::manifest::{CargoToml, CLOACINA_VERSION};
+use crate::manifest::CargoToml;
 
 pub fn validate_cargo_toml(project_path: &PathBuf) -> Result<CargoToml> {
     let cargo_toml_path = project_path.join("Cargo.toml");

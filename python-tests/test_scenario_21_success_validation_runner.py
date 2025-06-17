@@ -17,30 +17,26 @@ class TestSuccessValidationRunner:
         import cloaca
         import time
 
-        @cloaca.task(id="success_validation_task")
-        def success_validation_task(context):
-            # Record execution details
-            context.set("task_start_time", time.time())
-            context.set("execution_successful", True)
-
-            # Simulate some work
-            data = context.get("input_data", [])
-            processed_data = [item * 2 for item in data]
-            context.set("processed_data", processed_data)
-
-            # Set completion markers
-            context.set("task_completed", True)
-            context.set("task_end_time", time.time())
-
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("success_validation_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("success_validation_workflow") as builder:
             builder.description("Success validation test")
-            builder.add_task("success_validation_task")
-            return builder.build()
+            
+            @cloaca.task(id="success_validation_task")
+            def success_validation_task(context):
+                # Record execution details
+                context.set("task_start_time", time.time())
+                context.set("execution_successful", True)
 
-        cloaca.register_workflow_constructor("success_validation_workflow", create_workflow)
+                # Simulate some work
+                data = context.get("input_data", [])
+                processed_data = [item * 2 for item in data]
+                context.set("processed_data", processed_data)
+
+                # Set completion markers
+                context.set("task_completed", True)
+                context.set("task_end_time", time.time())
+
+                return context
 
         # Execute with test data
         context = cloaca.Context({

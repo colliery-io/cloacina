@@ -54,8 +54,8 @@ pub struct DependencyLoader {
     database: Database,
     /// ID of the pipeline execution being processed
     pipeline_execution_id: UniversalUuid,
-    /// List of task names that this loader depends on
-    dependency_tasks: Vec<String>,
+    /// List of task namespaces that this loader depends on
+    dependency_tasks: Vec<crate::task::TaskNamespace>,
     /// Thread-safe cache of loaded dependency contexts
     loaded_contexts: RwLock<HashMap<String, HashMap<String, serde_json::Value>>>, // Cache
 }
@@ -66,11 +66,11 @@ impl DependencyLoader {
     /// # Arguments
     /// * `database` - Database connection for loading dependencies
     /// * `pipeline_execution_id` - ID of the pipeline execution
-    /// * `dependency_tasks` - List of task names that this loader depends on
+    /// * `dependency_tasks` - List of task namespaces that this loader depends on
     pub fn new(
         database: Database,
         pipeline_execution_id: UniversalUuid,
-        dependency_tasks: Vec<String>,
+        dependency_tasks: Vec<crate::task::TaskNamespace>,
     ) -> Self {
         Self {
             database,
@@ -95,11 +95,12 @@ impl DependencyLoader {
         key: &str,
     ) -> Result<Option<serde_json::Value>, ExecutorError> {
         // Search dependencies in reverse order (latest wins for overwrites)
-        for dep_task_name in self.dependency_tasks.iter().rev() {
+        for dep_task_namespace in self.dependency_tasks.iter().rev() {
+            let dep_task_name = dep_task_namespace.to_string();
             // Check cache first (read lock)
             {
                 let cache = self.loaded_contexts.read().await;
-                if let Some(context_data) = cache.get(dep_task_name) {
+                if let Some(context_data) = cache.get(&dep_task_name) {
                     if let Some(value) = context_data.get(key) {
                         return Ok(Some(value.clone())); // Found! (overwrite strategy)
                     }
@@ -109,13 +110,13 @@ impl DependencyLoader {
             // Lazy load dependency context if not cached (write lock)
             {
                 let mut cache = self.loaded_contexts.write().await;
-                if !cache.contains_key(dep_task_name) {
-                    let dep_context_data = self.load_dependency_context_data(dep_task_name).await?;
+                if !cache.contains_key(&dep_task_name) {
+                    let dep_context_data = self.load_dependency_context_data(dep_task_namespace).await?;
                     cache.insert(dep_task_name.clone(), dep_context_data);
                 }
 
                 // Check the newly loaded context
-                if let Some(context_data) = cache.get(dep_task_name) {
+                if let Some(context_data) = cache.get(&dep_task_name) {
                     if let Some(value) = context_data.get(key) {
                         return Ok(Some(value.clone())); // Found! (overwrite strategy)
                     }
@@ -129,18 +130,18 @@ impl DependencyLoader {
     /// Loads the context data for a specific dependency task
     ///
     /// # Arguments
-    /// * `task_name` - Name of the task to load context data for
+    /// * `task_namespace` - Namespace of the task to load context data for
     ///
     /// # Returns
     /// * `Result<HashMap<String, serde_json::Value>, ExecutorError>` - The loaded context data
     async fn load_dependency_context_data(
         &self,
-        task_name: &str,
+        task_namespace: &crate::task::TaskNamespace,
     ) -> Result<HashMap<String, serde_json::Value>, ExecutorError> {
         let dal = DAL::new(self.database.clone());
         let task_metadata = dal
             .task_execution_metadata()
-            .get_by_pipeline_and_task(self.pipeline_execution_id, task_name)
+            .get_by_pipeline_and_task(self.pipeline_execution_id, task_namespace)
             .await?;
 
         if let Some(context_id) = task_metadata.context_id {

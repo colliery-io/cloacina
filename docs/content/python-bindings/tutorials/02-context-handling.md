@@ -56,31 +56,28 @@ Let's start with a simple example showing basic context operations:
 import sys
 import cloaca
 
-@cloaca.task(id="context_basics")
-def context_basics(context):
-    """Demonstrate basic context operations."""
-
-    # Set different data types
-    context.set("string_value", "Hello, World!")
-    context.set("integer_value", 42)
-    context.set("float_value", 3.14159)
-    context.set("boolean_value", True)
-    context.set("list_value", [1, 2, 3, 4, 5])
-    context.set("dict_value", {"name": "Alice", "age": 30})
-
-    # Get values with defaults
-    name = context.get("dict_value", {}).get("name", "Unknown")
-    print(f"User name: {name}")
-
-    return context
-
-def create_basics_workflow():
-    builder = cloaca.WorkflowBuilder("context_basics")
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("context_basics") as builder:
     builder.description("Basic context operations")
-    builder.add_task("context_basics")
-    return builder.build()
+    
+    @cloaca.task(id="context_basics")
+    def context_basics(context):
+        """Demonstrate basic context operations."""
 
-cloaca.register_workflow_constructor("context_basics", create_basics_workflow)
+        # Set different data types
+        context.set("string_value", "Hello, World!")
+        context.set("integer_value", 42)
+        context.set("float_value", 3.14159)
+        context.set("boolean_value", True)
+        context.set("list_value", [1, 2, 3, 4, 5])
+        context.set("dict_value", {"name": "Alice", "age": 30})
+
+        # Get values with defaults
+        name = context.get("dict_value", {}).get("name", "Unknown")
+        print(f"User name: {name}")
+
+        return context
+    # Task is automatically registered when defined within WorkflowBuilder context
 ```
 
 ## Data Transformation Pipeline
@@ -92,225 +89,213 @@ import cloaca
 import json
 from datetime import datetime
 
-# Data transformation pipeline
-@cloaca.task(id="extract_data")
-def extract_data(context):
-    """Extract raw data from a simulated source."""
-    print("Extracting data...")
+# Create data transformation pipeline using workflow-scoped pattern
+with cloaca.WorkflowBuilder("data_pipeline") as builder:
+    builder.description("Complete data extraction, transformation, validation, and reporting pipeline")
+    
+    # Data transformation pipeline - tasks defined within workflow scope
+    @cloaca.task(id="extract_data")
+    def extract_data(context):
+        """Extract raw data from a simulated source."""
+        print("Extracting data...")
 
-    # Simulate raw data extraction
-    raw_data = {
-        "users": [
-            {"id": 1, "name": "Alice", "email": "alice@example.com", "score": 85},
-            {"id": 2, "name": "Bob", "email": "bob@example.com", "score": 92},
-            {"id": 3, "name": "Charlie", "email": "charlie@example.com", "score": 78},
-            {"id": 4, "name": "Diana", "email": "diana@example.com", "score": 95}
-        ],
-        "extracted_at": datetime.now().isoformat(),
-        "source": "user_database"
-    }
-
-    context.set("raw_data", raw_data)
-    context.set("extraction_complete", True)
-
-    print(f"Extracted {len(raw_data['users'])} users")
-    return context
-
-@cloaca.task(id="transform_data", dependencies=["extract_data"])
-def transform_data(context):
-    """Transform the raw data into a processed format."""
-    print("Transforming data...")
-
-    # Get raw data from previous task
-    raw_data = context.get("raw_data")
-
-    if not raw_data:
-        raise ValueError("No raw data found in context")
-
-    # Transform data
-    transformed_users = []
-    total_score = 0
-
-    for user in raw_data["users"]:
-        # Calculate grade based on score
-        score = user["score"]
-        if score >= 90:
-            grade = "A"
-        elif score >= 80:
-            grade = "B"
-        elif score >= 70:
-            grade = "C"
-        else:
-            grade = "F"
-
-        transformed_user = {
-            "user_id": user["id"],
-            "display_name": user["name"].upper(),
-            "email_domain": user["email"].split("@")[1],
-            "score": score,
-            "grade": grade,
-            "performance": "high" if score >= 85 else "standard"
+        # Simulate raw data extraction
+        raw_data = {
+            "users": [
+                {"id": 1, "name": "Alice", "email": "alice@example.com", "score": 85},
+                {"id": 2, "name": "Bob", "email": "bob@example.com", "score": 92},
+                {"id": 3, "name": "Charlie", "email": "charlie@example.com", "score": 78},
+                {"id": 4, "name": "Diana", "email": "diana@example.com", "score": 95}
+            ],
+            "extracted_at": datetime.now().isoformat(),
+            "source": "user_database"
         }
 
-        transformed_users.append(transformed_user)
-        total_score += score
+        context.set("raw_data", raw_data)
+        context.set("extraction_complete", True)
 
-    # Create summary statistics
-    transformation_result = {
-        "users": transformed_users,
-        "summary": {
-            "total_users": len(transformed_users),
-            "average_score": total_score / len(transformed_users),
-            "high_performers": len([u for u in transformed_users if u["performance"] == "high"]),
-            "grade_distribution": {
-                "A": len([u for u in transformed_users if u["grade"] == "A"]),
-                "B": len([u for u in transformed_users if u["grade"] == "B"]),
-                "C": len([u for u in transformed_users if u["grade"] == "C"]),
-                "F": len([u for u in transformed_users if u["grade"] == "F"])
+        print(f"Extracted {len(raw_data['users'])} users")
+        return context
+
+    @cloaca.task(id="transform_data", dependencies=["extract_data"])
+    def transform_data(context):
+        """Transform the raw data into a processed format."""
+        print("Transforming data...")
+
+        # Get raw data from previous task
+        raw_data = context.get("raw_data")
+
+        if not raw_data:
+            raise ValueError("No raw data found in context")
+
+        # Transform data
+        transformed_users = []
+        total_score = 0
+
+        for user in raw_data["users"]:
+            # Calculate grade based on score
+            score = user["score"]
+            if score >= 90:
+                grade = "A"
+            elif score >= 80:
+                grade = "B"
+            elif score >= 70:
+                grade = "C"
+            else:
+                grade = "F"
+
+            transformed_user = {
+                "user_id": user["id"],
+                "display_name": user["name"].upper(),
+                "email_domain": user["email"].split("@")[1],
+                "score": score,
+                "grade": grade,
+                "performance": "high" if score >= 85 else "standard"
             }
-        },
-        "transformed_at": datetime.now().isoformat()
-    }
 
-    context.set("transformed_data", transformation_result)
-    context.set("transformation_complete", True)
+            transformed_users.append(transformed_user)
+            total_score += score
 
-    print(f"Transformed {len(transformed_users)} users")
-    print(f"Average score: {transformation_result['summary']['average_score']:.1f}")
+        # Create summary statistics
+        transformation_result = {
+            "users": transformed_users,
+            "summary": {
+                "total_users": len(transformed_users),
+                "average_score": total_score / len(transformed_users),
+                "high_performers": len([u for u in transformed_users if u["performance"] == "high"]),
+                "grade_distribution": {
+                    "A": len([u for u in transformed_users if u["grade"] == "A"]),
+                    "B": len([u for u in transformed_users if u["grade"] == "B"]),
+                    "C": len([u for u in transformed_users if u["grade"] == "C"]),
+                    "F": len([u for u in transformed_users if u["grade"] == "F"])
+                }
+            },
+            "transformed_at": datetime.now().isoformat()
+        }
 
-    return context
+        context.set("transformed_data", transformation_result)
+        context.set("transformation_complete", True)
 
-@cloaca.task(id="validate_data", dependencies=["transform_data"])
-def validate_data(context):
-    """Validate the transformed data meets quality standards."""
-    print("Validating data...")
+        print(f"Transformed {len(transformed_users)} users")
+        print(f"Average score: {transformation_result['summary']['average_score']:.1f}")
 
-    transformed_data = context.get("transformed_data")
+        return context
 
-    if not transformed_data:
-        raise ValueError("No transformed data found in context")
+    @cloaca.task(id="validate_data", dependencies=["transform_data"])
+    def validate_data(context):
+        """Validate the transformed data meets quality standards."""
+        print("Validating data...")
 
-    validation_results = {
-        "total_records": len(transformed_data["users"]),
-        "validation_checks": {},
-        "errors": [],
-        "warnings": []
-    }
+        transformed_data = context.get("transformed_data")
 
-    # Validation checks
-    users = transformed_data["users"]
+        if not transformed_data:
+            raise ValueError("No transformed data found in context")
 
-    # Check 1: All users have required fields
-    required_fields = ["user_id", "display_name", "email_domain", "score", "grade"]
-    for user in users:
-        for field in required_fields:
-            if field not in user:
+        validation_results = {
+            "total_records": len(transformed_data["users"]),
+            "validation_checks": {},
+            "errors": [],
+            "warnings": []
+        }
+
+        # Validation checks
+        users = transformed_data["users"]
+
+        # Check 1: All users have required fields
+        required_fields = ["user_id", "display_name", "email_domain", "score", "grade"]
+        for user in users:
+            for field in required_fields:
+                if field not in user:
+                    validation_results["errors"].append(
+                        f"User {user.get('user_id', 'unknown')} missing field: {field}"
+                    )
+
+        # Check 2: Score ranges are valid
+        for user in users:
+            score = user.get("score", 0)
+            if not (0 <= score <= 100):
                 validation_results["errors"].append(
-                    f"User {user.get('user_id', 'unknown')} missing field: {field}"
+                    f"User {user['user_id']} has invalid score: {score}"
                 )
 
-    # Check 2: Score ranges are valid
-    for user in users:
-        score = user.get("score", 0)
-        if not (0 <= score <= 100):
-            validation_results["errors"].append(
-                f"User {user['user_id']} has invalid score: {score}"
-            )
+        # Check 3: Grade consistency
+        for user in users:
+            score = user.get("score", 0)
+            grade = user.get("grade", "")
+            expected_grade = "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "F"
+            if grade != expected_grade:
+                validation_results["errors"].append(
+                    f"User {user['user_id']} grade mismatch: expected {expected_grade}, got {grade}"
+                )
 
-    # Check 3: Grade consistency
-    for user in users:
-        score = user.get("score", 0)
-        grade = user.get("grade", "")
-        expected_grade = "A" if score >= 90 else "B" if score >= 80 else "C" if score >= 70 else "F"
-        if grade != expected_grade:
-            validation_results["errors"].append(
-                f"User {user['user_id']} grade mismatch: expected {expected_grade}, got {grade}"
-            )
+        # Check 4: Data quality warnings
+        summary = transformed_data["summary"]
+        if summary["average_score"] < 75:
+            validation_results["warnings"].append("Average score is below 75")
 
-    # Check 4: Data quality warnings
-    summary = transformed_data["summary"]
-    if summary["average_score"] < 75:
-        validation_results["warnings"].append("Average score is below 75")
+        validation_results["validation_checks"] = {
+            "required_fields": "passed" if not any("missing field" in error for error in validation_results["errors"]) else "failed",
+            "score_ranges": "passed" if not any("invalid score" in error for error in validation_results["errors"]) else "failed",
+            "grade_consistency": "passed" if not any("grade mismatch" in error for error in validation_results["errors"]) else "failed"
+        }
 
-    validation_results["validation_checks"] = {
-        "required_fields": "passed" if not any("missing field" in error for error in validation_results["errors"]) else "failed",
-        "score_ranges": "passed" if not any("invalid score" in error for error in validation_results["errors"]) else "failed",
-        "grade_consistency": "passed" if not any("grade mismatch" in error for error in validation_results["errors"]) else "failed"
-    }
+        # Overall validation status
+        validation_status = "passed" if not validation_results["errors"] else "failed"
+        validation_results["status"] = validation_status
 
-    # Overall validation status
-    validation_status = "passed" if not validation_results["errors"] else "failed"
-    validation_results["status"] = validation_status
+        context.set("validation_results", validation_results)
+        context.set("validation_complete", True)
+        context.set("data_valid", validation_status == "passed")
 
-    context.set("validation_results", validation_results)
-    context.set("validation_complete", True)
-    context.set("data_valid", validation_status == "passed")
+        print(f"Validation {validation_status}")
+        if validation_results["errors"]:
+            print(f"Errors found: {len(validation_results['errors'])}")
+        if validation_results["warnings"]:
+            print(f"Warnings: {len(validation_results['warnings'])}")
 
-    print(f"Validation {validation_status}")
-    if validation_results["errors"]:
-        print(f"Errors found: {len(validation_results['errors'])}")
-    if validation_results["warnings"]:
-        print(f"Warnings: {len(validation_results['warnings'])}")
+        return context
 
-    return context
+    @cloaca.task(id="generate_report", dependencies=["validate_data"])
+    def generate_report(context):
+        """Generate a final report combining all data."""
+        print("Generating report...")
 
-@cloaca.task(id="generate_report", dependencies=["validate_data"])
-def generate_report(context):
-    """Generate a final report combining all data."""
-    print("Generating report...")
+        # Gather all data from context
+        raw_data = context.get("raw_data")
+        transformed_data = context.get("transformed_data")
+        validation_results = context.get("validation_results")
 
-    # Gather all data from context
-    raw_data = context.get("raw_data")
-    transformed_data = context.get("transformed_data")
-    validation_results = context.get("validation_results")
-
-    # Create comprehensive report
-    report = {
-        "report_metadata": {
-            "generated_at": datetime.now().isoformat(),
-            "workflow_id": context.get("tutorial", "02"),
-            "report_type": "user_data_processing"
-        },
-        "data_summary": {
-            "source_info": {
-                "source": raw_data["source"],
-                "extracted_at": raw_data["extracted_at"],
-                "total_records": len(raw_data["users"])
+        # Create comprehensive report
+        report = {
+            "report_metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "workflow_id": context.get("tutorial", "02"),
+                "report_type": "user_data_processing"
             },
-            "processing_summary": transformed_data["summary"],
-            "validation_summary": {
-                "status": validation_results["status"],
-                "checks_performed": len(validation_results["validation_checks"]),
-                "errors": len(validation_results["errors"]),
-                "warnings": len(validation_results["warnings"])
-            }
-        },
-        "processed_users": transformed_data["users"],
-        "quality_metrics": validation_results
-    }
+            "data_summary": {
+                "source_info": {
+                    "source": raw_data["source"],
+                    "extracted_at": raw_data["extracted_at"],
+                    "total_records": len(raw_data["users"])
+                },
+                "processing_summary": transformed_data["summary"],
+                "validation_summary": {
+                    "status": validation_results["status"],
+                    "checks_performed": len(validation_results["validation_checks"]),
+                    "errors": len(validation_results["errors"]),
+                    "warnings": len(validation_results["warnings"])
+                }
+            },
+            "processed_users": transformed_data["users"],
+            "quality_metrics": validation_results
+        }
 
-    context.set("final_report", report)
-    context.set("report_complete", True)
+        context.set("final_report", report)
+        context.set("report_complete", True)
 
-    print(f"Report generated with {len(report['processed_users'])} user records")
-    return context
-
-# Create the workflow
-def create_data_pipeline_workflow():
-    """Build the complete data transformation pipeline."""
-    builder = cloaca.WorkflowBuilder("data_pipeline")
-    builder.description("Complete data extraction, transformation, validation, and reporting pipeline")
-
-    # Add tasks in dependency order
-    builder.add_task("extract_data")
-    builder.add_task("transform_data")
-    builder.add_task("validate_data")
-    builder.add_task("generate_report")
-
-    return builder.build()
-
-# Register the workflow
-cloaca.register_workflow_constructor("data_pipeline", create_data_pipeline_workflow)
+        print(f"Report generated with {len(report['processed_users'])} user records")
+        return context
+    # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Main execution
 if __name__ == "__main__":
@@ -401,21 +386,22 @@ context.set("result", {
 ### 3. Data Transformation Patterns
 
 ```python
-@cloaca.task(id="transform_example", dependencies=["source_task"])
-def transform_example(context):
-    # Get input data
-    input_data = context.get("input_data", [])
+with cloaca.WorkflowBuilder("transform_workflow") as builder:
+    @cloaca.task(id="transform_example", dependencies=["source_task"])
+    def transform_example(context):
+        # Get input data
+        input_data = context.get("input_data", [])
 
-    # Transform data
-    transformed = [
-        {"id": item["id"], "value": item["value"] * 2}
-        for item in input_data
-        if item["value"] > 10
-    ]
+        # Transform data
+        transformed = [
+            {"id": item["id"], "value": item["value"] * 2}
+            for item in input_data
+            if item["value"] > 10
+        ]
 
-    # Store result
-    context.set("transformed_data", transformed)
-    return context
+        # Store result
+        context.set("transformed_data", transformed)
+        return context
 ```
 
 ## Working with Context Data
@@ -496,21 +482,22 @@ context.set("count", len(raw_users))
 **Always validate context data:**
 
 ```python
-@cloaca.task(id="safe_task")
-def safe_task(context):
-    # Validate input exists
-    data = context.get("input_data")
-    if not data:
-        raise ValueError("Missing required input_data")
+with cloaca.WorkflowBuilder("safe_workflow") as builder:
+    @cloaca.task(id="safe_task")
+    def safe_task(context):
+        # Validate input exists
+        data = context.get("input_data")
+        if not data:
+            raise ValueError("Missing required input_data")
 
-    # Validate data structure
-    if not isinstance(data, list):
-        raise TypeError("input_data must be a list")
+        # Validate data structure
+        if not isinstance(data, list):
+            raise TypeError("input_data must be a list")
 
-    # Process safely
-    result = process_data(data)
-    context.set("result", result)
-    return context
+        # Process safely
+        result = process_data(data)
+        context.set("result", result)
+        return context
 ```
 {{< /tab >}}
 
@@ -520,21 +507,22 @@ def safe_task(context):
 ```python
 from typing import Dict, List, Any
 
-@cloaca.task(id="typed_task")
-def typed_task(context):
-    """Process user data with clear type expectations."""
-    # Get with type hints in comments
-    user_data: List[Dict[str, Any]] = context.get("users", [])
-    config: Dict[str, Any] = context.get("config", {})
+with cloaca.WorkflowBuilder("typed_workflow") as builder:
+    @cloaca.task(id="typed_task")
+    def typed_task(context):
+        """Process user data with clear type expectations."""
+        # Get with type hints in comments
+        user_data: List[Dict[str, Any]] = context.get("users", [])
+        config: Dict[str, Any] = context.get("config", {})
 
-    # Process with type awareness
-    processed: List[Dict[str, Any]] = [
-        {"id": user["id"], "score": float(user["score"])}
-        for user in user_data
-    ]
+        # Process with type awareness
+        processed: List[Dict[str, Any]] = [
+            {"id": user["id"], "score": float(user["score"])}
+            for user in user_data
+        ]
 
-    context.set("processed_users", processed)
-    return context
+        context.set("processed_users", processed)
+        return context
 ```
 {{< /tab >}}
 
@@ -543,16 +531,17 @@ def typed_task(context):
 
 ```python
 # Good: Store processed data, not intermediate steps
-@cloaca.task(id="efficient_task")
-def efficient_task(context):
-    data = context.get("raw_data")
+with cloaca.WorkflowBuilder("efficient_workflow") as builder:
+    @cloaca.task(id="efficient_task")
+    def efficient_task(context):
+        data = context.get("raw_data")
 
-    # Process data
-    result = expensive_processing(data)
+        # Process data
+        result = expensive_processing(data)
 
-    # Store only the final result
-    context.set("final_result", result)
-    return context
+        # Store only the final result
+        context.set("final_result", result)
+        return context
 
 # Avoid: Storing every intermediate step
 # context.set("step1", step1_result)
@@ -569,33 +558,34 @@ def efficient_task(context):
 Add a new task that creates aggregated statistics:
 
 ```python
-@cloaca.task(id="aggregate_data", dependencies=["transform_data"])
-def aggregate_data(context):
-    """Create aggregated statistics from transformed data."""
-    transformed_data = context.get("transformed_data")
-    users = transformed_data["users"]
+with cloaca.WorkflowBuilder("aggregation_workflow") as builder:
+    @cloaca.task(id="aggregate_data", dependencies=["transform_data"])
+    def aggregate_data(context):
+        """Create aggregated statistics from transformed data."""
+        transformed_data = context.get("transformed_data")
+        users = transformed_data["users"]
 
-    # Calculate aggregations
-    aggregations = {
-        "score_stats": {
-            "min": min(u["score"] for u in users),
-            "max": max(u["score"] for u in users),
-            "avg": sum(u["score"] for u in users) / len(users)
-        },
-        "domain_distribution": {},
-        "performance_breakdown": {
-            "high": len([u for u in users if u["performance"] == "high"]),
-            "standard": len([u for u in users if u["performance"] == "standard"])
+        # Calculate aggregations
+        aggregations = {
+            "score_stats": {
+                "min": min(u["score"] for u in users),
+                "max": max(u["score"] for u in users),
+                "avg": sum(u["score"] for u in users) / len(users)
+            },
+            "domain_distribution": {},
+            "performance_breakdown": {
+                "high": len([u for u in users if u["performance"] == "high"]),
+                "standard": len([u for u in users if u["performance"] == "standard"])
+            }
         }
-    }
 
-    # Count email domains
-    for user in users:
-        domain = user["email_domain"]
-        aggregations["domain_distribution"][domain] = aggregations["domain_distribution"].get(domain, 0) + 1
+        # Count email domains
+        for user in users:
+            domain = user["email_domain"]
+            aggregations["domain_distribution"][domain] = aggregations["domain_distribution"].get(domain, 0) + 1
 
-    context.set("aggregations", aggregations)
-    return context
+        context.set("aggregations", aggregations)
+        return context
 ```
 
 ### Exercise 2: Implement Data Filtering
@@ -603,36 +593,37 @@ def aggregate_data(context):
 Create a task that filters data based on criteria:
 
 ```python
-@cloaca.task(id="filter_data", dependencies=["validate_data"])
-def filter_data(context):
-    """Filter data based on validation results and criteria."""
-    transformed_data = context.get("transformed_data")
-    validation_results = context.get("validation_results")
+with cloaca.WorkflowBuilder("filtering_workflow") as builder:
+    @cloaca.task(id="filter_data", dependencies=["validate_data"])
+    def filter_data(context):
+        """Filter data based on validation results and criteria."""
+        transformed_data = context.get("transformed_data")
+        validation_results = context.get("validation_results")
 
-    # Only proceed if validation passed
-    if not validation_results.get("status") == "passed":
-        context.set("filtered_data", {"users": [], "filter_applied": False})
+        # Only proceed if validation passed
+        if not validation_results.get("status") == "passed":
+            context.set("filtered_data", {"users": [], "filter_applied": False})
+            return context
+
+        users = transformed_data["users"]
+
+        # Apply filters
+        high_performers = [u for u in users if u["performance"] == "high"]
+        top_grades = [u for u in users if u["grade"] in ["A", "B"]]
+
+        filtered_result = {
+            "high_performers": high_performers,
+            "top_grades": top_grades,
+            "filter_summary": {
+                "total_users": len(users),
+                "high_performers": len(high_performers),
+                "top_grades": len(top_grades)
+            },
+            "filter_applied": True
+        }
+
+        context.set("filtered_data", filtered_result)
         return context
-
-    users = transformed_data["users"]
-
-    # Apply filters
-    high_performers = [u for u in users if u["performance"] == "high"]
-    top_grades = [u for u in users if u["grade"] in ["A", "B"]]
-
-    filtered_result = {
-        "high_performers": high_performers,
-        "top_grades": top_grades,
-        "filter_summary": {
-            "total_users": len(users),
-            "high_performers": len(high_performers),
-            "top_grades": len(top_grades)
-        },
-        "filter_applied": True
-    }
-
-    context.set("filtered_data", filtered_result)
-    return context
 ```
 
 ## What's Next?

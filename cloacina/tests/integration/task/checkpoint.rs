@@ -14,13 +14,13 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, CheckpointError, Context, Task, TaskError};
+use cloacina::{task, CheckpointError, Context, Task, TaskError, TaskNamespace};
 use std::sync::{Arc, Mutex};
 
 // Test task that implements custom checkpointing
 struct CheckpointableTask {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<TaskNamespace>,
     checkpoint_data: Arc<Mutex<Option<String>>>,
 }
 
@@ -28,7 +28,7 @@ impl CheckpointableTask {
     fn new(id: &str, dependencies: Vec<&str>) -> Self {
         Self {
             id: id.to_string(),
-            dependencies: dependencies.into_iter().map(|s| s.to_string()).collect(),
+            dependencies: dependencies.into_iter().map(|s| TaskNamespace::from_string(s).unwrap()).collect(),
             checkpoint_data: Arc::new(Mutex::new(None)),
         }
     }
@@ -67,7 +67,7 @@ impl Task for CheckpointableTask {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[TaskNamespace] {
         &self.dependencies
     }
 
@@ -173,7 +173,7 @@ fn test_checkpoint_serialization_error() {
             "failing-checkpoint"
         }
 
-        fn dependencies(&self) -> &[String] {
+        fn dependencies(&self) -> &[TaskNamespace] {
             &[]
         }
 

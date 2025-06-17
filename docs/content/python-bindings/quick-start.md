@@ -49,73 +49,59 @@ Create a new file called `first_workflow.py`:
 ```python
 import cloaca
 
-# Define your tasks using the @task decorator
-@cloaca.task(id="fetch_data")
-def fetch_data(context):
-    """Simulate fetching data from an external source."""
-    print("Fetching data...")
-
-    # Simulate some data
-    data = [1, 2, 3, 4, 5]
-    context.set("raw_data", data)
-    context.set("fetch_timestamp", "2025-01-07T10:00:00Z")
-
-    print(f"Fetched {len(data)} items")
-    return context
-
-@cloaca.task(id="process_data", dependencies=["fetch_data"])
-def process_data(context):
-    """Process the fetched data."""
-    print("Processing data...")
-
-    # Get data from previous task
-    raw_data = context.get("raw_data")
-
-    # Process the data (double each value)
-    processed_data = [x * 2 for x in raw_data]
-    context.set("processed_data", processed_data)
-
-    print(f"Processed {len(processed_data)} items")
-    return context
-
-@cloaca.task(id="save_results", dependencies=["process_data"])
-def save_results(context):
-    """Save the processed results."""
-    print("Saving results...")
-
-    # Get processed data
-    processed_data = context.get("processed_data")
-    fetch_timestamp = context.get("fetch_timestamp")
-
-    # Simulate saving to a file or database
-    result_summary = {
-        "total_items": len(processed_data),
-        "sum": sum(processed_data),
-        "processed_at": fetch_timestamp
-    }
-
-    context.set("result_summary", result_summary)
-    print(f"Results saved: {result_summary}")
-    return context
-
-# Create workflow builder function
-def create_data_processing_workflow():
-    """Build and return the workflow."""
-    builder = cloaca.WorkflowBuilder("data_processing_workflow")
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("data_processing_workflow") as builder:
     builder.description("A simple data processing pipeline")
+    
+    # Define your tasks using the @task decorator within workflow scope
+    @cloaca.task(id="fetch_data")
+    def fetch_data(context):
+        """Simulate fetching data from an external source."""
+        print("Fetching data...")
 
-    # Add tasks to the workflow
-    builder.add_task("fetch_data")
-    builder.add_task("process_data")
-    builder.add_task("save_results")
+        # Simulate some data
+        data = [1, 2, 3, 4, 5]
+        context.set("raw_data", data)
+        context.set("fetch_timestamp", "2025-01-07T10:00:00Z")
 
-    return builder.build()
+        print(f"Fetched {len(data)} items")
+        return context
 
-# Register the workflow
-cloaca.register_workflow_constructor(
-    "data_processing_workflow",
-    create_data_processing_workflow
-)
+    @cloaca.task(id="process_data", dependencies=["fetch_data"])
+    def process_data(context):
+        """Process the fetched data."""
+        print("Processing data...")
+
+        # Get data from previous task
+        raw_data = context.get("raw_data")
+
+        # Process the data (double each value)
+        processed_data = [x * 2 for x in raw_data]
+        context.set("processed_data", processed_data)
+
+        print(f"Processed {len(processed_data)} items")
+        return context
+
+    @cloaca.task(id="save_results", dependencies=["process_data"])
+    def save_results(context):
+        """Save the processed results."""
+        print("Saving results...")
+
+        # Get processed data
+        processed_data = context.get("processed_data")
+        fetch_timestamp = context.get("fetch_timestamp")
+
+        # Simulate saving to a file or database
+        result_summary = {
+            "total_items": len(processed_data),
+            "sum": sum(processed_data),
+            "processed_at": fetch_timestamp
+        }
+
+        context.set("result_summary", result_summary)
+        print(f"Results saved: {result_summary}")
+        return context
+    # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Execute the workflow
 if __name__ == "__main__":
@@ -178,16 +164,18 @@ Let's break down the key concepts:
 **Tasks** are the building blocks of your workflow:
 
 ```python
-@cloaca.task(id="fetch_data")
-def fetch_data(context):
-    # Your task logic here
-    return context
+with cloaca.WorkflowBuilder("my_workflow") as builder:
+    @cloaca.task(id="fetch_data")
+    def fetch_data(context):
+        # Your task logic here
+        return context
 ```
 
-- Use the `@cloaca.task` decorator
+- Use the `@cloaca.task` decorator within a WorkflowBuilder context
 - Specify a unique `id` for each task
 - Define `dependencies` to control execution order
 - Tasks receive and return a `context` object
+- Tasks are automatically registered when defined within workflow scope
 {{< /tab >}}
 
 {{< tab "Dependencies" >}}
@@ -225,18 +213,19 @@ raw_data = context.get("raw_data")
 **WorkflowBuilder** assembles your tasks:
 
 ```python
-def create_workflow():
-    builder = cloaca.WorkflowBuilder("my_workflow")
+with cloaca.WorkflowBuilder("my_workflow") as builder:
     builder.description("Description here")
-    builder.add_task("task_id")
-    return builder.build()
-
-cloaca.register_workflow_constructor("my_workflow", create_workflow)
+    
+    @cloaca.task(id="my_task")
+    def my_task(context):
+        return context
+    # Tasks are automatically added - no manual add_task() needed
 ```
 
-- Register workflow constructor functions
-- Builder pattern for clean workflow definition
+- Use context manager pattern for clean workflow definition
+- Tasks defined within scope are automatically registered
 - Automatic dependency validation
+- No manual workflow registration required
 {{< /tab >}}
 {{< /tabs >}}
 

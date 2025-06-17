@@ -20,23 +20,14 @@ class TestSimpleWorkflowExecution:
         assert hasattr(cloaca, 'WorkflowBuilder')
         assert callable(cloaca.WorkflowBuilder)
 
-        # Define a simple task
-        @cloaca.task(id="simple_task")
-        def simple_task(context):
-            context.set("task_executed", True)
-            return context
-
-        # Create workflow manually (no auto-registration)
-        builder = cloaca.WorkflowBuilder("simple_workflow")
-        builder.description("Simple workflow test")
-        builder.add_task("simple_task")
-        workflow = builder.build()
-
-        # Register the workflow manually
-        def create_workflow():
-            return workflow
-
-        cloaca.register_workflow_constructor("simple_workflow", create_workflow)
+        # Create workflow using context manager
+        with cloaca.WorkflowBuilder("simple_workflow") as builder:
+            builder.description("Simple workflow test")
+            
+            @cloaca.task(id="simple_task")
+            def simple_task(context):
+                context.set("task_executed", True)
+                return context
 
         # Execute workflow using shared runner
         context = cloaca.Context({"input": "test"})

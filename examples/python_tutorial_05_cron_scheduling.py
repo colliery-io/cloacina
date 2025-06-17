@@ -8,119 +8,112 @@ import cloaca
 from datetime import datetime
 import time
 
-# Task definitions
-@cloaca.task(id="daily_report")
-def daily_report(context):
-    """Generate daily business report."""
-    current_time = datetime.now()
-    report_data = {
-        "generated_at": current_time.isoformat(),
-        "total_orders": 150,
-        "revenue": 12500.50,
-        "active_users": 89
-    }
+# Create all workflow definitions using workflow-scoped pattern
+# Daily report workflow
+with cloaca.WorkflowBuilder("daily_report") as builder:
+    builder.description("Daily business analytics")
+    
+    # Tasks are automatically registered when defined within WorkflowBuilder context
+    @cloaca.task(id="daily_report")
+    def daily_report(context):
+        """Generate daily business report."""
+        current_time = datetime.now()
+        report_data = {
+            "generated_at": current_time.isoformat(),
+            "total_orders": 150,
+            "revenue": 12500.50,
+            "active_users": 89
+        }
 
-    print(f"Daily Report Generated at {current_time}")
-    print(f"   Orders: {report_data['total_orders']}")
-    print(f"   Revenue: ${report_data['revenue']}")
-    print(f"   Users: {report_data['active_users']}")
+        print(f"Daily Report Generated at {current_time}")
+        print(f"   Orders: {report_data['total_orders']}")
+        print(f"   Revenue: ${report_data['revenue']}")
+        print(f"   Users: {report_data['active_users']}")
 
-    context.set("report_data", report_data)
-    return context
+        context.set("report_data", report_data)
+        return context
 
-@cloaca.task(id="system_backup")
-def system_backup(context):
-    """Perform system backup."""
-    backup_type = context.get("backup_type", "incremental")
-    timestamp = datetime.now()
+# Backup workflow
+with cloaca.WorkflowBuilder("system_backup") as builder:
+    builder.description("System data backup")
+    
+    @cloaca.task(id="system_backup")
+    def system_backup(context):
+        """Perform system backup."""
+        backup_type = context.get("backup_type", "incremental")
+        timestamp = datetime.now()
 
-    print(f"{backup_type.title()} backup at {timestamp}")
+        print(f"{backup_type.title()} backup at {timestamp}")
 
-    context.set("backup_completed", timestamp.isoformat())
-    context.set("backup_type", backup_type)
-    return context
+        context.set("backup_completed", timestamp.isoformat())
+        context.set("backup_type", backup_type)
+        return context
 
-@cloaca.task(id="data_cleanup")
-def data_cleanup(context):
-    """Clean up old data."""
-    retention_days = context.get("retention_days", 30)
-    timestamp = datetime.now()
+# Cleanup workflow
+with cloaca.WorkflowBuilder("data_cleanup") as builder:
+    builder.description("Data cleanup and maintenance")
+    
+    @cloaca.task(id="data_cleanup")
+    def data_cleanup(context):
+        """Clean up old data."""
+        retention_days = context.get("retention_days", 30)
+        timestamp = datetime.now()
 
-    print(f"Cleaning data older than {retention_days} days at {timestamp}")
+        print(f"Cleaning data older than {retention_days} days at {timestamp}")
 
-    # Simulate cleanup
-    files_removed = 47
-    space_freed = "1.2GB"
+        # Simulate cleanup
+        files_removed = 47
+        space_freed = "1.2GB"
 
-    context.set("cleanup_completed_at", timestamp.isoformat())
-    context.set("files_removed", files_removed)
-    context.set("space_freed", space_freed)
+        context.set("cleanup_completed_at", timestamp.isoformat())
+        context.set("files_removed", files_removed)
+        context.set("space_freed", space_freed)
 
-    return context
+        return context
 
-@cloaca.task(id="health_check")
-def health_check(context):
-    """Perform system health check."""
-    timestamp = datetime.now()
+# Health check workflow
+with cloaca.WorkflowBuilder("health_check") as builder:
+    builder.description("System health monitoring")
+    
+    @cloaca.task(id="health_check")
+    def health_check(context):
+        """Perform system health check."""
+        timestamp = datetime.now()
 
-    print(f"System health check at {timestamp}")
+        print(f"System health check at {timestamp}")
 
-    # Simulate health monitoring
-    health_status = {
-        "cpu_usage": 45.2,
-        "memory_usage": 62.8,
-        "disk_usage": 73.1,
-        "active_connections": 234,
-        "response_time_ms": 145
-    }
+        # Simulate health monitoring
+        health_status = {
+            "cpu_usage": 45.2,
+            "memory_usage": 62.8,
+            "disk_usage": 73.1,
+            "active_connections": 234,
+            "response_time_ms": 145
+        }
 
-    # Determine overall health
-    if health_status["cpu_usage"] > 80 or health_status["memory_usage"] > 90:
-        overall_status = "warning"
-    elif health_status["cpu_usage"] > 95 or health_status["memory_usage"] > 95:
-        overall_status = "critical"
-    else:
-        overall_status = "healthy"
+        # Determine overall health
+        if health_status["cpu_usage"] > 80 or health_status["memory_usage"] > 90:
+            overall_status = "warning"
+        elif health_status["cpu_usage"] > 95 or health_status["memory_usage"] > 95:
+            overall_status = "critical"
+        else:
+            overall_status = "healthy"
 
-    print(f"   Status: {overall_status.upper()}")
-    print(f"   CPU: {health_status['cpu_usage']}%")
-    print(f"   Memory: {health_status['memory_usage']}%")
+        print(f"   Status: {overall_status.upper()}")
+        print(f"   CPU: {health_status['cpu_usage']}%")
+        print(f"   Memory: {health_status['memory_usage']}%")
 
-    context.set("health_check_at", timestamp.isoformat())
-    context.set("health_status", health_status)
-    context.set("overall_status", overall_status)
+        context.set("health_check_at", timestamp.isoformat())
+        context.set("health_status", health_status)
+        context.set("overall_status", overall_status)
 
-    return context
+        return context
 
-def create_workflows():
-    """Create all workflow definitions."""
-
-    # Daily report workflow
-    report_builder = cloaca.WorkflowBuilder("daily_report")
-    report_builder.description("Daily business analytics")
-    report_builder.add_task("daily_report")
-
-    # Backup workflow
-    backup_builder = cloaca.WorkflowBuilder("system_backup")
-    backup_builder.description("System data backup")
-    backup_builder.add_task("system_backup")
-
-    # Cleanup workflow
-    cleanup_builder = cloaca.WorkflowBuilder("data_cleanup")
-    cleanup_builder.description("Data cleanup and maintenance")
-    cleanup_builder.add_task("data_cleanup")
-
-    # Health check workflow
-    health_builder = cloaca.WorkflowBuilder("health_check")
-    health_builder.description("System health monitoring")
-    health_builder.add_task("health_check")
-
-    return {
-        "daily_report": report_builder.build(),
-        "system_backup": backup_builder.build(),
-        "data_cleanup": cleanup_builder.build(),
-        "health_check": health_builder.build()
-    }
+def get_workflow_names():
+    """Get all registered workflow names."""
+    # With the workflow-scoped pattern, workflows are already registered
+    # when defined within WorkflowBuilder context
+    return ["daily_report", "system_backup", "data_cleanup", "health_check"]
 
 def cron_demo():
     """Demonstrate advanced cron scheduling patterns."""
@@ -130,10 +123,8 @@ def cron_demo():
     runner = cloaca.DefaultRunner(":memory:")
 
     try:
-        # Register workflows
-        workflows = create_workflows()
-        for name, workflow in workflows.items():
-            cloaca.register_workflow_constructor(name, lambda w=workflow: w)
+        # Workflows are already registered with the workflow-scoped pattern
+        workflow_names = get_workflow_names()
 
         # Production-style schedules (commented) with demo equivalents
         # production_schedules = [

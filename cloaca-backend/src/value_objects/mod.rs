@@ -14,23 +14,10 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow, TaskNamespace};
+pub mod namespace;
+pub mod context;
+pub mod retry;
 
-#[task(id = "basic-workflow-task", dependencies = [])]
-async fn simple_task(
-    _context: &mut cloacina::Context<serde_json::Value>,
-) -> Result<(), cloacina::TaskError> {
-    Ok(())
-}
-
-#[test]
-fn test_simple_workflow_creation() {
-    let simple_workflow = workflow! {
-        name: "simple-pipeline",
-        tasks: [simple_task]
-    };
-
-    assert_eq!(simple_workflow.name(), "simple-pipeline");
-    let task_ns = TaskNamespace::new("public", "embedded", "simple-pipeline", "basic-workflow-task");
-    assert!(simple_workflow.get_task(&task_ns).is_ok());
-}
+pub use namespace::PyTaskNamespace;
+pub use context::PyWorkflowContext;
+pub use retry::{PyRetryPolicy, PyRetryPolicyBuilder, PyBackoffStrategy, PyRetryCondition};
