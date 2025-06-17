@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError, TaskNamespace};
 
 // Define some test tasks using the task macro
 #[task(id = "fetch-document", dependencies = [])]
@@ -68,36 +68,42 @@ fn test_workflow_macro_basic() {
     );
 
     // Verify all tasks are present
+    let fetch_ns = TaskNamespace::new("public", "embedded", "document-processing", "fetch-document");
+    let extract_ns = TaskNamespace::new("public", "embedded", "document-processing", "extract-text");
+    let embeddings_ns = TaskNamespace::new("public", "embedded", "document-processing", "generate-embeddings");
+    
     assert!(document_processing_workflow
-        .get_task("fetch-document")
-        .is_some());
+        .get_task(&fetch_ns)
+        .is_ok());
     assert!(document_processing_workflow
-        .get_task("extract-text")
-        .is_some());
+        .get_task(&extract_ns)
+        .is_ok());
     assert!(document_processing_workflow
-        .get_task("generate-embeddings")
-        .is_some());
+        .get_task(&embeddings_ns)
+        .is_ok());
+    let store_ns = TaskNamespace::new("public", "embedded", "document-processing", "store-embeddings");
     assert!(document_processing_workflow
-        .get_task("store-embeddings")
-        .is_some());
+        .get_task(&store_ns)
+        .is_ok());
 
     // Verify topological order
     let execution_order = document_processing_workflow.topological_sort().unwrap();
+    
     let fetch_pos = execution_order
         .iter()
-        .position(|x| x == "fetch-document")
+        .position(|x| x.task_id == "fetch-document")
         .unwrap();
     let extract_pos = execution_order
         .iter()
-        .position(|x| x == "extract-text")
+        .position(|x| x.task_id == "extract-text")
         .unwrap();
     let embed_pos = execution_order
         .iter()
-        .position(|x| x == "generate-embeddings")
+        .position(|x| x.task_id == "generate-embeddings")
         .unwrap();
     let store_pos = execution_order
         .iter()
-        .position(|x| x == "store-embeddings")
+        .position(|x| x.task_id == "store-embeddings")
         .unwrap();
 
     assert!(fetch_pos < extract_pos);
@@ -119,7 +125,8 @@ fn test_workflow_macro_minimal() {
     assert_eq!(simple_workflow.name(), "simple-pipeline");
     // Version is now auto-generated based on task content
     assert!(!simple_workflow.metadata().version.is_empty());
-    assert!(simple_workflow.get_task("fetch-document").is_some());
+    let fetch_ns = TaskNamespace::new("public", "embedded", "simple-pipeline", "fetch-document");
+    assert!(simple_workflow.get_task(&fetch_ns).is_ok());
 }
 
 // Define parallel tasks for testing execution levels
@@ -152,17 +159,20 @@ fn test_workflow_execution_levels() {
 
     // Level 0: task_a and task_b (can run in parallel)
     assert_eq!(execution_levels[0].len(), 2);
-    assert!(execution_levels[0].contains(&"task-a".to_string()));
-    assert!(execution_levels[0].contains(&"task-b".to_string()));
+    let task_a_ns = TaskNamespace::new("public", "embedded", "parallel-execution", "task-a");
+    let task_b_ns = TaskNamespace::new("public", "embedded", "parallel-execution", "task-b");
+    let task_c_ns = TaskNamespace::new("public", "embedded", "parallel-execution", "task-c");
+    assert!(execution_levels[0].contains(&task_a_ns));
+    assert!(execution_levels[0].contains(&task_b_ns));
 
     // Level 1: task_c (depends on both task_a and task_b)
     assert_eq!(execution_levels[1].len(), 1);
-    assert!(execution_levels[1].contains(&"task-c".to_string()));
+    assert!(execution_levels[1].contains(&task_c_ns));
 
     // Verify parallel execution capability
-    assert!(parallel_workflow.can_run_parallel("task-a", "task-b"));
-    assert!(!parallel_workflow.can_run_parallel("task-a", "task-c"));
-    assert!(!parallel_workflow.can_run_parallel("task-b", "task-c"));
+    assert!(parallel_workflow.can_run_parallel(&task_a_ns, &task_b_ns));
+    assert!(!parallel_workflow.can_run_parallel(&task_a_ns, &task_c_ns));
+    assert!(!parallel_workflow.can_run_parallel(&task_b_ns, &task_c_ns));
 }
 
 #[test]
@@ -183,10 +193,12 @@ fn test_workflow_roots_and_leaves() {
     // Root tasks (no dependencies)
     let roots = workflow.get_roots();
     assert_eq!(roots.len(), 1);
-    assert!(roots.contains(&"fetch-document".to_string()));
+    let fetch_ns = TaskNamespace::new("public", "embedded", "test-workflow", "fetch-document");
+    assert!(roots.contains(&fetch_ns));
 
     // Leaf tasks (no dependents)
     let leaves = workflow.get_leaves();
     assert_eq!(leaves.len(), 1);
-    assert!(leaves.contains(&"store-embeddings".to_string()));
+    let store_ns = TaskNamespace::new("public", "embedded", "test-workflow", "store-embeddings");
+    assert!(leaves.contains(&store_ns));
 }

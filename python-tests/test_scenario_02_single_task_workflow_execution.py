@@ -16,24 +16,20 @@ class TestSingleTaskWorkflowExecution:
         """Test task that manipulates context data."""
         import cloaca
 
-        @cloaca.task(id="context_manipulation_task")
-        def context_manipulation_task(context):
-            # Read input
-            input_val = context.get("input_number", 0)
-
-            # Process and set output
-            context.set("doubled", input_val * 2)
-            context.set("squared", input_val * input_val)
-            context.set("processed", True)
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("context_manipulation_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("context_manipulation_workflow") as builder:
             builder.description("Context manipulation test")
-            builder.add_task("context_manipulation_task")
-            return builder.build()
+            
+            @cloaca.task(id="context_manipulation_task")
+            def context_manipulation_task(context):
+                # Read input
+                input_val = context.get("input_number", 0)
 
-        cloaca.register_workflow_constructor("context_manipulation_workflow", create_workflow)
+                # Process and set output
+                context.set("doubled", input_val * 2)
+                context.set("squared", input_val * input_val)
+                context.set("processed", True)
+                return context
 
         # Execute with specific input
         context = cloaca.Context({"input_number": 5})

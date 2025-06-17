@@ -17,27 +17,20 @@ class TestCronScheduling:
         """Test comprehensive cron scheduling including CRUD operations and monitoring."""
         import cloaca
 
-        # Define test tasks
-        @cloaca.task(id="cron_test_task_1")
-        def cron_test_task_1(context):
-            context.set("cron_task_1_executed", True)
-            context.set("execution_time", str(datetime.now(timezone.utc)))
-            return context
-
-        @cloaca.task(id="cron_test_task_2", dependencies=["cron_test_task_1"])
-        def cron_test_task_2(context):
-            context.set("cron_task_2_executed", True)
-            return context
-
         # Register test workflow
-        def create_cron_test_workflow():
-            builder = cloaca.WorkflowBuilder("cron_test_workflow")
+        with cloaca.WorkflowBuilder("cron_test_workflow") as builder:
             builder.description("Test workflow for cron scheduling")
-            builder.add_task("cron_test_task_1")
-            builder.add_task("cron_test_task_2")
-            return builder.build()
+            
+            @cloaca.task(id="cron_test_task_1")
+            def cron_test_task_1(context):
+                context.set("cron_task_1_executed", True)
+                context.set("execution_time", str(datetime.now(timezone.utc)))
+                return context
 
-        cloaca.register_workflow_constructor("cron_test_workflow", create_cron_test_workflow)
+            @cloaca.task(id="cron_test_task_2", dependencies=["cron_test_task_1"])
+            def cron_test_task_2(context):
+                context.set("cron_task_2_executed", True)
+                return context
 
         # Test 1: Register cron workflow
         print("Testing cron workflow registration...")

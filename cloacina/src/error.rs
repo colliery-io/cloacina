@@ -269,6 +269,9 @@ pub enum ValidationError {
     #[error("Invalid trigger rule format: {0}")]
     InvalidTriggerRule(String),
 
+    #[error("Invalid task name format: {0}")]
+    InvalidTaskName(String),
+
     #[error("Context value evaluation failed: {key}")]
     ContextEvaluationFailed { key: String },
 

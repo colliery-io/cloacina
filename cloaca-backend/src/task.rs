@@ -18,6 +18,38 @@ use async_trait::async_trait;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::sync::Arc;
+use std::sync::Mutex;
+use crate::value_objects::PyWorkflowContext;
+
+/// Workflow builder reference for automatic task registration
+#[derive(Clone)]
+pub struct WorkflowBuilderRef {
+    pub context: PyWorkflowContext,
+}
+
+/// Global context stack for workflow-scoped task registration
+static WORKFLOW_CONTEXT_STACK: Mutex<Vec<WorkflowBuilderRef>> = Mutex::new(Vec::new());
+
+/// Push a workflow context onto the stack (called when entering workflow scope)
+pub fn push_workflow_context(context: PyWorkflowContext) {
+    WORKFLOW_CONTEXT_STACK.lock().unwrap().push(WorkflowBuilderRef { context });
+}
+
+/// Pop a workflow context from the stack (called when exiting workflow scope)
+pub fn pop_workflow_context() -> Option<WorkflowBuilderRef> {
+    WORKFLOW_CONTEXT_STACK.lock().unwrap().pop()
+}
+
+/// Get the current workflow context (used by task decorator)
+pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
+    let stack = WORKFLOW_CONTEXT_STACK.lock().unwrap();
+    stack.last().map(|ref_| ref_.context.clone()).ok_or_else(|| {
+        PyValueError::new_err(
+            "No workflow context available. Tasks must be defined within a WorkflowBuilder context manager."
+        )
+    })
+}
+
 
 /// Python task wrapper implementing Rust Task trait
 ///
@@ -25,7 +57,7 @@ use std::sync::Arc;
 /// as tasks within the Cloacina execution engine.
 pub struct PythonTaskWrapper {
     id: String,
-    dependencies: Vec<String>,
+    dependencies: Vec<cloacina::TaskNamespace>,
     retry_policy: cloacina::retry::RetryPolicy,
     python_function: PyObject, // Stored Python function
 }
@@ -91,7 +123,7 @@ impl cloacina::Task for PythonTaskWrapper {
         &self.id
     }
 
-    fn dependencies(&self) -> &[String] {
+    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
         &self.dependencies
     }
 
@@ -176,7 +208,7 @@ fn build_retry_policy(
 
 /// Decorator class that holds task configuration
 #[pyclass]
-struct TaskDecorator {
+pub struct TaskDecorator {
     id: Option<String>,          // Now optional - can be derived from function name
     dependencies: Vec<PyObject>, // Now supports both strings and function objects
     retry_policy: cloacina::retry::RetryPolicy,
@@ -184,7 +216,10 @@ struct TaskDecorator {
 
 #[pymethods]
 impl TaskDecorator {
-    fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
+    pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
+        // Get the current workflow context from the global stack
+        let context = current_workflow_context()?;
+        
         // Determine task ID - use provided ID or derive from function name
         let task_id = if let Some(id) = &self.id {
             id.clone()
@@ -193,8 +228,8 @@ impl TaskDecorator {
             func.getattr(py, "__name__")?.extract::<String>(py)?
         };
 
-        // Convert dependencies from mixed PyObject list to string list
-        let deps = match self.convert_dependencies_to_strings(py) {
+        // Convert dependencies from mixed PyObject list to TaskNamespace list
+        let deps = match self.convert_dependencies_to_namespaces(py, &context) {
             Ok(deps) => deps,
             Err(e) => {
                 eprintln!("Error converting dependencies: {}", e);
@@ -204,10 +239,11 @@ impl TaskDecorator {
         let policy = self.retry_policy.clone();
         let function = func.clone_ref(py);
 
-        // Register task constructor in global registry
+        // Register task constructor in global registry using context
         let shared_function = Arc::new(function);
-        let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
-        cloacina::register_task_constructor(namespace, {
+        let (tenant_id, package_name, workflow_id) = context.as_components();
+        let namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+        cloacina::register_task_constructor(namespace.clone(), {
             let task_id_clone = task_id.clone();
             let deps_clone = deps.clone();
             let policy_clone = policy.clone();
@@ -215,7 +251,7 @@ impl TaskDecorator {
             move || {
                 let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
                 Arc::new(PythonTaskWrapper {
-                    id: task_id_clone.clone(),
+                    id: task_id_clone.clone(),  // Keep simple task ID
                     dependencies: deps_clone.clone(),
                     retry_policy: policy_clone.clone(),
                     python_function: function_clone,
@@ -223,24 +259,29 @@ impl TaskDecorator {
             }
         });
 
+        // Store task ID for the current workflow to add later
+        // For now, we'll let the workflow builder handle task collection differently
+        
         // Return the original function (decorator behavior)
         Ok(func)
     }
+}
 
-    /// Convert mixed dependencies (strings and function objects) to string task IDs
-    fn convert_dependencies_to_strings(&self, py: Python) -> PyResult<Vec<String>> {
-        let mut string_deps = Vec::new();
+impl TaskDecorator {
+    /// Convert mixed dependencies (strings and function objects) to TaskNamespace objects
+    fn convert_dependencies_to_namespaces(&self, py: Python, context: &PyWorkflowContext) -> PyResult<Vec<cloacina::TaskNamespace>> {
+        let mut namespace_deps = Vec::new();
 
         for (i, dep) in self.dependencies.iter().enumerate() {
-            if let Ok(string_dep) = dep.extract::<String>(py) {
+            let task_name = if let Ok(string_dep) = dep.extract::<String>(py) {
                 // It's a string - use directly
-                string_deps.push(string_dep);
+                string_dep
             } else {
                 // Try to get function name
                 match dep.bind(py).hasattr("__name__") {
                     Ok(true) => match dep.getattr(py, "__name__") {
                         Ok(name_obj) => match name_obj.extract::<String>(py) {
-                            Ok(func_name) => string_deps.push(func_name),
+                            Ok(func_name) => func_name,
                             Err(e) => {
                                 return Err(PyValueError::new_err(format!(
                                     "Dependency {} has __name__ but it's not a string: {}",
@@ -268,10 +309,14 @@ impl TaskDecorator {
                         )));
                     }
                 }
-            }
+            };
+            
+            // Use workflow context to create proper namespace
+            let (tenant_id, package_name, workflow_id) = context.as_components();
+            namespace_deps.push(cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_name));
         }
 
-        Ok(string_deps)
+        Ok(namespace_deps)
     }
 }
 
@@ -282,28 +327,26 @@ impl TaskDecorator {
 ///
 /// # Examples
 ///
-/// **String-based approach (traditional):**
+/// **Workflow-scoped approach (automatic namespace inheritance):**
 /// ```python
-/// @cloaca.task(
-///     id="my_task",
-///     dependencies=["other_task"],
-///     retry_attempts=3,
-///     retry_backoff="exponential"
-/// )
-/// def my_task(context):
-///     context.set("result", "processed")
-///     return context
-/// ```
+/// with cloaca.WorkflowBuilder("my_workflow", tenant="acme", package="data") as workflow:
+///     @cloaca.task(
+///         id="my_task",
+///         dependencies=["other_task"],
+///         retry_attempts=3,
+///         retry_backoff="exponential"
+///     )
+///     def my_task(context):
+///         context.set("result", "processed")
+///         return context
+/// 
+///     @cloaca.task()  # ID automatically derived from function name
+///     def extract_data(context):
+///         return context
 ///
-/// **Function-based approach (recommended):**
-/// ```python
-/// @cloaca.task()  # ID automatically derived from function name
-/// def extract_data(context):
-///     return context
-///
-/// @cloaca.task(dependencies=[extract_data])  # Direct function reference
-/// def process_data(context):
-///     return context
+///     @cloaca.task(dependencies=[extract_data])  # Direct function reference
+///     def process_data(context):
+///         return context
 /// ```
 #[pyfunction]
 #[pyo3(signature = (

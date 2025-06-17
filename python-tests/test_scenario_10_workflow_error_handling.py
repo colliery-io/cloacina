@@ -16,19 +16,15 @@ class TestErrorHandling:
         """Test successful task execution leads to workflow completion."""
         import cloaca
 
-        @cloaca.task(id="success_task")
-        def success_task(context):
-            context.set("success", True)
-            context.set("message", "Task completed successfully")
-            return context
-
-        def create_workflow():
-            builder = cloaca.WorkflowBuilder("success_workflow")
+        # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
+        with cloaca.WorkflowBuilder("success_workflow") as builder:
             builder.description("Success test workflow")
-            builder.add_task("success_task")
-            return builder.build()
-
-        cloaca.register_workflow_constructor("success_workflow", create_workflow)
+            
+            @cloaca.task(id="success_task")
+            def success_task(context):
+                context.set("success", True)
+                context.set("message", "Task completed successfully")
+                return context
 
         # Execute workflow
         context = cloaca.Context({"test_type": "success"})

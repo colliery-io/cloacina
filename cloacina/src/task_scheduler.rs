@@ -126,6 +126,7 @@ use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution}
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use crate::{Context, Database, Workflow};
+use crate::task::TaskNamespace;
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
 ///
@@ -338,7 +339,7 @@ impl TaskScheduler {
         let pipeline_execution = self.dal.pipeline_execution().create(new_execution).await?;
 
         // Initialize task executions
-        self.initialize_task_executions(pipeline_execution.id.into(), &workflow, workflow_name)
+        self.initialize_task_executions(pipeline_execution.id.into(), &workflow)
             .await?;
 
         info!("Workflow execution scheduled: {}", pipeline_execution.id);
@@ -406,7 +407,6 @@ impl TaskScheduler {
     ///
     /// * `pipeline_execution_id` - UUID of the pipeline execution
     /// * `workflow` - The workflow containing tasks to initialize
-    /// * `workflow_name` - Name of the workflow for namespace construction
     ///
     /// # Returns
     ///
@@ -415,7 +415,6 @@ impl TaskScheduler {
         &self,
         pipeline_execution_id: Uuid,
         workflow: &Workflow,
-        workflow_name: &str,
     ) -> Result<(), ValidationError> {
         debug!(
             "Initializing task executions for pipeline: {}",
@@ -429,23 +428,18 @@ impl TaskScheduler {
             let task_config = self.get_task_configuration(workflow, &task_id);
 
             // Get retry policy from task to determine max_attempts
-            let max_attempts = if let Some(task) = workflow.get_task(&task_id) {
+            let max_attempts = if let Ok(task) = workflow.get_task(&task_id) {
                 task.retry_policy().max_attempts
             } else {
                 3 // Fallback default
             };
 
-            // Construct full namespace - first try to find the actual namespace in global registry
-            let task_namespace = self
-                .find_task_namespace(&task_id, workflow_name)
-                .unwrap_or_else(|| {
-                    // Fallback to embedded namespace format for non-packaged workflows
-                    format!("public::embedded::{}::{}", workflow_name, task_id)
-                });
-
+            // Use the TaskNamespace directly as it's already a full namespace
+            let full_task_name = task_id.to_string();
+            
             let new_task = NewTaskExecution {
                 pipeline_execution_id: UniversalUuid(pipeline_execution_id),
-                task_namespace,
+                task_name: full_task_name,
                 status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts,
@@ -769,16 +763,20 @@ impl TaskScheduler {
             }
         };
 
+        // Parse the task name string to TaskNamespace
+        let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
+            .map_err(|e| ValidationError::InvalidTaskName(e))?;
+            
         let dependencies = workflow
-            .get_dependencies(&task_execution.task_name)
-            .unwrap_or(&[]);
+            .get_dependencies(&task_namespace)
+            .map_err(|e| ValidationError::InvalidTaskName(e.to_string()))?;
 
         if dependencies.is_empty() {
             return Ok(true);
         }
 
         // Batch fetch all dependency statuses in a single query
-        let dependency_names = dependencies.iter().map(|s| s.to_string()).collect();
+        let dependency_names = dependencies.iter().map(|ns| ns.to_string()).collect();
         let status_map = self
             .dal
             .task_execution()
@@ -788,7 +786,7 @@ impl TaskScheduler {
         // Check that all dependencies exist and are in terminal states
         let all_satisfied = dependencies.iter().all(|dependency| {
             status_map
-                .get(dependency)
+                .get(&dependency.to_string())
                 .map(|status| matches!(status.as_str(), "Completed" | "Failed" | "Skipped"))
                 .unwrap_or_else(|| {
                     warn!(
@@ -803,15 +801,15 @@ impl TaskScheduler {
     }
 
     /// Gets trigger rules for a specific task from the task implementation.
-    fn get_task_trigger_rules(&self, workflow: &Workflow, task_id: &str) -> serde_json::Value {
+    fn get_task_trigger_rules(&self, workflow: &Workflow, task_namespace: &TaskNamespace) -> serde_json::Value {
         workflow
-            .get_task(task_id)
+            .get_task(task_namespace)
             .map(|task| task.trigger_rules())
-            .unwrap_or_else(|| serde_json::json!({"type": "Always"}))
+            .unwrap_or_else(|_| serde_json::json!({"type": "Always"}))
     }
 
     /// Gets task configuration (currently returns empty object).
-    fn get_task_configuration(&self, _workflow: &Workflow, _task_id: &str) -> serde_json::Value {
+    fn get_task_configuration(&self, _workflow: &Workflow, _task_namespace: &TaskNamespace) -> serde_json::Value {
         // In the future, this could include task-specific configuration
         serde_json::json!({})
     }
@@ -923,6 +921,10 @@ impl TaskScheduler {
     ) -> Result<bool, ValidationError> {
         match condition {
             TriggerCondition::TaskSuccess { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskSuccess trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()
@@ -936,6 +938,10 @@ impl TaskScheduler {
                 Ok(result)
             }
             TriggerCondition::TaskFailed { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskFailed trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()
@@ -949,6 +955,10 @@ impl TaskScheduler {
                 Ok(result)
             }
             TriggerCondition::TaskSkipped { task_name } => {
+                tracing::debug!(
+                    "[DEBUG] Scheduler evaluating TaskSkipped trigger rule: looking up task_name '{}' in pipeline {}",
+                    task_name, task_execution.pipeline_execution_id
+                );
                 let status = self
                     .dal
                     .task_execution()
@@ -1007,9 +1017,13 @@ impl TaskScheduler {
             }
         };
 
+        // Parse the task name string to TaskNamespace
+        let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
+            .map_err(|e| ValidationError::InvalidTaskName(e))?;
+            
         let dependencies = workflow
-            .get_dependencies(&task_execution.task_name)
-            .unwrap_or(&[]);
+            .get_dependencies(&task_namespace)
+            .map_err(|e| ValidationError::InvalidTaskName(e.to_string()))?;
 
         if dependencies.is_empty() {
             // No dependencies: read initial pipeline context
@@ -1030,11 +1044,12 @@ impl TaskScheduler {
             }
         } else if dependencies.len() == 1 {
             // Single dependency: read that task's saved context
-            let dep_task_name = &dependencies[0];
+            let dep_task_namespace = &dependencies[0];
+            let dep_task_name = dep_task_namespace.to_string();
             match self
                 .dal
                 .task_execution_metadata()
-                .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_name)
+                .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_namespace)
                 .await
             {
                 Ok(task_metadata) => {
@@ -1080,11 +1095,12 @@ impl TaskScheduler {
             let mut merged_context = Context::new();
             let mut sources = Vec::new();
 
-            for dep_task_name in dependencies {
+            for dep_task_namespace in dependencies {
+                let dep_task_name = dep_task_namespace.to_string();
                 if let Ok(task_metadata) = self
                     .dal
                     .task_execution_metadata()
-                    .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_name)
+                    .get_by_pipeline_and_task(task_execution.pipeline_execution_id, dep_task_namespace)
                     .await
                 {
                     if let Some(context_id) = task_metadata.context_id {
@@ -1457,10 +1473,12 @@ impl TaskScheduler {
             if task.status == "Completed" || task.status == "Skipped" {
                 if let Some(completed_at) = task.completed_at {
                     // Check if this task has a context stored
+                    let task_namespace = crate::task::TaskNamespace::from_string(&task.task_name)
+                        .map_err(|_| crate::error::ValidationError::InvalidTaskName(task.task_name.clone()))?;
                     if let Ok(task_metadata) = self
                         .dal
                         .task_execution_metadata()
-                        .get_by_pipeline_and_task(pipeline_execution_id, &task.task_name)
+                        .get_by_pipeline_and_task(pipeline_execution_id, &task_namespace)
                         .await
                     {
                         if let Some(context_id) = task_metadata.context_id {

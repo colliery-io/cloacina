@@ -58,7 +58,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 /// The namespace components form a hierarchy from most general (tenant) to
 /// most specific (task), enabling precise task resolution while supporting
 /// fallback strategies for compatibility.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TaskNamespace {
     /// Tenant identifier for multi-tenancy support.
     /// Default: "public" for single-tenant or public access
@@ -79,100 +79,7 @@ pub struct TaskNamespace {
 }
 
 impl TaskNamespace {
-    /// Create a namespace for embedded workflow tasks (most common case).
-    ///
-    /// This is the default namespace type for tasks defined directly in
-    /// application code using the standard workflow! and #[task] macros.
-    ///
-    /// # Arguments
-    ///
-    /// * `workflow_id` - Name from workflow! macro
-    /// * `task_id` - ID from #[task] macro
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use cloacina::TaskNamespace;
-    ///
-    /// let ns = TaskNamespace::embedded("customer_etl", "extract_data");
-    /// assert_eq!(ns.tenant_id, "public");
-    /// assert_eq!(ns.package_name, "embedded");
-    /// assert_eq!(ns.workflow_id, "customer_etl");
-    /// assert_eq!(ns.task_id, "extract_data");
-    /// ```
-    pub fn embedded(workflow_id: &str, task_id: &str) -> Self {
-        Self {
-            tenant_id: "public".to_string(),
-            package_name: "embedded".to_string(),
-            workflow_id: workflow_id.to_string(),
-            task_id: task_id.to_string(),
-        }
-    }
-
-    /// Create a namespace for packaged workflow tasks.
-    ///
-    /// Used for tasks loaded from .so files via the packaged workflow system.
-    /// The package name typically comes from the .so file metadata.
-    ///
-    /// # Arguments
-    ///
-    /// * `package_name` - Name from packaged workflow metadata
-    /// * `workflow_id` - Name from package_workflow! macro
-    /// * `task_id` - ID from #[task] macro
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use cloacina::TaskNamespace;
-    ///
-    /// let ns = TaskNamespace::packaged("analytics.so", "data_pipeline", "extract_data");
-    /// assert_eq!(ns.tenant_id, "public");
-    /// assert_eq!(ns.package_name, "analytics.so");
-    /// assert_eq!(ns.workflow_id, "data_pipeline");
-    /// assert_eq!(ns.task_id, "extract_data");
-    /// ```
-    pub fn packaged(package_name: &str, workflow_id: &str, task_id: &str) -> Self {
-        Self {
-            tenant_id: "public".to_string(),
-            package_name: package_name.to_string(),
-            workflow_id: workflow_id.to_string(),
-            task_id: task_id.to_string(),
-        }
-    }
-
-    /// Create a namespace for multi-tenant scenarios.
-    ///
-    /// Allows tenant-specific task isolation while maintaining the same
-    /// package and workflow structure. Useful for SaaS applications where
-    /// different tenants may have customized versions of the same workflows.
-    ///
-    /// # Arguments
-    ///
-    /// * `tenant_id` - Unique identifier for the tenant
-    /// * `package_name` - Package context ("embedded" or package name)
-    /// * `workflow_id` - Workflow identifier
-    /// * `task_id` - Task identifier
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use cloacina::TaskNamespace;
-    ///
-    /// let ns = TaskNamespace::tenant("customer_123", "embedded", "order_processing", "validate_order");
-    /// assert_eq!(ns.tenant_id, "customer_123");
-    /// assert_eq!(ns.package_name, "embedded");
-    /// assert_eq!(ns.workflow_id, "order_processing");
-    /// assert_eq!(ns.task_id, "validate_order");
-    /// ```
-    pub fn tenant(tenant_id: &str, package_name: &str, workflow_id: &str, task_id: &str) -> Self {
-        Self {
-            tenant_id: tenant_id.to_string(),
-            package_name: package_name.to_string(),
-            workflow_id: workflow_id.to_string(),
-            task_id: task_id.to_string(),
-        }
-    }
-
+    
     /// Create a complete namespace from all components.
     ///
     /// This is the most general constructor, useful when all namespace
@@ -193,6 +100,35 @@ impl TaskNamespace {
         }
     }
 
+    /// Create a TaskNamespace from a string representation.
+    ///
+    /// Parses a namespace string in the format "tenant::package::workflow::task"
+    /// into a TaskNamespace struct.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace_str` - String in format "tenant::package::workflow::task"
+    ///
+    /// # Returns
+    ///
+    /// * `Result<TaskNamespace, String>` - Successfully parsed namespace or error message
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use cloacina::TaskNamespace;
+    ///
+    /// let ns = TaskNamespace::from_string("public::embedded::etl::extract").unwrap();
+    /// assert_eq!(ns.tenant_id, "public");
+    /// assert_eq!(ns.task_id, "extract");
+    ///
+    /// // Invalid format
+    /// assert!(TaskNamespace::from_string("invalid_format").is_err());
+    /// ```
+    pub fn from_string(namespace_str: &str) -> Result<Self, String> {
+        parse_namespace(namespace_str)
+    }
+
     /// Check if this is a public (non-tenant-specific) namespace.
     ///
     /// # Returns
@@ -209,63 +145,6 @@ impl TaskNamespace {
     /// `true` if this namespace uses the default "embedded" package
     pub fn is_embedded(&self) -> bool {
         self.package_name == "embedded"
-    }
-
-    /// Get the workflow-scoped portion of the namespace.
-    ///
-    /// Returns a namespace that identifies the workflow but not the specific task,
-    /// useful for workflow-level operations.
-    ///
-    /// # Returns
-    ///
-    /// A new TaskNamespace with "workflow" as the task_id
-    pub fn workflow_scope(&self) -> Self {
-        Self {
-            tenant_id: self.tenant_id.clone(),
-            package_name: self.package_name.clone(),
-            workflow_id: self.workflow_id.clone(),
-            task_id: "workflow".to_string(),
-        }
-    }
-
-    /// Create a fallback namespace for resolution hierarchy.
-    ///
-    /// Returns a namespace with the tenant_id changed to "public" for
-    /// fallback resolution when tenant-specific tasks are not found.
-    ///
-    /// # Returns
-    ///
-    /// A new TaskNamespace with "public" as tenant_id, or None if already public
-    pub fn public_fallback(&self) -> Option<Self> {
-        if self.is_public() {
-            None
-        } else {
-            Some(Self {
-                tenant_id: "public".to_string(),
-                package_name: self.package_name.clone(),
-                workflow_id: self.workflow_id.clone(),
-                task_id: self.task_id.clone(),
-            })
-        }
-    }
-
-    /// Parse a namespace from its string representation.
-    ///
-    /// # Arguments
-    ///
-    /// * `namespace_str` - String in format "tenant_id::package_name::workflow_id::task_id"
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(TaskNamespace)` - If parsing succeeds
-    /// * `Err(String)` - If format is invalid
-    pub fn from_string(namespace_str: &str) -> Result<Self, String> {
-        let parts: Vec<&str> = namespace_str.split("::").collect();
-        if parts.len() != 4 {
-            return Err(format!("Invalid namespace format: '{}'. Expected format: 'tenant_id::package_name::workflow_id::task_id'", namespace_str));
-        }
-
-        Ok(Self::new(parts[0], parts[1], parts[2], parts[3]))
     }
 }
 
@@ -339,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_embedded_namespace() {
-        let ns = TaskNamespace::embedded("customer_etl", "extract_data");
+        let ns = TaskNamespace::new("public", "embedded", "customer_etl", "extract_data");
 
         assert_eq!(ns.tenant_id, "public");
         assert_eq!(ns.package_name, "embedded");
@@ -352,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_packaged_namespace() {
-        let ns = TaskNamespace::packaged("analytics.so", "data_pipeline", "extract_data");
+        let ns = TaskNamespace::new("public", "analytics.so", "data_pipeline", "extract_data");
 
         assert_eq!(ns.tenant_id, "public");
         assert_eq!(ns.package_name, "analytics.so");
@@ -365,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_tenant_namespace() {
-        let ns = TaskNamespace::tenant(
+        let ns = TaskNamespace::new(
             "customer_123",
             "embedded",
             "order_processing",
@@ -383,64 +262,18 @@ mod tests {
 
     #[test]
     fn test_namespace_display() {
-        let ns = TaskNamespace::embedded("etl", "extract");
+        let ns = TaskNamespace::new("public", "embedded", "etl", "extract");
         assert_eq!(ns.to_string(), "public::embedded::etl::extract");
 
-        let ns = TaskNamespace::tenant("tenant_1", "pkg.so", "analytics", "process");
+        let ns = TaskNamespace::new("tenant_1", "pkg.so", "analytics", "process");
         assert_eq!(ns.to_string(), "tenant_1::pkg.so::analytics::process");
     }
 
     #[test]
-    fn test_workflow_scope() {
-        let ns = TaskNamespace::embedded("customer_etl", "extract_data");
-        let workflow_ns = ns.workflow_scope();
-
-        assert_eq!(workflow_ns.tenant_id, "public");
-        assert_eq!(workflow_ns.package_name, "embedded");
-        assert_eq!(workflow_ns.workflow_id, "customer_etl");
-        assert_eq!(workflow_ns.task_id, "workflow");
-    }
-
-    #[test]
-    fn test_public_fallback() {
-        let tenant_ns = TaskNamespace::tenant("customer_123", "embedded", "etl", "extract");
-        let fallback = tenant_ns.public_fallback().unwrap();
-
-        assert_eq!(fallback.tenant_id, "public");
-        assert_eq!(fallback.package_name, "embedded");
-        assert_eq!(fallback.workflow_id, "etl");
-        assert_eq!(fallback.task_id, "extract");
-
-        // Public namespace has no fallback
-        let public_ns = TaskNamespace::embedded("etl", "extract");
-        assert!(public_ns.public_fallback().is_none());
-    }
-
-    #[test]
-    fn test_parse_namespace() {
-        let ns = parse_namespace("public::embedded::etl::extract").unwrap();
-        assert_eq!(ns.tenant_id, "public");
-        assert_eq!(ns.package_name, "embedded");
-        assert_eq!(ns.workflow_id, "etl");
-        assert_eq!(ns.task_id, "extract");
-
-        let ns = parse_namespace("tenant_123::analytics.so::data_pipeline::transform").unwrap();
-        assert_eq!(ns.tenant_id, "tenant_123");
-        assert_eq!(ns.package_name, "analytics.so");
-        assert_eq!(ns.workflow_id, "data_pipeline");
-        assert_eq!(ns.task_id, "transform");
-
-        // Test error cases
-        assert!(parse_namespace("invalid").is_err());
-        assert!(parse_namespace("too::few::parts").is_err());
-        assert!(parse_namespace("too::many::parts::here::extra").is_err());
-    }
-
-    #[test]
     fn test_namespace_equality_and_hashing() {
-        let ns1 = TaskNamespace::embedded("etl", "extract");
-        let ns2 = TaskNamespace::embedded("etl", "extract");
-        let ns3 = TaskNamespace::embedded("etl", "transform");
+        let ns1 = TaskNamespace::new("public", "embedded", "etl", "extract");
+        let ns2 = TaskNamespace::new("public", "embedded", "etl", "extract");
+        let ns3 = TaskNamespace::new("public", "embedded", "etl", "transform");
 
         assert_eq!(ns1, ns2);
         assert_ne!(ns1, ns3);

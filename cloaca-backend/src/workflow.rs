@@ -16,20 +16,41 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use crate::value_objects::PyWorkflowContext;
+use crate::task::{push_workflow_context, pop_workflow_context};
 
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]
 pub struct PyWorkflowBuilder {
     inner: cloacina::WorkflowBuilder,
+    context: PyWorkflowContext,
 }
 
 #[pymethods]
 impl PyWorkflowBuilder {
-    /// Create a new WorkflowBuilder
+    /// Create a new WorkflowBuilder with namespace context
     #[new]
-    pub fn new(name: &str) -> Self {
+    #[pyo3(signature = (name, *, tenant = None, package = None, workflow = None))]
+    pub fn new(
+        name: &str, 
+        tenant: Option<&str>, 
+        package: Option<&str>,
+        workflow: Option<&str>
+    ) -> Self {
+        let context = PyWorkflowContext::new(
+            tenant.unwrap_or("public"),
+            package.unwrap_or("embedded"), 
+            workflow.unwrap_or(name),
+        );
+        
+        // Create workflow builder with correct tenant
+        let (tenant_id, _package_name, _workflow_id) = context.as_components();
+        let workflow_builder = cloacina::Workflow::builder(name)
+            .tenant(tenant_id);
+        
         PyWorkflowBuilder {
-            inner: cloacina::Workflow::builder(name),
+            inner: workflow_builder,
+            context,
         }
     }
 
@@ -49,18 +70,21 @@ impl PyWorkflowBuilder {
         if let Ok(task_id) = task.extract::<String>(py) {
             // It's a string task ID - look it up in the registry
             let registry = cloacina::task::global_task_registry();
+            
+            // Look up the task from the workflow context namespace
+            let (tenant_id, package_name, workflow_id) = self.context.as_components();
+            let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
             let guard = registry.read().map_err(|e| {
                 PyValueError::new_err(format!("Failed to access task registry: {}", e))
             })?;
-
-            let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &task_id);
-            let constructor = guard.get(&namespace).ok_or_else(|| {
+            
+            let constructor = guard.get(&task_namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Task '{}' not found in registry. Make sure it was decorated with @task.",
                     task_id
                 ))
             })?;
-
+            
             // Create the task instance
             let task_instance = constructor();
 
@@ -82,18 +106,21 @@ impl PyWorkflowBuilder {
                                 Ok(func_name) => {
                                     // Look up by function name
                                     let registry = cloacina::task::global_task_registry();
+                                    
+                                    // Look up the task from the workflow context namespace
+                                    let (tenant_id, package_name, workflow_id) = self.context.as_components();
+                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
                                     let guard = registry.read().map_err(|e| {
                                         PyValueError::new_err(format!("Failed to access task registry: {}", e))
                                     })?;
-
-                                    let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", &func_name);
-                                    let constructor = guard.get(&namespace).ok_or_else(|| {
+                                    
+                                    let constructor = guard.get(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
                                             "Task '{}' not found in registry. Make sure it was decorated with @task.",
                                             func_name
                                         ))
                                     })?;
-
+                                    
                                     // Create the task instance
                                     let task_instance = constructor();
 
@@ -144,29 +171,59 @@ impl PyWorkflowBuilder {
         Ok(PyWorkflow { inner: workflow })
     }
 
-    /// Context manager entry
+    /// Context manager entry - establish workflow context for task decorators
     pub fn __enter__(slf: PyRef<Self>) -> PyRef<Self> {
+        push_workflow_context(slf.context.clone());
         slf
     }
 
-    /// Context manager exit - automatically build and register workflow
+    /// Context manager exit - clean up context and build workflow
     pub fn __exit__(
-        &self,
+        &mut self,
+        _py: Python,
         _exc_type: Option<&Bound<PyAny>>,
         _exc_value: Option<&Bound<PyAny>>,
         _traceback: Option<&Bound<PyAny>>,
     ) -> PyResult<bool> {
-        // Build the workflow
-        let workflow = self
-            .inner
-            .clone()
-            .build()
-            .map_err(|e| PyValueError::new_err(format!("Failed to build workflow: {}", e)))?;
+        // Pop the workflow context
+        pop_workflow_context();
+        
+        let (tenant_id, package_name, workflow_id) = self.context.as_components();
+        
+        // CRITICAL: Create a new workflow with the correct namespace context
+        // following the same pattern as the Rust workflow! macro
+        let mut workflow = cloacina::Workflow::new(workflow_id);
+        workflow.set_tenant(tenant_id);
+        workflow.set_package(package_name);
+        
+        // Collect all tasks registered with this workflow's namespace
+        let registry = cloacina::task::global_task_registry();
+        let guard = registry.read().map_err(|e| {
+            PyValueError::new_err(format!("Failed to access task registry: {}", e))
+        })?;
+        
+        // Find all tasks that belong to this workflow's namespace
+        for (namespace, constructor) in guard.iter() {
+            if namespace.tenant_id == tenant_id 
+                && namespace.package_name == package_name 
+                && namespace.workflow_id == workflow_id {
+                let task_instance = constructor();
+                workflow.add_task(task_instance)
+                    .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
+            }
+        }
+        
+        // Drop the read guard before building
+        drop(guard);
+        
+        // Validate and finalize the workflow
+        workflow.validate()
+            .map_err(|e| PyValueError::new_err(format!("Workflow validation failed: {}", e)))?;
+        let final_workflow = workflow.finalize();
 
         // Register it automatically
-        let workflow_name = workflow.name().to_string();
-
-        cloacina::workflow::register_workflow_constructor(workflow_name, move || workflow.clone());
+        let workflow_name = final_workflow.name().to_string();
+        cloacina::workflow::register_workflow_constructor(workflow_name, move || final_workflow.clone());
 
         Ok(false) // Don't suppress exceptions
     }
@@ -212,6 +269,7 @@ impl PyWorkflow {
     pub fn topological_sort(&self) -> PyResult<Vec<String>> {
         self.inner
             .topological_sort()
+            .map(|namespaces| namespaces.into_iter().map(|ns| ns.to_string()).collect())
             .map_err(|e| PyValueError::new_err(format!("Failed to sort tasks: {}", e)))
     }
 
@@ -219,23 +277,23 @@ impl PyWorkflow {
     pub fn get_execution_levels(&self) -> PyResult<Vec<Vec<String>>> {
         self.inner
             .get_execution_levels()
+            .map(|levels| levels.into_iter().map(|level| 
+                level.into_iter().map(|ns| ns.to_string()).collect()
+            ).collect())
             .map_err(|e| PyValueError::new_err(format!("Failed to get execution levels: {}", e)))
     }
 
     /// Get root tasks (no dependencies)
     pub fn get_roots(&self) -> Vec<String> {
-        self.inner.get_roots()
+        self.inner.get_roots().into_iter().map(|ns| ns.to_string()).collect()
     }
 
     /// Get leaf tasks (no dependents)
     pub fn get_leaves(&self) -> Vec<String> {
-        self.inner.get_leaves()
+        self.inner.get_leaves().into_iter().map(|ns| ns.to_string()).collect()
     }
 
-    /// Check if two tasks can run in parallel
-    pub fn can_run_parallel(&self, task1: &str, task2: &str) -> bool {
-        self.inner.can_run_parallel(task1, task2)
-    }
+    // Note: Removed can_run_parallel - the runner handles parallelism automatically
 
     /// Validate the workflow
     pub fn validate(&self) -> PyResult<()> {

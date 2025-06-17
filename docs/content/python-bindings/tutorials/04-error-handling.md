@@ -154,327 +154,623 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 
-# Data fetching with failures
-@cloaca.task(
-    id="fetch_external_data",
-    retry_attempts=3,
-    retry_delay_ms=500,
-    retry_backoff="exponential"
-)
-def fetch_external_data(context):
-    """Fetch data from external source with retry logic."""
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("error_handling_demo") as builder:
+    builder.description("Comprehensive error handling and recovery demonstration")
+    
+    # Data fetching with failures
+    @cloaca.task(
+        id="fetch_external_data",
+        retry_attempts=3,
+        retry_delay_ms=500,
+        retry_backoff="exponential"
+    )
+    def fetch_external_data(context):
+        """Fetch data from external source with retry logic."""
 
-    attempt = context.get("fetch_attempt", 0) + 1
-    context.set("fetch_attempt", attempt)
+        attempt = context.get("fetch_attempt", 0) + 1
+        context.set("fetch_attempt", attempt)
 
-    print(f"Fetching data (attempt {attempt})...")
+        print(f"Fetching data (attempt {attempt})...")
 
-    # Simulate external API with 70% failure rate
-    if random.random() < 0.7:
-        error_msg = f"External API timeout (attempt {attempt})"
-        context.set("fetch_error", error_msg)
-        raise ConnectionError(error_msg)
+        # Simulate external API with 70% failure rate
+        if random.random() < 0.7:
+            error_msg = f"External API timeout (attempt {attempt})"
+            context.set("fetch_error", error_msg)
+            raise ConnectionError(error_msg)
 
-    # Success - return mock data
-    external_data = {
-        "records": [
-            {"id": 1, "value": 100, "status": "active"},
-            {"id": 2, "value": 150, "status": "active"},
-            {"id": 3, "value": 200, "status": "inactive"}
-        ],
-        "fetched_at": datetime.now().isoformat(),
-        "source": "external_api",
-        "attempt": attempt
-    }
+        # Success - return mock data
+        external_data = {
+            "records": [
+                {"id": 1, "value": 100, "status": "active"},
+                {"id": 2, "value": 150, "status": "active"},
+                {"id": 3, "value": 200, "status": "inactive"}
+            ],
+            "fetched_at": datetime.now().isoformat(),
+            "source": "external_api",
+            "attempt": attempt
+        }
 
-    context.set("external_data", external_data)
-    context.set("fetch_successful", True)
-    print(f"Successfully fetched {len(external_data['records'])} records")
+        context.set("external_data", external_data)
+        context.set("fetch_successful", True)
+        print(f"Successfully fetched {len(external_data['records'])} records")
 
-    return context
-
-# Fallback data source
-@cloaca.task(id="use_cached_data", dependencies=["fetch_external_data"])
-def use_cached_data(context):
-    """Provide fallback data when external fetch fails."""
-
-    # Check if primary fetch succeeded
-    if context.get("fetch_successful", False):
-        print("Primary data fetch succeeded, skipping cache")
         return context
 
-    print("Primary fetch failed, using cached data...")
+    # Fallback data source
+    @cloaca.task(id="use_cached_data", dependencies=["fetch_external_data"])
+    def use_cached_data(context):
+        """Provide fallback data when external fetch fails."""
 
-    # Provide cached/fallback data
-    cached_data = {
-        "records": [
-            {"id": 1, "value": 90, "status": "active"},
-            {"id": 2, "value": 140, "status": "active"}
-        ],
-        "fetched_at": datetime.now().isoformat(),
-        "source": "cache",
-        "note": "fallback_data"
-    }
+        # Check if primary fetch succeeded
+        if context.get("fetch_successful", False):
+            print("Primary data fetch succeeded, skipping cache")
+            return context
 
-    context.set("external_data", cached_data)
-    context.set("used_cached_data", True)
-    print(f"Using cached data with {len(cached_data['records'])} records")
+        print("Primary fetch failed, using cached data...")
 
-    return context
-
-# Data validation with error handling
-@cloaca.task(id="validate_data", dependencies=["use_cached_data"])
-def validate_data(context):
-    """Validate fetched data with comprehensive error handling."""
-
-    print("Validating data...")
-
-    try:
-        data = context.get("external_data")
-
-        if not data:
-            raise ValueError("No data found in context")
-
-        if not isinstance(data, dict):
-            raise TypeError(f"Expected dict, got {type(data)}")
-
-        if "records" not in data:
-            raise KeyError("Missing 'records' field in data")
-
-        records = data["records"]
-        if not isinstance(records, list):
-            raise TypeError("Records must be a list")
-
-        if len(records) == 0:
-            raise ValueError("No records found in data")
-
-        # Validate each record
-        validation_errors = []
-        valid_records = []
-
-        for i, record in enumerate(records):
-            record_errors = []
-
-            # Check required fields
-            required_fields = ["id", "value", "status"]
-            for field in required_fields:
-                if field not in record:
-                    record_errors.append(f"Missing field: {field}")
-
-            # Validate data types and ranges
-            if "id" in record and not isinstance(record["id"], int):
-                record_errors.append("ID must be an integer")
-
-            if "value" in record:
-                if not isinstance(record["value"], (int, float)):
-                    record_errors.append("Value must be a number")
-                elif record["value"] < 0:
-                    record_errors.append("Value must be non-negative")
-
-            if "status" in record and record["status"] not in ["active", "inactive"]:
-                record_errors.append("Status must be 'active' or 'inactive'")
-
-            if record_errors:
-                validation_errors.append(f"Record {i}: {'; '.join(record_errors)}")
-            else:
-                valid_records.append(record)
-
-        # Set validation results
-        validation_result = {
-            "total_records": len(records),
-            "valid_records": len(valid_records),
-            "validation_errors": validation_errors,
-            "error_count": len(validation_errors),
-            "validation_passed": len(validation_errors) == 0
+        # Provide cached/fallback data
+        cached_data = {
+            "records": [
+                {"id": 1, "value": 90, "status": "active"},
+                {"id": 2, "value": 140, "status": "active"}
+            ],
+            "fetched_at": datetime.now().isoformat(),
+            "source": "cache",
+            "note": "fallback_data"
         }
 
-        context.set("validation_result", validation_result)
-        context.set("valid_records", valid_records)
+        context.set("external_data", cached_data)
+        context.set("used_cached_data", True)
+        print(f"Using cached data with {len(cached_data['records'])} records")
 
-        if validation_errors:
-            error_summary = f"Validation failed: {len(validation_errors)} errors found"
-            context.set("validation_error", error_summary)
-            print(f"Validation failed with {len(validation_errors)} errors")
-            for error in validation_errors:
-                print(f"  - {error}")
-            raise ValueError(error_summary)
+        return context
 
-        print(f"Validation passed: {len(valid_records)} valid records")
+    # Data validation with error handling
+    @cloaca.task(id="validate_data", dependencies=["use_cached_data"])
+    def validate_data(context):
+        """Validate fetched data with comprehensive error handling."""
 
-    except (ValueError, TypeError, KeyError) as e:
-        # Expected validation errors
-        context.set("validation_error", str(e))
-        context.set("validation_passed", False)
-        print(f"Validation error: {e}")
-        raise
+        print("Validating data...")
 
-    except Exception as e:
-        # Unexpected errors
-        context.set("validation_error", f"Unexpected error: {str(e)}")
-        context.set("validation_passed", False)
-        print(f"Unexpected validation error: {e}")
-        raise
+        try:
+            data = context.get("external_data")
 
-    return context
+            if not data:
+                raise ValueError("No data found in context")
 
-# Data processing with error recovery
-@cloaca.task(id="process_data", dependencies=["validate_data"])
-def process_data(context):
-    """Process validated data with error handling."""
+            if not isinstance(data, dict):
+                raise TypeError(f"Expected dict, got {type(data)}")
 
-    print("Processing data...")
+            if "records" not in data:
+                raise KeyError("Missing 'records' field in data")
 
-    try:
-        valid_records = context.get("valid_records", [])
+            records = data["records"]
+            if not isinstance(records, list):
+                raise TypeError("Records must be a list")
 
-        if not valid_records:
-            # Try to recover some data even if validation failed
-            print("No valid records, attempting recovery...")
-            raw_data = context.get("external_data", {})
-            records = raw_data.get("records", [])
+            if len(records) == 0:
+                raise ValueError("No records found in data")
 
-            # Attempt basic cleanup
-            recovered_records = []
-            for record in records:
-                if isinstance(record, dict) and "id" in record and "value" in record:
-                    cleaned_record = {
-                        "id": record["id"],
-                        "value": max(0, record.get("value", 0)),  # Ensure non-negative
-                        "status": record.get("status", "unknown")
-                    }
-                    recovered_records.append(cleaned_record)
+            # Validate each record
+            validation_errors = []
+            valid_records = []
 
-            if recovered_records:
-                context.set("recovered_records", recovered_records)
-                context.set("used_recovery", True)
-                valid_records = recovered_records
-                print(f"Recovered {len(recovered_records)} records")
-            else:
-                raise ValueError("No recoverable data found")
+            for i, record in enumerate(records):
+                record_errors = []
 
-        # Process the records
-        processed_records = []
-        total_value = 0
-        active_count = 0
+                # Check required fields
+                required_fields = ["id", "value", "status"]
+                for field in required_fields:
+                    if field not in record:
+                        record_errors.append(f"Missing field: {field}")
 
-        for record in valid_records:
-            processed_record = {
-                "id": record["id"],
-                "original_value": record["value"],
-                "processed_value": record["value"] * 1.1,  # Apply 10% markup
-                "status": record["status"],
-                "processed_at": datetime.now().isoformat()
+                # Validate data types and ranges
+                if "id" in record and not isinstance(record["id"], int):
+                    record_errors.append("ID must be an integer")
+
+                if "value" in record:
+                    if not isinstance(record["value"], (int, float)):
+                        record_errors.append("Value must be a number")
+                    elif record["value"] < 0:
+                        record_errors.append("Value must be non-negative")
+
+                if "status" in record and record["status"] not in ["active", "inactive"]:
+                    record_errors.append("Status must be 'active' or 'inactive'")
+
+                if record_errors:
+                    validation_errors.append(f"Record {i}: {'; '.join(record_errors)}")
+                else:
+                    valid_records.append(record)
+
+            # Set validation results
+            validation_result = {
+                "total_records": len(records),
+                "valid_records": len(valid_records),
+                "validation_errors": validation_errors,
+                "error_count": len(validation_errors),
+                "validation_passed": len(validation_errors) == 0
             }
-            processed_records.append(processed_record)
-            total_value += record["value"]
 
-            if record["status"] == "active":
-                active_count += 1
+            context.set("validation_result", validation_result)
+            context.set("valid_records", valid_records)
 
-        # Create processing summary
-        processing_result = {
-            "processed_records": processed_records,
-            "summary": {
-                "total_records": len(processed_records),
-                "total_value": total_value,
-                "average_value": total_value / len(processed_records) if processed_records else 0,
-                "active_records": active_count,
-                "inactive_records": len(processed_records) - active_count
+            if validation_errors:
+                error_summary = f"Validation failed: {len(validation_errors)} errors found"
+                context.set("validation_error", error_summary)
+                print(f"Validation failed with {len(validation_errors)} errors")
+                for error in validation_errors:
+                    print(f"  - {error}")
+                raise ValueError(error_summary)
+
+            print(f"Validation passed: {len(valid_records)} valid records")
+
+        except (ValueError, TypeError, KeyError) as e:
+            # Expected validation errors
+            context.set("validation_error", str(e))
+            context.set("validation_passed", False)
+            print(f"Validation error: {e}")
+            raise
+
+        except Exception as e:
+            # Unexpected errors
+            context.set("validation_error", f"Unexpected error: {str(e)}")
+            context.set("validation_passed", False)
+            print(f"Unexpected validation error: {e}")
+            raise
+
+        return context
+
+    # Data processing with error recovery
+    @cloaca.task(id="process_data", dependencies=["validate_data"])
+    def process_data(context):
+        """Process validated data with error handling."""
+
+        print("Processing data...")
+
+        try:
+            valid_records = context.get("valid_records", [])
+
+            if not valid_records:
+                # Try to recover some data even if validation failed
+                print("No valid records, attempting recovery...")
+                raw_data = context.get("external_data", {})
+                records = raw_data.get("records", [])
+
+                # Attempt basic cleanup
+                recovered_records = []
+                for record in records:
+                    if isinstance(record, dict) and "id" in record and "value" in record:
+                        cleaned_record = {
+                            "id": record["id"],
+                            "value": max(0, record.get("value", 0)),  # Ensure non-negative
+                            "status": record.get("status", "unknown")
+                        }
+                        recovered_records.append(cleaned_record)
+
+                if recovered_records:
+                    context.set("recovered_records", recovered_records)
+                    context.set("used_recovery", True)
+                    valid_records = recovered_records
+                    print(f"Recovered {len(recovered_records)} records")
+                else:
+                    raise ValueError("No recoverable data found")
+
+            # Process the records
+            processed_records = []
+            total_value = 0
+            active_count = 0
+
+            for record in valid_records:
+                processed_record = {
+                    "id": record["id"],
+                    "original_value": record["value"],
+                    "processed_value": record["value"] * 1.1,  # Apply 10% markup
+                    "status": record["status"],
+                    "processed_at": datetime.now().isoformat()
+                }
+                processed_records.append(processed_record)
+                total_value += record["value"]
+
+                if record["status"] == "active":
+                    active_count += 1
+
+            # Create processing summary
+            processing_result = {
+                "processed_records": processed_records,
+                "summary": {
+                    "total_records": len(processed_records),
+                    "total_value": total_value,
+                    "average_value": total_value / len(processed_records) if processed_records else 0,
+                    "active_records": active_count,
+                    "inactive_records": len(processed_records) - active_count
+                },
+                "processing_successful": True
+            }
+
+            context.set("processing_result", processing_result)
+            print(f"Successfully processed {len(processed_records)} records")
+
+        except Exception as e:
+            # Processing failed - create error summary
+            error_result = {
+                "processing_successful": False,
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "recovery_attempted": context.get("used_recovery", False)
+            }
+            context.set("processing_result", error_result)
+            print(f"Processing failed: {e}")
+            raise
+
+        return context
+
+    # Error reporting and cleanup
+    @cloaca.task(id="generate_error_report", dependencies=["process_data"])
+    def generate_error_report(context):
+        """Generate comprehensive error report."""
+
+        print("Generating error report...")
+
+        # Collect all error information
+        error_report = {
+            "workflow_summary": {
+                "execution_time": datetime.now().isoformat(),
+                "overall_status": "unknown"
             },
-            "processing_successful": True
+            "fetch_stage": {
+                "attempts": context.get("fetch_attempt", 0),
+                "successful": context.get("fetch_successful", False),
+                "used_cache": context.get("used_cached_data", False),
+                "errors": context.get("fetch_error")
+            },
+            "validation_stage": {
+                "passed": context.get("validation_passed", False),
+                "errors": context.get("validation_result", {}).get("validation_errors", []),
+                "valid_records": context.get("validation_result", {}).get("valid_records", 0)
+            },
+            "processing_stage": {
+                "successful": context.get("processing_result", {}).get("processing_successful", False),
+                "recovery_used": context.get("used_recovery", False),
+                "records_processed": len(context.get("processing_result", {}).get("processed_records", []))
+            }
         }
 
-        context.set("processing_result", processing_result)
-        print(f"Successfully processed {len(processed_records)} records")
+        # Determine overall status
+        if (error_report["fetch_stage"]["successful"] or error_report["fetch_stage"]["used_cache"]) and \
+           error_report["validation_stage"]["passed"] and \
+           error_report["processing_stage"]["successful"]:
+            error_report["workflow_summary"]["overall_status"] = "success"
+        elif error_report["processing_stage"]["records_processed"] > 0:
+            error_report["workflow_summary"]["overall_status"] = "partial_success"
+        else:
+            error_report["workflow_summary"]["overall_status"] = "failed"
 
-    except Exception as e:
-        # Processing failed - create error summary
-        error_result = {
-            "processing_successful": False,
-            "error_message": str(e),
-            "error_type": type(e).__name__,
-            "recovery_attempted": context.get("used_recovery", False)
-        }
-        context.set("processing_result", error_result)
-        print(f"Processing failed: {e}")
-        raise
+        context.set("error_report", error_report)
 
-    return context
+        # Print summary
+        status = error_report["workflow_summary"]["overall_status"]
+        print(f"Workflow completed with status: {status}")
 
-# Error reporting and cleanup
-@cloaca.task(id="generate_error_report", dependencies=["process_data"])
-def generate_error_report(context):
-    """Generate comprehensive error report."""
+        if status == "failed":
+            print("Errors encountered:")
+            if error_report["fetch_stage"]["errors"]:
+                print(f"  - Fetch: {error_report['fetch_stage']['errors']}")
+            if error_report["validation_stage"]["errors"]:
+                print(f"  - Validation: {len(error_report['validation_stage']['errors'])} errors")
 
-    print("Generating error report...")
+        return context
+    
+    # Tasks are automatically registered when defined within WorkflowBuilder context
 
-    # Collect all error information
-    error_report = {
-        "workflow_summary": {
-            "execution_time": datetime.now().isoformat(),
-            "overall_status": "unknown"
-        },
-        "fetch_stage": {
-            "attempts": context.get("fetch_attempt", 0),
-            "successful": context.get("fetch_successful", False),
-            "used_cache": context.get("used_cached_data", False),
-            "errors": context.get("fetch_error")
-        },
-        "validation_stage": {
-            "passed": context.get("validation_passed", False),
-            "errors": context.get("validation_result", {}).get("validation_errors", []),
-            "valid_records": context.get("validation_result", {}).get("valid_records", 0)
-        },
-        "processing_stage": {
-            "successful": context.get("processing_result", {}).get("processing_successful", False),
-            "recovery_used": context.get("used_recovery", False),
-            "records_processed": len(context.get("processing_result", {}).get("processed_records", []))
-        }
-    }
-
-    # Determine overall status
-    if (error_report["fetch_stage"]["successful"] or error_report["fetch_stage"]["used_cache"]) and \
-       error_report["validation_stage"]["passed"] and \
-       error_report["processing_stage"]["successful"]:
-        error_report["workflow_summary"]["overall_status"] = "success"
-    elif error_report["processing_stage"]["records_processed"] > 0:
-        error_report["workflow_summary"]["overall_status"] = "partial_success"
-    else:
-        error_report["workflow_summary"]["overall_status"] = "failed"
-
-    context.set("error_report", error_report)
-
-    # Print summary
-    status = error_report["workflow_summary"]["overall_status"]
-    print(f"Workflow completed with status: {status}")
-
-    if status == "failed":
-        print("Errors encountered:")
-        if error_report["fetch_stage"]["errors"]:
-            print(f"  - Fetch: {error_report['fetch_stage']['errors']}")
-        if error_report["validation_stage"]["errors"]:
-            print(f"  - Validation: {len(error_report['validation_stage']['errors'])} errors")
-
-    return context
-
-# Create workflow
-def create_error_handling_workflow():
-    """Build the error handling demonstration workflow."""
-
-    builder = cloaca.WorkflowBuilder("error_handling_demo")
+# Create workflow using the new workflow-scoped pattern
+with cloaca.WorkflowBuilder("error_handling_demo") as builder:
     builder.description("Comprehensive error handling and recovery demonstration")
+    
+    # Data fetching with failures
+    @cloaca.task(
+        id="fetch_external_data",
+        retry_attempts=3,
+        retry_delay_ms=500,
+        retry_backoff="exponential"
+    )
+    def fetch_external_data(context):
+        """Fetch data from external source with retry logic."""
 
-    # Add tasks in dependency order
-    builder.add_task("fetch_external_data")
-    builder.add_task("use_cached_data")
-    builder.add_task("validate_data")
-    builder.add_task("process_data")
-    builder.add_task("generate_error_report")
+        attempt = context.get("fetch_attempt", 0) + 1
+        context.set("fetch_attempt", attempt)
 
-    return builder.build()
+        print(f"Fetching data (attempt {attempt})...")
 
-# Register workflow
-cloaca.register_workflow_constructor("error_handling_demo", create_error_handling_workflow)
+        # Simulate external API with 70% failure rate
+        if random.random() < 0.7:
+            error_msg = f"External API timeout (attempt {attempt})"
+            context.set("fetch_error", error_msg)
+            raise ConnectionError(error_msg)
+
+        # Success - return mock data
+        external_data = {
+            "records": [
+                {"id": 1, "value": 100, "status": "active"},
+                {"id": 2, "value": 150, "status": "active"},
+                {"id": 3, "value": 200, "status": "inactive"}
+            ],
+            "fetched_at": datetime.now().isoformat(),
+            "source": "external_api",
+            "attempt": attempt
+        }
+
+        context.set("external_data", external_data)
+        context.set("fetch_successful", True)
+        print(f"Successfully fetched {len(external_data['records'])} records")
+
+        return context
+
+    # Fallback data source
+    @cloaca.task(id="use_cached_data", dependencies=["fetch_external_data"])
+    def use_cached_data(context):
+        """Provide fallback data when external fetch fails."""
+
+        # Check if primary fetch succeeded
+        if context.get("fetch_successful", False):
+            print("Primary data fetch succeeded, skipping cache")
+            return context
+
+        print("Primary fetch failed, using cached data...")
+
+        # Provide cached/fallback data
+        cached_data = {
+            "records": [
+                {"id": 1, "value": 90, "status": "active"},
+                {"id": 2, "value": 140, "status": "active"}
+            ],
+            "fetched_at": datetime.now().isoformat(),
+            "source": "cache",
+            "note": "fallback_data"
+        }
+
+        context.set("external_data", cached_data)
+        context.set("used_cached_data", True)
+        print(f"Using cached data with {len(cached_data['records'])} records")
+
+        return context
+
+    # Data validation with error handling
+    @cloaca.task(id="validate_data", dependencies=["use_cached_data"])
+    def validate_data(context):
+        """Validate fetched data with comprehensive error handling."""
+
+        print("Validating data...")
+
+        try:
+            data = context.get("external_data")
+
+            if not data:
+                raise ValueError("No data found in context")
+
+            if not isinstance(data, dict):
+                raise TypeError(f"Expected dict, got {type(data)}")
+
+            if "records" not in data:
+                raise KeyError("Missing 'records' field in data")
+
+            records = data["records"]
+            if not isinstance(records, list):
+                raise TypeError("Records must be a list")
+
+            if len(records) == 0:
+                raise ValueError("No records found in data")
+
+            # Validate each record
+            validation_errors = []
+            valid_records = []
+
+            for i, record in enumerate(records):
+                record_errors = []
+
+                # Check required fields
+                required_fields = ["id", "value", "status"]
+                for field in required_fields:
+                    if field not in record:
+                        record_errors.append(f"Missing field: {field}")
+
+                # Validate data types and ranges
+                if "id" in record and not isinstance(record["id"], int):
+                    record_errors.append("ID must be an integer")
+
+                if "value" in record:
+                    if not isinstance(record["value"], (int, float)):
+                        record_errors.append("Value must be a number")
+                    elif record["value"] < 0:
+                        record_errors.append("Value must be non-negative")
+
+                if "status" in record and record["status"] not in ["active", "inactive"]:
+                    record_errors.append("Status must be 'active' or 'inactive'")
+
+                if record_errors:
+                    validation_errors.append(f"Record {i}: {'; '.join(record_errors)}")
+                else:
+                    valid_records.append(record)
+
+            # Set validation results
+            validation_result = {
+                "total_records": len(records),
+                "valid_records": len(valid_records),
+                "validation_errors": validation_errors,
+                "error_count": len(validation_errors),
+                "validation_passed": len(validation_errors) == 0
+            }
+
+            context.set("validation_result", validation_result)
+            context.set("valid_records", valid_records)
+
+            if validation_errors:
+                error_summary = f"Validation failed: {len(validation_errors)} errors found"
+                context.set("validation_error", error_summary)
+                print(f"Validation failed with {len(validation_errors)} errors")
+                for error in validation_errors:
+                    print(f"  - {error}")
+                raise ValueError(error_summary)
+
+            print(f"Validation passed: {len(valid_records)} valid records")
+
+        except (ValueError, TypeError, KeyError) as e:
+            # Expected validation errors
+            context.set("validation_error", str(e))
+            context.set("validation_passed", False)
+            print(f"Validation error: {e}")
+            raise
+
+        except Exception as e:
+            # Unexpected errors
+            context.set("validation_error", f"Unexpected error: {str(e)}")
+            context.set("validation_passed", False)
+            print(f"Unexpected validation error: {e}")
+            raise
+
+        return context
+
+    # Data processing with error recovery
+    @cloaca.task(id="process_data", dependencies=["validate_data"])
+    def process_data(context):
+        """Process validated data with error handling."""
+
+        print("Processing data...")
+
+        try:
+            valid_records = context.get("valid_records", [])
+
+            if not valid_records:
+                # Try to recover some data even if validation failed
+                print("No valid records, attempting recovery...")
+                raw_data = context.get("external_data", {})
+                records = raw_data.get("records", [])
+
+                # Attempt basic cleanup
+                recovered_records = []
+                for record in records:
+                    if isinstance(record, dict) and "id" in record and "value" in record:
+                        cleaned_record = {
+                            "id": record["id"],
+                            "value": max(0, record.get("value", 0)),  # Ensure non-negative
+                            "status": record.get("status", "unknown")
+                        }
+                        recovered_records.append(cleaned_record)
+
+                if recovered_records:
+                    context.set("recovered_records", recovered_records)
+                    context.set("used_recovery", True)
+                    valid_records = recovered_records
+                    print(f"Recovered {len(recovered_records)} records")
+                else:
+                    raise ValueError("No recoverable data found")
+
+            # Process the records
+            processed_records = []
+            total_value = 0
+            active_count = 0
+
+            for record in valid_records:
+                processed_record = {
+                    "id": record["id"],
+                    "original_value": record["value"],
+                    "processed_value": record["value"] * 1.1,  # Apply 10% markup
+                    "status": record["status"],
+                    "processed_at": datetime.now().isoformat()
+                }
+                processed_records.append(processed_record)
+                total_value += record["value"]
+
+                if record["status"] == "active":
+                    active_count += 1
+
+            # Create processing summary
+            processing_result = {
+                "processed_records": processed_records,
+                "summary": {
+                    "total_records": len(processed_records),
+                    "total_value": total_value,
+                    "average_value": total_value / len(processed_records) if processed_records else 0,
+                    "active_records": active_count,
+                    "inactive_records": len(processed_records) - active_count
+                },
+                "processing_successful": True
+            }
+
+            context.set("processing_result", processing_result)
+            print(f"Successfully processed {len(processed_records)} records")
+
+        except Exception as e:
+            # Processing failed - create error summary
+            error_result = {
+                "processing_successful": False,
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "recovery_attempted": context.get("used_recovery", False)
+            }
+            context.set("processing_result", error_result)
+            print(f"Processing failed: {e}")
+            raise
+
+        return context
+
+    # Error reporting and cleanup
+    @cloaca.task(id="generate_error_report", dependencies=["process_data"])
+    def generate_error_report(context):
+        """Generate comprehensive error report."""
+
+        print("Generating error report...")
+
+        # Collect all error information
+        error_report = {
+            "workflow_summary": {
+                "execution_time": datetime.now().isoformat(),
+                "overall_status": "unknown"
+            },
+            "fetch_stage": {
+                "attempts": context.get("fetch_attempt", 0),
+                "successful": context.get("fetch_successful", False),
+                "used_cache": context.get("used_cached_data", False),
+                "errors": context.get("fetch_error")
+            },
+            "validation_stage": {
+                "passed": context.get("validation_passed", False),
+                "errors": context.get("validation_result", {}).get("validation_errors", []),
+                "valid_records": context.get("validation_result", {}).get("valid_records", 0)
+            },
+            "processing_stage": {
+                "successful": context.get("processing_result", {}).get("processing_successful", False),
+                "recovery_used": context.get("used_recovery", False),
+                "records_processed": len(context.get("processing_result", {}).get("processed_records", []))
+            }
+        }
+
+        # Determine overall status
+        if (error_report["fetch_stage"]["successful"] or error_report["fetch_stage"]["used_cache"]) and \
+           error_report["validation_stage"]["passed"] and \
+           error_report["processing_stage"]["successful"]:
+            error_report["workflow_summary"]["overall_status"] = "success"
+        elif error_report["processing_stage"]["records_processed"] > 0:
+            error_report["workflow_summary"]["overall_status"] = "partial_success"
+        else:
+            error_report["workflow_summary"]["overall_status"] = "failed"
+
+        context.set("error_report", error_report)
+
+        # Print summary
+        status = error_report["workflow_summary"]["overall_status"]
+        print(f"Workflow completed with status: {status}")
+
+        if status == "failed":
+            print("Errors encountered:")
+            if error_report["fetch_stage"]["errors"]:
+                print(f"  - Fetch: {error_report['fetch_stage']['errors']}")
+            if error_report["validation_stage"]["errors"]:
+                print(f"  - Validation: {len(error_report['validation_stage']['errors'])} errors")
+
+        return context
+    
+    # Tasks are automatically registered when defined within WorkflowBuilder context
 
 # Main execution
 if __name__ == "__main__":

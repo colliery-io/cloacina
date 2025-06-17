@@ -4,9 +4,9 @@
 
 # Import from the extension module built by maturin
 {% if backend == "postgres" -%}
-from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, DefaultRunner, PipelineResult, WorkflowBuilder, Workflow, register_workflow_constructor, DatabaseAdmin, TenantConfig, TenantCredentials, __backend__
+from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, DefaultRunner, PipelineResult, WorkflowBuilder, Workflow, register_workflow_constructor, TaskNamespace, WorkflowContext, RetryPolicy, RetryPolicyBuilder, BackoffStrategy, RetryCondition, DatabaseAdmin, TenantConfig, TenantCredentials, __backend__
 {% else -%}
-from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, DefaultRunner, PipelineResult, WorkflowBuilder, Workflow, register_workflow_constructor, __backend__
+from .cloaca_{{backend}} import hello_world, get_backend, HelloClass, Context, DefaultRunnerConfig, task, DefaultRunner, PipelineResult, WorkflowBuilder, Workflow, register_workflow_constructor, TaskNamespace, WorkflowContext, RetryPolicy, RetryPolicyBuilder, BackoffStrategy, RetryCondition, __backend__
 {% endif -%}
 
 # __version__ is automatically provided by maturin from Cargo.toml
@@ -24,6 +24,12 @@ __all__ = [
     "WorkflowBuilder",
     "Workflow",
     "register_workflow_constructor",
+    "TaskNamespace",
+    "WorkflowContext",
+    "RetryPolicy",
+    "RetryPolicyBuilder",
+    "BackoffStrategy",
+    "RetryCondition",
     "DatabaseAdmin",
     "TenantConfig",
     "TenantCredentials",
@@ -42,6 +48,12 @@ __all__ = [
     "WorkflowBuilder",
     "Workflow",
     "register_workflow_constructor",
+    "TaskNamespace",
+    "WorkflowContext",
+    "RetryPolicy",
+    "RetryPolicyBuilder",
+    "BackoffStrategy",
+    "RetryCondition",
     "__backend__",
 ]
 {% endif -%}
