@@ -64,11 +64,19 @@
 //! ```
 
 pub mod error;
+pub mod loader;
+pub mod reconciler;
 pub mod storage;
 pub mod traits;
 pub mod types;
+pub mod workflow_registry;
 
 // Re-export commonly used types
-pub use error::{RegistryError, StorageError};
+pub use error::{LoaderError, RegistryError, StorageError};
+pub use loader::{PackageLoader, PackageValidator, TaskRegistrar};
+pub use reconciler::{
+    PackageStatusDetail, ReconcileResult, ReconcilerConfig, ReconcilerStatus, RegistryReconciler,
+};
 pub use traits::{RegistryStorage, WorkflowRegistry};
 pub use types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId};
+pub use workflow_registry::WorkflowRegistryImpl;

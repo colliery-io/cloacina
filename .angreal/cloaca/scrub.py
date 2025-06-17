@@ -140,12 +140,12 @@ def scrub(deep=False):
             try:
                 cmd = ['find', '.', '-name', 'Cargo.toml', '-execdir', 'cargo', 'clean', ';']
                 result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
-                
+
                 if result.returncode == 0:
                     print("Deep clean completed successfully!")
                 else:
                     print(f"Deep clean warning: {result.stderr}")
-                    
+
             except Exception as e:
                 print(f"Deep clean failed: {e}")
                 # Don't fail the entire command if deep clean fails

@@ -78,6 +78,13 @@ pub enum RegistryError {
         reason: String,
     },
 
+    /// Registry operation failed.
+    #[error("Registration failed: {message}")]
+    RegistrationFailed {
+        /// Detailed reason for registration failure
+        message: String,
+    },
+
     /// Storage operation failed.
     #[error("Storage error: {0}")]
     Storage(#[from] StorageError),
@@ -97,6 +104,10 @@ pub enum RegistryError {
     /// UUID parsing failed.
     #[error("Invalid UUID: {0}")]
     InvalidUuid(#[from] uuid::Error),
+
+    /// Package loading failed.
+    #[error("Package loader error: {0}")]
+    Loader(#[from] LoaderError),
 
     /// Generic internal error.
     #[error("Internal error: {0}")]
@@ -173,4 +184,66 @@ impl From<String> for StorageError {
     fn from(s: String) -> Self {
         StorageError::Backend(s)
     }
+}
+
+/// Error type for package loading and metadata extraction operations.
+///
+/// This enum covers errors specific to loading .so files, extracting metadata,
+/// and validating package integrity.
+#[derive(Debug, Error)]
+pub enum LoaderError {
+    /// Failed to create or access temporary directory.
+    #[error("Temporary directory error: {error}")]
+    TempDirectory {
+        /// Details about the error
+        error: String,
+    },
+
+    /// Failed to load dynamic library.
+    #[error("Failed to load library at {path}: {error}")]
+    LibraryLoad {
+        /// Path to the library file
+        path: String,
+        /// Details about the load error
+        error: String,
+    },
+
+    /// Required symbol not found in library.
+    #[error("Symbol '{symbol}' not found: {error}")]
+    SymbolNotFound {
+        /// Name of the missing symbol
+        symbol: String,
+        /// Details about the error
+        error: String,
+    },
+
+    /// Metadata extraction failed.
+    #[error("Metadata extraction failed: {reason}")]
+    MetadataExtraction {
+        /// Reason for extraction failure
+        reason: String,
+    },
+
+    /// File system operation failed.
+    #[error("File system error at {path}: {error}")]
+    FileSystem {
+        /// Path where the error occurred
+        path: String,
+        /// Details about the error
+        error: String,
+    },
+
+    /// Package validation failed.
+    #[error("Package validation failed: {reason}")]
+    Validation {
+        /// Reason for validation failure
+        reason: String,
+    },
+
+    /// Task registration failed.
+    #[error("Task registration failed: {reason}")]
+    TaskRegistration {
+        /// Reason for registration failure
+        reason: String,
+    },
 }

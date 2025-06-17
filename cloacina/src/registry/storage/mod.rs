@@ -22,6 +22,7 @@
 //! ## Available Backends
 //!
 //! - **PostgreSQL**: Stores binary data in the database using BYTEA columns
+//! - **SQLite**: Stores binary data in the database using BLOB columns
 //! - **Filesystem**: Stores binary data as files on the local filesystem
 //!
 //! ## Usage Example
@@ -47,10 +48,16 @@
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
+
 pub mod filesystem;
 
 // Re-export storage implementations for convenience
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresRegistryStorage;
+
+#[cfg(feature = "sqlite")]
+pub use sqlite::SqliteRegistryStorage;
 
 pub use filesystem::FilesystemRegistryStorage;

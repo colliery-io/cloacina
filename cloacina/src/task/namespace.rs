@@ -248,6 +248,25 @@ impl TaskNamespace {
             })
         }
     }
+
+    /// Parse a namespace from its string representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace_str` - String in format "tenant_id::package_name::workflow_id::task_id"
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(TaskNamespace)` - If parsing succeeds
+    /// * `Err(String)` - If format is invalid
+    pub fn from_string(namespace_str: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = namespace_str.split("::").collect();
+        if parts.len() != 4 {
+            return Err(format!("Invalid namespace format: '{}'. Expected format: 'tenant_id::package_name::workflow_id::task_id'", namespace_str));
+        }
+
+        Ok(Self::new(parts[0], parts[1], parts[2], parts[3]))
+    }
 }
 
 impl Display for TaskNamespace {

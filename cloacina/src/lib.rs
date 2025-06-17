@@ -501,4 +501,4 @@ pub use workflow::{
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{task, workflow};
+pub use cloacina_macros::{packaged_workflow, task, workflow};

@@ -22,9 +22,7 @@
 use async_trait::async_trait;
 
 use crate::registry::error::{RegistryError, StorageError};
-use crate::registry::types::{
-    LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId,
-};
+use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 
 /// Main trait for workflow registry operations.
 ///
@@ -42,12 +40,13 @@ use crate::registry::types::{
 /// # Examples
 ///
 /// ```rust,no_run
-/// use cloacina::registry::{WorkflowRegistry, WorkflowPackage};
+/// use cloacina::registry::WorkflowRegistry;
+/// use std::fs;
 ///
 /// # async fn example(mut registry: impl WorkflowRegistry) -> Result<(), Box<dyn std::error::Error>> {
-/// // Register a new workflow
-/// let package = WorkflowPackage::from_file("analytics.cloacina")?;
-/// let id = registry.register_workflow(package).await?;
+/// // Register a new workflow from file
+/// let package_data = fs::read("analytics.cloacina")?;
+/// let id = registry.register_workflow(package_data).await?;
 ///
 /// // List all workflows
 /// let workflows = registry.list_workflows().await?;
@@ -62,17 +61,18 @@ use crate::registry::types::{
 /// ```
 #[async_trait]
 pub trait WorkflowRegistry: Send + Sync {
-    /// Register a new packaged workflow in the registry.
+    /// Register a new packaged workflow from binary data.
     ///
     /// This operation:
-    /// 1. Validates the package structure and metadata
-    /// 2. Stores the binary data in registry storage
-    /// 3. Extracts and stores metadata in the database
-    /// 4. Registers tasks with the global task registry
+    /// 1. Extracts metadata from the binary package data
+    /// 2. Validates the package structure and metadata
+    /// 3. Stores the binary data in registry storage
+    /// 4. Stores metadata in the database
+    /// 5. Registers tasks with the global task registry
     ///
     /// # Arguments
     ///
-    /// * `package` - The workflow package containing metadata and binary data
+    /// * `package_data` - Raw binary data of the .cloacina package file
     ///
     /// # Returns
     ///
@@ -84,9 +84,10 @@ pub trait WorkflowRegistry: Send + Sync {
     /// - `RegistryError::PackageExists` - If package/version already exists
     /// - `RegistryError::ValidationError` - If package validation fails
     /// - `RegistryError::StorageError` - If storage operations fail
+    /// - `RegistryError::Loader` - If metadata extraction fails
     async fn register_workflow(
         &mut self,
-        package: WorkflowPackage,
+        package_data: Vec<u8>,
     ) -> Result<WorkflowPackageId, RegistryError>;
 
     /// Retrieve a specific workflow package by name and version.

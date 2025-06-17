@@ -64,3 +64,19 @@ impl NewWorkflowRegistryEntry {
         Self { data }
     }
 }
+
+/// Model for creating new workflow registry entries with explicit ID and timestamp.
+///
+/// This is used for databases like SQLite that don't support auto-generating UUIDs.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = crate::database::schema::workflow_registry)]
+pub struct NewWorkflowRegistryEntryWithId {
+    /// Unique identifier for this registry entry
+    pub id: UniversalUuid,
+
+    /// When this entry was created
+    pub created_at: UniversalTimestamp,
+
+    /// Binary data of the workflow package
+    pub data: Vec<u8>,
+}

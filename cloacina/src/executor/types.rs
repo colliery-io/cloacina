@@ -208,8 +208,8 @@ pub struct ClaimedTask {
     pub task_execution_id: UniversalUuid,
     /// ID of the pipeline this task belongs to
     pub pipeline_execution_id: UniversalUuid,
-    /// Name of the task being executed
-    pub task_name: String,
+    /// Full namespace of the task being executed
+    pub task_namespace: String,
     /// Current attempt number for this task execution
     pub attempt: i32,
 }

@@ -17,7 +17,7 @@
 //! Task registrar for integrating packaged workflow tasks with the global registry.
 //!
 //! This module provides functionality to register tasks from dynamically loaded
-//! .so packages with cloacina's global task registry, ensuring proper namespace
+//! library packages with cloacina's global task registry, ensuring proper namespace
 //! isolation and task lifecycle management.
 
 use libloading::{Library, Symbol};
@@ -30,7 +30,9 @@ use tokio::fs;
 use crate::context::Context;
 use crate::error::TaskError;
 use crate::registry::error::LoaderError;
-use crate::registry::loader::package_loader::{PackageMetadata, EXECUTE_TASK_SYMBOL};
+use crate::registry::loader::package_loader::{
+    get_library_extension, PackageMetadata, EXECUTE_TASK_SYMBOL,
+};
 use crate::task::{register_task_constructor, Task, TaskNamespace};
 use chrono::Utc;
 
@@ -40,7 +42,7 @@ use chrono::Utc;
 /// task registry while maintaining proper namespace isolation and lifecycle
 /// management for dynamic libraries.
 pub struct TaskRegistrar {
-    /// Temporary directory for .so file operations
+    /// Temporary directory for library file operations
     temp_dir: TempDir,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamespace>>>>,
@@ -67,7 +69,7 @@ impl TaskRegistrar {
     /// # Arguments
     ///
     /// * `package_id` - Unique identifier for the package (for cleanup tracking)
-    /// * `package_data` - Binary data of the .so package
+    /// * `package_data` - Binary data of the library package
     /// * `metadata` - Package metadata containing task information
     /// * `tenant_id` - Tenant ID for namespace isolation (default: "public")
     ///
@@ -84,8 +86,12 @@ impl TaskRegistrar {
     ) -> Result<Vec<TaskNamespace>, LoaderError> {
         let tenant_id = tenant_id.unwrap_or("public");
 
-        // Write package to temporary file
-        let temp_path = self.temp_dir.path().join(format!("{}.so", package_id));
+        // Write package to temporary file with correct extension
+        let library_extension = get_library_extension();
+        let temp_path = self
+            .temp_dir
+            .path()
+            .join(format!("{}.{}", package_id, library_extension));
         fs::write(&temp_path, package_data)
             .await
             .map_err(|e| LoaderError::FileSystem {
@@ -114,11 +120,31 @@ impl TaskRegistrar {
         let mut registered_namespaces = Vec::new();
 
         for task in &metadata.tasks {
+            // Extract workflow_id from the task's namespaced_id_template
+            // Template format: {tenant}::package_name::workflow_id::task_id
+            let workflow_id = {
+                let parts: Vec<&str> = task.namespaced_id_template.split("::").collect();
+                if parts.len() >= 3 {
+                    let workflow_part = parts[2];
+                    // Handle both {workflow} placeholder and actual workflow_id
+                    if workflow_part == "{workflow}" {
+                        // This is a template, extract from the local_id context or use package name as fallback
+                        metadata.package_name.clone()
+                    } else {
+                        // This is the actual workflow_id
+                        workflow_part.to_string()
+                    }
+                } else {
+                    // Fallback to package name if template format is unexpected
+                    metadata.package_name.clone()
+                }
+            };
+
             // Create namespace for this task
             let namespace = TaskNamespace::new(
                 tenant_id,
                 &metadata.package_name,
-                &metadata.package_name, // Use package name as workflow ID for now
+                &workflow_id,
                 &task.local_id,
             );
 

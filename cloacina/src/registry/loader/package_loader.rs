@@ -14,17 +14,20 @@
  *  limitations under the License.
  */
 
-//! Package loader for extracting metadata from workflow .so files.
+//! Package loader for extracting metadata from workflow library files.
 //!
-//! This module provides functionality to safely load .so files in a temporary
+//! This module provides functionality to safely load dynamic library files (.so/.dylib/.dll) in a temporary
 //! environment and extract package metadata using the established cloacina FFI
 //! interface patterns.
 
+use flate2::read::GzDecoder;
 use libloading::Library;
 use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
+use std::io::Read;
 use std::os::raw::c_char;
 use std::path::Path;
+use tar::Archive;
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -35,6 +38,17 @@ pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 
 /// Standard symbol name for metadata extraction
 pub const GET_METADATA_SYMBOL: &str = "cloacina_get_task_metadata";
+
+/// Get the platform-specific dynamic library extension
+pub fn get_library_extension() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "dll"
+    } else if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    }
+}
 
 /// C-compatible structure for task metadata extraction via FFI
 #[repr(C)]
@@ -96,7 +110,7 @@ pub struct TaskMetadata {
     pub source_location: String,
 }
 
-/// Package loader for extracting metadata from .so workflow files
+/// Package loader for extracting metadata from workflow library files
 pub struct PackageLoader {
     temp_dir: TempDir,
 }
@@ -115,7 +129,7 @@ impl PackageLoader {
     ///
     /// # Arguments
     ///
-    /// * `package_data` - Binary data of the .so workflow package
+    /// * `package_data` - Binary data of the workflow package (.cloacina archive or raw library)
     ///
     /// # Returns
     ///
@@ -125,34 +139,149 @@ impl PackageLoader {
         &self,
         package_data: &[u8],
     ) -> Result<PackageMetadata, LoaderError> {
-        // Write package data to temporary file
-        let temp_path = self.temp_dir.path().join("workflow_package.so");
-        fs::write(&temp_path, package_data)
-            .await
-            .map_err(|e| LoaderError::FileSystem {
-                path: temp_path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            })?;
+        // Check if this is a .cloacina archive or raw library data
+        let library_path = if self.is_cloacina_archive(package_data) {
+            // Extract library file from .cloacina archive
+            self.extract_library_from_archive(package_data).await?
+        } else {
+            // Treat as raw library data - write to temporary file
+            let library_extension = get_library_extension();
+            let temp_path = self
+                .temp_dir
+                .path()
+                .join(format!("workflow_package.{}", library_extension));
+            fs::write(&temp_path, package_data)
+                .await
+                .map_err(|e| LoaderError::FileSystem {
+                    path: temp_path.to_string_lossy().to_string(),
+                    error: e.to_string(),
+                })?;
+            temp_path
+        };
 
-        // Extract metadata from the .so file
-        self.extract_metadata_from_so(&temp_path).await
+        // Extract metadata from the library file
+        self.extract_metadata_from_so(&library_path).await
     }
 
-    /// Extract metadata from a .so file using established cloacina patterns
+    /// Check if package data is a .cloacina archive
+    fn is_cloacina_archive(&self, package_data: &[u8]) -> bool {
+        // Check for gzip magic number at the start
+        package_data.len() >= 3
+            && package_data[0] == 0x1f
+            && package_data[1] == 0x8b
+            && package_data[2] == 0x08
+    }
+
+    /// Extract the library file from a .cloacina archive.
+    ///
+    /// # Arguments
+    ///
+    /// * `archive_data` - Binary data of the .cloacina archive (tar.gz)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(PathBuf)` - Path to the extracted library file
+    /// * `Err(LoaderError)` - If extraction fails
+    async fn extract_library_from_archive(
+        &self,
+        archive_data: &[u8],
+    ) -> Result<std::path::PathBuf, LoaderError> {
+        // Determine library extension for the current platform
+        let library_extension = get_library_extension();
+
+        // Extract library file synchronously to avoid Send issues
+        let (file_data, filename) = tokio::task::spawn_blocking({
+            let archive_data = archive_data.to_vec();
+            let library_extension = library_extension.clone();
+            move || -> Result<(Vec<u8>, String), LoaderError> {
+                // Create a cursor from the archive data
+                let cursor = std::io::Cursor::new(archive_data);
+                let gz_decoder = GzDecoder::new(cursor);
+                let mut archive = Archive::new(gz_decoder);
+
+                // Look for a library file in the archive
+                for entry_result in archive.entries().map_err(|e| LoaderError::FileSystem {
+                    path: "archive".to_string(),
+                    error: format!("Failed to read archive entries: {}", e),
+                })? {
+                    let mut entry = entry_result.map_err(|e| LoaderError::FileSystem {
+                        path: "archive".to_string(),
+                        error: format!("Failed to read archive entry: {}", e),
+                    })?;
+
+                    let path = entry.path().map_err(|e| LoaderError::FileSystem {
+                        path: "archive".to_string(),
+                        error: format!("Failed to get entry path: {}", e),
+                    })?;
+
+                    // Check if this is a library file with the correct extension
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        if filename.ends_with(&format!(".{}", library_extension)) {
+                            // Store path info before borrowing entry mutably
+                            let path_string = path.to_string_lossy().to_string();
+                            let filename_string = filename.to_string();
+
+                            // Read the library file data
+                            let mut file_data = Vec::new();
+                            entry.read_to_end(&mut file_data).map_err(|e| {
+                                LoaderError::FileSystem {
+                                    path: path_string,
+                                    error: format!(
+                                        "Failed to read library file from archive: {}",
+                                        e
+                                    ),
+                                }
+                            })?;
+
+                            return Ok((file_data, filename_string));
+                        }
+                    }
+                }
+
+                Err(LoaderError::MetadataExtraction {
+                    reason: format!(
+                        "No library file with extension '{}' found in archive",
+                        library_extension
+                    ),
+                })
+            }
+        })
+        .await
+        .map_err(|e| LoaderError::FileSystem {
+            path: "spawn_blocking".to_string(),
+            error: format!("Failed to spawn blocking task: {}", e),
+        })??;
+
+        // Write extracted library file to temp directory
+        let extract_path = self
+            .temp_dir
+            .path()
+            .join(format!("workflow_package.{}", library_extension));
+        fs::write(&extract_path, &file_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: extract_path.to_string_lossy().to_string(),
+                error: format!("Failed to write extracted library file: {}", e),
+            })?;
+
+        Ok(extract_path)
+    }
+
+    /// Extract metadata from a library file using established cloacina patterns
     async fn extract_metadata_from_so(
         &self,
-        so_path: &Path,
+        library_path: &Path,
     ) -> Result<PackageMetadata, LoaderError> {
         // Load the dynamic library
         let lib = unsafe {
-            Library::new(so_path).map_err(|e| LoaderError::LibraryLoad {
-                path: so_path.to_string_lossy().to_string(),
+            Library::new(library_path).map_err(|e| LoaderError::LibraryLoad {
+                path: library_path.to_string_lossy().to_string(),
                 error: e.to_string(),
             })?
         };
 
         // Extract package name from filename (fallback approach)
-        let fallback_package_name = so_path
+        let fallback_package_name = library_path
             .file_stem()
             .and_then(|name| name.to_str())
             .unwrap_or("unknown_package")
@@ -366,7 +495,11 @@ impl PackageLoader {
         &self,
         package_data: &[u8],
     ) -> Result<Vec<String>, LoaderError> {
-        let temp_path = self.temp_dir.path().join("validation_package.so");
+        let library_extension = get_library_extension();
+        let temp_path = self
+            .temp_dir
+            .path()
+            .join(format!("validation_package.{}", library_extension));
         fs::write(&temp_path, package_data)
             .await
             .map_err(|e| LoaderError::FileSystem {
@@ -472,7 +605,8 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             LoaderError::LibraryLoad { path, error } => {
-                assert!(path.contains("workflow_package.so"));
+                let library_extension = get_library_extension();
+                assert!(path.contains(&format!("workflow_package.{}", library_extension)));
                 assert!(!error.is_empty());
             }
             other => panic!("Expected LibraryLoad error, got: {:?}", other),
@@ -615,7 +749,8 @@ mod tests {
         let error = result.unwrap_err();
         match &error {
             LoaderError::LibraryLoad { path, error: msg } => {
-                assert!(path.contains(".so"));
+                let library_extension = get_library_extension();
+                assert!(path.contains(&format!(".{}", library_extension)));
                 assert!(!msg.is_empty());
             }
             other => panic!("Expected LibraryLoad error, got: {:?}", other),
@@ -665,5 +800,19 @@ mod tests {
 
         let loader = result.unwrap();
         assert!(loader.temp_dir().exists());
+    }
+
+    #[test]
+    fn test_get_library_extension() {
+        let extension = get_library_extension();
+
+        // Verify we get the correct extension for the current platform
+        if cfg!(target_os = "windows") {
+            assert_eq!(extension, "dll");
+        } else if cfg!(target_os = "macos") {
+            assert_eq!(extension, "dylib");
+        } else {
+            assert_eq!(extension, "so");
+        }
     }
 }

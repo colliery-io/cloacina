@@ -16,8 +16,7 @@ CREATE TABLE workflow_packages (
     version TEXT NOT NULL,
     description TEXT,
     author TEXT,
-    tasks TEXT NOT NULL DEFAULT '[]',                   -- JSON array of task IDs
-    schedules TEXT NOT NULL DEFAULT '[]',               -- JSON array of schedule names
+    metadata TEXT NOT NULL DEFAULT '{}',                -- Package metadata (tasks, schedules, etc.) as JSON
     created_at TEXT NOT NULL,                           -- RFC3339 format
     updated_at TEXT NOT NULL,                           -- RFC3339 format
 

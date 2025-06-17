@@ -338,7 +338,7 @@ impl TaskScheduler {
         let pipeline_execution = self.dal.pipeline_execution().create(new_execution).await?;
 
         // Initialize task executions
-        self.initialize_task_executions(pipeline_execution.id.into(), &workflow)
+        self.initialize_task_executions(pipeline_execution.id.into(), &workflow, workflow_name)
             .await?;
 
         info!("Workflow execution scheduled: {}", pipeline_execution.id);
@@ -406,6 +406,7 @@ impl TaskScheduler {
     ///
     /// * `pipeline_execution_id` - UUID of the pipeline execution
     /// * `workflow` - The workflow containing tasks to initialize
+    /// * `workflow_name` - Name of the workflow for namespace construction
     ///
     /// # Returns
     ///
@@ -414,6 +415,7 @@ impl TaskScheduler {
         &self,
         pipeline_execution_id: Uuid,
         workflow: &Workflow,
+        workflow_name: &str,
     ) -> Result<(), ValidationError> {
         debug!(
             "Initializing task executions for pipeline: {}",
@@ -433,9 +435,16 @@ impl TaskScheduler {
                 3 // Fallback default
             };
 
+            // Construct full namespace - first try to find the actual namespace in global registry
+            let task_namespace = self.find_task_namespace(&task_id, workflow_name)
+                .unwrap_or_else(|| {
+                    // Fallback to embedded namespace format for non-packaged workflows
+                    format!("public::embedded::{}::{}", workflow_name, task_id)
+                });
+
             let new_task = NewTaskExecution {
                 pipeline_execution_id: UniversalUuid(pipeline_execution_id),
-                task_name: task_id,
+                task_namespace,
                 status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts,

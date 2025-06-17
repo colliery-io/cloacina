@@ -788,7 +788,7 @@ impl<'a> TaskExecutionDAL<'a> {
                     Ok(Some(ClaimResult {
                         id: task.id,
                         pipeline_execution_id: task.pipeline_execution_id,
-                        task_name: task.task_name,
+                        task_namespace: task.task_namespace,
                         attempt: task.attempt,
                     }))
                 } else {
@@ -811,8 +811,8 @@ pub struct ClaimResult {
     pub id: UniversalUuid,
     /// ID of the pipeline execution this task belongs to
     pub pipeline_execution_id: UniversalUuid,
-    /// Name of the task that was claimed
-    pub task_name: String,
+    /// Full namespace of the task that was claimed
+    pub task_namespace: String,
     /// Current attempt number for this task
     pub attempt: i32,
 }

@@ -573,11 +573,16 @@ fn calculate_function_fingerprint(func: &ItemFn) -> String {
 ///
 /// * `attrs` - The task attributes
 /// * `input` - The input function to be wrapped as a task
+/// * `namespace_context` - Optional namespace context (package_name, workflow_id) for packaged workflows
 ///
 /// # Returns
 ///
 /// A `TokenStream2` containing the generated task implementation
-fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
+fn generate_task_impl(
+    attrs: TaskAttributes,
+    input: ItemFn,
+    namespace_context: Option<(String, String)>,
+) -> TokenStream2 {
     let fn_name = &input.sig.ident;
     let fn_vis = &input.vis;
     let fn_block = &input.block;
@@ -639,6 +644,13 @@ fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
 
     // Create a task constructor function name
     let task_constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
+
+    // Generate namespace context code
+    let namespace_context_code = if let Some((package_name, workflow_id)) = namespace_context {
+        quote! { Some((#package_name, #workflow_id)) }
+    } else {
+        quote! { None }
+    };
 
     quote! {
         // Keep the original function for testing
@@ -720,7 +732,11 @@ fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 {
         const _: () = {
             #[ctor::ctor]
             fn auto_register() {
-                let namespace = cloacina::TaskNamespace::new("public", "embedded", "default", #task_id);
+                // Use namespace context if provided (for packaged workflows) or default to embedded context
+                let (package_name, workflow_id) = #namespace_context_code
+                    .unwrap_or(("embedded", "default"));
+
+                let namespace = cloacina::TaskNamespace::new("public", package_name, workflow_id, #task_id);
                 cloacina::register_task_constructor(
                     namespace,
                     || std::sync::Arc::new(#task_struct_name::new())
@@ -1046,7 +1062,7 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     // Note: We no longer validate immediately - validation will happen at the workflow level
 
     // PHASE 3: Generate the task implementation
-    generate_task_impl(attrs, input_fn).into()
+    generate_task_impl(attrs, input_fn, None).into()
 }
 
 /// Workflow macro attributes
@@ -1276,11 +1292,13 @@ pub fn workflow(input: TokenStream) -> TokenStream {
 /// # Fields
 ///
 /// * `package` - Package name for namespace isolation (required)
+/// * `name` - Workflow name/identifier (required)
 /// * `version` - Package version (required)
 /// * `description` - Optional description of the workflow package
 /// * `author` - Optional author information
 struct PackagedWorkflowAttributes {
     package: String,
+    name: String,
     version: String,
     description: Option<String>,
     author: Option<String>,
@@ -1289,6 +1307,7 @@ struct PackagedWorkflowAttributes {
 impl Parse for PackagedWorkflowAttributes {
     fn parse(input: ParseStream) -> SynResult<Self> {
         let mut package = None;
+        let mut name = None;
         let mut version = None;
         let mut description = None;
         let mut author = None;
@@ -1301,6 +1320,10 @@ impl Parse for PackagedWorkflowAttributes {
                 "package" => {
                     let lit: LitStr = input.parse()?;
                     package = Some(lit.value());
+                }
+                "name" => {
+                    let lit: LitStr = input.parse()?;
+                    name = Some(lit.value());
                 }
                 "version" => {
                     let lit: LitStr = input.parse()?;
@@ -1334,6 +1357,13 @@ impl Parse for PackagedWorkflowAttributes {
             )
         })?;
 
+        let name = name.ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "packaged_workflow macro requires 'name' attribute",
+            )
+        })?;
+
         let version = version.ok_or_else(|| {
             syn::Error::new(
                 Span::call_site(),
@@ -1343,6 +1373,7 @@ impl Parse for PackagedWorkflowAttributes {
 
         Ok(PackagedWorkflowAttributes {
             package,
+            name,
             version,
             description,
             author,
@@ -1479,6 +1510,7 @@ fn generate_packaged_workflow_impl(
     let mod_content = &input.content;
 
     let package_name = &attrs.package;
+    let attrs_name = &attrs.name;
     let package_version = &attrs.version;
     let package_description = attrs
         .description
@@ -1529,10 +1561,11 @@ fn generate_packaged_workflow_impl(
 
                         // Parse the task attributes to get the task ID and dependencies
                         if let Ok(task_attrs) = attr.parse_args::<TaskAttributes>() {
-                            let task_id = &task_attrs.id;
-                            detected_tasks.insert(task_id.clone(), fn_name.clone());
+                            // Construct full namespace as the key for detected_tasks
+                            let full_namespace = format!("public::{}::{}::{}", package_name, mod_name, task_attrs.id);
+                            detected_tasks.insert(full_namespace.clone(), fn_name.clone());
                             task_dependencies
-                                .insert(task_id.clone(), task_attrs.dependencies.clone());
+                                .insert(full_namespace.clone(), task_attrs.dependencies.clone());
 
                             // Generate task constructor name (following the pattern from the task macro)
                             let task_constructor_name =
@@ -1687,8 +1720,8 @@ fn generate_packaged_workflow_impl(
             let dependencies = task_dependencies.get(task_id).cloned().unwrap_or_default();
 
             // Generate fully qualified namespace: tenant::package::workflow::task
-            // For now, we'll use placeholders that get filled in at runtime
-            let namespaced_id = format!("{{tenant}}::{}::{{workflow}}::{}", package_name, task_id);
+            // Use the workflow name from the macro attributes
+            let namespaced_id = format!("{{tenant}}::{}::{}::{}", package_name, attrs.name, task_id);
 
             // Generate dependencies as JSON array string
             let dependencies_json = if dependencies.is_empty() {
@@ -1776,9 +1809,15 @@ fn generate_packaged_workflow_impl(
                 graph_data_json: GRAPH_DATA_JSON.as_ptr() as *const std::os::raw::c_char,
             };
 
-            /// Get task metadata for cloacina-ctl compilation
+            /// Get task metadata for cloacina-ctl compilation (package-specific name)
             #[no_mangle]
             pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// Get task metadata for cloacina registry validation (standard name)
+            #[no_mangle]
+            pub extern "C" fn cloacina_get_task_metadata() -> *const cloacina_ctl_package_tasks {
                 &PACKAGE_TASKS_METADATA
             }
 
@@ -1938,8 +1977,15 @@ fn generate_packaged_workflow_impl(
                 graph_data_json: EMPTY_GRAPH_DATA.as_ptr() as *const std::os::raw::c_char,
             };
 
+            /// Get task metadata for cloacina-ctl compilation (package-specific name)
             #[no_mangle]
             pub extern "C" fn #metadata_fn_name() -> *const cloacina_ctl_package_tasks {
+                &PACKAGE_TASKS_METADATA
+            }
+
+            /// Get task metadata for cloacina registry validation (standard name)
+            #[no_mangle]
+            pub extern "C" fn cloacina_get_task_metadata() -> *const cloacina_ctl_package_tasks {
                 &PACKAGE_TASKS_METADATA
             }
 
@@ -1977,11 +2023,213 @@ fn generate_packaged_workflow_impl(
         }
     };
 
-    // Extract the module items for proper token generation
+    // Transform the module items to expand task macros directly with namespace context
     let module_items = if let Some((_, items)) = mod_content {
-        items.iter().collect::<Vec<_>>()
+        let mut expanded_items = Vec::new();
+
+        for item in items {
+            match item {
+                syn::Item::Fn(item_fn) => {
+                    // Check if this function has a #[task] attribute
+                    let mut task_attrs = None;
+                    let mut other_attrs = Vec::new();
+
+                    for attr in &item_fn.attrs {
+                        if attr.path().is_ident("task") {
+                            if let Ok(parsed_attrs) = attr.parse_args::<TaskAttributes>() {
+                                task_attrs = Some(parsed_attrs);
+                            }
+                        } else {
+                            other_attrs.push(attr.clone());
+                        }
+                    }
+
+                    if let Some(attrs) = task_attrs {
+                        // This function has a task attribute - expand it directly with namespace context
+                        let mut fn_without_task_attr = item_fn.clone();
+                        fn_without_task_attr.attrs = other_attrs;
+
+                        let namespace_context = Some((package_name.clone(), mod_name.to_string()));
+                        let expanded =
+                            generate_task_impl(attrs, fn_without_task_attr, namespace_context);
+                        expanded_items.push(expanded);
+                    } else {
+                        // No task attribute - keep as is
+                        expanded_items.push(quote! { #item });
+                    }
+                }
+                _ => {
+                    // Other items - keep as is
+                    expanded_items.push(quote! { #item });
+                }
+            }
+        }
+
+        expanded_items
     } else {
         Vec::new()
+    };
+
+    // Generate workflow constructor FFI function
+    let workflow_constructor_ffi = if !detected_tasks.is_empty() {
+        // Generate task lookup calls using namespaced IDs from global registry
+        let task_lookup_calls: Vec<_> = detected_tasks
+            .keys()
+            .map(|task_id| {
+                quote! {
+                    // Look up task from global registry using full namespace (task_id is already full namespace)
+                    let namespace = cloacina::TaskNamespace::from_string(#task_id).expect("Invalid task namespace");
+                    if let Some(task) = cloacina::task::get_task(&namespace) {
+                        workflow.add_task(task).expect("Failed to add task to workflow");
+                    } else {
+                        eprintln!("Warning: Task {} not found in global registry for namespace: {:?}", #task_id, namespace);
+                    }
+                }
+            })
+            .collect();
+
+        quote! {
+            /// Create a complete workflow from this package's tasks
+            ///
+            /// This function builds a workflow using the provided tenant and workflow context.
+            /// It looks up tasks from the global registry using their proper namespaced IDs.
+            #[no_mangle]
+            pub extern "C" fn cloacina_create_workflow(
+                tenant_id: *const std::os::raw::c_char,
+                workflow_id: *const std::os::raw::c_char
+            ) -> *const cloacina::Workflow {
+                use std::ffi::CStr;
+
+                // Convert C strings to Rust strings
+                let tenant_id = if tenant_id.is_null() {
+                    "public"
+                } else {
+                    unsafe {
+                        match CStr::from_ptr(tenant_id).to_str() {
+                            Ok(s) => s,
+                            Err(_) => "public"
+                        }
+                    }
+                };
+
+                let workflow_id = if workflow_id.is_null() {
+                    #attrs_name
+                } else {
+                    unsafe {
+                        match CStr::from_ptr(workflow_id).to_str() {
+                            Ok(s) => s,
+                            Err(_) => #attrs_name
+                        }
+                    }
+                };
+
+                eprintln!("DEBUG: About to look up tasks for workflow {}", workflow_id);
+
+                let mut workflow = cloacina::Workflow::new(workflow_id);
+                workflow.set_description(#package_description);
+
+                // Add all detected tasks using their namespaced IDs from global registry
+                // Use the provided tenant_id and workflow_id for namespace construction
+
+                // Debug: List all tasks in global registry before lookup
+                eprintln!("DEBUG: About to look up tasks for workflow {}", #package_name);
+                let task_registry = cloacina::task::global_task_registry();
+                if let Ok(registry) = task_registry.read() {
+                    eprintln!("DEBUG: Global task registry contains {} tasks:", registry.len());
+                    for (namespace, _) in registry.iter().take(10) {  // Show first 10 tasks
+                        eprintln!("  - {:?}", namespace);
+                    }
+                    if registry.len() > 10 {
+                        eprintln!("  ... and {} more tasks", registry.len() - 10);
+                    }
+                } else {
+                    eprintln!("DEBUG: Failed to read global task registry");
+                }
+
+                #(#task_lookup_calls)*
+
+                // Validate and finalize the workflow
+                if let Err(e) = workflow.validate() {
+                    eprintln!("Workflow validation failed: {}", e);
+                    // Return empty workflow on validation failure
+                    let empty_workflow = cloacina::Workflow::new(#package_name).finalize();
+                    return Box::into_raw(Box::new(empty_workflow));
+                }
+
+                let finalized_workflow = workflow.finalize();
+
+                // Return as a heap-allocated pointer for FFI
+                Box::into_raw(Box::new(finalized_workflow))
+            }
+
+            /// Destroy a workflow created by cloacina_create_workflow
+            ///
+            /// This function properly deallocates memory for workflows created
+            /// via the FFI interface.
+            #[no_mangle]
+            pub extern "C" fn cloacina_destroy_workflow(workflow: *mut cloacina::Workflow) {
+                if !workflow.is_null() {
+                    unsafe {
+                        Box::from_raw(workflow);
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {
+            /// Create an empty workflow for packages with no tasks
+            #[no_mangle]
+            pub extern "C" fn cloacina_create_workflow(
+                _tenant_id: *const std::os::raw::c_char,
+                _workflow_id: *const std::os::raw::c_char
+            ) -> *const cloacina::Workflow {
+                let workflow = cloacina::Workflow::new(#package_name);
+                let finalized_workflow = workflow.finalize();
+                Box::into_raw(Box::new(finalized_workflow))
+            }
+
+            /// Destroy a workflow created by cloacina_create_workflow
+            #[no_mangle]
+            pub extern "C" fn cloacina_destroy_workflow(workflow: *mut cloacina::Workflow) {
+                if !workflow.is_null() {
+                    unsafe {
+                        Box::from_raw(workflow);
+                    }
+                }
+            }
+        }
+    };
+
+    // Generate workflow task registration code (keep existing for backward compatibility)
+    let workflow_task_registrations = if !detected_tasks.is_empty() {
+        let task_registration_code: Vec<_> = detected_tasks.keys().map(|task_id| {
+            quote! {
+                // Construct the namespaced task ID
+                let namespace = cloacina::TaskNamespace::new(
+                    &tenant_id,
+                    package_name,
+                    mod_name,
+                    #task_id
+                );
+
+                if let Some(task) = cloacina::task::get_task(&namespace) {
+                    if let Err(e) = workflow.add_task(task) {
+                        eprintln!("Failed to add task {} to workflow: {}", #task_id, e);
+                    }
+                } else {
+                    eprintln!("Task {} not found in global registry for namespace: {:?}", #task_id, namespace);
+                }
+            }
+        }).collect();
+
+        quote! {
+            #(#task_registration_code)*
+        }
+    } else {
+        quote! {
+            // No tasks to register
+            eprintln!("Package {} has no tasks to add to workflow", package_name);
+        }
     };
 
     quote! {
@@ -1991,6 +2239,9 @@ fn generate_packaged_workflow_impl(
 
             // Include task metadata structures and functions
             #task_metadata_items
+
+            // Include workflow constructor FFI functions
+            #workflow_constructor_ffi
 
             /// Package metadata for this workflow package
             #[derive(Debug, Clone)]
@@ -2025,6 +2276,44 @@ fn generate_packaged_workflow_impl(
             /// package's namespace for proper isolation from other packages.
             pub fn register_package_tasks(tenant_id: &str, workflow_id: &str) {
                 #(#task_registrations)*
+            }
+
+            /// Register all workflows in this package with the global workflow registry
+            ///
+            /// This function creates and registers workflow constructors that use the
+            /// package's tasks to build complete executable workflows.
+            pub fn register_package_workflows(tenant_id: &str) {
+                // Create a workflow constructor for the main package workflow
+                let workflow_name = format!("{}::{}", #package_name, stringify!(#mod_name));
+
+                // Clone the necessary values for the closure
+                let package_name = #package_name;
+                let mod_name = stringify!(#mod_name);
+                let tenant_id_cloned = tenant_id.to_string();
+                let workflow_name_cloned = workflow_name.clone();
+
+                let constructor = move || {
+                    // Create workflow using the package's tasks
+                    let mut workflow = cloacina::Workflow::new(&workflow_name_cloned);
+                    workflow.set_description(#package_description);
+
+                    // Add all tasks from this package to the workflow
+                    // The tasks should already be registered in the global task registry
+                    let tenant_id = &tenant_id_cloned;
+                    #workflow_task_registrations
+
+                    // Validate and finalize the workflow
+                    if let Err(e) = workflow.validate() {
+                        eprintln!("Workflow validation failed for {}: {}", workflow_name_cloned, e);
+                        // Return a minimal workflow on validation failure
+                        return cloacina::Workflow::new(&workflow_name_cloned).finalize();
+                    }
+
+                    workflow.finalize()
+                };
+
+                // Register the workflow constructor in the global registry
+                cloacina::register_workflow_constructor(workflow_name, constructor);
             }
 
             /// Standard ABI entry point for dynamic loading

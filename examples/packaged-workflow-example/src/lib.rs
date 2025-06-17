@@ -39,8 +39,7 @@ cargo build --release
 ```
 */
 
-use cloacina::{Context, TaskError};
-use cloacina_macros::{packaged_workflow, task};
+use cloacina::{packaged_workflow, task, Context, TaskError};
 
 /// Analytics Pipeline - A complete data processing workflow package
 ///
@@ -49,6 +48,7 @@ use cloacina_macros::{packaged_workflow, task};
 /// the package namespace to prevent conflicts with other workflow packages.
 #[packaged_workflow(
     package = "analytics_pipeline",
+    name = "analytics_workflow",
     version = "2.1.0",
     description = "Real-time analytics and data processing pipeline",
     author = "Analytics Team <analytics@company.com>"

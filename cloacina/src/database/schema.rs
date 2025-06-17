@@ -49,7 +49,7 @@ mod postgres_schema {
         task_executions (id) {
             id -> Uuid,
             pipeline_execution_id -> Uuid,
-            task_name -> Varchar,
+            task_namespace -> Varchar,
             status -> Varchar,
             started_at -> Nullable<Timestamp>,
             completed_at -> Nullable<Timestamp>,
@@ -137,8 +137,7 @@ mod postgres_schema {
             version -> Varchar,
             description -> Nullable<Text>,
             author -> Nullable<Varchar>,
-            tasks -> Array<Text>,
-            schedules -> Array<Text>,
+            metadata -> Text,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }
@@ -201,7 +200,7 @@ mod sqlite_schema {
         task_executions (id) {
             id -> Binary,
             pipeline_execution_id -> Binary,
-            task_name -> Text,
+            task_namespace -> Text,
             status -> Text,
             started_at -> Nullable<Text>,
             completed_at -> Nullable<Text>,
@@ -289,8 +288,7 @@ mod sqlite_schema {
             version -> Text,
             description -> Nullable<Text>,
             author -> Nullable<Text>,
-            tasks -> Text,
-            schedules -> Text,
+            metadata -> Text,
             created_at -> Text,
             updated_at -> Text,
         }

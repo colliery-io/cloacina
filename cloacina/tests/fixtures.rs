@@ -28,6 +28,7 @@
 use cloacina::database::connection::{Database, DbConnection};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, Once};
 use tracing::info;
@@ -167,7 +168,31 @@ impl TestFixture {
 
         #[cfg(feature = "sqlite")]
         {
-            // For SQLite, we just need to run migrations
+            // For SQLite, clear all tables first, then run migrations
+            use diesel::sql_query;
+
+            // Define a struct for the query result
+            #[derive(QueryableByName)]
+            struct TableName {
+                #[diesel(sql_type = Text)]
+                name: String,
+            }
+
+            // Get list of all user tables (excluding sqlite system tables and migrations)
+            let tables_result: Result<Vec<TableName>, _> = sql_query(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'"
+            )
+            .load::<TableName>(&mut self.conn);
+
+            if let Ok(table_rows) = tables_result {
+                // Clear all user tables
+                for table_row in table_rows {
+                    let _ = sql_query(&format!("DELETE FROM {}", table_row.name))
+                        .execute(&mut self.conn);
+                }
+            }
+
+            // Run migrations to ensure schema is up to date
             cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
         }
     }

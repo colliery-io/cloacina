@@ -205,7 +205,7 @@ impl WorkflowPackage {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
+    pub fn from_file(_path: impl AsRef<std::path::Path>) -> Result<Self, std::io::Error> {
         // This will be implemented to use cloacina-ctl's extraction logic
         todo!("Implement using cloacina-ctl archive extraction")
     }

@@ -166,13 +166,20 @@ impl ThreadTaskExecutor {
                     let permit = semaphore.clone().acquire_owned().await?;
                     let executor = self.clone();
 
+                    // Extract task name for logging
+                    let task_name = if let Ok(ns) = crate::task::TaskNamespace::from_string(&claimed_task.task_namespace) {
+                        ns.task_id.clone()
+                    } else {
+                        claimed_task.task_namespace.clone()
+                    };
+
                     // Execute task in background with pre-loaded context
                     tokio::spawn(async move {
                         let _permit = permit; // Hold permit until task completes
 
                         info!(
                             "Executing task with pre-loaded context: {} (attempt {})",
-                            claimed_task.task_name, claimed_task.attempt
+                            task_name, claimed_task.attempt
                         );
 
                         if let Err(e) = executor
@@ -209,13 +216,16 @@ impl ThreadTaskExecutor {
             let claimed_task = ClaimedTask {
                 task_execution_id: claim_result.id,
                 pipeline_execution_id: claim_result.pipeline_execution_id,
-                task_name: claim_result.task_name.clone(),
+                task_namespace: claim_result.task_namespace.clone(),
                 attempt: claim_result.attempt,
             };
 
-            // Get task from global registry to determine dependencies
-            let task = get_task_by_id(&claimed_task.task_name)
-                .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
+            // Get task from global registry using full namespace
+            let task_namespace = crate::task::TaskNamespace::from_string(&claimed_task.task_namespace)
+                .map_err(|e| ExecutorError::InvalidScope(e))?;
+            let task = crate::task::get_task(&task_namespace)
+                .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_namespace.clone()))?;
+            let task_name = &task_namespace.task_id; // Extract task ID for logging
             let dependencies = task.dependencies().to_vec();
 
             // Build context using DAL methods

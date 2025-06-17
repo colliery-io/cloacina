@@ -22,8 +22,7 @@ CREATE TABLE workflow_packages (
     version VARCHAR(100) NOT NULL,
     description TEXT,
     author VARCHAR(255),
-    tasks TEXT[] NOT NULL DEFAULT '{}', -- JSON array of task IDs
-    schedules TEXT[] NOT NULL DEFAULT '{}', -- JSON array of schedule names
+    metadata TEXT NOT NULL DEFAULT '{}', -- Package metadata (tasks, schedules, etc.)
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
