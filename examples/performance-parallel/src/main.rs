@@ -47,7 +47,7 @@ async fn setup_data(context: &mut Context<serde_json::Value>) -> Result<(), Task
     context.insert("data_batch_1", json!([1, 2, 3, 4, 5]))?;
     context.insert("data_batch_2", json!([6, 7, 8, 9, 10]))?;
     context.insert("data_batch_3", json!([11, 12, 13, 14, 15]))?;
-    
+
     Ok(())
 }
 
@@ -57,16 +57,17 @@ async fn setup_data(context: &mut Context<serde_json::Value>) -> Result<(), Task
     dependencies = ["setup_data"]
 )]
 async fn process_batch_1(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context.get("data_batch_1")
+    let batch = context
+        .get("data_batch_1")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .iter()
         .filter_map(|v| v.as_i64())
         .map(|v| v * 2)
         .collect::<Vec<_>>();
-    
+
     context.insert("result_batch_1", json!(batch))?;
-    
+
     Ok(())
 }
 
@@ -76,16 +77,17 @@ async fn process_batch_1(context: &mut Context<serde_json::Value>) -> Result<(),
     dependencies = ["setup_data"]
 )]
 async fn process_batch_2(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context.get("data_batch_2")
+    let batch = context
+        .get("data_batch_2")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .iter()
         .filter_map(|v| v.as_i64())
         .map(|v| v * 3)
         .collect::<Vec<_>>();
-    
+
     context.insert("result_batch_2", json!(batch))?;
-    
+
     Ok(())
 }
 
@@ -95,16 +97,17 @@ async fn process_batch_2(context: &mut Context<serde_json::Value>) -> Result<(),
     dependencies = ["setup_data"]
 )]
 async fn process_batch_3(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context.get("data_batch_3")
+    let batch = context
+        .get("data_batch_3")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .iter()
         .filter_map(|v| v.as_i64())
         .map(|v| v * 4)
         .collect::<Vec<_>>();
-    
+
     context.insert("result_batch_3", json!(batch))?;
-    
+
     Ok(())
 }
 
@@ -114,24 +117,27 @@ async fn process_batch_3(context: &mut Context<serde_json::Value>) -> Result<(),
     dependencies = ["process_batch_1", "process_batch_2", "process_batch_3"]
 )]
 async fn merge_results(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch1 = context.get("result_batch_1")
+    let batch1 = context
+        .get("result_batch_1")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .len();
-    let batch2 = context.get("result_batch_2")
+    let batch2 = context
+        .get("result_batch_2")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .len();
-    let batch3 = context.get("result_batch_3")
+    let batch3 = context
+        .get("result_batch_3")
         .and_then(|v| v.as_array())
         .unwrap_or(&vec![])
         .len();
-    
+
     let total_items = batch1 + batch2 + batch3;
-    
+
     context.insert("total_items_processed", json!(total_items))?;
     context.insert("merge_status", json!("success"))?;
-    
+
     Ok(())
 }
 
@@ -140,16 +146,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Initialize logging (disabled for performance)
-    tracing_subscriber::fmt()
-        .with_env_filter("off")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("off").init();
 
     println!("Starting Parallel Performance Test");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
     let mut config = DefaultRunnerConfig::default();
     config.max_concurrent_tasks = args.concurrency;
-    
+
     let runner = DefaultRunner::with_config(
         "sqlite://performance-parallel.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
         config,
@@ -173,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Submit all workflows concurrently - let executor handle the concurrency
     let mut futures = Vec::new();
-    
+
     for _i in 1..=args.iterations {
         let input_context = Context::new();
         let future = runner.execute("parallel_workflow", input_context);
@@ -182,9 +186,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for all workflows to complete
     let results = futures::future::join_all(futures).await;
-    
+
     let total_duration = overall_start.elapsed();
-    
+
     // Process results
     let mut successful_workflows = 0;
     let mut failed_workflows = 0;
@@ -194,11 +198,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(result) => {
                 successful_workflows += 1;
                 // Only log errors
-                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed {
-                    error!("Workflow {} completed with status: {:?}", i + 1, result.status);
+                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed
+                {
+                    error!(
+                        "Workflow {} completed with status: {:?}",
+                        i + 1,
+                        result.status
+                    );
                 }
                 if result.final_context.get("merge_status").is_none() {
-                    error!("No merge_status found in final context for iteration {}!", i + 1);
+                    error!(
+                        "No merge_status found in final context for iteration {}!",
+                        i + 1
+                    );
                 }
             }
             Err(e) => {
@@ -214,13 +226,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runner.shutdown().await?;
 
     println!("Performance test completed!");
-    println!("Configuration: {} iterations, {} concurrency", args.iterations, args.concurrency);
+    println!(
+        "Configuration: {} iterations, {} concurrency",
+        args.iterations, args.concurrency
+    );
     println!("Total time: {:.2}s", total_duration.as_secs_f64());
     println!("Workflows per second: {:.2}", workflows_per_second);
-    println!("Success rate: {}/{} ({:.1}%)", 
-             successful_workflows, 
-             args.iterations,
-             (successful_workflows as f64 / args.iterations as f64) * 100.0);
+    println!(
+        "Success rate: {}/{} ({:.1}%)",
+        successful_workflows,
+        args.iterations,
+        (successful_workflows as f64 / args.iterations as f64) * 100.0
+    );
 
     Ok(())
 }

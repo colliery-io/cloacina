@@ -15,12 +15,12 @@ performance = angreal.command_group(name="performance", about="run performance t
 def performance_simple(iterations: int=150, concurrency: int=32):
     """Run the simple performance test example."""
     print(f"Running simple performance test ({iterations} iterations, {concurrency} concurrency)")
-    
+
     example_dir = os.path.join("examples", "performance-simple")
     if not os.path.exists(example_dir):
         print(f"ERROR: Performance simple example not found at {example_dir}")
         return 1
-    
+
     try:
         print("Building and running performance test (this may take a moment)...")
         result = subprocess.run(
@@ -29,7 +29,7 @@ def performance_simple(iterations: int=150, concurrency: int=32):
             timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
-        
+
         return result.returncode
     except subprocess.TimeoutExpired:
         print("ERROR: Performance test timed out after 2 minutes")
@@ -46,12 +46,12 @@ def performance_simple(iterations: int=150, concurrency: int=32):
 def performance_pipeline(iterations: int=150, concurrency: int=32):
     """Run the pipeline performance test example."""
     print(f"Running pipeline performance test ({iterations} iterations, {concurrency} concurrency)")
-    
+
     example_dir = os.path.join("examples", "performance-pipeline")
     if not os.path.exists(example_dir):
         print(f"ERROR: Performance pipeline example not found at {example_dir}")
         return 1
-    
+
     try:
         print("Building and running performance test (this may take a moment)...")
         result = subprocess.run(
@@ -60,7 +60,7 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
             timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
-        
+
         return result.returncode
     except subprocess.TimeoutExpired:
         print("ERROR: Performance test timed out after 2 minutes")
@@ -77,12 +77,12 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
 def performance_parallel(iterations: int=150, concurrency: int=32):
     """Run the parallel performance test example."""
     print(f"Running parallel performance test ({iterations} iterations, {concurrency} concurrency)")
-    
+
     example_dir = os.path.join("examples", "performance-parallel")
     if not os.path.exists(example_dir):
         print(f"ERROR: Performance parallel example not found at {example_dir}")
         return 1
-    
+
     try:
         print("Building and running performance test (this may take a moment)...")
         result = subprocess.run(
@@ -91,7 +91,7 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
             timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
-        
+
         return result.returncode
     except subprocess.TimeoutExpired:
         print("ERROR: Performance test timed out after 2 minutes")
@@ -106,12 +106,12 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
 def performance_stress():
     """Run the stress performance test example."""
     print("Running stress performance test")
-    
+
     example_dir = os.path.join("examples", "performance-stress")
     if not os.path.exists(example_dir):
         print(f"ERROR: Performance stress example not found at {example_dir}")
         return 1
-    
+
     try:
         result = subprocess.run(
             ["cargo", "run", "--", "--iterations", "50", "--concurrency", "4", "--failure-rate", "0.3"],
@@ -119,11 +119,11 @@ def performance_stress():
             capture_output=True,
             text=True
         )
-        
+
         print(result.stdout)
         if result.stderr:
             print("STDERR:", result.stderr)
-        
+
         return result.returncode
     except Exception as e:
         print(f"ERROR: Error running stress performance test: {e}")
@@ -135,38 +135,37 @@ def performance_stress():
 def performance_all():
     """Run all performance tests."""
     print("Running all performance tests")
-    
+
     tests = [
         ("Simple Performance Test", performance_simple),
         ("Pipeline Performance Test", performance_pipeline),
         ("Parallel Performance Test", performance_parallel),
         ("Stress Performance Test", performance_stress),
     ]
-    
+
     results = []
     for test_name, test_func in tests:
-        logger.info(f"Running {test_name}")
         print(f"\n{'='*60}")
         print(f"Running {test_name}")
         print(f"{'='*60}")
-        
+
         result = test_func()
         results.append((test_name, result))
-        
+
         if result != 0:
             print(f"ERROR: {test_name} failed with return code {result}")
         else:
             print(f"SUCCESS: {test_name} completed successfully")
-    
+
     # Summary
     print(f"\n{'='*60}")
     print("Performance Test Summary")
     print(f"{'='*60}")
-    
+
     for test_name, result in results:
         status = "PASS" if result == 0 else "FAIL"
         print(f"{test_name}: {status}")
-    
+
     failed_tests = [name for name, result in results if result != 0]
     if failed_tests:
         print(f"ERROR: Failed tests: {', '.join(failed_tests)}")
@@ -181,28 +180,28 @@ def performance_all():
 def performance_quick():
     """Run quick performance tests with reduced iterations."""
     print("Running quick performance tests")
-    
+
     example_configs = [
         ("performance-simple", ["--iterations", "25", "--concurrency", "2"]),
         ("performance-pipeline", ["--iterations", "25", "--concurrency", "2"]),
         ("performance-parallel", ["--iterations", "20", "--concurrency", "4"]),
         ("performance-stress", ["--iterations", "20", "--concurrency", "2", "--failure-rate", "0.2"]),
     ]
-    
+
     results = []
     for example_name, args in example_configs:
         example_dir = os.path.join("examples", example_name)
-        
+
         if not os.path.exists(example_dir):
             print(f"ERROR: Example not found at {example_dir}")
             results.append((example_name, 1))
             continue
-        
+
         print(f"Running quick test for {example_name}")
         print(f"\n{'='*50}")
         print(f"Quick Test: {example_name}")
         print(f"{'='*50}")
-        
+
         try:
             result = subprocess.run(
                 ["cargo", "run", "--"] + args,
@@ -210,25 +209,25 @@ def performance_quick():
                 capture_output=True,
                 text=True
             )
-            
+
             print(result.stdout)
             if result.stderr:
                 print("STDERR:", result.stderr)
-            
+
             results.append((example_name, result.returncode))
         except Exception as e:
             print(f"ERROR: Error running {example_name}: {e}")
             results.append((example_name, 1))
-    
+
     # Summary
     print(f"\n{'='*50}")
     print("Quick Performance Test Summary")
     print(f"{'='*50}")
-    
+
     for test_name, result in results:
         status = "PASS" if result == 0 else "FAIL"
         print(f"{test_name}: {status}")
-    
+
     failed_tests = [name for name, result in results if result != 0]
     if failed_tests:
         print(f"ERROR: Failed tests: {', '.join(failed_tests)}")

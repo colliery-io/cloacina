@@ -26,4 +26,3 @@ from demos import python_demos  # noqa: F401
 
 # Import performance module
 import performance  # noqa: F401
-

@@ -61,16 +61,18 @@ struct Args {
     retry_backoff = "exponential"
 )]
 async fn primary_task(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let duration_ms = context.get("task_duration_ms")
+    let duration_ms = context
+        .get("task_duration_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(100);
-    
-    let failure_rate = context.get("failure_rate")
+
+    let failure_rate = context
+        .get("failure_rate")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.3);
-    
+
     tokio::time::sleep(Duration::from_millis(duration_ms)).await;
-    
+
     let random_value: f64 = rand::random();
     if random_value < failure_rate {
         return Err(TaskError::ExecutionFailed {
@@ -79,10 +81,10 @@ async fn primary_task(context: &mut Context<serde_json::Value>) -> Result<(), Ta
             timestamp: chrono::Utc::now(),
         });
     }
-    
+
     context.insert("primary_result", json!("success"))?;
     context.insert("primary_timestamp", json!(chrono::Utc::now().to_rfc3339()))?;
-    
+
     Ok(())
 }
 
@@ -92,15 +94,16 @@ async fn primary_task(context: &mut Context<serde_json::Value>) -> Result<(), Ta
     dependencies = ["primary_task"]
 )]
 async fn fallback_task(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let duration_ms = context.get("task_duration_ms")
+    let duration_ms = context
+        .get("task_duration_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(100);
-    
+
     tokio::time::sleep(Duration::from_millis(duration_ms / 2)).await;
-    
+
     context.insert("fallback_result", json!("fallback_success"))?;
     context.insert("fallback_timestamp", json!(chrono::Utc::now().to_rfc3339()))?;
-    
+
     Ok(())
 }
 
@@ -110,12 +113,13 @@ async fn fallback_task(context: &mut Context<serde_json::Value>) -> Result<(), T
     dependencies = ["primary_task", "fallback_task"]
 )]
 async fn process_task(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let duration_ms = context.get("task_duration_ms")
+    let duration_ms = context
+        .get("task_duration_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(100);
-    
+
     tokio::time::sleep(Duration::from_millis(duration_ms / 3)).await;
-    
+
     let data_source = if context.get("primary_result").is_some() {
         "primary"
     } else if context.get("fallback_result").is_some() {
@@ -123,13 +127,16 @@ async fn process_task(context: &mut Context<serde_json::Value>) -> Result<(), Ta
     } else {
         "unknown"
     };
-    
-    context.insert("processing_result", json!({
-        "data_source": data_source,
-        "processed_at": chrono::Utc::now().to_rfc3339(),
-        "status": "completed"
-    }))?;
-    
+
+    context.insert(
+        "processing_result",
+        json!({
+            "data_source": data_source,
+            "processed_at": chrono::Utc::now().to_rfc3339(),
+            "status": "completed"
+        }),
+    )?;
+
     Ok(())
 }
 
@@ -142,12 +149,13 @@ async fn process_task(context: &mut Context<serde_json::Value>) -> Result<(), Ta
     retry_backoff = "fixed"
 )]
 async fn final_task(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let duration_ms = context.get("task_duration_ms")
+    let duration_ms = context
+        .get("task_duration_ms")
         .and_then(|v| v.as_u64())
         .unwrap_or(100);
-    
+
     tokio::time::sleep(Duration::from_millis(duration_ms / 4)).await;
-    
+
     // Small chance of final task failure
     let random_value: f64 = rand::random();
     if random_value < 0.1 {
@@ -157,10 +165,10 @@ async fn final_task(context: &mut Context<serde_json::Value>) -> Result<(), Task
             timestamp: chrono::Utc::now(),
         });
     }
-    
+
     context.insert("final_result", json!("workflow_complete"))?;
     context.insert("final_timestamp", json!(chrono::Utc::now().to_rfc3339()))?;
-    
+
     Ok(())
 }
 
@@ -189,28 +197,48 @@ impl PerformanceResults {
         println!("  Concurrency: {}", self.concurrency);
         println!("  Task Duration: {}ms", self.task_duration_ms);
         println!("  Failure Rate: {:.1}%", self.failure_rate * 100.0);
-        
+
         println!("\nResults:");
-        println!("  Total Duration: {:.2}s", self.total_duration.as_secs_f64());
+        println!(
+            "  Total Duration: {:.2}s",
+            self.total_duration.as_secs_f64()
+        );
         println!("  Workflows/sec: {:.2}", self.workflows_per_second);
-        println!("  Avg Workflow Time: {:.2}ms", self.average_workflow_time.as_millis());
-        println!("  Min Workflow Time: {:.2}ms", self.min_workflow_time.as_millis());
-        println!("  Max Workflow Time: {:.2}ms", self.max_workflow_time.as_millis());
-        println!("  Success Rate: {}/{} ({:.1}%)", 
-                 self.successful_workflows, 
-                 self.total_iterations,
-                 (self.successful_workflows as f64 / self.total_iterations as f64) * 100.0);
-        
+        println!(
+            "  Avg Workflow Time: {:.2}ms",
+            self.average_workflow_time.as_millis()
+        );
+        println!(
+            "  Min Workflow Time: {:.2}ms",
+            self.min_workflow_time.as_millis()
+        );
+        println!(
+            "  Max Workflow Time: {:.2}ms",
+            self.max_workflow_time.as_millis()
+        );
+        println!(
+            "  Success Rate: {}/{} ({:.1}%)",
+            self.successful_workflows,
+            self.total_iterations,
+            (self.successful_workflows as f64 / self.total_iterations as f64) * 100.0
+        );
+
         println!("\nStress Analysis:");
         println!("  Total Retries: {}", self.total_retries);
-        println!("  Fallback Usage: {} workflows ({:.1}%)", 
-                 self.fallback_usage, 
-                 (self.fallback_usage as f64 / self.total_iterations as f64) * 100.0);
-        println!("  Avg Retries per Workflow: {:.2}", 
-                 self.total_retries as f64 / self.total_iterations as f64);
+        println!(
+            "  Fallback Usage: {} workflows ({:.1}%)",
+            self.fallback_usage,
+            (self.fallback_usage as f64 / self.total_iterations as f64) * 100.0
+        );
+        println!(
+            "  Avg Retries per Workflow: {:.2}",
+            self.total_retries as f64 / self.total_iterations as f64
+        );
         println!("  Expected Failure Rate: {:.1}%", self.failure_rate * 100.0);
-        println!("  Actual Failure Rate: {:.1}%", 
-                 (self.failed_workflows as f64 / self.total_iterations as f64) * 100.0);
+        println!(
+            "  Actual Failure Rate: {:.1}%",
+            (self.failed_workflows as f64 / self.total_iterations as f64) * 100.0
+        );
     }
 
     fn print_json(&self) {
@@ -242,24 +270,26 @@ impl PerformanceResults {
 
     fn print_csv(&self) {
         println!("iterations,concurrency,task_duration_ms,failure_rate,total_duration_s,workflows_per_second,avg_workflow_time_ms,min_workflow_time_ms,max_workflow_time_ms,successful_workflows,failed_workflows,success_rate,total_retries,fallback_usage,avg_retries_per_workflow,expected_failure_rate,actual_failure_rate");
-        println!("{},{},{},{:.3},{:.2},{:.2},{},{},{},{},{},{:.3},{},{},{:.2},{:.3},{:.3}",
-                 self.total_iterations,
-                 self.concurrency,
-                 self.task_duration_ms,
-                 self.failure_rate,
-                 self.total_duration.as_secs_f64(),
-                 self.workflows_per_second,
-                 self.average_workflow_time.as_millis(),
-                 self.min_workflow_time.as_millis(),
-                 self.max_workflow_time.as_millis(),
-                 self.successful_workflows,
-                 self.failed_workflows,
-                 (self.successful_workflows as f64 / self.total_iterations as f64),
-                 self.total_retries,
-                 self.fallback_usage,
-                 self.total_retries as f64 / self.total_iterations as f64,
-                 self.failure_rate,
-                 self.failed_workflows as f64 / self.total_iterations as f64);
+        println!(
+            "{},{},{},{:.3},{:.2},{:.2},{},{},{},{},{},{:.3},{},{},{:.2},{:.3},{:.3}",
+            self.total_iterations,
+            self.concurrency,
+            self.task_duration_ms,
+            self.failure_rate,
+            self.total_duration.as_secs_f64(),
+            self.workflows_per_second,
+            self.average_workflow_time.as_millis(),
+            self.min_workflow_time.as_millis(),
+            self.max_workflow_time.as_millis(),
+            self.successful_workflows,
+            self.failed_workflows,
+            (self.successful_workflows as f64 / self.total_iterations as f64),
+            self.total_retries,
+            self.fallback_usage,
+            self.total_retries as f64 / self.total_iterations as f64,
+            self.failure_rate,
+            self.failed_workflows as f64 / self.total_iterations as f64
+        );
     }
 }
 
@@ -273,8 +303,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     info!("Starting Stress Performance Test");
-    info!("Configuration: {} iterations, {} concurrency, {}ms task duration, {:.1}% failure rate", 
-          args.iterations, args.concurrency, args.task_duration_ms, args.failure_rate * 100.0);
+    info!(
+        "Configuration: {} iterations, {} concurrency, {}ms task duration, {:.1}% failure rate",
+        args.iterations,
+        args.concurrency,
+        args.task_duration_ms,
+        args.failure_rate * 100.0
+    );
 
     // Create workflow (automatically registers in global registry)
     let _workflow = workflow! {
@@ -344,7 +379,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     fallback_usage += 1;
                 }
 
-                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed {
+                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed
+                {
                     warn!("Workflow {} completed with status: {:?}", i, result.status);
                 }
             }
@@ -361,7 +397,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Calculate statistics
     let workflows_per_second = args.iterations as f64 / total_duration.as_secs_f64();
     let average_workflow_time = Duration::from_nanos(
-        (workflow_times.iter().map(|d| d.as_nanos()).sum::<u128>() / workflow_times.len() as u128) as u64
+        (workflow_times.iter().map(|d| d.as_nanos()).sum::<u128>() / workflow_times.len() as u128)
+            as u64,
     );
     let min_workflow_time = *workflow_times.iter().min().unwrap_or(&Duration::ZERO);
     let max_workflow_time = *workflow_times.iter().max().unwrap_or(&Duration::ZERO);

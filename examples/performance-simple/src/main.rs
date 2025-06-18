@@ -54,16 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Initialize logging (disabled for performance)
-    tracing_subscriber::fmt()
-        .with_env_filter("off")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("off").init();
 
     println!("Starting Simple Performance Test");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
     let mut config = DefaultRunnerConfig::default();
     config.max_concurrent_tasks = args.concurrency;
-    
+
     let runner = DefaultRunner::with_config(
         "sqlite://performance-simple.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
         config,
@@ -83,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Submit all workflows concurrently - let executor handle the concurrency
     let mut futures = Vec::new();
-    
+
     for _i in 1..=args.iterations {
         let input_context = Context::new();
         let future = runner.execute("simple_workflow", input_context);
@@ -92,9 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for all workflows to complete
     let results = futures::future::join_all(futures).await;
-    
+
     let total_duration = overall_start.elapsed();
-    
+
     // Process results
     let mut successful_workflows = 0;
     let mut failed_workflows = 0;
@@ -104,8 +102,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(result) => {
                 successful_workflows += 1;
                 // Only log errors
-                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed {
-                    error!("Workflow {} completed with status: {:?}", i + 1, result.status);
+                if result.status != cloacina::executor::pipeline_executor::PipelineStatus::Completed
+                {
+                    error!(
+                        "Workflow {} completed with status: {:?}",
+                        i + 1,
+                        result.status
+                    );
                 }
                 if result.final_context.get("message").is_none() {
                     error!("No message found in final context for iteration {}!", i + 1);
@@ -124,13 +127,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runner.shutdown().await?;
 
     println!("Performance test completed!");
-    println!("Configuration: {} iterations, {} concurrency", args.iterations, args.concurrency);
+    println!(
+        "Configuration: {} iterations, {} concurrency",
+        args.iterations, args.concurrency
+    );
     println!("Total time: {:.2}s", total_duration.as_secs_f64());
     println!("Workflows per second: {:.2}", workflows_per_second);
-    println!("Success rate: {}/{} ({:.1}%)", 
-             successful_workflows, 
-             args.iterations,
-             (successful_workflows as f64 / args.iterations as f64) * 100.0);
+    println!(
+        "Success rate: {}/{} ({:.1}%)",
+        successful_workflows,
+        args.iterations,
+        (successful_workflows as f64 / args.iterations as f64) * 100.0
+    );
 
     Ok(())
 }
