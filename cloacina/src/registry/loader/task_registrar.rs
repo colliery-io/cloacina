@@ -517,7 +517,7 @@ impl Task for DynamicLibraryTask {
             })?;
 
         // Prepare output buffer
-        let mut result_buffer = vec![0u8; 64 * 1024]; // 64KB buffer
+        let mut result_buffer = vec![0u8; 10 * 1024 * 1024]; // 10MB buffer (matches database limit)
         let mut result_len = 0u32;
 
         // Call the FFI function
@@ -538,6 +538,18 @@ impl Task for DynamicLibraryTask {
             // Success - parse the result JSON
             let mut result_context = context;
             if result_len > 0 {
+                if result_len > result_buffer.len() as u32 {
+                    return Err(TaskError::ExecutionFailed {
+                        task_id: self.task_name.clone(),
+                        message: format!(
+                            "Task execution result too large: {} bytes exceeds maximum buffer size of {} bytes. \
+                            This indicates the task context has grown beyond the database storage limit.",
+                            result_len,
+                            result_buffer.len()
+                        ),
+                        timestamp: Utc::now(),
+                    });
+                }
                 result_buffer.truncate(result_len as usize);
                 let result_str =
                     String::from_utf8(result_buffer).map_err(|e| TaskError::ExecutionFailed {
@@ -590,8 +602,15 @@ impl Task for DynamicLibraryTask {
         } else {
             // Error - try to parse error message from buffer
             let error_msg = if result_len > 0 {
-                result_buffer.truncate(result_len as usize);
-                String::from_utf8_lossy(&result_buffer).to_string()
+                if result_len > result_buffer.len() as u32 {
+                    format!(
+                        "Task execution failed (code: {}) with oversized error message: {} bytes exceeds buffer size of {} bytes",
+                        return_code, result_len, result_buffer.len()
+                    )
+                } else {
+                    result_buffer.truncate(result_len as usize);
+                    String::from_utf8_lossy(&result_buffer).to_string()
+                }
             } else {
                 format!("Task execution failed with code {}", return_code)
             };

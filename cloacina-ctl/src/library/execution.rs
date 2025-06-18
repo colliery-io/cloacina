@@ -57,8 +57,8 @@ pub fn execute_task_from_library(
     // Prepare input parameters
     let task_name_bytes = task_name.as_bytes();
     let context_bytes = context_json.as_bytes();
-    const RESULT_BUFFER_SIZE: usize = 4096;
-    let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE]; // 4KB buffer for result
+    const RESULT_BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10MB buffer for result (matches database limit)
+    let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE];
     let mut result_len: u32 = 0;
 
     if should_print(cli, LogLevel::Debug) {
@@ -91,6 +91,13 @@ pub fn execute_task_from_library(
                 println!("Task execution successful!");
                 println!("Result: {}", result_json);
             }
+        } else if result_len > result_buffer.len() as u32 {
+            bail!(
+                "Task execution result too large: {} bytes exceeds maximum buffer size of {} bytes. \
+                This indicates the task context has grown beyond the database storage limit.",
+                result_len,
+                result_buffer.len()
+            );
         } else {
             if should_print(cli, LogLevel::Info) {
                 println!("Task execution successful! (no result data)");
@@ -100,6 +107,11 @@ pub fn execute_task_from_library(
         // Error
         let error_msg = if result_len > 0 && result_len <= result_buffer.len() as u32 {
             String::from_utf8_lossy(&result_buffer[..result_len as usize]).to_string()
+        } else if result_len > result_buffer.len() as u32 {
+            format!(
+                "Task execution failed (code: {}) with oversized error message: {} bytes exceeds buffer size of {} bytes",
+                return_code, result_len, result_buffer.len()
+            )
         } else {
             format!("Unknown error (code: {})", return_code)
         };
