@@ -763,21 +763,28 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Atomically claims a ready task for execution.
+    /// Atomically claims up to `limit` ready tasks for execution.
     ///
     /// For SQLite, this uses a transaction-based approach to safely claim tasks.
     ///
+    /// # Arguments
+    /// * `limit` - Maximum number of tasks to claim (defaults to 1 for backward compatibility)
+    ///
     /// # Returns
-    /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
-    pub async fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
+    /// * `Result<Vec<ClaimResult>, ValidationError>` - Vector of claimed tasks (may be empty)
+    pub async fn claim_ready_tasks(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let limit = limit as i64;
 
         // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a transaction
         conn.interact(move |conn| {
             use diesel::connection::Connection;
             conn.transaction(|conn| {
-                // Find a ready task
-                let task: Option<TaskExecution> = task_executions::table
+                // Find ready tasks up to the limit
+                let tasks: Vec<TaskExecution> = task_executions::table
                     .filter(task_executions::status.eq("Ready"))
                     .filter(
                         task_executions::retry_at
@@ -785,11 +792,13 @@ impl<'a> TaskExecutionDAL<'a> {
                             .or(task_executions::retry_at.le(current_timestamp())),
                     )
                     .order(task_executions::id.asc())
-                    .first(conn)
-                    .optional()?;
+                    .limit(limit)
+                    .load(conn)?;
 
-                if let Some(task) = task {
-                    // Update the task to Running
+                let mut results = Vec::new();
+
+                for task in tasks {
+                    // Update each task to Running
                     diesel::update(task_executions::table.find(&task.id))
                         .set((
                             task_executions::status.eq("Running"),
@@ -797,19 +806,33 @@ impl<'a> TaskExecutionDAL<'a> {
                         ))
                         .execute(conn)?;
 
-                    Ok(Some(ClaimResult {
+                    results.push(ClaimResult {
                         id: task.id,
                         pipeline_execution_id: task.pipeline_execution_id,
                         task_name: task.task_name,
                         attempt: task.attempt,
-                    }))
-                } else {
-                    Ok(None)
+                    });
                 }
+
+                Ok(results)
             })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?
+    }
+
+    /// Atomically claims up to `limit` ready tasks for execution.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of tasks to claim (use 1 for single task)
+    ///
+    /// # Returns
+    /// * `Result<Vec<ClaimResult>, ValidationError>` - Vector of claimed tasks (may be empty)
+    pub async fn claim_ready_task(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
+        self.claim_ready_tasks(limit).await
     }
 }
 
