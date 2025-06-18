@@ -19,7 +19,7 @@ class TestPerformanceCharacteristics:
 
         with cloaca.WorkflowBuilder("comprehensive_perf_workflow") as builder:
             builder.description("Comprehensive performance test workflow")
-            
+
             @cloaca.task(id="perf_task")
             def perf_task(context):
                 execution_id = context.get("execution_id", 0)

@@ -54,7 +54,7 @@ import time
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics report")
-    
+
     # Define a scheduled task within workflow scope
     @cloaca.task(id="daily_report")
     def daily_report(context):
@@ -136,7 +136,7 @@ import json
 # Create maintenance workflows using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("full_backup") as builder:
     builder.description("Weekly full database backup")
-    
+
     @cloaca.task(id="data_backup")
     def data_backup(context):
         """Perform database backup."""
@@ -162,7 +162,7 @@ with cloaca.WorkflowBuilder("full_backup") as builder:
 
 with cloaca.WorkflowBuilder("incremental_backup") as builder:
     builder.description("Daily incremental backup")
-    
+
     @cloaca.task(id="data_backup")
     def data_backup_incremental(context):
         """Perform database backup."""
@@ -188,7 +188,7 @@ with cloaca.WorkflowBuilder("incremental_backup") as builder:
 
 with cloaca.WorkflowBuilder("log_cleanup") as builder:
     builder.description("Weekly log file cleanup")
-    
+
     @cloaca.task(id="cleanup_logs")
     def cleanup_logs(context):
         """Clean up old log files."""
@@ -210,7 +210,7 @@ with cloaca.WorkflowBuilder("log_cleanup") as builder:
 
 with cloaca.WorkflowBuilder("health_check") as builder:
     builder.description("Hourly system health monitoring")
-    
+
     @cloaca.task(id="system_health_check")
     def system_health_check(context):
         """Perform system health monitoring."""
@@ -343,7 +343,7 @@ import time
 # Create global synchronization workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("global_sync") as builder:
     builder.description("Cross-region data synchronization")
-    
+
     @cloaca.task(id="global_sync")
     def global_sync(context):
         """Synchronize data across global regions."""
@@ -478,7 +478,7 @@ import json
 # Create schedule monitoring workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("schedule_monitor") as builder:
     builder.description("Schedule execution monitoring")
-    
+
     @cloaca.task(id="schedule_monitor")
     def schedule_monitor(context):
         """Monitor and report on schedule execution."""
@@ -636,7 +636,7 @@ import json
 # Create all workflow definitions using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("daily_report") as builder:
     builder.description("Daily business analytics")
-    
+
     @cloaca.task(id="daily_report")
     def daily_report(context):
         """Generate daily business report."""
@@ -659,7 +659,7 @@ with cloaca.WorkflowBuilder("daily_report") as builder:
 
 with cloaca.WorkflowBuilder("system_backup") as builder:
     builder.description("System data backup")
-    
+
     @cloaca.task(id="system_backup")
     def system_backup(context):
         """Perform system backup."""

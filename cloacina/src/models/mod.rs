@@ -29,6 +29,7 @@
 //! - [`recovery_event`]: Models for recording system recovery events and state transitions
 //! - [`task_execution`]: Models for managing individual task execution records
 //! - [`task_execution_metadata`]: Models for storing task execution metadata and context references
+//! - [`workflow_registry`]: Models for binary workflow package storage
 //!
 //! ## Usage
 //!
@@ -71,3 +72,5 @@ pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod workflow_packages;
+pub mod workflow_registry;

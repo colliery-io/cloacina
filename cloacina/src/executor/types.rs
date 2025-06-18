@@ -111,7 +111,9 @@ impl DependencyLoader {
             {
                 let mut cache = self.loaded_contexts.write().await;
                 if !cache.contains_key(&dep_task_name) {
-                    let dep_context_data = self.load_dependency_context_data(dep_task_namespace).await?;
+                    let dep_context_data = self
+                        .load_dependency_context_data(dep_task_namespace)
+                        .await?;
                     cache.insert(dep_task_name.clone(), dep_context_data);
                 }
 

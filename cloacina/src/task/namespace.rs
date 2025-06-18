@@ -79,7 +79,6 @@ pub struct TaskNamespace {
 }
 
 impl TaskNamespace {
-    
     /// Create a complete namespace from all components.
     ///
     /// This is the most general constructor, useful when all namespace

@@ -25,7 +25,7 @@ class TestFunctionBasedDAGTopology:
         def create_string_based_workflow():
             with cloaca.WorkflowBuilder("string_based_topology_workflow") as builder:
                 builder.description("String-based DAG topology test")
-                
+
                 @cloaca.task(id="topology_root")
                 def topology_root(context):
                     context.set("topology_root_executed", True)
@@ -62,7 +62,7 @@ class TestFunctionBasedDAGTopology:
         def create_dynamic_workflow():
             with cloaca.WorkflowBuilder("dynamic_topology_workflow") as builder:
                 builder.description("Dynamic task addition topology test")
-                
+
                 @cloaca.task(id="dynamic_task_1")
                 def dynamic_task_1(context):
                     context.set("dynamic_1_executed", True)
@@ -84,7 +84,7 @@ class TestFunctionBasedDAGTopology:
         def create_complex_workflow():
             with cloaca.WorkflowBuilder("complex_topology_workflow") as builder:
                 builder.description("Complex topology validation test")
-                
+
                 @cloaca.task(id="complex_start")
                 def complex_start(context):
                     context.set("complex_start_executed", True)

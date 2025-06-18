@@ -78,10 +78,11 @@ impl<'a> TaskExecutionDAL<'a> {
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
         let now = current_timestamp();
-        
+
         tracing::debug!(
             "[DEBUG] Database creating task execution with task_name '{}' in pipeline {}",
-            new_task.task_name, new_task.pipeline_execution_id
+            new_task.task_name,
+            new_task.pipeline_execution_id
         );
 
         // Insert with explicit values for SQLite
@@ -271,10 +272,11 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<String, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let task_name = task_name.to_string();
-        
+
         tracing::debug!(
             "[DEBUG] Database looking up task_name '{}' in pipeline {}",
-            task_name, pipeline_execution_id
+            task_name,
+            pipeline_execution_id
         );
 
         let status: String = conn

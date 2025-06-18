@@ -19,7 +19,7 @@ class TestContextPropagation:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("data_pipeline_workflow") as builder:
             builder.description("Data pipeline test")
-            
+
             @cloaca.task(id="data_source")
             def data_source(context):
                 context.set("data", {"value": 10, "status": "initial"})

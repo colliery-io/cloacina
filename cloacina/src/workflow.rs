@@ -265,7 +265,12 @@ impl DependencyGraph {
     pub fn topological_sort(&self) -> Result<Vec<TaskNamespace>, ValidationError> {
         if self.has_cycles() {
             return Err(ValidationError::CyclicDependency {
-                cycle: self.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect(),
+                cycle: self
+                    .find_cycle()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|ns| ns.to_string())
+                    .collect(),
             });
         }
 
@@ -295,7 +300,12 @@ impl DependencyGraph {
                 Ok(result)
             }
             Err(_) => Err(ValidationError::CyclicDependency {
-                cycle: self.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect(),
+                cycle: self
+                    .find_cycle()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|ns| ns.to_string())
+                    .collect(),
             }),
         }
     }
@@ -611,7 +621,8 @@ impl Workflow {
 
         // Add dependencies
         for dep in task.dependencies() {
-            self.dependency_graph.add_edge(task_namespace.clone(), dep.clone());
+            self.dependency_graph
+                .add_edge(task_namespace.clone(), dep.clone());
         }
 
         // Store the task
@@ -722,7 +733,13 @@ impl Workflow {
 
         // Check for cycles
         if self.dependency_graph.has_cycles() {
-            let cycle = self.dependency_graph.find_cycle().unwrap_or_default().into_iter().map(|ns| ns.to_string()).collect();
+            let cycle = self
+                .dependency_graph
+                .find_cycle()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|ns| ns.to_string())
+                .collect();
             return Err(ValidationError::CyclicDependency { cycle });
         }
 
@@ -763,7 +780,9 @@ impl Workflow {
     /// * `Ok(Arc<dyn Task>)` - If the task exists
     /// * `Err(WorkflowError)` - If no task with that namespace exists
     pub fn get_task(&self, namespace: &TaskNamespace) -> Result<Arc<dyn Task>, WorkflowError> {
-        self.tasks.get(namespace).cloned()
+        self.tasks
+            .get(namespace)
+            .cloned()
             .ok_or_else(|| WorkflowError::TaskNotFound(namespace.to_string()))
     }
 
@@ -777,8 +796,12 @@ impl Workflow {
     ///
     /// * `Ok(&[TaskNamespace])` - Array of dependency task namespaces
     /// * `Err(WorkflowError)` - If the task doesn't exist
-    pub fn get_dependencies(&self, namespace: &TaskNamespace) -> Result<&[TaskNamespace], WorkflowError> {
-        self.tasks.get(namespace)
+    pub fn get_dependencies(
+        &self,
+        namespace: &TaskNamespace,
+    ) -> Result<&[TaskNamespace], WorkflowError> {
+        self.tasks
+            .get(namespace)
             .map(|task| task.dependencies())
             .ok_or_else(|| WorkflowError::TaskNotFound(namespace.to_string()))
     }
@@ -806,12 +829,15 @@ impl Workflow {
     /// println!("Tasks depending on extract_data: {:?}", dependents);
     /// # Ok::<(), WorkflowError>(())
     /// ```
-    pub fn get_dependents(&self, namespace: &TaskNamespace) -> Result<Vec<TaskNamespace>, WorkflowError> {
+    pub fn get_dependents(
+        &self,
+        namespace: &TaskNamespace,
+    ) -> Result<Vec<TaskNamespace>, WorkflowError> {
         // First check if the task exists
         if !self.tasks.contains_key(namespace) {
             return Err(WorkflowError::TaskNotFound(namespace.to_string()));
         }
-        
+
         // Return dependents (may be empty if no tasks depend on this one)
         Ok(self.dependency_graph.get_dependents(namespace))
     }
@@ -863,7 +889,11 @@ impl Workflow {
         Ok(workflow)
     }
 
-    fn collect_dependencies(&self, task_namespace: &TaskNamespace, collected: &mut HashSet<TaskNamespace>) {
+    fn collect_dependencies(
+        &self,
+        task_namespace: &TaskNamespace,
+        collected: &mut HashSet<TaskNamespace>,
+    ) {
         if collected.contains(task_namespace) {
             return;
         }

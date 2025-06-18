@@ -282,7 +282,8 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Convert TaskNamespace objects to string format for database query
-        let dependency_task_names_owned: Vec<String> = dependency_task_namespaces.iter()
+        let dependency_task_names_owned: Vec<String> = dependency_task_namespaces
+            .iter()
             .map(|ns| ns.to_string())
             .collect();
         let results = conn

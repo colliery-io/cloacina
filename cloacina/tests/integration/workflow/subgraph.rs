@@ -82,7 +82,8 @@ fn test_subgraph_with_nonexistent_task() {
 
     // Try to create subgraph with non-existent task
     let root_a_ns = TaskNamespace::new("public", "embedded", "test-workflow", "root-task-a");
-    let nonexistent_ns = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent-task");
+    let nonexistent_ns =
+        TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent-task");
     let result = workflow.subgraph(&[&root_a_ns, &nonexistent_ns]);
 
     assert!(result.is_err());
@@ -116,7 +117,7 @@ fn test_subgraph_dependency_collection() {
     let middle_d_ns = TaskNamespace::new("public", "embedded", "dependency-test", "middle-task-d");
     let root_a_ns = TaskNamespace::new("public", "embedded", "dependency-test", "root-task-a");
     let root_b_ns = TaskNamespace::new("public", "embedded", "dependency-test", "root-task-b");
-    
+
     let task_e = workflow.get_task(&final_e_ns).unwrap();
     let dependencies = task_e.dependencies();
 

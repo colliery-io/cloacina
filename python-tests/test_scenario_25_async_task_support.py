@@ -20,7 +20,7 @@ class TestAsyncTaskSupport:
         with cloaca.WorkflowBuilder("async_test_workflow") as builder:
             builder.description("Workflow testing async task patterns")
             builder.tag("async", "simulation")
-            
+
             # Note: This test assumes async task support is available
             # If not supported, this test should verify proper error handling
             @cloaca.task(id="sync_task_simulating_async")

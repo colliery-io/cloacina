@@ -323,7 +323,8 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         let conn = self.dal.pool.get().await?;
         // Convert TaskNamespace objects to string format for database query
-        let dependency_task_names: Vec<String> = dependency_task_namespaces.iter()
+        let dependency_task_names: Vec<String> = dependency_task_namespaces
+            .iter()
             .map(|ns| ns.to_string())
             .collect();
 

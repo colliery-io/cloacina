@@ -25,6 +25,8 @@ use crate::executor::pipeline_executor::*;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
+use crate::registry::storage::FilesystemRegistryStorage;
+use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::task::TaskState;
 use crate::UniversalUuid;
 use crate::{Context, Database, TaskScheduler};
@@ -88,6 +90,18 @@ pub struct DefaultRunnerConfig {
 
     /// Maximum number of recovery attempts per execution
     pub cron_max_recovery_attempts: usize,
+
+    /// Whether to enable the registry reconciler for packaged workflows
+    pub enable_registry_reconciler: bool,
+
+    /// How often to run registry reconciliation
+    pub registry_reconcile_interval: Duration,
+
+    /// Whether to perform startup reconciliation of packaged workflows
+    pub registry_enable_startup_reconciliation: bool,
+
+    /// Path for storing packaged workflow registry files (when using filesystem storage)
+    pub registry_storage_path: Option<std::path::PathBuf>,
 }
 
 impl Default for DefaultRunnerConfig {
@@ -117,6 +131,10 @@ impl Default for DefaultRunnerConfig {
             cron_lost_threshold_minutes: 10,
             cron_max_recovery_age: Duration::from_secs(86400), // 24 hours
             cron_max_recovery_attempts: 3,
+            enable_registry_reconciler: true, // Opt-out
+            registry_reconcile_interval: Duration::from_secs(60), // Every minute
+            registry_enable_startup_reconciliation: true,
+            registry_storage_path: None, // Use default temp directory
         }
     }
 }
@@ -147,6 +165,10 @@ pub struct DefaultRunner {
     cron_scheduler: Arc<RwLock<Option<Arc<CronScheduler>>>>,
     /// Optional cron recovery service for handling lost executions
     cron_recovery: Arc<RwLock<Option<Arc<crate::CronRecoveryService>>>>,
+    /// Optional workflow registry for packaged workflows
+    workflow_registry: Arc<RwLock<Option<Arc<WorkflowRegistryImpl<FilesystemRegistryStorage>>>>>,
+    /// Optional registry reconciler for packaged workflows
+    registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -162,6 +184,8 @@ struct RuntimeHandles {
     cron_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the cron recovery service background task (if enabled)
     cron_recovery_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the registry reconciler background task (if enabled)
+    registry_reconciler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Channel sender for broadcasting shutdown signals
     shutdown_sender: Option<broadcast::Sender<()>>,
 }
@@ -338,10 +362,13 @@ impl DefaultRunnerBuilder {
                 executor_handle: None,
                 cron_scheduler_handle: None,
                 cron_recovery_handle: None,
+                registry_reconciler_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
             cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
+            workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
+            registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -480,10 +507,13 @@ impl DefaultRunner {
                 executor_handle: None,
                 cron_scheduler_handle: None,
                 cron_recovery_handle: None,
+                registry_reconciler_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
             cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
+            workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
+            registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -652,6 +682,82 @@ impl DefaultRunner {
             }
         }
 
+        // Phase 4: Create and start Registry Reconciler if enabled
+        if self.config.enable_registry_reconciler {
+            tracing::info!("Starting registry reconciler");
+
+            // Create watch channel for registry reconciler shutdown
+            let (reconciler_shutdown_tx, reconciler_shutdown_rx) = watch::channel(false);
+
+            // Create reconciler config
+            let reconciler_config = ReconcilerConfig {
+                reconcile_interval: self.config.registry_reconcile_interval,
+                enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation,
+                package_operation_timeout: Duration::from_secs(30),
+                continue_on_package_error: true,
+                default_tenant_id: "public".to_string(),
+            };
+
+            // Create filesystem storage for the registry
+            let storage_path = self
+                .config
+                .registry_storage_path
+                .clone()
+                .unwrap_or_else(|| std::env::temp_dir().join("cloacina_registry"));
+
+            match FilesystemRegistryStorage::new(storage_path) {
+                Ok(storage) => {
+                    // Create workflow registry
+                    match WorkflowRegistryImpl::new(storage, self.database.clone()) {
+                        Ok(workflow_registry) => {
+                            let workflow_registry_arc = Arc::new(workflow_registry);
+
+                            // Create Registry Reconciler
+                            let registry_reconciler = RegistryReconciler::new(
+                                workflow_registry_arc.clone(),
+                                reconciler_config,
+                                reconciler_shutdown_rx,
+                            )
+                            .map_err(|e| {
+                                PipelineError::Configuration {
+                                    message: format!("Failed to create registry reconciler: {}", e),
+                                }
+                            })?;
+
+                            // Start reconciler background service
+                            let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                            let reconciler_handle = tokio::spawn(async move {
+                                tokio::select! {
+                                    result = registry_reconciler.start_reconciliation_loop() => {
+                                        if let Err(e) = result {
+                                            tracing::error!("Registry reconciler failed: {}", e);
+                                        } else {
+                                            tracing::info!("Registry reconciler completed");
+                                        }
+                                    }
+                                    _ = broadcast_shutdown_rx.recv() => {
+                                        tracing::info!("Registry reconciler shutdown requested via broadcast");
+                                        // Send shutdown signal to reconciler
+                                        let _ = reconciler_shutdown_tx.send(true);
+                                    }
+                                }
+                            });
+
+                            // Store workflow registry and reconciler
+                            *self.workflow_registry.write().await = Some(workflow_registry_arc);
+                            handles.registry_reconciler_handle = Some(reconciler_handle);
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to create workflow registry: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create registry storage: {}", e);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -689,6 +795,11 @@ impl DefaultRunner {
 
         // Wait for cron recovery service to finish (if enabled)
         if let Some(handle) = handles.cron_recovery_handle.take() {
+            let _ = handle.await;
+        }
+
+        // Wait for registry reconciler to finish (if enabled)
+        if let Some(handle) = handles.registry_reconciler_handle.take() {
             let _ = handle.await;
         }
 
@@ -830,7 +941,7 @@ impl DefaultRunner {
             status,
             start_time: pipeline_execution.started_at.0,
             end_time: pipeline_execution.completed_at.map(|ts| ts.0),
-            duration: duration,
+            duration,
             final_context,
             task_results,
             error_message: pipeline_execution.error_details,
@@ -1410,6 +1521,39 @@ impl DefaultRunner {
                 message: format!("Failed to get cron execution stats: {}", e),
             })
     }
+
+    /// Get access to the workflow registry (if enabled)
+    ///
+    /// # Returns
+    /// * `Some(Arc<WorkflowRegistry>)` - If the registry is enabled and initialized
+    /// * `None` - If the registry is not enabled or not yet initialized
+    pub async fn get_workflow_registry(
+        &self,
+    ) -> Option<Arc<WorkflowRegistryImpl<FilesystemRegistryStorage>>> {
+        let registry = self.workflow_registry.read().await;
+        registry.clone()
+    }
+
+    /// Get the current status of the registry reconciler (if enabled)
+    ///
+    /// # Returns
+    /// * `Some(ReconcilerStatus)` - If the reconciler is enabled and initialized
+    /// * `None` - If the reconciler is not enabled or not yet initialized
+    pub async fn get_registry_reconciler_status(
+        &self,
+    ) -> Option<crate::registry::ReconcilerStatus> {
+        let reconciler = self.registry_reconciler.read().await;
+        if let Some(reconciler) = reconciler.as_ref() {
+            Some(reconciler.get_status().await)
+        } else {
+            None
+        }
+    }
+
+    /// Check if the registry reconciler is enabled in the configuration
+    pub fn is_registry_reconciler_enabled(&self) -> bool {
+        self.config.enable_registry_reconciler
+    }
 }
 
 impl Clone for DefaultRunner {
@@ -1422,6 +1566,8 @@ impl Clone for DefaultRunner {
             runtime_handles: self.runtime_handles.clone(),
             cron_scheduler: self.cron_scheduler.clone(),
             cron_recovery: self.cron_recovery.clone(),
+            workflow_registry: self.workflow_registry.clone(),
+            registry_reconciler: self.registry_reconciler.clone(),
         }
     }
 }

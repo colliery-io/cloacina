@@ -417,6 +417,7 @@
 //! - [`context`]: Context management for sharing data between tasks
 //! - [`task`]: Core task trait and registry functionality
 //! - [`workflow`]: Workflow construction and dependency management
+//! - [`registry`]: Dynamic workflow package loading and storage
 //! - [`database`]: Database connection and persistence
 //! - [`error`]: Comprehensive error types
 //! - [`models`]: Database models and schemas
@@ -444,6 +445,7 @@ pub mod executor;
 pub mod graph;
 pub mod logging;
 pub mod models;
+pub mod registry;
 pub mod retry;
 pub mod runner;
 pub mod task;
@@ -488,8 +490,7 @@ pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
 pub use task::namespace::parse_namespace;
 pub use task::{
-    global_task_registry, register_task_constructor, Task, TaskNamespace,
-    TaskRegistry, TaskState,
+    global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
 };
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use workflow::{
@@ -499,4 +500,4 @@ pub use workflow::{
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{task, workflow};
+pub use cloacina_macros::{packaged_workflow, task, workflow};

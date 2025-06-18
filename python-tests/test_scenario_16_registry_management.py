@@ -21,7 +21,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("registry_test_workflow") as builder:
             builder.description("Registry management test workflow")
-            
+
             @cloaca.task(id="registry_test_task_1")
             def registry_test_task_1(context):
                 context.set("registry_test_task_1_executed", True)
@@ -47,7 +47,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("task_registry_workflow") as builder:
             builder.description("Task registry behavior test")
-            
+
             @cloaca.task(id="isolated_task_a")
             def isolated_task_a(context):
                 context.set("isolated_task_a_executed", True)
@@ -76,7 +76,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("consistency_workflow_a") as builder:
             builder.description("First consistency test workflow")
-            
+
             @cloaca.task(id="consistency_task_1")
             def consistency_task_1(context):
                 context.set("consistency_task_1_executed", True)
@@ -84,7 +84,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("consistency_workflow_b") as builder:
             builder.description("Second consistency test workflow")
-            
+
             @cloaca.task(id="consistency_task_2")
             def consistency_task_2(context):
                 context.set("consistency_task_2_executed", True)
@@ -108,7 +108,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("pollution_test_workflow") as builder:
             builder.description("Registry pollution prevention test")
-            
+
             @cloaca.task(id="pollution_test_task")
             def pollution_test_task(context):
                 context.set("pollution_test_task_executed", True)
@@ -135,7 +135,7 @@ class TestRegistryManagement:
 
         with cloaca.WorkflowBuilder("management_execution_workflow") as builder:
             builder.description("Registry management during execution test")
-            
+
             @cloaca.task(id="management_task_start")
             def management_task_start(context):
                 context.set("management_task_start_executed", True)

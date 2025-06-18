@@ -20,7 +20,7 @@ class TestMultiTaskWorkflowExecution:
         # Use workflow-scoped pattern - tasks defined within WorkflowBuilder context
         with cloaca.WorkflowBuilder("comprehensive_multi_pattern_workflow") as builder:
             builder.description("Comprehensive workflow with sequential, parallel, and diamond patterns")
-            
+
             # Sequential start
             @cloaca.task(id="init_task")
             def init_task(context):

@@ -61,7 +61,7 @@ external_service = UnreliableExternalService(failure_rate=0.4)
 # Build the error handling and recovery workflow using workflow-scoped pattern
 with cloaca.WorkflowBuilder("error_handling_workflow") as builder:
     builder.description("Demonstrates comprehensive error handling, retry logic, and recovery patterns")
-    
+
     # Tasks are automatically registered when defined within WorkflowBuilder context
     # Tasks demonstrating different error handling patterns
     @cloaca.task(id="fetch_external_data")

@@ -18,7 +18,7 @@ class TestRetryMechanisms:
 
         with cloaca.WorkflowBuilder("retry_workflow") as builder:
             builder.description("Retry policy test")
-            
+
             @cloaca.task(
                 id="retry_task",
                 retry_attempts=3,

@@ -28,7 +28,10 @@ impl CheckpointableTask {
     fn new(id: &str, dependencies: Vec<&str>) -> Self {
         Self {
             id: id.to_string(),
-            dependencies: dependencies.into_iter().map(|s| TaskNamespace::from_string(s).unwrap()).collect(),
+            dependencies: dependencies
+                .into_iter()
+                .map(|s| TaskNamespace::from_string(s).unwrap())
+                .collect(),
             checkpoint_data: Arc::new(Mutex::new(None)),
         }
     }

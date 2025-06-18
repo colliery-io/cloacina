@@ -1,3 +1,19 @@
+/*
+ *  Copyright 2025 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
@@ -9,20 +25,58 @@ use syn::{
 };
 
 use crate::registry::get_registry;
-use crate::tasks::{TaskAttributes, to_pascal_case};
+use crate::tasks::{to_pascal_case, TaskAttributes};
+
+/// C-compatible task metadata structure for FFI
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct TaskMetadata {
+    /// Local task ID (e.g., "collect_data")
+    pub local_id: *const std::os::raw::c_char,
+    /// Template for namespaced ID (e.g., "{tenant}::simple_demo::data_processing::collect_data")
+    pub namespaced_id_template: *const std::os::raw::c_char,
+    /// JSON string of task dependencies
+    pub dependencies_json: *const std::os::raw::c_char,
+    /// Name of the task constructor function in the library
+    pub constructor_fn_name: *const std::os::raw::c_char,
+    /// Task description
+    pub description: *const std::os::raw::c_char,
+}
+
+// Safety: These pointers point to static string literals which are safe to share
+unsafe impl Send for TaskMetadata {}
+unsafe impl Sync for TaskMetadata {}
+
+/// C-compatible collection of task metadata for FFI
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct TaskMetadataCollection {
+    /// Number of tasks in this package
+    pub task_count: u32,
+    /// Array of task metadata
+    pub tasks: *const TaskMetadata,
+    /// Name of the workflow (e.g., "data_processing")
+    pub workflow_name: *const std::os::raw::c_char,
+    /// Name of the package (e.g., "simple_demo")
+    pub package_name: *const std::os::raw::c_char,
+}
+
+// Safety: These pointers point to static data which are safe to share
+unsafe impl Send for TaskMetadataCollection {}
+unsafe impl Sync for TaskMetadataCollection {}
 
 /// Attributes for the packaged_workflow macro
 ///
 /// # Fields
 ///
-/// * `package` - Package name for namespace isolation (required)
 /// * `name` - Unique identifier for the workflow (required)
+/// * `package` - Package name for namespace isolation (required)
 /// * `tenant` - Tenant identifier for the workflow (optional, defaults to "public")
 /// * `description` - Optional description of the workflow package
 /// * `author` - Optional author information
 pub struct PackagedWorkflowAttributes {
-    pub package: String,
     pub name: String,
+    pub package: String,
     pub tenant: String,
     pub description: Option<String>,
     pub author: Option<String>,
@@ -30,8 +84,8 @@ pub struct PackagedWorkflowAttributes {
 
 impl Parse for PackagedWorkflowAttributes {
     fn parse(input: ParseStream) -> SynResult<Self> {
-        let mut package = None;
         let mut name = None;
+        let mut package = None;
         let mut tenant = None;
         let mut description = None;
         let mut author = None;
@@ -112,7 +166,9 @@ impl Parse for PackagedWorkflowAttributes {
 ///
 /// * `Ok(())` if no cycles are found
 /// * `Err(String)` with cycle description if a cycle is detected
-pub fn detect_package_cycles(task_dependencies: &HashMap<String, Vec<String>>) -> Result<(), String> {
+pub fn detect_package_cycles(
+    task_dependencies: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
     // In test mode, be more lenient about cycle detection (consistent with regular workflow validation)
     let is_test_env = std::env::var("CARGO_CRATE_NAME")
         .map(|name| name.contains("test") || name == "cloacina")
@@ -443,6 +499,7 @@ pub fn generate_packaged_workflow_impl(
     let mod_vis = &input.vis;
     let mod_content = &input.content;
 
+    let workflow_name = &attrs.name;
     let package_name = &attrs.package;
     let package_tenant = &attrs.tenant;
     let package_description = attrs
@@ -460,7 +517,7 @@ pub fn generate_packaged_workflow_impl(
     );
 
     // Generate unique ABI function names based on package
-    let register_abi_name = syn::Ident::new(
+    let _register_abi_name = syn::Ident::new(
         &format!("register_tasks_abi_{}", package_ident),
         mod_name.span(),
     );
@@ -479,7 +536,7 @@ pub fn generate_packaged_workflow_impl(
     );
 
     // Extract task function information from module content and perform validation
-    let mut task_registrations = Vec::new();
+    let mut task_metadata_entries = Vec::new();
     let mut detected_tasks = HashMap::new();
     let mut task_dependencies = HashMap::new();
 
@@ -503,22 +560,41 @@ pub fn generate_packaged_workflow_impl(
                             let task_constructor_name =
                                 syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
 
-                            // Generate registration call using namespace isolation
-                            let registration = quote! {
-                                {
-                                    let namespace = cloacina::TaskNamespace::new(
-                                        tenant_id,
-                                        #package_name,
-                                        workflow_id,
-                                        #task_id
-                                    );
-                                    cloacina::register_task_constructor(
-                                        namespace,
-                                        || std::sync::Arc::new(#task_constructor_name())
-                                    );
-                                }
+                            // Generate metadata entry for this task
+                            let dependencies = task_attrs.dependencies.clone();
+
+                            // Convert local dependency names to fully qualified namespaces
+                            let fully_qualified_deps: Vec<String> = dependencies
+                                .iter()
+                                .map(|dep_id| {
+                                    format!(
+                                        "{{tenant}}::{}::{}::{}",
+                                        package_name, workflow_name, dep_id
+                                    )
+                                })
+                                .collect();
+
+                            let dependencies_json = if fully_qualified_deps.is_empty() {
+                                "[]".to_string()
+                            } else {
+                                format!("[\"{}\"]", fully_qualified_deps.join("\",\""))
                             };
-                            task_registrations.push(registration);
+
+                            let namespaced_id_template = format!(
+                                "{{tenant}}::{}::{}::{}",
+                                package_name, workflow_name, task_id
+                            );
+                            let description = format!("Task: {}", task_id);
+
+                            task_metadata_entries.push(quote! {
+                                TaskMetadata {
+                                    local_id: concat!(#task_id, "\0").as_ptr() as *const std::os::raw::c_char,
+                                    namespaced_id_template: concat!(#namespaced_id_template, "\0").as_ptr() as *const std::os::raw::c_char,
+                                    dependencies_json: concat!(#dependencies_json, "\0").as_ptr() as *const std::os::raw::c_char,
+                                    constructor_fn_name: concat!(stringify!(#task_constructor_name), "\0").as_ptr() as *const std::os::raw::c_char,
+                                    description: concat!(#description, "\0").as_ptr() as *const std::os::raw::c_char,
+                                }
+                            });
                         }
                         break;
                     }
@@ -652,7 +728,10 @@ pub fn generate_packaged_workflow_impl(
 
             // Generate fully qualified namespace: tenant::package::workflow::task
             // For now, we'll use placeholders that get filled in at runtime
-            let namespaced_id = format!("{{tenant}}::{}::{{workflow}}::{}", package_name, task_id);
+            let namespaced_id = format!(
+                "{{tenant}}::{}::{}::{}",
+                package_name, workflow_name, task_id
+            );
 
             // Generate dependencies as JSON array string
             let dependencies_json = if dependencies.is_empty() {
@@ -689,11 +768,8 @@ pub fn generate_packaged_workflow_impl(
 
         let task_count = detected_tasks.len();
 
-        // Generate unique function name for this package
-        let metadata_fn_name = syn::Ident::new(
-            &format!("cloacina_get_task_metadata_{}", package_ident),
-            mod_name.span(),
-        );
+        // Generate standard function name expected by the loader
+        let metadata_fn_name = syn::Ident::new("cloacina_get_task_metadata", mod_name.span());
 
         quote! {
             /// C-compatible task metadata structure for FFI
@@ -806,18 +882,31 @@ pub fn generate_packaged_workflow_impl(
                 // Handle the result and write to output buffer
                 match task_result {
                     Ok(()) => {
-                        let result = serde_json::json!({
-                            "status": "success",
-                            "task": task_name_str,
-                            "message": "Task executed successfully"
-                        });
-                        write_success_result(&result, result_buffer, result_capacity, result_len)
+                        // Return the actual modified context as JSON instead of a hardcoded success message
+                        match context.to_json() {
+                            Ok(context_json) => {
+                                // Parse context JSON to serde_json::Value for write_success_result
+                                match serde_json::from_str::<serde_json::Value>(&context_json) {
+                                    Ok(context_value) => write_success_result(&context_value, result_buffer, result_capacity, result_len),
+                                    Err(e) => {
+                                        let error = format!("Failed to parse context JSON for task '{}': {}", task_name_str, e);
+                                        write_error_result(&error, result_buffer, result_capacity, result_len)
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let error = format!("Failed to serialize context for task '{}': {}", task_name_str, e);
+                                write_error_result(&error, result_buffer, result_capacity, result_len)
+                            }
+                        }
                     }
                     Err(e) => {
-                        write_error_result(&e, result_buffer, result_capacity, result_len)
+                        let error = format!("Task '{}' failed: {}", task_name_str, e);
+                        write_error_result(&error, result_buffer, result_capacity, result_len)
                     }
                 }
             }
+
 
             fn write_success_result(result: &serde_json::Value, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
                 let json_str = match serde_json::to_string(result) {
@@ -859,11 +948,8 @@ pub fn generate_packaged_workflow_impl(
             }
         }
     } else {
-        // Generate unique function name for this package
-        let metadata_fn_name = syn::Ident::new(
-            &format!("cloacina_get_task_metadata_{}", package_ident),
-            mod_name.span(),
-        );
+        // Generate standard function name expected by the loader
+        let metadata_fn_name = syn::Ident::new("cloacina_get_task_metadata", mod_name.span());
 
         quote! {
             /// Empty task metadata structure for packages with no tasks
@@ -941,6 +1027,51 @@ pub fn generate_packaged_workflow_impl(
         }
     };
 
+    // Generate the new host-managed registry FFI functions
+    let task_count = detected_tasks.len();
+    let new_metadata_functions = if !detected_tasks.is_empty() {
+        quote! {
+            /// Get task metadata for this package (new host-managed approach)
+            ///
+            /// This function returns metadata about all tasks in this package
+            /// without registering them. The host process will use this metadata
+            /// to register tasks in the host's global registry.
+            #[no_mangle]
+            pub extern "C" fn get_task_metadata() -> *const TaskMetadataCollection {
+                &HOST_TASK_METADATA_COLLECTION
+            }
+
+            /// Static array of task metadata for host-managed registry
+            static HOST_TASK_METADATA_ARRAY: [TaskMetadata; #task_count] = [
+                #(#task_metadata_entries),*
+            ];
+
+            /// Static task metadata collection for host-managed registry
+            static HOST_TASK_METADATA_COLLECTION: TaskMetadataCollection = TaskMetadataCollection {
+                task_count: #task_count as u32,
+                tasks: HOST_TASK_METADATA_ARRAY.as_ptr(),
+                workflow_name: concat!(#workflow_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+            };
+        }
+    } else {
+        quote! {
+            /// Get task metadata for this package (empty package)
+            #[no_mangle]
+            pub extern "C" fn get_task_metadata() -> *const TaskMetadataCollection {
+                &HOST_EMPTY_TASK_METADATA_COLLECTION
+            }
+
+            /// Static empty task metadata collection
+            static HOST_EMPTY_TASK_METADATA_COLLECTION: TaskMetadataCollection = TaskMetadataCollection {
+                task_count: 0,
+                tasks: std::ptr::null(),
+                workflow_name: concat!(#workflow_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+            };
+        }
+    };
+
     // Extract the module items for proper token generation
     let module_items = if let Some((_, items)) = mod_content {
         items.iter().collect::<Vec<_>>()
@@ -955,6 +1086,48 @@ pub fn generate_packaged_workflow_impl(
 
             // Include task metadata structures and functions
             #task_metadata_items
+
+            // Include new host-managed registry types and functions
+
+            /// C-compatible task metadata structure for FFI
+            #[repr(C)]
+            #[derive(Debug, Clone)]
+            pub struct TaskMetadata {
+                /// Local task ID (e.g., "collect_data")
+                pub local_id: *const std::os::raw::c_char,
+                /// Template for namespaced ID (e.g., "{tenant}::simple_demo::data_processing::collect_data")
+                pub namespaced_id_template: *const std::os::raw::c_char,
+                /// JSON string of task dependencies
+                pub dependencies_json: *const std::os::raw::c_char,
+                /// Name of the task constructor function in the library
+                pub constructor_fn_name: *const std::os::raw::c_char,
+                /// Task description
+                pub description: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static string literals which are safe to share
+            unsafe impl Send for TaskMetadata {}
+            unsafe impl Sync for TaskMetadata {}
+
+            /// C-compatible collection of task metadata for FFI
+            #[repr(C)]
+            #[derive(Debug, Clone)]
+            pub struct TaskMetadataCollection {
+                /// Number of tasks in this package
+                pub task_count: u32,
+                /// Array of task metadata
+                pub tasks: *const TaskMetadata,
+                /// Name of the workflow (e.g., "data_processing")
+                pub workflow_name: *const std::os::raw::c_char,
+                /// Name of the package (e.g., "simple_demo")
+                pub package_name: *const std::os::raw::c_char,
+            }
+
+            // Safety: These pointers point to static data which are safe to share
+            unsafe impl Send for TaskMetadataCollection {}
+            unsafe impl Sync for TaskMetadataCollection {}
+
+            #new_metadata_functions
 
             /// Package metadata for this workflow package
             #[derive(Debug, Clone)]
@@ -983,47 +1156,95 @@ pub fn generate_packaged_workflow_impl(
                 #metadata_struct_name::new()
             }
 
-            /// Register all tasks in this package with namespace isolation
-            ///
-            /// This function registers all tasks defined in this package under the
-            /// package's namespace for proper isolation from other packages.
-            pub fn register_package_tasks(tenant_id: &str, workflow_id: &str) {
-                #(#task_registrations)*
+
+            /// Get package metadata via ABI
+            #[no_mangle]
+            pub extern "C" fn #metadata_abi_name() -> *const #metadata_struct_name {
+                Box::leak(Box::new(get_package_metadata()))
             }
 
-            /// Standard ABI entry point for dynamic loading
+            /// Create a workflow instance from this package
             ///
-            /// This function provides a standardized interface that can be called
-            /// when the package is dynamically loaded as a shared library.
+            /// This function is called by the registry reconciler to create
+            /// a workflow instance that can be executed by the scheduler.
             #[no_mangle]
-            pub extern "C" fn #register_abi_name(tenant_id: *const std::os::raw::c_char, workflow_id: *const std::os::raw::c_char) {
+            pub extern "C" fn cloacina_create_workflow(
+                tenant_id: *const std::os::raw::c_char,
+                workflow_id: *const std::os::raw::c_char,
+            ) -> *const cloacina::workflow::Workflow {
                 use std::ffi::CStr;
 
+                // Validate input pointers
                 if tenant_id.is_null() || workflow_id.is_null() {
-                    return;
+                    return std::ptr::null();
                 }
 
+                // Convert C strings to Rust strings
                 let tenant_id = unsafe {
                     match CStr::from_ptr(tenant_id).to_str() {
                         Ok(s) => s,
-                        Err(_) => return,
+                        Err(_) => return std::ptr::null(),
                     }
                 };
 
                 let workflow_id = unsafe {
                     match CStr::from_ptr(workflow_id).to_str() {
                         Ok(s) => s,
-                        Err(_) => return,
+                        Err(_) => return std::ptr::null(),
                     }
                 };
 
-                register_package_tasks(tenant_id, workflow_id);
-            }
+                // Create workflow and add registered tasks (following workflow! macro pattern)
+                let mut workflow = cloacina::workflow::Workflow::new(#workflow_name);
+                workflow.set_tenant(tenant_id);
+                workflow.set_package(#package_name);
 
-            /// Get package metadata via ABI
-            #[no_mangle]
-            pub extern "C" fn #metadata_abi_name() -> *const #metadata_struct_name {
-                Box::leak(Box::new(get_package_metadata()))
+                // Add tasks from the task registry to the workflow
+                let task_registry = cloacina::task::global_task_registry();
+                if let Ok(registry) = task_registry.read() {
+                    tracing::debug!("Task registry has {} entries", registry.len());
+                    tracing::debug!("Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
+                    eprintln!("DEBUG: Task registry has {} entries", registry.len());
+                    eprintln!("DEBUG: Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
+
+                    let mut found_tasks = 0;
+                    for (namespace, task_constructor) in registry.iter() {
+                        tracing::debug!("Found task: tenant={}, package={}, workflow={}, task={}",
+                                       namespace.tenant_id, namespace.package_name, namespace.workflow_id, namespace.task_id);
+                        eprintln!("DEBUG: Found task: tenant={}, package={}, workflow={}, task={}",
+                                 namespace.tenant_id, namespace.package_name, namespace.workflow_id, namespace.task_id);
+
+                        // Only include tasks from this package and tenant
+                        if namespace.package_name == #package_name
+                            && namespace.workflow_id == #workflow_name
+                            && namespace.tenant_id == tenant_id
+                        {
+                            tracing::debug!("Adding task {} to workflow", namespace.task_id);
+                            eprintln!("DEBUG: Adding task {} to workflow", namespace.task_id);
+                            let task = task_constructor();
+                            if let Err(e) = workflow.add_task(task) {
+                                tracing::warn!("Failed to add task {} to workflow: {:?}", namespace.task_id, e);
+                                eprintln!("Warning: Failed to add task {} to workflow: {:?}", namespace.task_id, e);
+                            } else {
+                                found_tasks += 1;
+                            }
+                        }
+                    }
+                    tracing::debug!("Added {} tasks to workflow", found_tasks);
+                    eprintln!("DEBUG: Added {} tasks to workflow", found_tasks);
+                }
+
+                // Validate and finalize the workflow (following workflow! macro pattern)
+                match workflow.validate() {
+                    Ok(_) => {
+                        let finalized_workflow = workflow.finalize();
+                        Box::into_raw(Box::new(finalized_workflow))
+                    }
+                    Err(_) => {
+                        // If validation fails, return null
+                        std::ptr::null()
+                    }
+                }
             }
         }
     }
@@ -1099,4 +1320,4 @@ pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     generate_packaged_workflow_impl(attrs, input_mod).into()
-} 
+}

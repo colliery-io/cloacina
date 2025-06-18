@@ -93,6 +93,28 @@ mod postgres_schema {
     }
 
     diesel::table! {
+        workflow_registry (id) {
+            id -> Uuid,
+            created_at -> Timestamp,
+            data -> Bytea,
+        }
+    }
+
+    diesel::table! {
+        workflow_packages (id) {
+            id -> Uuid,
+            registry_id -> Uuid,
+            package_name -> Varchar,
+            version -> Varchar,
+            description -> Nullable<Text>,
+            author -> Nullable<Varchar>,
+            metadata -> Text,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
         cron_schedules (id) {
             id -> Uuid,
             workflow_name -> Varchar,
@@ -130,6 +152,7 @@ mod postgres_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
@@ -139,6 +162,8 @@ mod postgres_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
+        workflow_packages,
+        workflow_registry,
     );
 }
 
@@ -213,6 +238,28 @@ mod sqlite_schema {
             pipeline_execution_id -> Binary,
             task_name -> Text,
             context_id -> Nullable<Binary>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        workflow_registry (id) {
+            id -> Binary,
+            created_at -> Text,
+            data -> Binary,
+        }
+    }
+
+    diesel::table! {
+        workflow_packages (id) {
+            id -> Binary,
+            registry_id -> Binary,
+            package_name -> Text,
+            version -> Text,
+            description -> Nullable<Text>,
+            author -> Nullable<Text>,
+            metadata -> Text,
             created_at -> Text,
             updated_at -> Text,
         }

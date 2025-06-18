@@ -46,7 +46,7 @@ import cloaca
 # Create workflow using the new workflow-scoped pattern
 with cloaca.WorkflowBuilder("simple_workflow") as builder:
     builder.description("A simple three-task workflow demonstrating basic concepts")
-    
+
     # Define tasks using the @task decorator within workflow scope
     @cloaca.task(id="start_process")
     def start_process(context):
@@ -238,15 +238,15 @@ The context provides:
 ```python
 with cloaca.WorkflowBuilder("simple_workflow") as builder:
     builder.description("A simple three-task workflow")
-    
+
     @cloaca.task(id="start_process")
     def start_process(context):
         return context
-    
+
     @cloaca.task(id="process_data", dependencies=["start_process"])
     def process_data(context):
         return context
-    
+
     @cloaca.task(id="finalize_process", dependencies=["process_data"])
     def finalize_process(context):
         return context
