@@ -254,7 +254,7 @@ impl ThreadTaskExecutor {
             dependencies.len(),
             dependencies
         );
-        eprintln!(
+        tracing::debug!(
             "DEBUG: Building context for task '{}' with {} dependencies: {:?}",
             claimed_task.task_name,
             dependencies.len(),
