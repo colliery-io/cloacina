@@ -101,34 +101,6 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
         return 1
 
 
-@performance()
-@angreal.command(name="stress", about="run stress performance test")
-def performance_stress():
-    """Run the stress performance test example."""
-    print("Running stress performance test")
-
-    example_dir = os.path.join("examples", "performance-stress")
-    if not os.path.exists(example_dir):
-        print(f"ERROR: Performance stress example not found at {example_dir}")
-        return 1
-
-    try:
-        result = subprocess.run(
-            ["cargo", "run", "--", "--iterations", "50", "--concurrency", "4", "--failure-rate", "0.3"],
-            cwd=example_dir,
-            capture_output=True,
-            text=True
-        )
-
-        print(result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
-
-        return result.returncode
-    except Exception as e:
-        print(f"ERROR: Error running stress performance test: {e}")
-        return 1
-
 
 @performance()
 @angreal.command(name="all", about="run all performance tests")
@@ -140,7 +112,6 @@ def performance_all():
         ("Simple Performance Test", performance_simple),
         ("Pipeline Performance Test", performance_pipeline),
         ("Parallel Performance Test", performance_parallel),
-        ("Stress Performance Test", performance_stress),
     ]
 
     results = []
@@ -185,7 +156,6 @@ def performance_quick():
         ("performance-simple", ["--iterations", "25", "--concurrency", "2"]),
         ("performance-pipeline", ["--iterations", "25", "--concurrency", "2"]),
         ("performance-parallel", ["--iterations", "20", "--concurrency", "4"]),
-        ("performance-stress", ["--iterations", "20", "--concurrency", "2", "--failure-rate", "0.2"]),
     ]
 
     results = []
