@@ -124,7 +124,7 @@ def cron_demo():
 
     try:
         # Workflows are already registered with the workflow-scoped pattern
-        workflow_names = get_workflow_names()
+        _workflow_names = get_workflow_names()
 
         # Production-style schedules (commented) with demo equivalents
         # production_schedules = [

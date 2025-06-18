@@ -51,13 +51,13 @@ class TestWorkflowVersioning:
             builder.tag("variant", "different")
 
             @cloaca.task(id="version_test_task_1")
-            def version_test_task_1(context):
+            def version_test_task_1_v2(context):
                 context.set("task_1_executed", True)
                 context.set("version", "v2")
                 return context
 
             @cloaca.task(id="version_test_task_2")
-            def version_test_task_2(context):
+            def version_test_task_2_v2(context):
                 context.set("task_2_executed", True)
                 return context
 

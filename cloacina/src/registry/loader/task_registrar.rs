@@ -31,9 +31,7 @@ use tokio::fs;
 use crate::context::Context;
 use crate::error::TaskError;
 use crate::registry::error::LoaderError;
-use crate::registry::loader::package_loader::{
-    get_library_extension, PackageMetadata, EXECUTE_TASK_SYMBOL,
-};
+use crate::registry::loader::package_loader::{get_library_extension, PackageMetadata};
 use crate::task::{register_task_constructor, Task, TaskNamespace};
 use chrono::Utc;
 
@@ -148,7 +146,7 @@ impl TaskRegistrar {
                     reason: format!("Invalid task ID: {}", e),
                 })?;
 
-            let constructor_fn_name = unsafe { CStr::from_ptr(task.constructor_fn_name) }
+            let _constructor_fn_name = unsafe { CStr::from_ptr(task.constructor_fn_name) }
                 .to_str()
                 .map_err(|e| LoaderError::MetadataExtraction {
                     reason: format!("Invalid constructor function name: {}", e),
@@ -912,10 +910,11 @@ mod tests {
             vec![0x7f, 0x45, 0x4c, 0x46], // Mock library data
             "test_task".to_string(),
             "test_package".to_string(),
+            Vec::new(), // No dependencies for test
         );
 
         assert_eq!(task.id(), "test_task");
-        assert_eq!(task.dependencies().len(), 0); // Dynamic tasks have no static dependencies
+        assert_eq!(task.dependencies().len(), 0); // No dependencies provided
     }
 
     #[test]

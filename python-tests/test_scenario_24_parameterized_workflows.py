@@ -33,9 +33,9 @@ class TestParameterizedWorkflows:
                 return parameterized_task
 
             # Create tasks with different parameters within workflow context
-            task_double = create_parameterized_task("param_task_double", 2)
-            task_triple = create_parameterized_task("param_task_triple", 3)
-            task_quadruple = create_parameterized_task("param_task_quadruple", 4)
+            _task_double = create_parameterized_task("param_task_double", 2)
+            _task_triple = create_parameterized_task("param_task_triple", 3)
+            _task_quadruple = create_parameterized_task("param_task_quadruple", 4)
 
         # Execute the workflow
         context = cloaca.Context({"input_value": 10})

@@ -941,7 +941,7 @@ impl DefaultRunner {
             status,
             start_time: pipeline_execution.started_at.0,
             end_time: pipeline_execution.completed_at.map(|ts| ts.0),
-            duration: duration,
+            duration,
             final_context,
             task_results,
             error_message: pipeline_execution.error_details,

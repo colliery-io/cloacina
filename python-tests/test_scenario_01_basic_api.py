@@ -240,7 +240,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_basic_task_decorator") as builder:
+        with cloaca.WorkflowBuilder("test_basic_task_decorator") as _builder:
             @cloaca.task(id="basic_test_task")
             def basic_task(context):
                 context.set("executed", True)
@@ -259,7 +259,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_task_decorator_with_dependencies") as builder:
+        with cloaca.WorkflowBuilder("test_task_decorator_with_dependencies") as _builder:
             # Define the dependency tasks first
             @cloaca.task(id="dep1")
             def dep1_task(context):
@@ -288,7 +288,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_task_decorator_with_retry_policy") as builder:
+        with cloaca.WorkflowBuilder("test_task_decorator_with_retry_policy") as _builder:
             @cloaca.task(
                 id="retry_task",
                 retry_attempts=5,
@@ -314,7 +314,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_task_decorator_auto_id") as builder:
+        with cloaca.WorkflowBuilder("test_task_decorator_auto_id") as _builder:
             @cloaca.task()
             def auto_id_task(context):
                 context.set("auto_id_executed", True)
@@ -332,7 +332,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_task_decorator_function_references") as builder:
+        with cloaca.WorkflowBuilder("test_task_decorator_function_references") as _builder:
             @cloaca.task()
             def prerequisite_task(context):
                 context.set("prerequisite_done", True)
@@ -361,7 +361,7 @@ class TestTaskDecorator:
         import cloaca
 
         # Task decorator now requires WorkflowBuilder context
-        with cloaca.WorkflowBuilder("test_task_decorator_return_none") as builder:
+        with cloaca.WorkflowBuilder("test_task_decorator_return_none") as _builder:
             @cloaca.task(id="none_return_task")
             def none_return_task(context):
                 context.set("none_task_executed", True)

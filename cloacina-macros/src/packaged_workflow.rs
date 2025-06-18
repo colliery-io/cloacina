@@ -517,7 +517,7 @@ pub fn generate_packaged_workflow_impl(
     );
 
     // Generate unique ABI function names based on package
-    let register_abi_name = syn::Ident::new(
+    let _register_abi_name = syn::Ident::new(
         &format!("register_tasks_abi_{}", package_ident),
         mod_name.span(),
     );

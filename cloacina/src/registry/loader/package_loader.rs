@@ -190,9 +190,9 @@ impl PackageLoader {
         let library_extension = get_library_extension();
 
         // Extract library file synchronously to avoid Send issues
-        let (file_data, filename) = tokio::task::spawn_blocking({
+        let (file_data, _filename) = tokio::task::spawn_blocking({
             let archive_data = archive_data.to_vec();
-            let library_extension = library_extension.clone();
+            let library_extension = library_extension;
             move || -> Result<(Vec<u8>, String), LoaderError> {
                 // Create a cursor from the archive data
                 let cursor = std::io::Cursor::new(archive_data);

@@ -141,7 +141,7 @@ class TestMultiTenancyIntegration:
     def test_tenant_workflow_concepts(self):
         """Test that multi-tenant concepts work with workflow system."""
         # Create a workflow using the new pattern
-        with cloaca.WorkflowBuilder("tenant_test_workflow") as builder:
+        with cloaca.WorkflowBuilder("tenant_test_workflow") as _builder:
             @cloaca.task(id="tenant_test_task", dependencies=[])
             def tenant_test_task(context):
                 context.set("tenant_task_completed", True)

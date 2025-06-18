@@ -569,7 +569,7 @@ impl RegistryReconciler {
             let workflow_name = workflow_id.clone();
 
             // Create the workflow directly using host registries (avoid FFI isolation issues)
-            let workflow = self.create_workflow_from_host_registry(
+            let _workflow = self.create_workflow_from_host_registry(
                 &metadata.package_name,
                 &workflow_id,
                 &self.config.default_tenant_id,
