@@ -14,8 +14,14 @@
  *  limitations under the License.
  */
 
-pub mod package;
-pub mod registry;
-pub mod server;
+pub mod compile;
+pub mod create;
+pub mod debug;
+pub mod inspect;
+pub mod visualize;
 
-pub use package::*;
+pub use compile::*;
+pub use create::*;
+pub use debug::*;
+pub use inspect::*;
+pub use visualize::*;

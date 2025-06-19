@@ -14,8 +14,4 @@
  *  limitations under the License.
  */
 
-pub mod package;
-pub mod registry;
-pub mod server;
-
-pub use package::*;
+// Placeholder for server commands - to be implemented in Phase 4

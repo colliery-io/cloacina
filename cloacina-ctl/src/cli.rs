@@ -86,6 +86,21 @@ pub enum DebugAction {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Package management operations
+    #[command(subcommand)]
+    Package(PackageCommands),
+
+    /// Workflow registry operations (coming soon)
+    #[command(subcommand)]
+    Registry(RegistryCommands),
+
+    /// Server management operations (coming soon)
+    #[command(subcommand)]
+    Server(ServerCommands),
+}
+
+#[derive(Subcommand)]
+pub enum PackageCommands {
     /// Compile a workflow Cargo project into a shared library
     Compile {
         /// Path to the workflow Cargo project directory
@@ -99,8 +114,8 @@ pub enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cargo_flags: Vec<String>,
     },
-    /// Package a workflow Cargo project into a .cloacina archive
-    Package {
+    /// Create a .cloacina package from a workflow Cargo project
+    Create {
         /// Path to the workflow Cargo project directory
         project_path: PathBuf,
 
@@ -146,4 +161,18 @@ pub enum Commands {
         #[command(subcommand)]
         action: DebugAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum RegistryCommands {
+    /// Placeholder command - registry functionality coming in Phase 5
+    #[command(hide = true)]
+    Placeholder,
+}
+
+#[derive(Subcommand)]
+pub enum ServerCommands {
+    /// Placeholder command - server functionality coming in Phase 4
+    #[command(hide = true)]
+    Placeholder,
 }
