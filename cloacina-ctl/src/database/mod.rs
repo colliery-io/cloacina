@@ -15,7 +15,9 @@
  */
 
 pub mod backend_detection;
+pub mod defaults;
 pub mod validation;
 
 pub use backend_detection::{detect_backend_from_url, DatabaseBackend};
+pub use defaults::{get_backend_defaults, DefaultConfig};
 pub use validation::validate_backend_compatibility;
