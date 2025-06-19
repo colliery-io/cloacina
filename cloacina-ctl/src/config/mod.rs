@@ -14,19 +14,14 @@
  *  limitations under the License.
  */
 
-pub mod archive;
-pub mod cli;
-pub mod commands;
-pub mod config;
-pub mod database;
-pub mod library;
-pub mod manifest;
-pub mod utils;
+pub mod defaults;
+pub mod error;
+pub mod loader;
+pub mod types;
 pub mod validation;
-pub mod visualization;
 
-// Re-export commonly used types and functions
-pub use cli::{Cli, Commands, DebugAction};
-pub use commands::*;
-pub use manifest::{CompileResult, PackageManifest, TaskInfo};
-pub use utils::{init_logging, should_print, LogLevel};
+pub use defaults::*;
+pub use error::*;
+pub use loader::*;
+pub use types::*;
+pub use validation::*;
