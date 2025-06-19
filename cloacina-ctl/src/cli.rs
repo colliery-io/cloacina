@@ -172,7 +172,106 @@ pub enum RegistryCommands {
 
 #[derive(Subcommand)]
 pub enum ServerCommands {
-    /// Placeholder command - server functionality coming in Phase 4
-    #[command(hide = true)]
-    Placeholder,
+    /// Configuration management commands
+    #[command(subcommand)]
+    Config(ConfigCommands),
+
+    /// Start the Cloacina server daemon
+    Start {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+
+        /// Run in foreground (don't daemonize)
+        #[arg(long)]
+        foreground: bool,
+
+        /// Override database URL from config
+        #[arg(long)]
+        database_url: Option<String>,
+    },
+
+    /// Stop the Cloacina server daemon
+    Stop {
+        /// Force stop (SIGKILL instead of SIGTERM)
+        #[arg(long)]
+        force: bool,
+
+        /// Timeout in seconds for graceful shutdown
+        #[arg(long, default_value = "30")]
+        timeout: u64,
+    },
+
+    /// Show server status
+    Status {
+        /// Output format (human, json)
+        #[arg(long, default_value = "human")]
+        format: String,
+    },
+
+    /// Restart the Cloacina server daemon
+    Restart {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+
+        /// Force restart (SIGKILL instead of SIGTERM)
+        #[arg(long)]
+        force: bool,
+
+        /// Timeout in seconds for graceful shutdown
+        #[arg(long, default_value = "30")]
+        timeout: u64,
+    },
+
+    /// Show server logs
+    Logs {
+        /// Number of lines to show
+        #[arg(short, long, default_value = "100")]
+        lines: usize,
+
+        /// Follow log output (like tail -f)
+        #[arg(short, long)]
+        follow: bool,
+
+        /// Log level filter (error, warn, info, debug, trace)
+        #[arg(long)]
+        level: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommands {
+    /// Generate a default configuration file
+    Generate {
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output format (yaml, toml)
+        #[arg(long, default_value = "yaml")]
+        format: String,
+
+        /// Overwrite existing file
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Validate a configuration file
+    Validate {
+        /// Path to configuration file to validate
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Show current configuration (resolved with defaults)
+    Show {
+        /// Path to configuration file
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+
+        /// Output format (yaml, toml, json)
+        #[arg(long, default_value = "yaml")]
+        format: String,
+    },
 }

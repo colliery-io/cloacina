@@ -25,7 +25,8 @@ use anyhow::Result;
 use clap::Parser;
 use cloacina_ctl::{cli::*, *};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging level based on verbose/quiet flags
@@ -92,9 +93,8 @@ fn main() -> Result<()> {
             eprintln!("Registry commands will be implemented in Phase 5");
             std::process::exit(1);
         }
-        Commands::Server(ServerCommands::Placeholder) => {
-            eprintln!("Server commands will be implemented in Phase 4");
-            std::process::exit(1);
+        Commands::Server(server_cmd) => {
+            server::handle_server_command(server_cmd).await?;
         }
     }
 

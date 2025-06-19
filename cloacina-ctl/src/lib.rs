@@ -21,6 +21,7 @@ pub mod config;
 pub mod database;
 pub mod library;
 pub mod manifest;
+pub mod server;
 pub mod utils;
 pub mod validation;
 pub mod visualization;
