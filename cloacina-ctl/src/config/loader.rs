@@ -16,7 +16,6 @@
 
 use crate::config::{CloacinaConfig, ConfigError};
 use regex::Regex;
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -175,9 +174,9 @@ mod tests {
     #[test]
     fn test_env_substitution_with_default() {
         let loader = ConfigLoader::new();
-        env::remove_var("TEST_VAR");
+        env::remove_var("TEST_VAR_DEFAULT");
 
-        let content = "database_url: ${TEST_VAR:-postgresql://localhost/test}";
+        let content = "database_url: ${TEST_VAR_DEFAULT:-postgresql://localhost/test}";
         let result = loader.substitute_env_vars(content).unwrap();
         assert_eq!(result, "database_url: postgresql://localhost/test");
     }

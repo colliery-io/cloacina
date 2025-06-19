@@ -220,9 +220,13 @@ mod tests {
 
     #[test]
     fn test_database_config_validation() {
-        let mut config = DatabaseConfig::default();
+        let mut config = DatabaseConfig {
+            url: "postgresql://localhost/cloacina".to_string(),
+            pool_size: 10,
+            schema: None,
+        };
 
-        // Should pass with default config
+        // Should pass with resolved config
         assert!(config.validate().is_ok());
 
         // Should fail with invalid pool size

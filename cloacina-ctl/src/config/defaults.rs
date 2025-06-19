@@ -33,7 +33,8 @@ impl Default for CloacinaConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
-            url: "${CLOACINA_DATABASE_URL:-postgresql://localhost/cloacina}".to_string(),
+            url: "${CLOACINA_DATABASE_URL:-postgresql://cloacina:cloacina@localhost:5432/cloacina}"
+                .to_string(),
             pool_size: 10,
             schema: None,
         }
