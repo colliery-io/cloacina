@@ -23,3 +23,6 @@ from cloacina import all  # noqa: F401
 from demos import rust_demos  # noqa: F401
 from demos import python_demos  # noqa: F401
 # from demos import all as demos_all  # noqa: F401  # all.py removed
+
+# Import performance module
+import performance  # noqa: F401

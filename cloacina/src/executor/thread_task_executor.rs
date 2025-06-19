@@ -155,57 +155,74 @@ impl ThreadTaskExecutor {
             interval.tick().await;
 
             // Only poll if we have available concurrency slots
-            if semaphore.available_permits() == 0 {
+            let available_slots = semaphore.available_permits();
+            if available_slots == 0 {
                 debug!("All execution slots busy, skipping poll");
                 continue;
             }
 
-            // Try to claim a ready task with pre-loaded context
-            match self.claim_task_with_context().await {
-                Ok(Some((claimed_task, preloaded_context))) => {
-                    let permit = semaphore.clone().acquire_owned().await?;
-                    let executor = self.clone();
+            // Try to claim multiple ready tasks with pre-loaded contexts
+            match self.claim_tasks_with_context(available_slots).await {
+                Ok(claimed_tasks) => {
+                    if claimed_tasks.is_empty() {
+                        debug!("No ready tasks found");
+                        continue;
+                    }
 
-                    // Execute task in background with pre-loaded context
-                    tokio::spawn(async move {
-                        let _permit = permit; // Hold permit until task completes
+                    debug!(
+                        "Claimed {} tasks for parallel execution",
+                        claimed_tasks.len()
+                    );
 
-                        info!(
-                            "Executing task with pre-loaded context: {} (attempt {})",
-                            claimed_task.task_name, claimed_task.attempt
-                        );
+                    // Execute all claimed tasks in parallel
+                    for (claimed_task, preloaded_context) in claimed_tasks {
+                        let permit = semaphore.clone().acquire_owned().await?;
+                        let executor = self.clone();
 
-                        if let Err(e) = executor
-                            .execute_claimed_task_with_context(claimed_task, preloaded_context)
-                            .await
-                        {
-                            error!("Task execution failed: {}", e);
-                        }
-                    });
-                }
-                Ok(None) => {
-                    // No ready tasks available
-                    debug!("No ready tasks found");
+                        // Execute task in background with pre-loaded context
+                        tokio::spawn(async move {
+                            let _permit = permit; // Hold permit until task completes
+
+                            info!(
+                                "Executing task with pre-loaded context: {} (attempt {})",
+                                claimed_task.task_name, claimed_task.attempt
+                            );
+
+                            if let Err(e) = executor
+                                .execute_claimed_task_with_context(claimed_task, preloaded_context)
+                                .await
+                            {
+                                error!("Task execution failed: {}", e);
+                            }
+                        });
+                    }
                 }
                 Err(e) => {
-                    error!("Failed to claim task: {}", e);
+                    error!("Failed to claim tasks: {}", e);
                 }
             }
         }
     }
 
-    /// Claims a ready task and pre-loads its execution context in a single transaction.
+    /// Claims up to `limit` ready tasks and pre-loads their execution contexts.
     ///
     /// This method optimizes task claiming by combining the claim operation with
-    /// context loading, reducing database roundtrips and latency between claim and execution.
+    /// context loading, reducing database roundtrips and enabling parallel execution.
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of tasks to claim
     ///
     /// # Returns
-    /// Result containing either a (ClaimedTask, Context) tuple or None if no tasks are ready
-    async fn claim_task_with_context(
+    /// Result containing a vector of (ClaimedTask, Context) tuples
+    async fn claim_tasks_with_context(
         &self,
-    ) -> Result<Option<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
-        // Use DAL's atomic claim method
-        if let Some(claim_result) = self.dal.task_execution().claim_ready_task().await? {
+        limit: usize,
+    ) -> Result<Vec<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
+        // Use DAL's atomic batch claim method
+        let claim_results = self.dal.task_execution().claim_ready_task(limit).await?;
+        let mut results = Vec::new();
+
+        for claim_result in claim_results {
             let claimed_task = ClaimedTask {
                 task_execution_id: claim_result.id,
                 pipeline_execution_id: claim_result.pipeline_execution_id,
@@ -228,10 +245,10 @@ impl ThreadTaskExecutor {
                 claimed_task.task_name, claimed_task.pipeline_execution_id, claimed_task.attempt
             );
 
-            Ok(Some((claimed_task, context)))
-        } else {
-            Ok(None)
+            results.push((claimed_task, context));
         }
+
+        Ok(results)
     }
 
     /// Builds the execution context for a task by loading its dependencies.
@@ -254,7 +271,7 @@ impl ThreadTaskExecutor {
             dependencies.len(),
             dependencies
         );
-        eprintln!(
+        tracing::debug!(
             "DEBUG: Building context for task '{}' with {} dependencies: {:?}",
             claimed_task.task_name,
             dependencies.len(),

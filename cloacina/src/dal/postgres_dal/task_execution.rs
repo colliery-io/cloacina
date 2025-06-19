@@ -842,14 +842,20 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
-    /// Atomically claims a ready task for execution using PostgreSQL's FOR UPDATE SKIP LOCKED.
+    /// Atomically claims up to `limit` ready tasks for execution using PostgreSQL's FOR UPDATE SKIP LOCKED.
     ///
     /// This method implements a distributed locking pattern that allows multiple
     /// executors to safely claim tasks without conflicts.
     ///
+    /// # Arguments
+    /// * `limit` - Maximum number of tasks to claim (use 1 for single task)
+    ///
     /// # Returns
-    /// * `Result<Option<ClaimResult>, ValidationError>` - The claimed task or None if no tasks available
-    pub async fn claim_ready_task(&self) -> Result<Option<ClaimResult>, ValidationError> {
+    /// * `Result<Vec<ClaimResult>, ValidationError>` - Vector of claimed tasks (may be empty)
+    pub async fn claim_ready_task(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -857,31 +863,36 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        // Atomic claim using FOR UPDATE SKIP LOCKED
-        let result: Option<ClaimResult> = conn
+        let limit = limit as i64;
+
+        // Atomic batch claim using FOR UPDATE SKIP LOCKED
+        let results: Vec<ClaimResult> = conn
             .interact(move |conn| {
-                diesel::sql_query(
+                diesel::sql_query(format!(
                     r#"
-                UPDATE task_executions
-                SET status = 'Running', started_at = NOW()
-                WHERE id = (
-                    SELECT id FROM task_executions
+                WITH ready_tasks AS (
+                    SELECT id, pipeline_execution_id, task_name, attempt
+                    FROM task_executions
                     WHERE status = 'Ready'
                     AND (retry_at IS NULL OR retry_at <= NOW())
                     ORDER BY id ASC
-                    LIMIT 1
+                    LIMIT {}
                     FOR UPDATE SKIP LOCKED
                 )
-                RETURNING id, pipeline_execution_id, task_name, attempt
+                UPDATE task_executions
+                SET status = 'Running', started_at = NOW()
+                FROM ready_tasks
+                WHERE task_executions.id = ready_tasks.id
+                RETURNING task_executions.id, task_executions.pipeline_execution_id, task_executions.task_name, task_executions.attempt
                 "#,
-                )
-                .get_result(conn)
-                .optional()
+                    limit
+                ))
+                .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(result)
+        Ok(results)
     }
 }
 

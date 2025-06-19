@@ -476,5 +476,4 @@ pub extern "C" fn cloacina_execute_task(...) -> i32 {
 
 - [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
 - [Explanation: Package Format]({{< ref "/explanation/package-format/" >}})
-- [How-to: Debug Packaged Workflows]({{< ref "/how-to-guides/debug-packaged-workflows/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/explanation/packaged-workflow-architecture/" >}})
