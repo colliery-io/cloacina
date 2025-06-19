@@ -427,12 +427,12 @@
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
 
-// Ensure exactly one backend is selected at compile time
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-compile_error!("You must enable either the 'postgres' or 'sqlite' feature flag");
-
+// Enforce exactly one database backend is selected
 #[cfg(all(feature = "postgres", feature = "sqlite"))]
-compile_error!("You cannot enable both 'postgres' and 'sqlite' features at the same time");
+compile_error!("Cannot enable both 'postgres' and 'sqlite' features simultaneously");
+
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("Must enable exactly one database backend: either 'postgres' or 'sqlite'");
 
 pub mod context;
 pub mod cron_evaluator;
