@@ -422,7 +422,6 @@ Congratulations! You've created and tested your first packaged workflow. Next, y
 
 - [Tutorial 08: Working with the Workflow Registry]({{< ref "/tutorials/08-workflow-registry/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/explanation/packaged-workflow-architecture/" >}})
-- [How-to: Debug Packaged Workflows]({{< ref "/how-to-guides/debug-packaged-workflows/" >}})
 - [API Documentation]({{< ref "/reference/api/" >}})
 
 ## Download the Example

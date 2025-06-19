@@ -359,8 +359,6 @@ Congratulations! You've successfully set up and used the workflow registry. In f
 ## Related Resources
 
 - [Tutorial 07: Packaged Workflows]({{< ref "/tutorials/07-packaged-workflows/" >}})
-- [Explanation: Registry Architecture]({{< ref "/explanation/dynamic-loading-registry/" >}})
-- [How-to: Deploy Workflow Registries]({{< ref "/how-to-guides/deploy-workflow-registries/" >}})
 - [API Documentation]({{< ref "/reference/api/" >}})
 
 ## Download the Example

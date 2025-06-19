@@ -416,5 +416,3 @@ let runner = DefaultRunner::with_config(&database_url, config).await?;
 - [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
 - [Explanation: Package Format]({{< ref "/explanation/package-format/" >}})
 - [Explanation: FFI System]({{< ref "/explanation/ffi-system/" >}})
-- [How-to: Debug Packaged Workflows]({{< ref "/how-to-guides/debug-packaged-workflows/" >}})
-- [Explanation: Dynamic Loading and Registry System]({{< ref "/explanation/dynamic-loading-registry/" >}})

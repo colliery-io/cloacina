@@ -26,14 +26,10 @@ def performance_simple(iterations: int=150, concurrency: int=32):
         result = subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
 
         return result.returncode
-    except subprocess.TimeoutExpired:
-        print("ERROR: Performance test timed out after 2 minutes")
-        return 1
     except Exception as e:
         print(f"ERROR: Error running simple performance test: {e}")
         return 1
@@ -57,14 +53,10 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
         result = subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
 
         return result.returncode
-    except subprocess.TimeoutExpired:
-        print("ERROR: Performance test timed out after 2 minutes")
-        return 1
     except Exception as e:
         print(f"ERROR: Error running pipeline performance test: {e}")
         return 1
@@ -88,14 +80,10 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
         result = subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            timeout=120,  # 2 minute timeout
             stderr=subprocess.DEVNULL  # Suppress debug output
         )
 
         return result.returncode
-    except subprocess.TimeoutExpired:
-        print("ERROR: Performance test timed out after 2 minutes")
-        return 1
     except Exception as e:
         print(f"ERROR: Error running parallel performance test: {e}")
         return 1

@@ -19,6 +19,7 @@
 //! Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 
 use clap::Parser;
+use cloacina::executor::PipelineExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
@@ -139,8 +140,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(result) => {
                 successful_workflows += 1;
                 // Check if workflow completed successfully
-                if !result.is_success() {
-                    error!("Workflow {} did not complete successfully", i + 1);
+                if !matches!(
+                    result.status,
+                    cloacina::executor::pipeline_executor::PipelineStatus::Completed
+                ) {
+                    error!(
+                        "Workflow {} completed with status: {:?}",
+                        i + 1,
+                        result.status
+                    );
                 }
                 if result.final_context.get("load_status").is_none() {
                     error!(

@@ -411,5 +411,4 @@ pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 
 - [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
 - [Explanation: FFI System]({{< ref "/explanation/ffi-system/" >}})
-- [How-to: Debug Packaged Workflows]({{< ref "/how-to-guides/debug-packaged-workflows/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/explanation/packaged-workflow-architecture/" >}})
