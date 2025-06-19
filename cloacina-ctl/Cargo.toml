@@ -13,7 +13,7 @@ edition = "2021"
 description = "Command-line interface for Cloacina workflow compilation and management"
 
 [features]
-default = ["postgres"]
+default = []
 postgres = ["cloacina/postgres", "cloacina/macros"]
 sqlite = ["cloacina/sqlite", "cloacina/macros"]
 
