@@ -14,6 +14,13 @@
  *  limitations under the License.
  */
 
+// Enforce exactly one database backend is selected
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+compile_error!("Cannot enable both 'postgres' and 'sqlite' features simultaneously");
+
+#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
+compile_error!("Must enable exactly one database backend: either 'postgres' or 'sqlite'");
+
 use anyhow::Result;
 use clap::Parser;
 use cloacina_ctl::*;
