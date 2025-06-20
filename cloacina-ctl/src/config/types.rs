@@ -39,6 +39,7 @@ pub struct ExecutionConfig {
     pub max_concurrent_tasks: u32,
     pub task_timeout_secs: u64,
     pub worker_threads: Option<u32>,
+    pub polling_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

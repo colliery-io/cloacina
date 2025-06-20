@@ -57,7 +57,8 @@ impl Default for ExecutionConfig {
         Self {
             max_concurrent_tasks: 4,
             task_timeout_secs: 300,
-            worker_threads: None, // Auto-detect based on CPU cores
+            worker_threads: None,      // Auto-detect based on CPU cores
+            polling_interval_ms: 1000, // 1 second default polling
         }
     }
 }

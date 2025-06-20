@@ -18,8 +18,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
-use sysinfo::{Pid, Process, System};
+use sysinfo::{Pid, System};
 
 #[derive(Debug)]
 pub struct ServerStatus {
@@ -53,11 +52,17 @@ pub async fn show_status(format: &str) -> Result<()> {
 }
 
 async fn get_server_status() -> Result<ServerStatus> {
-    // TODO: Read actual PID file location from config
-    let pid_file = PathBuf::from("/var/run/cloacina.pid");
+    // Load config to get actual PID file location
+    use crate::config::ConfigLoader;
 
-    let pid = if pid_file.exists() {
-        let pid_content = fs::read_to_string(&pid_file).context("Failed to read PID file")?;
+    let loader = ConfigLoader::new();
+    let config = loader
+        .load_config(None::<&std::path::Path>)
+        .context("Failed to load configuration")?;
+
+    let pid = if config.server.pid_file.exists() {
+        let pid_content =
+            fs::read_to_string(&config.server.pid_file).context("Failed to read PID file")?;
 
         let pid: u32 = pid_content
             .trim()
@@ -87,9 +92,15 @@ async fn get_server_status() -> Result<ServerStatus> {
             status.memory_usage = Some(process.memory());
             status.cpu_usage = Some(process.cpu_usage());
 
-            // Calculate uptime (this is simplified)
-            // TODO: Implement proper uptime calculation
-            status.uptime = Some(60); // Placeholder
+            // Calculate actual uptime from process start time
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            let process_start = process.start_time();
+            let uptime_secs = now.saturating_sub(process_start);
+            status.uptime = Some(uptime_secs);
         } else {
             // PID file exists but process is not running
             // TODO: Clean up stale PID file
@@ -112,11 +123,27 @@ fn print_human_status(status: &ServerStatus) {
         }
 
         if let Some(uptime) = status.uptime {
-            println!("  Uptime: {} seconds", uptime.to_string().cyan());
+            let uptime_str = if uptime < 60 {
+                format!("{} seconds", uptime)
+            } else if uptime < 3600 {
+                format!("{} minutes, {} seconds", uptime / 60, uptime % 60)
+            } else {
+                format!("{} hours, {} minutes", uptime / 3600, (uptime % 3600) / 60)
+            };
+            println!("  Uptime: {}", uptime_str.cyan());
         }
 
         if let Some(memory) = status.memory_usage {
-            println!("  Memory: {} KB", memory.to_string().cyan());
+            let memory_str = if memory < 1024 {
+                format!("{} bytes", memory)
+            } else if memory < 1024 * 1024 {
+                format!("{:.1} KB", memory as f64 / 1024.0)
+            } else if memory < 1024 * 1024 * 1024 {
+                format!("{:.1} MB", memory as f64 / (1024.0 * 1024.0))
+            } else {
+                format!("{:.1} GB", memory as f64 / (1024.0 * 1024.0 * 1024.0))
+            };
+            println!("  Memory: {}", memory_str.cyan());
         }
 
         if let Some(cpu) = status.cpu_usage {
