@@ -12,11 +12,16 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="scrub", about="replace generated files with placeholder content and clean build artifacts")
+@angreal.command(
+    name="scrub", 
+    about="replace generated files with placeholder content and clean build artifacts",
+    when_to_use=["cleaning development environment", "resetting after testing", "preparing for commit"],
+    when_not_to_use=["active development", "debugging generated files", "before running tests"]
+)
 @angreal.argument(
     name="deep",
     long="deep",
-    help="run cargo clean on all Cargo.toml files",
+    help="include cargo clean for thorough cleanup",
     takes_value=False,
     is_flag=True
 )

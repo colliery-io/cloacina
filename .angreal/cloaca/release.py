@@ -12,8 +12,13 @@ from .generate import generate
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
 @cloaca()
-@angreal.command(name="release", about="build release wheels for distribution (leaves artifacts for inspection)")
-@angreal.argument(name="backend", long="backend", help="Build specific backend: postgres or sqlite (default: both)", required=False)
+@angreal.command(
+    name="release", 
+    about="build release wheels for distribution (leaves artifacts for inspection)",
+    when_to_use=["preparing production releases", "building all backend variants", "generating distribution artifacts"],
+    when_not_to_use=["development testing", "quick iterations", "single backend development"]
+)
+@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
 def release(backend=None):
     """Build release wheels for distribution without cleanup.
 

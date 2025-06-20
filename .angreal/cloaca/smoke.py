@@ -17,8 +17,13 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="smoke", about="run basic smoke tests to verify Python bindings work")
-@angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
+@angreal.command(
+    name="smoke", 
+    about="run basic smoke tests to verify Python bindings work",
+    when_to_use=["quick validation after changes", "verifying build success", "debugging import issues"],
+    when_not_to_use=["comprehensive testing", "CI/CD validation", "performance testing"]
+)
+@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
 def smoke(backend=None):
     """Run basic smoke tests to verify Python bindings work."""
 

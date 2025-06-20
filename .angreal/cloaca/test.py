@@ -26,10 +26,15 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="test", about="run tests in isolated test environments")
-@angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
-@angreal.argument(name="filter", short="k", help="Filter tests by expression (pytest -k)")
-@angreal.argument(name="file", long="file", help="Run specific test file (e.g. test_scenario_03_function_based_dag_topology.py)")
+@angreal.command(
+    name="test", 
+    about="run tests in isolated test environments",
+    when_to_use=["testing Python bindings", "validating API changes", "CI/CD verification"],
+    when_not_to_use=["unit testing core Rust", "testing without clean environment", "quick development iterations"]
+)
+@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
+@angreal.argument(name="filter", short="k", help="filter tests using pytest -k expression syntax")
+@angreal.argument(name="file", long="file", help="run specific test file by filename")
 def test(backend=None, filter=None, file=None):
     """Run Python binding tests in isolated virtual environments.
 

@@ -30,6 +30,7 @@ pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod workflow_registry_storage;
 use context::ContextDAL;
 use cron_execution::CronExecutionDAL;
 use cron_schedule::CronScheduleDAL;
@@ -37,6 +38,8 @@ use pipeline_execution::PipelineExecutionDAL;
 use recovery_event::RecoveryEventDAL;
 use task_execution::TaskExecutionDAL;
 use task_execution_metadata::TaskExecutionMetadataDAL;
+// Re-export with specific name to avoid ambiguity
+pub use workflow_registry_storage::SqliteWorkflowRegistryDAL;
 
 // Re-export for public API
 pub use cron_execution::CronExecutionStats;

@@ -13,8 +13,13 @@ from .cloaca_utils import get_workspace_version, normalize_version_for_python, w
 
 
 @cloaca()
-@angreal.command(name="generate", about="generate all configuration files from templates")
-@angreal.argument(name="backend", long="backend", help="Backend to generate for: postgres or sqlite", required=True)
+@angreal.command(
+    name="generate", 
+    about="generate all configuration files from templates",
+    when_to_use=["setting up development environment", "switching between backends", "preparing for testing"],
+    when_not_to_use=["production builds", "when files already generated", "CI/CD workflows"]
+)
+@angreal.argument(name="backend", long="backend", help="target backend: postgres or sqlite", required=True)
 def generate(backend):
     """Generate all configuration files from templates."""
 

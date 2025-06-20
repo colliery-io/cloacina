@@ -14,8 +14,13 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="package", about="generate files, build wheel, then clean")
-@angreal.argument(name="backend", long="backend", required=True, help="Backend to build: postgres or sqlite")
+@angreal.command(
+    name="package", 
+    about="generate files, build wheel, then clean",
+    when_to_use=["building individual backend wheels", "testing wheel creation", "local development packaging"],
+    when_not_to_use=["release builds", "building multiple backends", "CI/CD pipelines"]
+)
+@angreal.argument(name="backend", long="backend", required=True, help="target backend: postgres or sqlite")
 def package(backend=None):
     """Generate files, build the wheel, then clean up generated files."""
     try:
