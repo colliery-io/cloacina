@@ -14,16 +14,21 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="unit", about="run unit tests")
+@angreal.command(
+    name="unit",
+    about="run unit tests",
+    when_to_use=["testing core functionality", "validating changes", "CI/CD pipelines"],
+    when_not_to_use=["integration testing", "end-to-end testing", "performance testing"]
+)
 @angreal.argument(
     name="filter",
     required=False,
-    help="Filter tests by name"
+    help="filter tests by name pattern"
 )
 @angreal.argument(
     name="backend",
     long="backend",
-    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    help="test specific backend: postgres, sqlite, or both (default)",
     required=False
 )
 def unit(filter=None, backend=None):

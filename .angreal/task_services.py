@@ -13,18 +13,28 @@ services = angreal.command_group(name="services", about="commands for managing b
 
 
 @services()
-@angreal.command(name="up", about="start backing services for local development")
+@angreal.command(
+    name="up",
+    about="start backing services for local development",
+    when_to_use=["starting development", "running tests", "local database access"],
+    when_not_to_use=["production environments", "CI runners", "when services already running"]
+)
 def up():
     """Start backing services for local development."""
     return docker_up()
 
 
 @services()
-@angreal.command(name="down", about="stop backing services")
+@angreal.command(
+    name="down",
+    about="stop backing services",
+    when_to_use=["ending development session", "freeing system resources", "troubleshooting"],
+    when_not_to_use=["during active development", "when other processes depend on services"]
+)
 @angreal.argument(
     name="volumes",
     long="volumes",
-    help="Remove volumes",
+    help="also remove persistent data volumes",
     takes_value=False,
     is_flag=True
 )
@@ -34,11 +44,16 @@ def down(volumes=False):
 
 
 @services()
-@angreal.command(name="reset", about="reset local services (stop and restart)")
+@angreal.command(
+    name="reset",
+    about="reset local services (stop and restart)",
+    when_to_use=["fixing service issues", "starting fresh", "after configuration changes"],
+    when_not_to_use=["during active development", "when services are working correctly"]
+)
 @angreal.argument(
     name="clean",
     long="clean",
-    help="Clean volumes",
+    help="also clean persistent data volumes",
     takes_value=False,
     is_flag=True
 )
@@ -52,7 +67,12 @@ def reset(clean=False):
 
 
 @services()
-@angreal.command(name="clean", about="stop and remove services including volumes")
+@angreal.command(
+    name="clean",
+    about="stop and remove services including volumes",
+    when_to_use=["complete cleanup", "fixing persistent issues", "freeing disk space"],
+    when_not_to_use=["preserving data", "during active development", "quick resets"]
+)
 def clean():
     """Stop and remove services including volumes."""
     # First clean docker resources

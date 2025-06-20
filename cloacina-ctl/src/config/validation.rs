@@ -221,7 +221,10 @@ mod tests {
     #[test]
     fn test_database_config_validation() {
         let mut config = DatabaseConfig {
+            #[cfg(feature = "postgres")]
             url: "postgresql://localhost/cloacina".to_string(),
+            #[cfg(feature = "sqlite")]
+            url: "sqlite:///tmp/test.db".to_string(),
             pool_size: 10,
             schema: None,
         };

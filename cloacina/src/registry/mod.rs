@@ -40,12 +40,12 @@
 //!
 //! ```rust,no_run
 //! use cloacina::registry::{WorkflowRegistry, WorkflowPackage};
-//! use cloacina::registry::storage::{PostgresRegistryStorage, FilesystemRegistryStorage};
+//! use cloacina::dal::{PostgresWorkflowRegistryDAL, FilesystemWorkflowRegistryDAL};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create storage backend (PostgreSQL or filesystem)
-//! let storage = PostgresRegistryStorage::new(db_pool);
-//! // or: let storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
+//! let storage = PostgresWorkflowRegistryDAL::new(database);
+//! // or: let storage = FilesystemWorkflowRegistryDAL::new("/var/lib/cloacina/registry")?;
 //!
 //! // Create registry with chosen storage
 //! let mut registry = WorkflowRegistryImpl::new(database, storage)?;

@@ -16,23 +16,28 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="integration", about="run integration tests with backing services")
+@angreal.command(
+    name="integration",
+    about="run integration tests with backing services",
+    when_to_use=["testing with real databases", "validating service integrations", "end-to-end testing"],
+    when_not_to_use=["unit testing", "quick validation", "environments without Docker"]
+)
 @angreal.argument(
     name="filter",
     required=False,
-    help="Filter tests by name"
+    help="filter tests by name pattern"
 )
 @angreal.argument(
     name="skip_docker",
     long="skip-docker",
-    help="Skip Docker setup/teardown",
+    help="skip Docker setup/teardown for manual service management",
     takes_value=False,
     is_flag=True
 )
 @angreal.argument(
     name="backend",
     long="backend",
-    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    help="test specific backend: postgres, sqlite, or both (default)",
     required=False
 )
 def integration(filter=None, skip_docker=False, backend=None):
@@ -68,7 +73,7 @@ def integration(filter=None, skip_docker=False, backend=None):
 
         if postgresql_success:
             try:
-                cmd = ["cargo", "test", "--test", "integration", "--no-default-features", "--features", "postgres,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
+                cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration", "--no-default-features", "--features", "postgres,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
                 if filter:
                     cmd.append(filter)
 
@@ -88,7 +93,7 @@ def integration(filter=None, skip_docker=False, backend=None):
         print_section_header("Running integration tests for SQLite")
 
         try:
-            cmd = ["cargo", "test", "--test", "integration", "--no-default-features", "--features", "sqlite,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
+            cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration", "--no-default-features", "--features", "sqlite,macros", "--verbose", "--", "--test-threads=1", "--nocapture"]
             if filter:
                 cmd.append(filter)
 

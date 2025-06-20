@@ -19,6 +19,20 @@ use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
+fn get_binary_name() -> &'static str {
+    #[cfg(feature = "postgres")]
+    return "cloacina-ctl-postgres";
+    #[cfg(feature = "sqlite")]
+    return "cloacina-ctl-sqlite";
+}
+
+fn get_feature_flag() -> &'static str {
+    #[cfg(feature = "postgres")]
+    return "postgres";
+    #[cfg(feature = "sqlite")]
+    return "sqlite";
+}
+
 fn create_test_workflow_project(temp_dir: &TempDir) -> PathBuf {
     let project_path = temp_dir.path().join("test_workflow");
     fs::create_dir_all(&project_path).expect("Failed to create project directory");
@@ -57,6 +71,7 @@ tokio = {{ version = "1", features = ["rt", "macros"] }}
 chrono = "0.4"
 async-trait = "0.1"
 ctor = "0.2"
+tracing = "0.1"
 "#,
         workspace_root.display(),
         workspace_root.display()
@@ -113,9 +128,12 @@ fn test_compile_command_functional() {
 
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
+        .arg("package")
         .arg("compile")
         .arg(&project_path)
         .arg("--output")
@@ -145,10 +163,13 @@ fn test_package_command_functional() {
 
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
         .arg("package")
+        .arg("create")
         .arg(&project_path)
         .arg("--output")
         .arg(&package_path);
@@ -179,10 +200,13 @@ fn test_inspect_command_functional() {
     let mut package_cmd = Command::new("cargo");
     package_cmd
         .arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
         .arg("package")
+        .arg("create")
         .arg(&project_path)
         .arg("--output")
         .arg(&package_path);
@@ -207,9 +231,12 @@ fn test_inspect_command_functional() {
     let mut inspect_cmd = Command::new("cargo");
     inspect_cmd
         .arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
+        .arg("package")
         .arg("inspect")
         .arg(&package_path)
         .arg("--format")
@@ -279,10 +306,13 @@ fn test_debug_list_command_functional() {
     let mut package_cmd = Command::new("cargo");
     package_cmd
         .arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
         .arg("package")
+        .arg("create")
         .arg(&project_path)
         .arg("--output")
         .arg(&package_path);
@@ -307,9 +337,12 @@ fn test_debug_list_command_functional() {
     let mut debug_cmd = Command::new("cargo");
     debug_cmd
         .arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
+        .arg("package")
         .arg("debug")
         .arg(&package_path)
         .arg("list");
@@ -347,9 +380,12 @@ fn test_invalid_project_path() {
 
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
+        .arg("package")
         .arg("compile")
         .arg(&nonexistent_path)
         .arg("--output")
@@ -375,8 +411,10 @@ fn test_invalid_project_path() {
 fn test_help_command() {
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
+        .arg("--features")
+        .arg(get_feature_flag())
         .arg("--bin")
-        .arg("cloacina-ctl")
+        .arg(get_binary_name())
         .arg("--")
         .arg("--help");
 
@@ -390,23 +428,15 @@ fn test_help_command() {
         "Help should contain program name"
     );
     assert!(
-        stdout.contains("compile"),
-        "Help should mention compile command"
-    );
-    assert!(
         stdout.contains("package"),
         "Help should mention package command"
     );
     assert!(
-        stdout.contains("inspect"),
-        "Help should mention inspect command"
+        stdout.contains("registry"),
+        "Help should mention registry command"
     );
     assert!(
-        stdout.contains("visualize"),
-        "Help should mention visualize command"
-    );
-    assert!(
-        stdout.contains("debug"),
-        "Help should mention debug command"
+        stdout.contains("server"),
+        "Help should mention server command"
     );
 }

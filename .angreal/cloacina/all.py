@@ -9,7 +9,12 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="all", about="run all cloacina core tests (unit, integration, and macro tests)")
+@angreal.command(
+    name="all",
+    about="run all cloacina core tests (unit, integration, and macro tests)",
+    when_to_use=["comprehensive testing", "pre-commit validation", "CI/CD full test suite"],
+    when_not_to_use=["quick feedback loops", "testing specific features", "debugging individual tests"]
+)
 def all():
     """Run all cloacina core tests (unit, integration, and macro tests)."""
     # Run unit tests first

@@ -385,17 +385,11 @@ mod tests {
         let id = RegistryStorage::store_binary(&mut dal, test_data.clone())
             .await
             .unwrap();
-        let retrieved = RegistryStorage::retrieve_binary(&dal, &id)
-            .await
-            .unwrap();
+        let retrieved = RegistryStorage::retrieve_binary(&dal, &id).await.unwrap();
         assert_eq!(retrieved.unwrap(), test_data);
 
-        RegistryStorage::delete_binary(&mut dal, &id)
-            .await
-            .unwrap();
-        let deleted_check = RegistryStorage::retrieve_binary(&dal, &id)
-            .await
-            .unwrap();
+        RegistryStorage::delete_binary(&mut dal, &id).await.unwrap();
+        let deleted_check = RegistryStorage::retrieve_binary(&dal, &id).await.unwrap();
         assert!(deleted_check.is_none());
     }
 }

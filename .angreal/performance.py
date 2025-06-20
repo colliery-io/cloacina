@@ -9,9 +9,14 @@ performance = angreal.command_group(name="performance", about="run performance t
 
 
 @performance()
-@angreal.command(name="simple", about="run simple performance test")
-@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="Number of workflows to execute")
-@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="Maximum concurrent tasks")
+@angreal.command(
+    name="simple",
+    about="run simple performance test",
+    when_to_use=["performance benchmarking", "regression testing", "measuring baseline performance"],
+    when_not_to_use=["functional testing", "development debugging", "small test runs"]
+)
+@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="number of workflow iterations to execute")
+@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_simple(iterations: int=150, concurrency: int=32):
     """Run the simple performance test example."""
     print(f"Running simple performance test ({iterations} iterations, {concurrency} concurrency)")
@@ -36,9 +41,14 @@ def performance_simple(iterations: int=150, concurrency: int=32):
 
 
 @performance()
-@angreal.command(name="pipeline", about="run pipeline performance test")
-@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="Number of workflows to execute")
-@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="Maximum concurrent tasks")
+@angreal.command(
+    name="pipeline",
+    about="run pipeline performance test",
+    when_to_use=["testing pipeline performance", "benchmarking complex workflows", "measuring sequential task overhead"],
+    when_not_to_use=["testing parallel execution", "simple workflow testing", "debugging functionality"]
+)
+@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="number of workflow iterations to execute")
+@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_pipeline(iterations: int=150, concurrency: int=32):
     """Run the pipeline performance test example."""
     print(f"Running pipeline performance test ({iterations} iterations, {concurrency} concurrency)")
@@ -63,9 +73,14 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
 
 
 @performance()
-@angreal.command(name="parallel", about="run parallel performance test")
-@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="Number of workflows to execute")
-@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="Maximum concurrent tasks")
+@angreal.command(
+    name="parallel",
+    about="run parallel performance test",
+    when_to_use=["testing parallel execution", "benchmarking concurrency", "measuring parallelization benefits"],
+    when_not_to_use=["testing sequential workflows", "debugging task order", "simple performance testing"]
+)
+@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="number of workflow iterations to execute")
+@angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_parallel(iterations: int=150, concurrency: int=32):
     """Run the parallel performance test example."""
     print(f"Running parallel performance test ({iterations} iterations, {concurrency} concurrency)")
@@ -91,7 +106,12 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
 
 
 @performance()
-@angreal.command(name="all", about="run all performance tests")
+@angreal.command(
+    name="all",
+    about="run all performance tests",
+    when_to_use=["comprehensive performance testing", "release validation", "comparing all test types"],
+    when_not_to_use=["quick feedback", "development testing", "resource-constrained environments"]
+)
 def performance_all():
     """Run all performance tests."""
     print("Running all performance tests")
@@ -135,7 +155,12 @@ def performance_all():
 
 
 @performance()
-@angreal.command(name="quick", about="run quick performance tests")
+@angreal.command(
+    name="quick",
+    about="run quick performance tests",
+    when_to_use=["rapid feedback", "development testing", "sanity checks"],
+    when_not_to_use=["production benchmarking", "accurate performance metrics", "release validation"]
+)
 def performance_quick():
     """Run quick performance tests with reduced iterations."""
     print("Running quick performance tests")

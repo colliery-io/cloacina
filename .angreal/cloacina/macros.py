@@ -14,11 +14,16 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="macros", about="run tests for macro validation system")
+@angreal.command(
+    name="macros",
+    about="run tests for macro validation system",
+    when_to_use=["validating workflow macros", "testing compile-time checks", "ensuring macro safety"],
+    when_not_to_use=["runtime testing", "integration testing", "performance testing"]
+)
 @angreal.argument(
     name="backend",
     long="backend",
-    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    help="test specific backend: postgres, sqlite, or both (default)",
     required=False
 )
 def macros(backend=None):

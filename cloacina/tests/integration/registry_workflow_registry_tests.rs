@@ -23,21 +23,19 @@ use diesel::prelude::*;
 use serial_test::serial;
 use tempfile::TempDir;
 
-use cloacina::registry::storage::FilesystemRegistryStorage;
+use cloacina::dal::FilesystemWorkflowRegistryDAL as FilesystemRegistryStorage;
 #[cfg(feature = "postgres")]
-use cloacina::registry::storage::PostgresRegistryStorage;
+use cloacina::dal::PostgresWorkflowRegistryDAL as PostgresRegistryStorage;
 #[cfg(feature = "sqlite")]
-use cloacina::registry::storage::SqliteRegistryStorage;
+use cloacina::dal::SqliteWorkflowRegistryDAL as SqliteRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use super::fixtures::get_or_init_fixture;
 
-// Import cloacina-ctl functions for building packages in tests
+// Import cloacina packaging functions for building packages in tests
 #[cfg(test)]
-use cloacina_ctl::cli::Cli;
-#[cfg(test)]
-use cloacina_ctl::commands::package_workflow;
+use cloacina::packaging::{package_workflow, CompileOptions};
 
 /// Test fixture for managing package files
 struct PackageFixture {
@@ -51,7 +49,7 @@ impl PackageFixture {
         let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
         let package_path = temp_dir.path().join("test_package.cloacina");
 
-        // Build the package using cloacina-ctl functions directly
+        // Build the package using cloacina packaging functions directly
         // Find the workspace root by looking for Cargo.toml
         let cargo_manifest_dir =
             std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -61,30 +59,16 @@ impl PackageFixture {
             .expect("Should have parent directory");
         let project_path = workspace_root.join("examples/packaged-workflow-example");
 
-        // Create minimal CLI args for the package function
-        let cli = Cli {
+        // Create compile options
+        let options = CompileOptions {
             target: None,
             profile: "debug".to_string(),
-            verbose: false,
-            quiet: false,
-            color: "auto".to_string(),
+            cargo_flags: vec!["--features".to_string(), "postgres".to_string()],
             jobs: None,
-            command: cloacina_ctl::cli::Commands::Package {
-                project_path: project_path.clone(),
-                output: package_path.clone(),
-                cargo_flags: vec!["--features".to_string(), "postgres".to_string()],
-            },
         };
 
         // Use the package_workflow function directly
-        if let Err(e) = package_workflow(
-            project_path,
-            package_path.clone(),
-            None,
-            "debug".to_string(),
-            vec!["--features".to_string(), "postgres".to_string()],
-            &cli,
-        ) {
+        if let Err(e) = package_workflow(project_path, package_path.clone(), options) {
             panic!("Failed to create test package: {}", e);
         }
 
