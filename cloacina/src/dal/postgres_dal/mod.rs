@@ -90,10 +90,10 @@ use crate::database::Database;
 use deadpool_diesel::postgres::Pool;
 use diesel::pg::PgConnection;
 
-#[cfg(feature = "auth")]
-pub mod auth_audit_log;
-#[cfg(feature = "auth")]
-pub mod auth_tokens;
+// #[cfg(feature = "auth")]
+// pub mod auth_audit_log;
+// #[cfg(feature = "auth")]
+// pub mod auth_tokens;
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
@@ -103,10 +103,10 @@ pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod workflow_registry_storage;
 
-#[cfg(feature = "auth")]
-use auth_audit_log::AuthAuditLogDAL;
-#[cfg(feature = "auth")]
-use auth_tokens::AuthTokensDAL;
+// #[cfg(feature = "auth")]
+// use auth_audit_log::AuthAuditLogDAL;
+// #[cfg(feature = "auth")]
+// use auth_tokens::AuthTokensDAL;
 use context::ContextDAL;
 use cron_execution::CronExecutionDAL;
 use cron_schedule::CronScheduleDAL;
@@ -120,10 +120,10 @@ pub use workflow_registry_storage::PostgresWorkflowRegistryDAL;
 // Re-export for public API
 pub use cron_execution::CronExecutionStats;
 
-#[cfg(feature = "auth")]
-pub use auth_audit_log::{AuditStats, AuthAuditLogDAL};
-#[cfg(feature = "auth")]
-pub use auth_tokens::{AuthTokensDAL, TokenStats};
+// #[cfg(feature = "auth")]
+// pub use auth_audit_log::{AuditStats, AuthAuditLogDAL};
+// #[cfg(feature = "auth")]
+// pub use auth_tokens::{AuthTokensDAL, TokenStats};
 
 /// The main Data Access Layer struct.
 ///
@@ -257,15 +257,15 @@ impl DAL {
         CronExecutionDAL { dal: self }
     }
 
-    /// Returns an AuthTokensDAL for authentication token operations
-    #[cfg(feature = "auth")]
-    pub fn auth_tokens(&self) -> AuthTokensDAL {
-        AuthTokensDAL { dal: self }
-    }
+    // /// Returns an AuthTokensDAL for authentication token operations
+    // #[cfg(feature = "auth")]
+    // pub fn auth_tokens(&self) -> AuthTokensDAL {
+    //     AuthTokensDAL { dal: self }
+    // }
 
-    /// Returns an AuthAuditLogDAL for authentication audit logging operations
-    #[cfg(feature = "auth")]
-    pub fn auth_audit_log(&self) -> AuthAuditLogDAL {
-        AuthAuditLogDAL { dal: self }
-    }
+    // /// Returns an AuthAuditLogDAL for authentication audit logging operations
+    // #[cfg(feature = "auth")]
+    // pub fn auth_audit_log(&self) -> AuthAuditLogDAL {
+    //     AuthAuditLogDAL { dal: self }
+    // }
 }
