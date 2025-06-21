@@ -37,21 +37,6 @@ jobs:
         test-file: ${{ fromJson(needs.discover-tests.outputs.test-files) }}
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: cloacina
-          POSTGRES_PASSWORD: cloacina
-          POSTGRES_DB: cloacina
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,6 +64,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install angreal
+
+      - name: Docker Compose Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run single test file via angreal - ${{ matrix.test-file }}
         run: angreal cloaca test --backend postgres --file ${{ matrix.test-file }}
