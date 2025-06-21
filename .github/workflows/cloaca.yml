@@ -34,13 +34,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install PostgreSQL (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql
           echo "PKG_CONFIG_PATH=$(brew --prefix postgresql)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install PostgreSQL (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev

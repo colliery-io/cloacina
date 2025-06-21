@@ -53,11 +53,22 @@ impl PackageFixture {
         // Find the workspace root by looking for Cargo.toml
         let cargo_manifest_dir =
             std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
-        let workspace_path = std::path::PathBuf::from(cargo_manifest_dir);
+        let workspace_path = std::path::PathBuf::from(&cargo_manifest_dir);
         let workspace_root = workspace_path
             .parent()
             .expect("Should have parent directory");
         let project_path = workspace_root.join("examples/packaged-workflow-example");
+
+        // Debug path resolution for CI troubleshooting
+        eprintln!("CARGO_MANIFEST_DIR: {}", cargo_manifest_dir);
+        eprintln!("workspace_path: {}", workspace_path.display());
+        eprintln!("workspace_root: {}", workspace_root.display());
+        eprintln!("project_path: {}", project_path.display());
+        eprintln!("project_path exists: {}", project_path.exists());
+
+        if !project_path.exists() {
+            panic!("Project path does not exist: {}", project_path.display());
+        }
 
         // Create compile options
         let options = CompileOptions {

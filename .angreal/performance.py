@@ -15,10 +15,14 @@ performance = angreal.command_group(name="performance", about="run performance t
     when_to_use=["performance benchmarking", "regression testing", "measuring baseline performance"],
     when_not_to_use=["functional testing", "development debugging", "small test runs"]
 )
-@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True, required=False, help="number of workflow iterations to execute")
+@angreal.argument(name="iterations", python_type="int", long="iterations", short="i", takes_value=True,  required=False, help="number of workflow iterations to execute")
 @angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_simple(iterations: int=150, concurrency: int=32):
     """Run the simple performance test example."""
+    if iterations is None:
+        iterations = 150
+    if concurrency is None:
+        concurrency = 32
     print(f"Running simple performance test ({iterations} iterations, {concurrency} concurrency)")
 
     example_dir = os.path.join("examples", "performance-simple")
@@ -50,6 +54,10 @@ def performance_simple(iterations: int=150, concurrency: int=32):
 @angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_pipeline(iterations: int=150, concurrency: int=32):
     """Run the pipeline performance test example."""
+    if iterations is None:
+        iterations = 150
+    if concurrency is None:
+        concurrency = 32
     print(f"Running pipeline performance test ({iterations} iterations, {concurrency} concurrency)")
 
     example_dir = os.path.join("examples", "performance-pipeline")
@@ -81,6 +89,10 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
 @angreal.argument(name="concurrency", python_type="int", long="concurrency", short="c", takes_value=True, required=False, help="maximum number of concurrent tasks")
 def performance_parallel(iterations: int=150, concurrency: int=32):
     """Run the parallel performance test example."""
+    if iterations is None:
+        iterations = 150
+    if concurrency is None:
+        concurrency = 32
     print(f"Running parallel performance test ({iterations} iterations, {concurrency} concurrency)")
 
     example_dir = os.path.join("examples", "performance-parallel")
