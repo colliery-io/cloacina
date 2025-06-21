@@ -72,6 +72,7 @@ def integration(backend=None, filter=None, skip_docker=False):
         backends_to_test = [backend]
 
     overall_success = True
+    failed_backends = []
 
     # Start Docker services if needed and postgres is being tested
     if not skip_docker and ("postgres" in backends_to_test):
@@ -91,16 +92,16 @@ def integration(backend=None, filter=None, skip_docker=False):
         print_section_header(f"Running integration tests for {test_backend} backend")
 
         try:
-            # Build the cargo test command for integration tests
-            cmd_args = ["test", "--test", "integration", "-p", "cloacina-ctl", "--features", test_backend, "--", "--test-threads=1"]
+            # Build the cargo test command for integration tests - run from project root
+            cmd_args = ["cargo", "test", "--test", "integration", "-p", "cloacina-ctl", "--no-default-features", "--features", test_backend, "--", "--test-threads=1"]
 
             if filter:
                 cmd_args.append(filter)
 
-            # Run the tests using cargo directly
+            # Run the tests from project root (no cwd specified)
             result = subprocess.run(
-                ["cargo"] + cmd_args,
-                cwd=os.path.dirname(angreal.get_root()),
+                cmd_args,
+                capture_output=True,
                 text=True
             )
 
@@ -108,14 +109,17 @@ def integration(backend=None, filter=None, skip_docker=False):
                 print_test_result(f"{test_backend} integration tests", True)
             else:
                 print_test_result(f"{test_backend} integration tests", False, result.stderr)
+                failed_backends.append(f"{test_backend}: {result.stderr.strip()}")
                 overall_success = False
 
         except Exception as e:
             print_test_result(f"{test_backend} integration tests", False, str(e))
+            failed_backends.append(f"{test_backend}: {str(e)}")
             overall_success = False
 
     if overall_success:
         print_section_header("ALL INTEGRATION TESTS PASSED")
     else:
         print_section_header("SOME INTEGRATION TESTS FAILED")
-        raise RuntimeError("Some cloacina-ctl integration tests failed")
+        failure_details = "\n".join(f"- {failure}" for failure in failed_backends)
+        raise RuntimeError(f"Cloacina-ctl integration tests failed:\n{failure_details}")

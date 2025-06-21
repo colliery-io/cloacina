@@ -58,13 +58,14 @@ def unit(backend=None, filter=None, verbose=False):
         backends_to_test = [backend]
 
     overall_success = True
+    failed_backends = []
 
     for test_backend in backends_to_test:
         print_section_header(f"Running unit tests for {test_backend} backend")
 
         try:
-            # Build the cargo test command
-            cmd_args = ["test", "--lib", "--features", test_backend]
+            # Build the cargo test command - run from project root, specify package
+            cmd_args = ["cargo", "test", "--lib", "-p", "cloacina-ctl", "--no-default-features", "--features", test_backend]
 
             if filter:
                 cmd_args.extend(["--", filter])
@@ -72,10 +73,9 @@ def unit(backend=None, filter=None, verbose=False):
             if verbose:
                 cmd_args.append("--verbose")
 
-            # Run the tests using cargo directly since these are unit tests
+            # Run the tests from project root (no cwd specified)
             result = subprocess.run(
-                ["cargo"] + cmd_args,
-                cwd="/Users/dstorey/Desktop/colliery/cloacina/cloacina-ctl",
+                cmd_args,
                 capture_output=True,
                 text=True
             )
@@ -86,14 +86,17 @@ def unit(backend=None, filter=None, verbose=False):
                     print("STDOUT:", result.stdout)
             else:
                 print_test_result(f"{test_backend} unit tests", False, result.stderr)
+                failed_backends.append(f"{test_backend}: {result.stderr.strip()}")
                 overall_success = False
 
         except Exception as e:
             print_test_result(f"{test_backend} unit tests", False, str(e))
+            failed_backends.append(f"{test_backend}: {str(e)}")
             overall_success = False
 
     if overall_success:
         print_section_header("ALL UNIT TESTS PASSED")
     else:
         print_section_header("SOME UNIT TESTS FAILED")
-        raise RuntimeError("Some cloacina-ctl unit tests failed")
+        failure_details = "\n".join(f"- {failure}" for failure in failed_backends)
+        raise RuntimeError(f"Cloacina-ctl unit tests failed:\n{failure_details}")
