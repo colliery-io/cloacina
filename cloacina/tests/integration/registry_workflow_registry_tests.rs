@@ -79,8 +79,17 @@ impl PackageFixture {
         };
 
         // Use the package_workflow function directly
-        if let Err(e) = package_workflow(project_path, package_path.clone(), options) {
-            panic!("Failed to create test package: {}", e);
+        eprintln!("About to call package_workflow with:");
+        eprintln!("  project_path: {}", project_path.display());
+        eprintln!("  package_path: {}", package_path.display());
+        eprintln!("  options: {:?}", options);
+        
+        match package_workflow(project_path, package_path.clone(), options) {
+            Ok(_) => eprintln!("Package workflow completed successfully"),
+            Err(e) => {
+                eprintln!("Package workflow failed with error: {}", e);
+                panic!("Failed to create test package: {}", e);
+            }
         }
 
         assert!(
