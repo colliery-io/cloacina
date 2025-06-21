@@ -1,20 +1,20 @@
 ---
-name: Rust Tests
+name: Cloacina-CTL Tests
 
 on:
   workflow_call:  # Only called by ci.yml
 
 concurrency:
-  group: rust-tests-${{ github.ref }}
+  group: cloacina-ctl-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  rust-tests:
-    name: Rust Tests
+  cloacina-ctl-tests:
+    name: Cloacina-CTL Tests
     strategy:
       fail-fast: false
       matrix:
-        test-type: [unit, integration, macros]
+        test-type: [unit, integration]
         backend: [postgres, sqlite]
     runs-on: ubuntu-latest
 
@@ -41,10 +41,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-rust-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-ctl-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-rust-${{ matrix.backend }}-
-            ${{ runner.os }}-rust-
+            ${{ runner.os }}-cloacina-ctl-${{ matrix.backend }}-
+            ${{ runner.os }}-cloacina-ctl-
 
       - name: Docker Compose Cache
         if: matrix.backend == 'postgres'
@@ -60,4 +60,4 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run ${{ matrix.test-type }} tests (${{ matrix.backend }})
-        run: angreal cloacina ${{ matrix.test-type }} --backend ${{ matrix.backend }}
+        run: angreal ctl ${{ matrix.test-type }} --backend ${{ matrix.backend }}

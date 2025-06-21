@@ -34,7 +34,22 @@ def create_rust_demo_command(dir_name, demo_type):
         display_name = f"{dir_name.replace('_', ' ').title()} Example"
 
     @demos()
-    @angreal.command(name=command_name, about=f"run {display_name}")
+    @angreal.command(
+        name=command_name,
+        about=f"run {display_name}",
+        when_to_use=[
+            "Testing Cloacina Rust integration",
+            "Learning workflow patterns in Rust",
+            "Validating compiled workflow performance",
+            "Demonstrating native Rust capabilities"
+        ],
+        when_not_to_use=[
+            "Production deployment scenarios",
+            "Memory-intensive workflows",
+            "Cross-language integrations",
+            "Debugging workflow internals"
+        ]
+    )
     def command():
         """Run the demo project."""
         return run_example_or_tutorial(

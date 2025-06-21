@@ -14,11 +14,16 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="macros", about="run tests for macro validation system")
+@angreal.command(
+    name="macros",
+    about="run tests for macro validation system",
+    when_to_use=["validating workflow macros", "testing compile-time checks", "ensuring macro safety"],
+    when_not_to_use=["runtime testing", "integration testing", "performance testing"]
+)
 @angreal.argument(
     name="backend",
     long="backend",
-    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    help="test specific backend: postgres, sqlite, or both (default)",
     required=False
 )
 def macros(backend=None):
@@ -26,12 +31,12 @@ def macros(backend=None):
 
     # Validate backend selection
     if not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Get backend configurations for cargo check
     backends = get_check_backends(backend)
     if backends is None:
-        return 1
+        raise RuntimeError("Failed to get backend configurations")
 
     # Test that invalid examples fail to compile as expected
     failure_examples = [
@@ -75,9 +80,8 @@ def macros(backend=None):
 
         if not all_passed:
             print(f"\n{backend_name} macro tests failed!")
-            return 1
+            raise RuntimeError(f"{backend_name} macro tests failed")
         else:
             print(f"\n{backend_name} macro tests passed")
 
     print_final_success("All macro tests passed for both backends!")
-    return 0

@@ -14,16 +14,19 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="package", about="generate files, build wheel, then clean")
-@angreal.argument(name="backend", long="backend", required=True, help="Backend to build: postgres or sqlite")
+@angreal.command(
+    name="package",
+    about="generate files, build wheel, then clean",
+    when_to_use=["building individual backend wheels", "testing wheel creation", "local development packaging"],
+    when_not_to_use=["release builds", "building multiple backends", "CI/CD pipelines"]
+)
+@angreal.argument(name="backend", long="backend", required=True, help="target backend: postgres or sqlite")
 def package(backend=None):
     """Generate files, build the wheel, then clean up generated files."""
     try:
         # Step 1: Generate files
         print("Step 1: Generating files...")
-        result = generate(backend)
-        if result != 0:
-            return result
+        generate(backend)
 
         # Step 2: Build wheel
         print("Step 2: Building wheel...")
@@ -64,7 +67,7 @@ def package(backend=None):
                 "--release"
             ]
 
-            result = subprocess.run(
+            subprocess.run(
                 maturin_cmd,
                 cwd=str(backend_dir),
                 capture_output=True,
@@ -90,10 +93,10 @@ def package(backend=None):
                 print(f"  STDOUT: {e.stdout}")
             if e.stderr:
                 print(f"  STDERR: {e.stderr}")
-            return 1
+            raise RuntimeError(f"Failed to build {backend} wheel")
         except Exception as e:
             print(f"  Build failed: {e}")
-            return 1
+            raise RuntimeError(f"Failed to build {backend} wheel: {e}")
         finally:
             # Clean up the build environment
             if venv_path.exists():
@@ -102,13 +105,10 @@ def package(backend=None):
 
         # Step 3: Clean up
         print("Step 3: Cleaning generated files...")
-        result = scrub()
-        if result != 0:
-            return result
+        scrub()
 
         print(f"Successfully built {backend} backend!")
-        return 0
 
     except Exception as e:
         print(f"Build failed: {e}")
-        return 1
+        raise RuntimeError(f"Failed to package {backend} backend: {e}")

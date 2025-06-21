@@ -149,12 +149,24 @@ def create_python_tutorial_command(tutorial_file):
     @demos()
     @angreal.command(
         name=command_name,
-        about=f"run Python Tutorial {tutorial_num}"
+        about=f"run Python Tutorial {tutorial_num}",
+        when_to_use=[
+            "Testing Cloacina functionality with Python examples",
+            "Learning workflow orchestration concepts",
+            "Validating backend integrations",
+            "Demonstrating framework capabilities"
+        ],
+        when_not_to_use=[
+            "Production workflow deployment",
+            "Performance benchmarking",
+            "Complex multi-step workflows",
+            "Long-running production tasks"
+        ]
     )
     @angreal.argument(
         name="backend",
         long="backend",
-        help="Backend to use: postgres or sqlite (default: sqlite)",
+        help="Database backend (postgres/sqlite, default: sqlite)",
         required=False
     )
     def command(backend=None):

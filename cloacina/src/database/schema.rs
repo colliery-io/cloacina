@@ -143,6 +143,38 @@ mod postgres_schema {
         }
     }
 
+    #[cfg(feature = "auth")]
+    diesel::table! {
+        auth_tokens (token_id) {
+            token_id -> Varchar,
+            name -> Varchar,
+            role -> Varchar,
+            tenant_id -> Varchar,
+            created_at -> Timestamptz,
+            expires_at -> Nullable<Timestamptz>,
+            last_used_at -> Nullable<Timestamptz>,
+            created_by_token_id -> Nullable<Varchar>,
+            status -> Varchar,
+        }
+    }
+
+    #[cfg(feature = "auth")]
+    diesel::table! {
+        auth_audit_log (id) {
+            id -> Int4,
+            timestamp -> Timestamptz,
+            action -> Varchar,
+            token_id -> Nullable<Varchar>,
+            actor_token_id -> Nullable<Varchar>,
+            tenant_id -> Nullable<Varchar>,
+            details -> Nullable<Json>,
+            ip_address -> Nullable<Inet>,
+            user_agent -> Nullable<Varchar>,
+            resource -> Nullable<Varchar>,
+            action_type -> Nullable<Varchar>,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -154,7 +186,32 @@ mod postgres_schema {
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
+    #[cfg(feature = "auth")]
+    diesel::joinable!(auth_tokens -> auth_tokens (created_by_token_id));
+
+    #[cfg(feature = "auth")]
+    diesel::joinable!(auth_audit_log -> auth_tokens (token_id));
+
+    #[cfg(feature = "auth")]
+    diesel::joinable!(auth_audit_log -> auth_tokens (actor_token_id));
+
+    #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
+        contexts,
+        cron_executions,
+        cron_schedules,
+        pipeline_executions,
+        recovery_events,
+        task_executions,
+        task_execution_metadata,
+        workflow_packages,
+        workflow_registry,
+    );
+
+    #[cfg(feature = "auth")]
+    diesel::allow_tables_to_appear_in_same_query!(
+        auth_audit_log,
+        auth_tokens,
         contexts,
         cron_executions,
         cron_schedules,

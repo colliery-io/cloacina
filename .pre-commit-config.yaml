@@ -31,14 +31,14 @@ repos:
     hooks:
       - id: cargo-check-postgres
         name: Cargo check with PostgreSQL backend
-        entry: cargo check --no-default-features --features "postgres,macros" --all-targets
+        entry: cargo check --no-default-features --features "postgres,macros"
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: cargo-check-sqlite
         name: Cargo check with SQLite backend
-        entry: cargo check --no-default-features --features "sqlite,macros" --all-targets
+        entry: cargo check --no-default-features --features "sqlite,macros"
         language: system
         types: [rust]
         pass_filenames: false

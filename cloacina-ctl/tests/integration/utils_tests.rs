@@ -24,7 +24,7 @@ use tempfile::TempDir;
 fn create_test_cli(verbose: bool, quiet: bool) -> Cli {
     use clap::Parser;
 
-    let mut args = vec!["cloacina-ctl", "inspect", "/test/path"];
+    let mut args = vec!["cloacina-ctl", "package", "inspect", "/test/path"];
     if verbose {
         args.insert(1, "--verbose");
     }

@@ -20,12 +20,12 @@ use std::time::Duration;
 use tokio::sync::{broadcast, watch, RwLock};
 use uuid::Uuid;
 
+use crate::dal::FilesystemWorkflowRegistryDAL;
 use crate::dal::DAL;
 use crate::executor::pipeline_executor::*;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
-use crate::registry::storage::FilesystemRegistryStorage;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::task::TaskState;
 use crate::UniversalUuid;
@@ -166,7 +166,8 @@ pub struct DefaultRunner {
     /// Optional cron recovery service for handling lost executions
     cron_recovery: Arc<RwLock<Option<Arc<crate::CronRecoveryService>>>>,
     /// Optional workflow registry for packaged workflows
-    workflow_registry: Arc<RwLock<Option<Arc<WorkflowRegistryImpl<FilesystemRegistryStorage>>>>>,
+    workflow_registry:
+        Arc<RwLock<Option<Arc<WorkflowRegistryImpl<FilesystemWorkflowRegistryDAL>>>>>,
     /// Optional registry reconciler for packaged workflows
     registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
 }
@@ -705,7 +706,7 @@ impl DefaultRunner {
                 .clone()
                 .unwrap_or_else(|| std::env::temp_dir().join("cloacina_registry"));
 
-            match FilesystemRegistryStorage::new(storage_path) {
+            match FilesystemWorkflowRegistryDAL::new(storage_path) {
                 Ok(storage) => {
                     // Create workflow registry
                     match WorkflowRegistryImpl::new(storage, self.database.clone()) {
@@ -1529,7 +1530,7 @@ impl DefaultRunner {
     /// * `None` - If the registry is not enabled or not yet initialized
     pub async fn get_workflow_registry(
         &self,
-    ) -> Option<Arc<WorkflowRegistryImpl<FilesystemRegistryStorage>>> {
+    ) -> Option<Arc<WorkflowRegistryImpl<FilesystemWorkflowRegistryDAL>>> {
         let registry = self.workflow_registry.read().await;
         registry.clone()
     }

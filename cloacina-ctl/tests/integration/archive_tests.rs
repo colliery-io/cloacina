@@ -22,7 +22,7 @@ use std::fs;
 use tempfile::TempDir;
 
 fn create_test_cli() -> Cli {
-    Cli::try_parse_from(vec!["cloacina-ctl", "inspect", "/test/path"])
+    Cli::try_parse_from(vec!["cloacina-ctl", "package", "inspect", "/test/path"])
         .expect("Failed to parse test CLI")
 }
 

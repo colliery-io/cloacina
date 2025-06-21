@@ -79,18 +79,28 @@ def _integrate_rustdoc():
 
 
 @docs()
-@angreal.command(name="clean", about="clean the documentation build directory")
+@angreal.command(
+    name="clean",
+    about="clean the documentation build directory",
+    when_to_use=["rebuilding docs", "clearing build cache", "fixing build issues"],
+    when_not_to_use=["during active development", "wanting faster builds"]
+)
 def clean():
     """Clean the documentation build directory."""
     return _clean_docs()
 
 
 @docs()
-@angreal.command(name="serve", about="serve the documentation site locally, by default building draft documents.")
+@angreal.command(
+    name="serve",
+    about="serve the documentation site locally, by default building draft documents.",
+    when_to_use=["local development", "previewing docs", "testing documentation changes"],
+    when_not_to_use=["production builds", "automated CI/CD", "when not actively writing docs"]
+)
 @angreal.argument(
     name="prod",
     long="prod",
-    help="exclude draft content from the build",
+    help="exclude draft content to match production build",
     required=False,
     takes_value=False,
     is_flag=True
@@ -140,11 +150,16 @@ def serve(prod: bool = False):
 
 
 @docs()
-@angreal.command(name="build", about="build the documentation site, by default excluding draft documents.")
+@angreal.command(
+    name="build",
+    about="build the documentation site, by default excluding draft documents.",
+    when_to_use=["production deployment", "CI/CD pipelines", "final documentation builds"],
+    when_not_to_use=["active development", "testing draft content", "quick previews"]
+)
 @angreal.argument(
     name="draft",
     long="draft",
-    help="include draft content in the build",
+    help="include draft content in build output",
     required=False,
     takes_value=False,
     is_flag=True
