@@ -46,8 +46,14 @@ struct PackageFixture {
 impl PackageFixture {
     /// Create a new package fixture with a guaranteed package file
     fn new() -> Self {
-        let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
+        // Use a temp directory in the current working directory for CI compatibility
+        let temp_dir = tempfile::TempDir::new_in(".")
+            .or_else(|_| tempfile::TempDir::new())
+            .expect("Failed to create temp directory");
         let package_path = temp_dir.path().join("test_package.cloacina");
+        
+        eprintln!("Created temp directory: {}", temp_dir.path().display());
+        eprintln!("Target package path: {}", package_path.display());
 
         // Build the package using cloacina packaging functions directly
         // Find the workspace root by looking for Cargo.toml
