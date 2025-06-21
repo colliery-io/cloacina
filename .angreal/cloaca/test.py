@@ -26,10 +26,15 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 
 @cloaca()
-@angreal.command(name="test", about="run tests in isolated test environments")
-@angreal.argument(name="backend", long="backend", help="Test specific backend: postgres or sqlite (default: both)", required=False)
-@angreal.argument(name="filter", short="k", help="Filter tests by expression (pytest -k)")
-@angreal.argument(name="file", long="file", help="Run specific test file (e.g. test_scenario_03_function_based_dag_topology.py)")
+@angreal.command(
+    name="test",
+    about="run tests in isolated test environments",
+    when_to_use=["testing Python bindings", "validating API changes", "CI/CD verification"],
+    when_not_to_use=["unit testing core Rust", "testing without clean environment", "quick development iterations"]
+)
+@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
+@angreal.argument(name="filter", short="k", help="filter tests using pytest -k expression syntax")
+@angreal.argument(name="file", long="file", help="run specific test file by filename")
 def test(backend=None, filter=None, file=None):
     """Run Python binding tests in isolated virtual environments.
 
@@ -46,8 +51,7 @@ def test(backend=None, filter=None, file=None):
     elif backend is None:
         backends_to_test = ["postgres", "sqlite"]
     else:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
-        return 1
+        raise RuntimeError(f"Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
 
     all_passed = True
 
@@ -66,9 +70,7 @@ def test(backend=None, filter=None, file=None):
         try:
             # Step 1: Generate files
             print("Step 1: Generating files...")
-            result = generate(backend_name)
-            if result != 0:
-                raise Exception(f"Failed to generate files for {backend_name}")
+            generate(backend_name)
 
             # Step 2: Setup Docker for postgres backend
             if backend_name == "postgres":
@@ -172,6 +174,23 @@ def test(backend=None, filter=None, file=None):
                         file_results.append((test_file.name, True))
                     else:
                         print(f"✗ {test_file.name} FAILED")
+                        print(f"   Return code: {result.returncode}")
+                        print(f"   {'-'*50}")
+                        
+                        if result.stdout:
+                            print("   STDOUT:")
+                            for line in result.stdout.split('\n'):
+                                if line.strip():
+                                    print(f"   {line}")
+                        
+                        if result.stderr:
+                            print("   STDERR:")
+                            for line in result.stderr.split('\n'):
+                                if line.strip():
+                                    print(f"   {line}")
+                        
+                        print(f"   {'-'*50}")
+                        
                         test_result = TestResult(
                             file_name=test_file.name,
                             backend=backend_name,
@@ -187,6 +206,23 @@ def test(backend=None, filter=None, file=None):
 
                 except subprocess.CalledProcessError as e:
                     print(f"✗ {test_file.name} FAILED (subprocess error)")
+                    print(f"   Return code: {e.returncode}")
+                    print(f"   {'-'*50}")
+                    
+                    if e.stdout:
+                        print("   STDOUT:")
+                        for line in e.stdout.split('\n'):
+                            if line.strip():
+                                print(f"   {line}")
+                    
+                    if e.stderr:
+                        print("   STDERR:")
+                        for line in e.stderr.split('\n'):
+                            if line.strip():
+                                print(f"   {line}")
+                    
+                    print(f"   {'-'*50}")
+                    
                     test_result = TestResult(
                         file_name=test_file.name,
                         backend=backend_name,
@@ -285,8 +321,7 @@ def test(backend=None, filter=None, file=None):
 
     if all_passed:
         print("\nAll tests passed!")
-        return 0
     else:
         print(f"\n{len(failed_results)} test files failed")
         print("See detailed failure report above")
-        return 1
+        raise RuntimeError(f"{len(failed_results)} Python binding test files failed")

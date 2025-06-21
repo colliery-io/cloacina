@@ -15,13 +15,14 @@
  */
 
 use clap::Parser;
-use cloacina_ctl::cli::{Cli, Commands, DebugAction};
+use cloacina_ctl::cli::{Cli, Commands, DebugAction, PackageCommands};
 use std::path::PathBuf;
 
 #[test]
 fn test_compile_command_parsing() {
     let args = vec![
         "cloacina-ctl",
+        "package",
         "compile",
         "/path/to/project",
         "--output",
@@ -34,16 +35,16 @@ fn test_compile_command_parsing() {
     let cli = Cli::try_parse_from(args).expect("Should parse compile command");
 
     match cli.command {
-        Commands::Compile {
+        Commands::Package(PackageCommands::Compile {
             project_path,
             output,
             cargo_flags,
-        } => {
+        }) => {
             assert_eq!(project_path, PathBuf::from("/path/to/project"));
             assert_eq!(output, PathBuf::from("/path/to/output.so"));
             assert_eq!(cargo_flags, vec!["--release", "--features=test"]);
         }
-        _ => panic!("Expected Compile command"),
+        _ => panic!("Expected Package Compile command"),
     }
 }
 
@@ -52,6 +53,7 @@ fn test_package_command_parsing() {
     let args = vec![
         "cloacina-ctl",
         "package",
+        "create",
         "/path/to/project",
         "--output",
         "/path/to/output.cloacina",
@@ -60,16 +62,16 @@ fn test_package_command_parsing() {
     let cli = Cli::try_parse_from(args).expect("Should parse package command");
 
     match cli.command {
-        Commands::Package {
+        Commands::Package(PackageCommands::Create {
             project_path,
             output,
             cargo_flags,
-        } => {
+        }) => {
             assert_eq!(project_path, PathBuf::from("/path/to/project"));
             assert_eq!(output, PathBuf::from("/path/to/output.cloacina"));
             assert!(cargo_flags.is_empty());
         }
-        _ => panic!("Expected Package command"),
+        _ => panic!("Expected Package Create command"),
     }
 }
 
@@ -77,6 +79,7 @@ fn test_package_command_parsing() {
 fn test_inspect_command_parsing() {
     let args = vec![
         "cloacina-ctl",
+        "package",
         "inspect",
         "/path/to/package.cloacina",
         "--format",
@@ -86,32 +89,37 @@ fn test_inspect_command_parsing() {
     let cli = Cli::try_parse_from(args).expect("Should parse inspect command");
 
     match cli.command {
-        Commands::Inspect {
+        Commands::Package(PackageCommands::Inspect {
             package_path,
             format,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             assert_eq!(format, "json");
         }
-        _ => panic!("Expected Inspect command"),
+        _ => panic!("Expected Package Inspect command"),
     }
 }
 
 #[test]
 fn test_inspect_command_default_format() {
-    let args = vec!["cloacina-ctl", "inspect", "/path/to/package.cloacina"];
+    let args = vec![
+        "cloacina-ctl",
+        "package",
+        "inspect",
+        "/path/to/package.cloacina",
+    ];
 
     let cli = Cli::try_parse_from(args).expect("Should parse inspect command");
 
     match cli.command {
-        Commands::Inspect {
+        Commands::Package(PackageCommands::Inspect {
             package_path,
             format,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             assert_eq!(format, "human"); // Default format
         }
-        _ => panic!("Expected Inspect command"),
+        _ => panic!("Expected Package Inspect command"),
     }
 }
 
@@ -119,6 +127,7 @@ fn test_inspect_command_default_format() {
 fn test_visualize_command_parsing() {
     let args = vec![
         "cloacina-ctl",
+        "package",
         "visualize",
         "/path/to/package.cloacina",
         "--details",
@@ -131,58 +140,69 @@ fn test_visualize_command_parsing() {
     let cli = Cli::try_parse_from(args).expect("Should parse visualize command");
 
     match cli.command {
-        Commands::Visualize {
+        Commands::Package(PackageCommands::Visualize {
             package_path,
             details,
             layout,
             format,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             assert!(details);
             assert_eq!(layout, "compact");
             assert_eq!(format, "dot");
         }
-        _ => panic!("Expected Visualize command"),
+        _ => panic!("Expected Package Visualize command"),
     }
 }
 
 #[test]
 fn test_visualize_command_defaults() {
-    let args = vec!["cloacina-ctl", "visualize", "/path/to/package.cloacina"];
+    let args = vec![
+        "cloacina-ctl",
+        "package",
+        "visualize",
+        "/path/to/package.cloacina",
+    ];
 
     let cli = Cli::try_parse_from(args).expect("Should parse visualize command");
 
     match cli.command {
-        Commands::Visualize {
+        Commands::Package(PackageCommands::Visualize {
             package_path,
             details,
             layout,
             format,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             assert!(!details); // Default is false
             assert_eq!(layout, "horizontal"); // Default layout
             assert_eq!(format, "ascii"); // Default format
         }
-        _ => panic!("Expected Visualize command"),
+        _ => panic!("Expected Package Visualize command"),
     }
 }
 
 #[test]
 fn test_debug_list_command() {
-    let args = vec!["cloacina-ctl", "debug", "/path/to/package.cloacina", "list"];
+    let args = vec![
+        "cloacina-ctl",
+        "package",
+        "debug",
+        "/path/to/package.cloacina",
+        "list",
+    ];
 
     let cli = Cli::try_parse_from(args).expect("Should parse debug list command");
 
     match cli.command {
-        Commands::Debug {
+        Commands::Package(PackageCommands::Debug {
             package_path,
             action,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             matches!(action, DebugAction::List);
         }
-        _ => panic!("Expected Debug command"),
+        _ => panic!("Expected Package Debug command"),
     }
 }
 
@@ -190,6 +210,7 @@ fn test_debug_list_command() {
 fn test_debug_execute_command() {
     let args = vec![
         "cloacina-ctl",
+        "package",
         "debug",
         "/path/to/package.cloacina",
         "execute",
@@ -210,10 +231,10 @@ fn test_debug_execute_command() {
     let cli = Cli::try_parse_from(args).expect("Should parse debug execute command");
 
     match cli.command {
-        Commands::Debug {
+        Commands::Package(PackageCommands::Debug {
             package_path,
             action,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             match action {
                 DebugAction::Execute {
@@ -234,7 +255,7 @@ fn test_debug_execute_command() {
                 _ => panic!("Expected Execute action"),
             }
         }
-        _ => panic!("Expected Debug command"),
+        _ => panic!("Expected Package Debug command"),
     }
 }
 
@@ -242,6 +263,7 @@ fn test_debug_execute_command() {
 fn test_debug_execute_command_defaults() {
     let args = vec![
         "cloacina-ctl",
+        "package",
         "debug",
         "/path/to/package.cloacina",
         "execute",
@@ -251,10 +273,10 @@ fn test_debug_execute_command_defaults() {
     let cli = Cli::try_parse_from(args).expect("Should parse debug execute command");
 
     match cli.command {
-        Commands::Debug {
+        Commands::Package(PackageCommands::Debug {
             package_path,
             action,
-        } => {
+        }) => {
             assert_eq!(package_path, PathBuf::from("/path/to/package.cloacina"));
             match action {
                 DebugAction::Execute {
@@ -275,7 +297,7 @@ fn test_debug_execute_command_defaults() {
                 _ => panic!("Expected Execute action"),
             }
         }
-        _ => panic!("Expected Debug command"),
+        _ => panic!("Expected Package Debug command"),
     }
 }
 
@@ -293,6 +315,7 @@ fn test_global_flags() {
         "always",
         "--jobs",
         "4",
+        "package",
         "inspect",
         "/path/to/package.cloacina",
     ];
@@ -309,7 +332,12 @@ fn test_global_flags() {
 
 #[test]
 fn test_global_flags_defaults() {
-    let args = vec!["cloacina-ctl", "inspect", "/path/to/package.cloacina"];
+    let args = vec![
+        "cloacina-ctl",
+        "package",
+        "inspect",
+        "/path/to/package.cloacina",
+    ];
 
     let cli = Cli::try_parse_from(args).expect("Should parse with default global flags");
 

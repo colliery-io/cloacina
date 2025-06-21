@@ -434,6 +434,8 @@ compile_error!("Cannot enable both 'postgres' and 'sqlite' features simultaneous
 #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
 compile_error!("Must enable exactly one database backend: either 'postgres' or 'sqlite'");
 
+// #[cfg(feature = "auth")]
+// pub mod auth;
 pub mod context;
 pub mod cron_evaluator;
 pub mod cron_recovery;
@@ -445,6 +447,7 @@ pub mod executor;
 pub mod graph;
 pub mod logging;
 pub mod models;
+pub mod packaging;
 pub mod registry;
 pub mod retry;
 pub mod runner;

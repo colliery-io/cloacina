@@ -14,11 +14,10 @@
  *  limitations under the License.
  */
 
-//! PostgreSQL storage backend for workflow registry.
+//! PostgreSQL DAL for workflow registry storage operations.
 //!
-//! This implementation stores binary workflow data directly in the PostgreSQL
-//! database using BYTEA columns. It provides ACID guarantees and leverages
-//! database-level integrity constraints.
+//! This module provides PostgreSQL-specific data access operations for workflow
+//! registry binary data storage, following the established DAL patterns.
 
 use async_trait::async_trait;
 use diesel::prelude::*;
@@ -30,57 +29,21 @@ use crate::models::workflow_registry::{NewWorkflowRegistryEntry, WorkflowRegistr
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
-/// PostgreSQL-based storage backend for workflow registry.
+/// PostgreSQL-based DAL for workflow registry storage operations.
 ///
-/// This storage backend uses the `workflow_registry` table to store binary
-/// workflow data alongside generated UUIDs. All operations are atomic and
-/// benefit from PostgreSQL's ACID properties.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use cloacina::registry::storage::PostgresRegistryStorage;
-/// use cloacina::registry::RegistryStorage;
-/// use cloacina::database::Database;
-///
-/// # async fn example(database: Database) -> Result<(), Box<dyn std::error::Error>> {
-/// let mut storage = PostgresRegistryStorage::new(database);
-///
-/// // Store binary workflow data
-/// let workflow_data = std::fs::read("my_workflow.so")?;
-/// let id = storage.store_binary(workflow_data).await?;
-///
-/// // Retrieve it later
-/// if let Some(data) = storage.retrieve_binary(&id).await? {
-///     println!("Retrieved {} bytes", data.len());
-/// }
-/// # Ok(())
-/// # }
-/// ```
+/// This DAL implementation handles binary workflow data storage in PostgreSQL
+/// using BYTEA columns with ACID guarantees and database-level integrity constraints.
 #[derive(Debug, Clone)]
-pub struct PostgresRegistryStorage {
+pub struct PostgresWorkflowRegistryDAL {
     database: Database,
 }
 
-impl PostgresRegistryStorage {
-    /// Create a new PostgreSQL registry storage backend.
+impl PostgresWorkflowRegistryDAL {
+    /// Create a new PostgreSQL workflow registry DAL.
     ///
     /// # Arguments
     ///
-    /// * `database` - Database instance for PostgreSQL
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use cloacina::registry::storage::PostgresRegistryStorage;
-    /// use cloacina::database::Database;
-    ///
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let database = Database::new("postgresql://user:pass@localhost", "cloacina", 5);
-    /// let storage = PostgresRegistryStorage::new(database);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// * `database` - Database instance for PostgreSQL operations
     pub fn new(database: Database) -> Self {
         Self { database }
     }
@@ -92,7 +55,7 @@ impl PostgresRegistryStorage {
 }
 
 #[async_trait]
-impl RegistryStorage for PostgresRegistryStorage {
+impl RegistryStorage for PostgresWorkflowRegistryDAL {
     async fn store_binary(&mut self, data: Vec<u8>) -> Result<String, StorageError> {
         let conn = self
             .database

@@ -14,11 +14,11 @@
  *  limitations under the License.
  */
 
-//! Filesystem storage backend for workflow registry.
+//! Filesystem DAL for workflow registry storage operations.
 //!
-//! This implementation stores binary workflow data as individual files on the
-//! local filesystem. It's particularly suitable for SQLite deployments where
-//! storing large binary data in the database is not optimal.
+//! This module provides filesystem-based data access operations for workflow
+//! registry binary data storage, following the established DAL patterns for
+//! non-database storage backends.
 
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -28,10 +28,10 @@ use uuid::Uuid;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
-/// Filesystem-based storage backend for workflow registry.
+/// Filesystem-based DAL for workflow registry storage operations.
 ///
-/// This storage backend stores each workflow package as a separate file
-/// in a designated directory. Files are named using UUIDs to ensure
+/// This DAL implementation handles binary workflow data storage as individual
+/// files on the local filesystem. Files are named using UUIDs to ensure
 /// uniqueness and avoid conflicts.
 ///
 /// # Directory Structure
@@ -64,12 +64,12 @@ use crate::registry::traits::RegistryStorage;
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct FilesystemRegistryStorage {
+pub struct FilesystemWorkflowRegistryDAL {
     storage_dir: PathBuf,
 }
 
-impl FilesystemRegistryStorage {
-    /// Create a new filesystem registry storage backend.
+impl FilesystemWorkflowRegistryDAL {
+    /// Create a new filesystem workflow registry DAL.
     ///
     /// # Arguments
     ///
@@ -77,16 +77,16 @@ impl FilesystemRegistryStorage {
     ///
     /// # Returns
     ///
-    /// * `Ok(FilesystemRegistryStorage)` - Successfully created storage
+    /// * `Ok(FilesystemWorkflowRegistryDAL)` - Successfully created DAL
     /// * `Err(std::io::Error)` - If directory creation fails
     ///
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloacina::registry::storage::FilesystemRegistryStorage;
+    /// use cloacina::dal::filesystem_dal::FilesystemWorkflowRegistryDAL;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
+    /// let dal = FilesystemWorkflowRegistryDAL::new("/var/lib/cloacina/registry")?;
     /// # Ok(())
     /// # }
     /// ```
@@ -133,7 +133,7 @@ impl FilesystemRegistryStorage {
 }
 
 #[async_trait]
-impl RegistryStorage for FilesystemRegistryStorage {
+impl RegistryStorage for FilesystemWorkflowRegistryDAL {
     async fn store_binary(&mut self, data: Vec<u8>) -> Result<String, StorageError> {
         let id = Uuid::new_v4();
         let file_path = self.file_path(&id.to_string());
@@ -240,69 +240,69 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    async fn create_test_storage() -> (FilesystemRegistryStorage, TempDir) {
+    async fn create_test_storage() -> (FilesystemWorkflowRegistryDAL, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let storage = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
-        (storage, temp_dir)
+        let dal = FilesystemWorkflowRegistryDAL::new(temp_dir.path()).unwrap();
+        (dal, temp_dir)
     }
 
     #[tokio::test]
     async fn test_store_and_retrieve() {
-        let (mut storage, _temp_dir) = create_test_storage().await;
+        let (mut dal, _temp_dir) = create_test_storage().await;
 
         let test_data = b"test workflow binary data".to_vec();
-        let id = storage.store_binary(test_data.clone()).await.unwrap();
+        let id = dal.store_binary(test_data.clone()).await.unwrap();
 
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, Some(test_data));
     }
 
     #[tokio::test]
     async fn test_retrieve_nonexistent() {
-        let (storage, _temp_dir) = create_test_storage().await;
+        let (dal, _temp_dir) = create_test_storage().await;
         let fake_id = Uuid::new_v4().to_string();
 
-        let result = storage.retrieve_binary(&fake_id).await.unwrap();
+        let result = dal.retrieve_binary(&fake_id).await.unwrap();
         assert_eq!(result, None);
     }
 
     #[tokio::test]
     async fn test_delete_binary() {
-        let (mut storage, _temp_dir) = create_test_storage().await;
+        let (mut dal, _temp_dir) = create_test_storage().await;
 
         let test_data = b"test data for deletion".to_vec();
-        let id = storage.store_binary(test_data).await.unwrap();
+        let id = dal.store_binary(test_data).await.unwrap();
 
         // Verify it exists
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert!(retrieved.is_some());
 
         // Delete it
-        storage.delete_binary(&id).await.unwrap();
+        dal.delete_binary(&id).await.unwrap();
 
         // Verify it's gone
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, None);
 
         // Verify idempotent deletion
-        storage.delete_binary(&id).await.unwrap();
+        dal.delete_binary(&id).await.unwrap();
     }
 
     #[tokio::test]
     async fn test_invalid_uuid() {
-        let (storage, _temp_dir) = create_test_storage().await;
+        let (dal, _temp_dir) = create_test_storage().await;
 
-        let result = storage.retrieve_binary("not-a-uuid").await;
+        let result = dal.retrieve_binary("not-a-uuid").await;
         assert!(matches!(result, Err(StorageError::InvalidId { .. })));
 
-        let mut storage = storage;
-        let result = storage.delete_binary("not-a-uuid").await;
+        let mut dal = dal;
+        let result = dal.delete_binary("not-a-uuid").await;
         assert!(matches!(result, Err(StorageError::InvalidId { .. })));
     }
 
     #[tokio::test]
     async fn test_empty_file_handling() {
-        let (mut storage, temp_dir) = create_test_storage().await;
+        let (mut dal, temp_dir) = create_test_storage().await;
 
         // Create an empty file manually
         let id = Uuid::new_v4().to_string();
@@ -310,16 +310,16 @@ mod tests {
         fs::write(&file_path, b"").await.unwrap();
 
         // Should successfully retrieve empty data (for demo purposes)
-        let result = storage.retrieve_binary(&id).await;
+        let result = dal.retrieve_binary(&id).await;
         assert!(matches!(result, Ok(Some(data)) if data.is_empty()));
     }
 
     #[tokio::test]
     async fn test_atomic_write() {
-        let (mut storage, temp_dir) = create_test_storage().await;
+        let (mut dal, temp_dir) = create_test_storage().await;
 
         let test_data = b"test atomic write".to_vec();
-        let id = storage.store_binary(test_data.clone()).await.unwrap();
+        let id = dal.store_binary(test_data.clone()).await.unwrap();
 
         // Verify no temporary file left behind
         let temp_files: Vec<_> = std::fs::read_dir(temp_dir.path())
@@ -331,16 +331,16 @@ mod tests {
         assert_eq!(temp_files.len(), 0, "Temporary files should be cleaned up");
 
         // Verify actual file exists and has correct content
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, Some(test_data));
     }
 
     #[tokio::test]
     async fn test_file_permissions() {
-        let (mut storage, temp_dir) = create_test_storage().await;
+        let (mut dal, temp_dir) = create_test_storage().await;
 
         let test_data = b"test permissions".to_vec();
-        let id = storage.store_binary(test_data.clone()).await.unwrap();
+        let id = dal.store_binary(test_data.clone()).await.unwrap();
 
         // Verify the file was created with correct extension
         let file_path = temp_dir.path().join(format!("{}.so", id));
@@ -362,26 +362,26 @@ mod tests {
         let nested_path = temp_dir.path().join("deeply").join("nested").join("path");
 
         // Should create directories if they don't exist
-        let storage = FilesystemRegistryStorage::new(&nested_path).unwrap();
+        let dal = FilesystemWorkflowRegistryDAL::new(&nested_path).unwrap();
 
         assert!(nested_path.exists(), "Nested directories should be created");
         assert!(nested_path.is_dir(), "Path should be a directory");
 
         // Should be able to store files in the nested directory
-        let mut storage = storage;
+        let mut dal = dal;
         let test_data = b"test nested storage".to_vec();
-        let id = storage.store_binary(test_data.clone()).await.unwrap();
+        let id = dal.store_binary(test_data.clone()).await.unwrap();
 
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, Some(test_data));
     }
 
     #[tokio::test]
     async fn test_uuid_format() {
-        let (mut storage, _temp_dir) = create_test_storage().await;
+        let (mut dal, _temp_dir) = create_test_storage().await;
 
         let test_data = b"test data".to_vec();
-        let id = storage.store_binary(test_data).await.unwrap();
+        let id = dal.store_binary(test_data).await.unwrap();
 
         // Verify the returned ID is a valid UUID
         let parsed_uuid = Uuid::parse_str(&id);
@@ -394,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_binary_data_integrity() {
-        let (mut storage, _temp_dir) = create_test_storage().await;
+        let (mut dal, _temp_dir) = create_test_storage().await;
 
         // Test with binary data containing all byte values
         let mut binary_data = Vec::with_capacity(256);
@@ -402,36 +402,36 @@ mod tests {
             binary_data.push(i);
         }
 
-        let id = storage.store_binary(binary_data.clone()).await.unwrap();
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let id = dal.store_binary(binary_data.clone()).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
 
         assert_eq!(retrieved, Some(binary_data));
     }
 
     #[tokio::test]
     async fn test_very_large_file() {
-        let (mut storage, _temp_dir) = create_test_storage().await;
+        let (mut dal, _temp_dir) = create_test_storage().await;
 
         // Test with 1MB of data
         let large_data = vec![0xAB; 1024 * 1024];
-        let id = storage.store_binary(large_data.clone()).await.unwrap();
+        let id = dal.store_binary(large_data.clone()).await.unwrap();
 
-        let retrieved = storage.retrieve_binary(&id).await.unwrap();
+        let retrieved = dal.retrieve_binary(&id).await.unwrap();
         assert_eq!(retrieved, Some(large_data));
     }
 
     #[tokio::test]
     async fn test_storage_dir_access() {
-        let (storage, temp_dir) = create_test_storage().await;
+        let (dal, temp_dir) = create_test_storage().await;
 
-        assert_eq!(storage.storage_dir(), temp_dir.path());
+        assert_eq!(dal.storage_dir(), temp_dir.path());
     }
 
     #[tokio::test]
     async fn test_check_disk_space() {
-        let (storage, _temp_dir) = create_test_storage().await;
+        let (dal, _temp_dir) = create_test_storage().await;
 
-        let disk_space = storage.check_disk_space().await.unwrap();
+        let disk_space = dal.check_disk_space().await.unwrap();
         assert!(disk_space > 0, "Should report some available disk space");
     }
 }

@@ -12,8 +12,13 @@ from .generate import generate
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
 
 @cloaca()
-@angreal.command(name="release", about="build release wheels for distribution (leaves artifacts for inspection)")
-@angreal.argument(name="backend", long="backend", help="Build specific backend: postgres or sqlite (default: both)", required=False)
+@angreal.command(
+    name="release",
+    about="build release wheels for distribution (leaves artifacts for inspection)",
+    when_to_use=["preparing production releases", "building all backend variants", "generating distribution artifacts"],
+    when_not_to_use=["development testing", "quick iterations", "single backend development"]
+)
+@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
 def release(backend=None):
     """Build release wheels for distribution without cleanup.
 
@@ -49,9 +54,10 @@ def release(backend=None):
 
         # Generate dispatcher files first (use any backend since version is the same)
         print("Step 1: Generating dispatcher files...")
-        result = generate("postgres")  # Just to generate dispatcher pyproject.toml
-        if result != 0:
-            print("✗ Failed to generate dispatcher files")
+        try:
+            generate("postgres")  # Just to generate dispatcher pyproject.toml
+        except Exception as e:
+            print(f"✗ Failed to generate dispatcher files: {e}")
             all_passed = False
         else:
             print("Step 2: Building dispatcher sdist...")
@@ -110,9 +116,10 @@ def release(backend=None):
         try:
             # Generate backend files
             print("Step 1: Generating backend files...")
-            result = generate(backend_name)
-            if result != 0:
-                print(f"✗ Failed to generate files for {backend_name}")
+            try:
+                generate(backend_name)
+            except Exception as e:
+                print(f"✗ Failed to generate files for {backend_name}: {e}")
                 all_passed = False
                 continue
 
@@ -177,8 +184,10 @@ def release(backend=None):
         try:
             # Step 1: Generate files
             print("Step 1: Generating files...")
-            result = generate(backend_name)
-            if result != 0:
+            try:
+                generate(backend_name)
+            except Exception as e:
+                print(f"✗ Failed to generate files for {backend_name}: {e}")
                 all_passed = False
                 continue
 
@@ -212,7 +221,7 @@ def release(backend=None):
                 "--release"
             ]
 
-            result = subprocess.run(
+            subprocess.run(
                 maturin_cmd,
                 cwd=str(backend_dir),
                 capture_output=True,
@@ -266,9 +275,8 @@ def release(backend=None):
             print(f"    {wheel}")
         print("\nGenerated files and artifacts preserved for inspection.")
         print("Run 'angreal cloaca scrub' to clean up when ready.")
-        return 0
     else:
         print(f"\n{'='*50}")
         print("Some release builds failed!")
         print(f"{'='*50}")
-        return 1
+        raise RuntimeError("Some release builds failed")

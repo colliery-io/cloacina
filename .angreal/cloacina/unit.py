@@ -14,16 +14,21 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 
 @cloacina()
-@angreal.command(name="unit", about="run unit tests")
+@angreal.command(
+    name="unit",
+    about="run unit tests",
+    when_to_use=["testing core functionality", "validating changes", "CI/CD pipelines"],
+    when_not_to_use=["integration testing", "end-to-end testing", "performance testing"]
+)
 @angreal.argument(
     name="filter",
     required=False,
-    help="Filter tests by name"
+    help="filter tests by name pattern"
 )
 @angreal.argument(
     name="backend",
     long="backend",
-    help="Run tests for specific backend: postgres or sqlite (default: both)",
+    help="test specific backend: postgres, sqlite, or both (default)",
     required=False
 )
 def unit(filter=None, backend=None):
@@ -31,12 +36,12 @@ def unit(filter=None, backend=None):
 
     # Validate backend selection
     if not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Get backend configurations
     backends = get_backends_to_test(backend)
     if backends is None:
-        return 1
+        raise RuntimeError("Failed to get backend configurations")
 
     for backend_name, cmd_base in backends:
         print_section_header(f"Running unit tests for {backend_name}")
@@ -50,7 +55,6 @@ def unit(filter=None, backend=None):
             print(f"{backend_name} unit tests passed")
         except subprocess.CalledProcessError as e:
             print(f"{backend_name} unit tests failed with error: {e}", file=sys.stderr)
-            return e.returncode
+            raise RuntimeError(f"{backend_name} unit tests failed with return code {e.returncode}")
 
     print_final_success("All unit tests passed for both backends!")
-    return 0

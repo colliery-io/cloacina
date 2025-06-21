@@ -16,48 +16,39 @@
 
 //! Storage backend implementations for the workflow registry.
 //!
-//! This module provides concrete implementations of the `RegistryStorage` trait
-//! for different storage backends, enabling flexible deployment configurations.
+//! **DEPRECATED**: Storage backends have been moved to the DAL module.
 //!
-//! ## Available Backends
+//! Please use the new DAL-based storage implementations:
+//! - `crate::dal::PostgresWorkflowRegistryDAL`
+//! - `crate::dal::SqliteWorkflowRegistryDAL`
+//! - `crate::dal::FilesystemWorkflowRegistryDAL`
 //!
-//! - **PostgreSQL**: Stores binary data in the database using BYTEA columns
-//! - **SQLite**: Stores binary data in the database using BLOB columns
-//! - **Filesystem**: Stores binary data as files on the local filesystem
-//!
-//! ## Usage Example
+//! ## Migration Example
 //!
 //! ```rust,no_run
-//! use cloacina::registry::storage::{PostgresRegistryStorage, FilesystemRegistryStorage};
+//! // Old way (deprecated):
+//! // use cloacina::registry::storage::FilesystemRegistryStorage;
+//!
+//! // New way:
+//! use cloacina::dal::FilesystemWorkflowRegistryDAL;
 //! use cloacina::registry::RegistryStorage;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // PostgreSQL backend
-//! let postgres_storage = PostgresRegistryStorage::new(db_pool).await?;
+//! // Use DAL instead
+//! let dal = FilesystemWorkflowRegistryDAL::new("/var/lib/cloacina/registry")?;
 //!
-//! // Filesystem backend
-//! let fs_storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
-//!
-//! // Both implement the same RegistryStorage trait
+//! // Same RegistryStorage trait interface
 //! let data = b"compiled workflow binary data";
-//! let id = postgres_storage.store_binary(data.to_vec()).await?;
+//! let id = dal.store_binary(data.to_vec()).await?;
 //! # Ok(())
 //! # }
 //! ```
 
+// Re-export DAL implementations for backward compatibility
 #[cfg(feature = "postgres")]
-pub mod postgres;
+pub use crate::dal::PostgresWorkflowRegistryDAL as PostgresRegistryStorage;
 
 #[cfg(feature = "sqlite")]
-pub mod sqlite;
+pub use crate::dal::SqliteWorkflowRegistryDAL as SqliteRegistryStorage;
 
-pub mod filesystem;
-
-// Re-export storage implementations for convenience
-#[cfg(feature = "postgres")]
-pub use postgres::PostgresRegistryStorage;
-
-#[cfg(feature = "sqlite")]
-pub use sqlite::SqliteRegistryStorage;
-
-pub use filesystem::FilesystemRegistryStorage;
+pub use crate::dal::FilesystemWorkflowRegistryDAL as FilesystemRegistryStorage;

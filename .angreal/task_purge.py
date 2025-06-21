@@ -8,7 +8,12 @@ from cloaca.scrub import scrub
 from task_services import clean as services_clean
 
 
-@angreal.command(name="purge", about="deep clean the entire project including all Cargo.toml directories and Docker services")
+@angreal.command(
+    name="purge",
+    about="deep clean the entire project including all Cargo.toml directories and Docker services",
+    when_to_use=["complete project reset", "fixing build issues", "freeing maximum disk space"],
+    when_not_to_use=["preserving development state", "during active work", "quick cleanups"]
+)
 def purge():
     """Deep clean the entire project including all Cargo.toml directories and Docker services."""
     print("Starting complete project purge...")

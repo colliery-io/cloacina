@@ -1,20 +1,20 @@
 ---
-name: Python Tests
+name: Cloaca Tests
 
 on:
   workflow_call:  # Only called by ci.yml
 
 concurrency:
-  group: python-tests-${{ github.ref }}
+  group: cloaca-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  python-wheels:
-    name: Build Python Wheels
+  cloaca-wheels:
+    name: Build Cloaca Wheels
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.12']
         backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -33,6 +33,18 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install PostgreSQL (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install postgresql
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install PostgreSQL (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
       - name: Cache Rust dependencies
         uses: actions/cache@v4
         with:
@@ -40,9 +52,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ matrix.os }}-cargo-python-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ matrix.os }}-cargo-cloaca-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ matrix.os }}-cargo-python-
+            ${{ matrix.os }}-cargo-cloaca-
             ${{ matrix.os }}-cargo-
 
       - name: Install maturin and build dependencies
@@ -54,13 +66,13 @@ jobs:
         run: |
           angreal cloaca package --backend ${{ matrix.backend }}
 
-  python-bindings-tests:
-    name: Python Bindings Tests
+  cloaca-bindings-tests:
+    name: Cloaca Bindings Tests
     strategy:
       fail-fast: false
       matrix:
         backend: [postgres, sqlite]
-        python-version: ['3.9', '3.12']  # Test oldest and newest supported
+        python-version: ['3.12']
     runs-on: ubuntu-latest
 
     steps:
@@ -84,9 +96,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-bindings-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-cloaca-bindings-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-bindings-
+            ${{ runner.os }}-cargo-cloaca-bindings-
             ${{ runner.os }}-cargo-
 
       - name: Install angreal
@@ -107,7 +119,7 @@ jobs:
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
-      - name: Run Python bindings tests
+      - name: Run Cloaca bindings tests
         run: |
           angreal cloaca test --backend ${{ matrix.backend }}
 

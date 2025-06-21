@@ -65,6 +65,10 @@
 //! - Handle database errors appropriately using the Result type
 //! - Keep model definitions in sync with database schema migrations
 
+// #[cfg(feature = "auth")]
+// pub mod auth_audit_log;
+// #[cfg(feature = "auth")]
+// pub mod auth_tokens;
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
