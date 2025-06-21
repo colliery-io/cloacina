@@ -45,7 +45,7 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     # Validate backend selection
     if not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Determine which backends to run
     run_postgres = backend is None or backend == "postgres"
@@ -112,12 +112,12 @@ def integration(filter=None, skip_docker=False, backend=None):
             backends_run.append("SQLite")
         backends_str = " and ".join(backends_run)
         print_final_success(f"All integration tests passed for {backends_str}!")
-        return 0
     else:
         print_section_header("INTEGRATION TEST FAILURES")
+        failed_backends = []
         if run_postgres and not postgresql_success:
-            print("PostgreSQL integration tests failed")
+            failed_backends.append("PostgreSQL")
         if run_sqlite and not sqlite_success:
-            print("SQLite integration tests failed")
+            failed_backends.append("SQLite")
         print(f"{'='*50}")
-        return 1
+        raise RuntimeError(f"Integration tests failed for: {', '.join(failed_backends)}")

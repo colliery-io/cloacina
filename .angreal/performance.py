@@ -23,21 +23,20 @@ def performance_simple(iterations: int=150, concurrency: int=32):
 
     example_dir = os.path.join("examples", "performance-simple")
     if not os.path.exists(example_dir):
-        print(f"ERROR: Performance simple example not found at {example_dir}")
-        return 1
+        raise RuntimeError(f"Performance simple example not found at {example_dir}")
 
     try:
         print("Building and running performance test (this may take a moment)...")
-        result = subprocess.run(
+        subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            stderr=subprocess.DEVNULL  # Suppress debug output
+            stderr=subprocess.DEVNULL,  # Suppress debug output
+            check=True
         )
-
-        return result.returncode
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Simple performance test failed with return code {e.returncode}")
     except Exception as e:
-        print(f"ERROR: Error running simple performance test: {e}")
-        return 1
+        raise RuntimeError(f"Error running simple performance test: {e}")
 
 
 @performance()
@@ -55,21 +54,20 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
 
     example_dir = os.path.join("examples", "performance-pipeline")
     if not os.path.exists(example_dir):
-        print(f"ERROR: Performance pipeline example not found at {example_dir}")
-        return 1
+        raise RuntimeError(f"Performance pipeline example not found at {example_dir}")
 
     try:
         print("Building and running performance test (this may take a moment)...")
-        result = subprocess.run(
+        subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            stderr=subprocess.DEVNULL  # Suppress debug output
+            stderr=subprocess.DEVNULL,  # Suppress debug output
+            check=True
         )
-
-        return result.returncode
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Pipeline performance test failed with return code {e.returncode}")
     except Exception as e:
-        print(f"ERROR: Error running pipeline performance test: {e}")
-        return 1
+        raise RuntimeError(f"Error running pipeline performance test: {e}")
 
 
 @performance()
@@ -87,21 +85,20 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
 
     example_dir = os.path.join("examples", "performance-parallel")
     if not os.path.exists(example_dir):
-        print(f"ERROR: Performance parallel example not found at {example_dir}")
-        return 1
+        raise RuntimeError(f"Performance parallel example not found at {example_dir}")
 
     try:
         print("Building and running performance test (this may take a moment)...")
-        result = subprocess.run(
+        subprocess.run(
             ["cargo", "run", "--", "--iterations", str(iterations), "--concurrency", str(concurrency)],
             cwd=example_dir,
-            stderr=subprocess.DEVNULL  # Suppress debug output
+            stderr=subprocess.DEVNULL,  # Suppress debug output
+            check=True
         )
-
-        return result.returncode
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Parallel performance test failed with return code {e.returncode}")
     except Exception as e:
-        print(f"ERROR: Error running parallel performance test: {e}")
-        return 1
+        raise RuntimeError(f"Error running parallel performance test: {e}")
 
 
 
@@ -122,36 +119,31 @@ def performance_all():
         ("Parallel Performance Test", performance_parallel),
     ]
 
-    results = []
+    failed_tests = []
     for test_name, test_func in tests:
         print(f"\n{'='*60}")
         print(f"Running {test_name}")
         print(f"{'='*60}")
 
-        result = test_func()
-        results.append((test_name, result))
-
-        if result != 0:
-            print(f"ERROR: {test_name} failed with return code {result}")
-        else:
+        try:
+            test_func()
             print(f"SUCCESS: {test_name} completed successfully")
+        except Exception as e:
+            failed_tests.append(f"{test_name}: {str(e)}")
+            print(f"ERROR: {test_name} failed with exception: {e}")
 
     # Summary
     print(f"\n{'='*60}")
     print("Performance Test Summary")
     print(f"{'='*60}")
 
-    for test_name, result in results:
-        status = "PASS" if result == 0 else "FAIL"
-        print(f"{test_name}: {status}")
-
-    failed_tests = [name for name, result in results if result != 0]
     if failed_tests:
-        print(f"ERROR: Failed tests: {', '.join(failed_tests)}")
-        return 1
+        for failure in failed_tests:
+            print(f"FAIL: {failure}")
+        failure_summary = "\n".join(f"- {test}" for test in failed_tests)
+        raise RuntimeError(f"Some performance tests failed:\n{failure_summary}")
     else:
         print("SUCCESS: All performance tests passed")
-        return 0
 
 
 @performance()
@@ -213,8 +205,7 @@ def performance_quick():
 
     failed_tests = [name for name, result in results if result != 0]
     if failed_tests:
-        print(f"ERROR: Failed tests: {', '.join(failed_tests)}")
-        return 1
+        failure_summary = "\n".join(f"- {test}" for test in failed_tests)
+        raise RuntimeError(f"Some quick performance tests failed:\n{failure_summary}")
     else:
         print("SUCCESS: All quick performance tests passed")
-        return 0

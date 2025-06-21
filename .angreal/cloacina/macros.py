@@ -31,12 +31,12 @@ def macros(backend=None):
 
     # Validate backend selection
     if not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Get backend configurations for cargo check
     backends = get_check_backends(backend)
     if backends is None:
-        return 1
+        raise RuntimeError("Failed to get backend configurations")
 
     # Test that invalid examples fail to compile as expected
     failure_examples = [
@@ -80,9 +80,8 @@ def macros(backend=None):
 
         if not all_passed:
             print(f"\n{backend_name} macro tests failed!")
-            return 1
+            raise RuntimeError(f"{backend_name} macro tests failed")
         else:
             print(f"\n{backend_name} macro tests passed")
 
     print_final_success("All macro tests passed for both backends!")
-    return 0

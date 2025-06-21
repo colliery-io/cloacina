@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution-demo", "simple-packaged-demo"]
+        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution-demo", "simple-packaged-demo", "complex-dag-example"]
     runs-on: ubuntu-latest
 
     steps:

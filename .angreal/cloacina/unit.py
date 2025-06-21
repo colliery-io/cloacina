@@ -36,12 +36,12 @@ def unit(filter=None, backend=None):
 
     # Validate backend selection
     if not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Get backend configurations
     backends = get_backends_to_test(backend)
     if backends is None:
-        return 1
+        raise RuntimeError("Failed to get backend configurations")
 
     for backend_name, cmd_base in backends:
         print_section_header(f"Running unit tests for {backend_name}")
@@ -55,7 +55,6 @@ def unit(filter=None, backend=None):
             print(f"{backend_name} unit tests passed")
         except subprocess.CalledProcessError as e:
             print(f"{backend_name} unit tests failed with error: {e}", file=sys.stderr)
-            return e.returncode
+            raise RuntimeError(f"{backend_name} unit tests failed with return code {e.returncode}")
 
     print_final_success("All unit tests passed for both backends!")
-    return 0

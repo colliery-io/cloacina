@@ -94,7 +94,6 @@ def unit(backend=None, filter=None, verbose=False):
 
     if overall_success:
         print_section_header("ALL UNIT TESTS PASSED")
-        return 0
     else:
         print_section_header("SOME UNIT TESTS FAILED")
-        return 1
+        raise RuntimeError("Some cloacina-ctl unit tests failed")

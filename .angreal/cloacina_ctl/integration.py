@@ -62,7 +62,7 @@ def integration(backend=None, filter=None, skip_docker=False):
 
     # Validate backend selection
     if backend and not validate_backend(backend):
-        return 1
+        raise RuntimeError("Invalid backend specified")
 
     # Determine which backends to test
     backends_to_test = []
@@ -81,7 +81,7 @@ def integration(backend=None, filter=None, skip_docker=False):
         exit_code = docker_up()
         if exit_code != 0:
             print_test_result("Docker service startup", False, "Failed to start PostgreSQL services")
-            return 1
+            raise RuntimeError("Failed to start PostgreSQL Docker services")
         else:
             print_test_result("Docker service startup", True)
             print("Waiting for PostgreSQL to be ready...")
@@ -116,7 +116,6 @@ def integration(backend=None, filter=None, skip_docker=False):
 
     if overall_success:
         print_section_header("ALL INTEGRATION TESTS PASSED")
-        return 0
     else:
         print_section_header("SOME INTEGRATION TESTS FAILED")
-        return 1
+        raise RuntimeError("Some cloacina-ctl integration tests failed")

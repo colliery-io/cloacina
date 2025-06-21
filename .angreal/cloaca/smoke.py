@@ -18,7 +18,7 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 @cloaca()
 @angreal.command(
-    name="smoke", 
+    name="smoke",
     about="run basic smoke tests to verify Python bindings work",
     when_to_use=["quick validation after changes", "verifying build success", "debugging import issues"],
     when_not_to_use=["comprehensive testing", "CI/CD validation", "performance testing"]
@@ -36,8 +36,7 @@ def smoke(backend=None):
     elif backend is None:
         backends_to_test = ["postgres", "sqlite"]
     else:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
-        return 1
+        raise RuntimeError(f"Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
 
     all_passed = True
 
@@ -117,9 +116,8 @@ except Exception as e:
         print(f"\n{'='*50}")
         print("All smoke tests passed!")
         print(f"{'='*50}")
-        return 0
     else:
         print(f"\n{'='*50}")
         print("Some smoke tests failed!")
         print(f"{'='*50}")
-        return 1
+        raise RuntimeError("Some Python binding smoke tests failed")

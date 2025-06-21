@@ -13,7 +13,7 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 
 @cloaca()
 @angreal.command(
-    name="scrub", 
+    name="scrub",
     about="replace generated files with placeholder content and clean build artifacts",
     when_to_use=["cleaning development environment", "resetting after testing", "preparing for commit"],
     when_not_to_use=["active development", "debugging generated files", "before running tests"]
@@ -157,8 +157,7 @@ def scrub(deep=False):
                 pass
 
         print("Successfully cleaned generated files and build artifacts!")
-        return 0
 
     except Exception as e:
         print(f"Clean failed: {e}")
-        return 1
+        raise RuntimeError(f"Failed to clean generated files and build artifacts: {e}")

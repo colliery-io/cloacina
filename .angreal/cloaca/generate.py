@@ -14,7 +14,7 @@ from .cloaca_utils import get_workspace_version, normalize_version_for_python, w
 
 @cloaca()
 @angreal.command(
-    name="generate", 
+    name="generate",
     about="generate all configuration files from templates",
     when_to_use=["setting up development environment", "switching between backends", "preparing for testing"],
     when_not_to_use=["production builds", "when files already generated", "CI/CD workflows"]
@@ -139,8 +139,7 @@ def generate(backend):
             print("  You can still use the generated files manually")
 
         print(f"Successfully generated files for {backend} backend!")
-        return 0
 
     except (OSError, ValueError) as e:
         print(f"Generation failed: {e}")
-        return 1
+        raise RuntimeError(f"Failed to generate files for {backend} backend: {e}")
