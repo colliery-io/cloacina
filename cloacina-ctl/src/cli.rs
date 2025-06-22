@@ -248,10 +248,6 @@ pub enum ConfigCommands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Output format (yaml, toml)
-        #[arg(long, default_value = "yaml")]
-        format: String,
-
         /// Overwrite existing file
         #[arg(long)]
         force: bool,
@@ -269,9 +265,5 @@ pub enum ConfigCommands {
         /// Path to configuration file
         #[arg(short, long)]
         config: Option<PathBuf>,
-
-        /// Output format (yaml, toml, json)
-        #[arg(long, default_value = "yaml")]
-        format: String,
     },
 }

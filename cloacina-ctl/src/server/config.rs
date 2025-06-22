@@ -19,27 +19,19 @@ use crate::config::validation::Validate;
 use crate::config::{defaults, ConfigLoader};
 use anyhow::{Context, Result};
 use colored::Colorize;
-use serde_json;
 use std::fs;
 use std::path::PathBuf;
 
 pub async fn handle_config_command(command: ConfigCommands) -> Result<()> {
     match command {
-        ConfigCommands::Generate {
-            output,
-            format,
-            force,
-        } => generate_config(output, &format, force).await,
+        ConfigCommands::Generate { output, force } => generate_config(output, force).await,
         ConfigCommands::Validate { config } => validate_config(config).await,
-        ConfigCommands::Show { config, format } => show_config(config, &format).await,
+        ConfigCommands::Show { config } => show_config(config).await,
     }
 }
 
-async fn generate_config(output: Option<PathBuf>, format: &str, force: bool) -> Result<()> {
-    let output_path = output.unwrap_or_else(|| match format {
-        "toml" => PathBuf::from("cloacina.toml"),
-        _ => PathBuf::from("cloacina.yaml"),
-    });
+async fn generate_config(output: Option<PathBuf>, force: bool) -> Result<()> {
+    let output_path = output.unwrap_or_else(|| PathBuf::from("cloacina.toml"));
 
     // Check if file exists and force flag
     if output_path.exists() && !force {
@@ -50,18 +42,8 @@ async fn generate_config(output: Option<PathBuf>, format: &str, force: bool) -> 
     }
 
     // Generate configuration content
-    let content = match format {
-        "toml" => defaults::generate_default_config_toml()
-            .context("Failed to generate TOML configuration")?,
-        "yaml" | "yml" => defaults::generate_default_config_yaml()
-            .context("Failed to generate YAML configuration")?,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Unsupported format: {}. Use 'yaml' or 'toml'",
-                format
-            ))
-        }
-    };
+    let content = defaults::generate_default_config_toml()
+        .context("Failed to generate TOML configuration")?;
 
     // Write to file
     fs::write(&output_path, content)
@@ -98,7 +80,7 @@ async fn validate_config(config_path: Option<PathBuf>) -> Result<()> {
     }
 }
 
-async fn show_config(config_path: Option<PathBuf>, format: &str) -> Result<()> {
+async fn show_config(config_path: Option<PathBuf>) -> Result<()> {
     let loader = ConfigLoader::new();
 
     // Load and resolve the configuration
@@ -116,22 +98,9 @@ async fn show_config(config_path: Option<PathBuf>, format: &str) -> Result<()> {
         println!();
     }
 
-    // Format and display
+    // Format and display as TOML
     let output =
-        match format {
-            "json" => serde_json::to_string_pretty(&config)
-                .context("Failed to serialize configuration as JSON")?,
-            "toml" => toml::to_string_pretty(&config)
-                .context("Failed to serialize configuration as TOML")?,
-            "yaml" | "yml" => serde_yaml::to_string(&config)
-                .context("Failed to serialize configuration as YAML")?,
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "Unsupported format: {}. Use 'yaml', 'toml', or 'json'",
-                    format
-                ))
-            }
-        };
+        toml::to_string_pretty(&config).context("Failed to serialize configuration as TOML")?;
 
     println!("{}", output);
     Ok(())

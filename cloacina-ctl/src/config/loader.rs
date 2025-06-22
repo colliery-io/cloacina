@@ -80,9 +80,6 @@ impl ConfigLoader {
 
         // Parse based on file extension
         let config = match path.extension().and_then(|ext| ext.to_str()) {
-            Some("yaml") | Some("yml") => {
-                serde_yaml::from_str::<CloacinaConfig>(&substituted_content)?
-            }
             Some("toml") => toml::from_str::<CloacinaConfig>(&substituted_content)?,
             Some(ext) => {
                 return Err(ConfigError::UnsupportedFormat {
@@ -90,9 +87,8 @@ impl ConfigLoader {
                 })
             }
             None => {
-                // Try YAML first, then TOML
-                serde_yaml::from_str::<CloacinaConfig>(&substituted_content)
-                    .or_else(|_| toml::from_str::<CloacinaConfig>(&substituted_content))?
+                // Try TOML for files without extension
+                toml::from_str::<CloacinaConfig>(&substituted_content)?
             }
         };
 
