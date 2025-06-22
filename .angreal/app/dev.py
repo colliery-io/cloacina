@@ -40,7 +40,7 @@ def dev():
     try:
         # Start Tauri development server with debug logging
         # Don't capture stdout/stderr - let them pass through to terminal
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "tauri", "dev"],
             check=True,
             cwd=app_dir,
@@ -77,7 +77,7 @@ def build():
         sys.exit(1)
 
     try:
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "tauri", "build"],
             check=True,
             cwd=app_dir
@@ -112,7 +112,7 @@ def test():
     try:
         # Run Rust tests with verbose output
         print("🧪 Running Rust unit tests...")
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "test", "--verbose"],
             check=True,
             cwd=app_dir / "src-tauri"
@@ -148,7 +148,7 @@ def test_unit():
     try:
         # Run only library tests (no integration tests)
         print("🧪 Running unit tests...")
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "test", "--lib"],
             check=True,
             cwd=app_dir / "src-tauri"
@@ -196,7 +196,7 @@ def test_watch():
 
     try:
         print("🧪 Starting test watch mode (Ctrl+C to stop)...")
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "watch", "-x", "test"],
             check=True,
             cwd=app_dir / "src-tauri"
@@ -235,7 +235,7 @@ def lint():
     try:
         # Check Rust formatting
         print("🔍 Checking Rust formatting...")
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "fmt", "--check"],
             check=True,
             cwd=tauri_dir
@@ -244,7 +244,7 @@ def lint():
 
         # Run Clippy
         print("🔍 Running Clippy...")
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "clippy", "--all-targets", "--all-features", "--", "-D", "warnings"],
             check=True,
             cwd=tauri_dir
@@ -329,7 +329,7 @@ def android():
             subprocess.run(["cargo", "tauri", "android", "init"], check=True, cwd=app_dir)
 
         # Start Android dev server
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "tauri", "android", "dev"],
             check=True,
             cwd=app_dir
@@ -368,7 +368,7 @@ def ios():
             subprocess.run(["cargo", "tauri", "ios", "init"], check=True, cwd=app_dir)
 
         # Start iOS dev server
-        result = subprocess.run(
+        _result = subprocess.run(
             ["cargo", "tauri", "ios", "dev"],
             check=True,
             cwd=app_dir

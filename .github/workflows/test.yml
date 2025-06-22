@@ -1,10 +1,11 @@
+---
 name: Tests
 
 on:
   push:
-    branches: [ main, feature/* ]
+    branches: [main, feature/*]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,22 +16,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Rust
+      - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
 
-    - name: Install Python and angreal
+      - name: Install Python and angreal
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
 
-    - name: Install angreal
+      - name: Install angreal
       run: pip install angreal
 
-    - name: Cache cargo dependencies
+      - name: Cache cargo dependencies
       uses: actions/cache@v3
       with:
         path: |
@@ -41,18 +42,18 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Install system dependencies
+      - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
-    - name: Run linting checks
+      - name: Run linting checks
       run: angreal app lint
 
-    - name: Run Rust tests
+      - name: Run Rust tests
       run: angreal app test
 
-    - name: Run Cloacina library tests
+      - name: Run Cloacina library tests
       run: cargo test --verbose
       working-directory: ./cloacina
 
@@ -62,36 +63,36 @@ jobs:
     needs: test-rust
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Rust
+      - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Install Python and angreal
+      - name: Install Python and angreal
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
 
-    - name: Install angreal
+      - name: Install angreal
       run: pip install angreal
 
-    - name: Install Node.js
+      - name: Install Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
         cache-dependency-path: './cloacina-app/package-lock.json'
 
-    - name: Install system dependencies
+      - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
-    - name: Install frontend dependencies
+      - name: Install frontend dependencies
       run: npm ci
       working-directory: ./cloacina-app
 
-    - name: Build Tauri app (test build)
+      - name: Build Tauri app (test build)
       run: angreal app build
 
   test-matrix:
@@ -103,26 +104,26 @@ jobs:
         rust: [stable]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Rust
+      - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ matrix.rust }}
 
-    - name: Install Python and angreal
+      - name: Install Python and angreal
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
 
-    - name: Install angreal
+      - name: Install angreal
       run: pip install angreal
 
-    - name: Install system dependencies (Ubuntu)
+      - name: Install system dependencies (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y libwebkit2gtk-4.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
-    - name: Run unit tests only
+      - name: Run unit tests only
       run: angreal app test-unit

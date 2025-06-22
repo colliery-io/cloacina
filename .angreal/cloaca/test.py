@@ -176,21 +176,21 @@ def test(backend=None, filter=None, file=None):
                         print(f"✗ {test_file.name} FAILED")
                         print(f"   Return code: {result.returncode}")
                         print(f"   {'-'*50}")
-                        
+
                         if result.stdout:
                             print("   STDOUT:")
                             for line in result.stdout.split('\n'):
                                 if line.strip():
                                     print(f"   {line}")
-                        
+
                         if result.stderr:
                             print("   STDERR:")
                             for line in result.stderr.split('\n'):
                                 if line.strip():
                                     print(f"   {line}")
-                        
+
                         print(f"   {'-'*50}")
-                        
+
                         test_result = TestResult(
                             file_name=test_file.name,
                             backend=backend_name,
@@ -208,21 +208,21 @@ def test(backend=None, filter=None, file=None):
                     print(f"✗ {test_file.name} FAILED (subprocess error)")
                     print(f"   Return code: {e.returncode}")
                     print(f"   {'-'*50}")
-                    
+
                     if e.stdout:
                         print("   STDOUT:")
                         for line in e.stdout.split('\n'):
                             if line.strip():
                                 print(f"   {line}")
-                    
+
                     if e.stderr:
                         print("   STDERR:")
                         for line in e.stderr.split('\n'):
                             if line.strip():
                                 print(f"   {line}")
-                    
+
                     print(f"   {'-'*50}")
-                    
+
                     test_result = TestResult(
                         file_name=test_file.name,
                         backend=backend_name,
