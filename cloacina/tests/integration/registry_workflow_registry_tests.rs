@@ -51,7 +51,6 @@ impl PackageFixture {
             .or_else(|_| tempfile::TempDir::new())
             .expect("Failed to create temp directory");
         let package_path = temp_dir.path().join("test_package.cloacina");
-        
 
         // Build the package using cloacina packaging functions directly
         // Find the workspace root by looking for Cargo.toml
@@ -62,7 +61,6 @@ impl PackageFixture {
             .parent()
             .expect("Should have parent directory");
         let project_path = workspace_root.join("examples/packaged-workflow-example");
-
 
         if !project_path.exists() {
             panic!("Project path does not exist: {}", project_path.display());
@@ -205,7 +203,7 @@ async fn test_register_real_workflow_package() {
         println!("Skipping test_register_real_workflow_package in CI environment");
         return;
     }
-    
+
     // Get database from fixture which handles both PostgreSQL and SQLite
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());

@@ -122,12 +122,6 @@ impl Default for UnixSocketConfig {
     }
 }
 
-/// Generate a complete default configuration as YAML string
-pub fn generate_default_config_yaml() -> Result<String, serde_yaml::Error> {
-    let config = CloacinaConfig::default();
-    serde_yaml::to_string(&config)
-}
-
 /// Generate a complete default configuration as TOML string
 pub fn generate_default_config_toml() -> Result<String, toml::ser::Error> {
     let config = CloacinaConfig::default();

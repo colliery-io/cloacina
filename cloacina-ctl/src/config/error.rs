@@ -28,9 +28,6 @@ pub enum ConfigError {
         source: std::io::Error,
     },
 
-    #[error("Failed to parse YAML configuration: {0}")]
-    YamlParseError(#[from] serde_yaml::Error),
-
     #[error("Failed to parse TOML configuration: {0}")]
     TomlParseError(#[from] toml::de::Error),
 
