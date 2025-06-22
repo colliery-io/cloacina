@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloacina Desktop</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="header-left">
+          <h1 class="app-title">Cloacina Desktop</h1>
+          <p class="app-subtitle">Workflow Orchestration Made Simple</p>
+        </div>
+        <div class="header-right">
+          <div class="status-summary">
+            <div class="status-indicator">
+              <span class="status-dot" id="app-status-dot"></span>
+              <span id="app-status">Initializing...</span>
+            </div>
+            <p id="app-message" class="status-text">Starting application...</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="app-nav">
+      <div class="nav-content">
+        <button class="nav-item active" data-view="local-runners">
+          <span class="nav-icon">🖥️</span>
+          Local Runners
+        </button>
+        <button class="nav-item" data-view="workflows">
+          <span class="nav-icon">📋</span>
+          Workflows
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙️</span>
+          Settings
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="app-main">
+      <!-- Local Runners View -->
+      <div id="local-runners-view" class="view active">
+        <!-- Runner List Card -->
+        <div class="card runners-card">
+          <div class="card-header">
+            <h2>🔧 Local Runners</h2>
+            <button id="create-runner-btn" class="btn btn-primary btn-sm">
+              <span class="btn-icon">➕</span>
+              Create Runner
+            </button>
+          </div>
+          <div class="card-content">
+            <div id="runners-list" class="runners-list">
+              <!-- Runners will be dynamically populated -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Create Runner Form (hidden by default) -->
+        <div class="card config-card hidden" id="create-runner-form">
+          <div class="card-header">
+            <h2>➕ Create New Runner</h2>
+          </div>
+          <div class="card-content">
+            <div class="config-grid">
+              <div class="config-item">
+                <label for="new-runner-name">Runner Name</label>
+                <input type="text" id="new-runner-name" value="" placeholder="e.g., Production Workflow Runner" />
+              </div>
+              <div class="config-item">
+                <label for="new-db-path">Database Path</label>
+                <div class="path-input-group">
+                  <span class="path-prefix" id="runner-path-prefix">[Data Directory]/</span>
+                  <input type="text" id="new-db-path" value="" placeholder="runners/runner_name.db" readonly />
+                </div>
+              </div>
+              <div class="config-item">
+                <label for="new-max-tasks">Max Concurrent Tasks</label>
+                <input type="number" id="new-max-tasks" value="4" min="1" max="32" />
+              </div>
+              <div class="config-switches">
+                <div class="switch-item">
+                  <label class="switch">
+                    <input type="checkbox" id="new-enable-cron" />
+                    <span class="slider"></span>
+                  </label>
+                  <span>Cron Scheduling</span>
+                </div>
+                <div class="switch-item">
+                  <label class="switch">
+                    <input type="checkbox" id="new-enable-registry" checked />
+                    <span class="slider"></span>
+                  </label>
+                  <span>Registry Reconciler</span>
+                </div>
+              </div>
+            </div>
+            <div class="button-group">
+              <button id="save-runner-btn" class="btn btn-primary">
+                <span class="btn-icon">💾</span>
+                Create & Start Runner
+              </button>
+              <button id="cancel-runner-btn" class="btn btn-outline">
+                <span class="btn-icon">❌</span>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Other Views (placeholders for now) -->
+      <div id="workflows-view" class="view">
+        <!-- Workflows view placeholder -->
+      </div>
+
+      <div id="settings-view" class="view">
+        <div class="card settings-card">
+          <div class="card-header">
+            <h2>⚙️ Application Settings</h2>
+          </div>
+          <div class="card-content">
+            <div class="settings-section">
+              <h3>Data Directory</h3>
+              <div class="config-item">
+                <label for="data-directory">Base Data Directory</label>
+                <div class="path-input-group">
+                  <input type="text" id="data-directory" value="" placeholder="Data directory..." readonly />
+                  <button id="change-data-dir-btn" class="btn btn-outline btn-sm">
+                    <span class="btn-icon">📁</span>
+                    Change
+                  </button>
+                </div>
+                <p class="setting-description">
+                  Base directory where all application data is stored. Contains the application database,
+                  runner databases, and logs. All other paths are relative to this directory.
+                </p>
+              </div>
+
+              <div class="config-item">
+                <label>Application Database</label>
+                <div class="path-display">
+                  <span class="path-prefix">[Data Directory]/</span>
+                  <span class="path-suffix">cloacina-app.db</span>
+                </div>
+              </div>
+
+              <div class="config-item">
+                <label>Runner Databases</label>
+                <div class="path-display">
+                  <span class="path-prefix">[Data Directory]/</span>
+                  <span class="path-suffix">runners/</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3>Logging Configuration</h3>
+              <div class="config-item">
+                <label>Log Files</label>
+                <div class="path-display">
+                  <span class="path-prefix">[Data Directory]/</span>
+                  <span class="path-suffix">logs/</span>
+                </div>
+              </div>
+              <div class="config-grid">
+                <div class="config-item">
+                  <label for="log-level">Log Level</label>
+                  <select id="log-level">
+                    <option value="error">Error</option>
+                    <option value="warn">Warning</option>
+                    <option value="info">Info</option>
+                    <option value="debug">Debug</option>
+                    <option value="trace">Trace</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label for="max-log-files">Max Log Files</label>
+                  <input type="number" id="max-log-files" value="10" min="1" max="100" />
+                </div>
+              </div>
+              <div class="config-item">
+                <button id="view-logs-btn" class="btn btn-outline btn-sm">
+                  <span class="btn-icon">📁</span>
+                  Open Log Folder
+                </button>
+                <p class="setting-description">
+                  Logs rotate daily and old files are automatically cleaned up.
+                  Log level changes control both application and cloacina library logging
+                  and take effect immediately when saved.
+                </p>
+              </div>
+            </div>
+
+            <div class="settings-actions">
+              <button id="save-settings-btn" class="btn btn-primary">
+                <span class="btn-icon">💾</span>
+                Save Settings
+              </button>
+              <button id="reset-settings-btn" class="btn btn-outline">
+                <span class="btn-icon">🔄</span>
+                Reset to Defaults
+              </button>
+            </div>
+
+            <div class="danger-zone">
+              <h3>⚠️ Danger Zone</h3>
+              <div class="danger-content">
+                <p class="danger-description">
+                  <strong>Complete System Reset</strong><br>
+                  This will permanently delete all runners, databases, logs, and settings.
+                  The application will restart with a clean slate.
+                </p>
+                <button id="full-reset-btn" class="btn btn-danger">
+                  <span class="btn-icon">💣</span>
+                  Full System Reset
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
