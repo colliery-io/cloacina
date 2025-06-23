@@ -13,7 +13,8 @@ def get_rust_example_directories():
     """Get all Rust example directories (non-tutorials)."""
     examples_dir = PROJECT_ROOT / "examples"
     # Exclude validation_failures as it has multiple binaries and is not meant to be executed directly
-    excluded_examples = {"validation_failures"}
+    # Exclude packaged workflow examples as they are libraries, not runnable binaries
+    excluded_examples = {"validation_failures", "complex-dag-example", "packaged-workflow-example", "simple-packaged-demo"}
     return [
         d.name for d in examples_dir.iterdir()
         if d.is_dir()

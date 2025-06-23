@@ -23,8 +23,10 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 use tracing_appender::non_blocking;
 use tracing_subscriber::{
-    fmt::MakeWriter, layer::SubscriberExt, reload, util::SubscriberInitExt, EnvFilter, Layer,
+    layer::SubscriberExt, reload, util::SubscriberInitExt, EnvFilter, Layer,
+    registry::LookupSpan, layer::Context as LayerContext,
 };
+use tracing::{Event, Id, Subscriber, span::Attributes};
 
 // Global handle for reloading the filter
 static RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, tracing_subscriber::Registry>> =
@@ -36,6 +38,204 @@ static RUNNER_LOGGERS: OnceLock<Arc<Mutex<HashMap<String, RunnerLogger>>>> = Onc
 // Global registry for runner-specific file appenders
 static RUNNER_APPENDERS: OnceLock<Arc<Mutex<HashMap<String, Arc<Mutex<DailyRollingAppender>>>>>> =
     OnceLock::new();
+
+// Runner context stored in span extensions
+#[derive(Debug, Clone)]
+struct RunnerContext {
+    runner_id: String,
+    runner_name: Option<String>,
+}
+
+// Custom layer that extracts runner_id from spans and routes logs
+pub struct RunnerContextLayer {
+    router: Arc<DynamicFileRouter>,
+}
+
+impl RunnerContextLayer {
+    pub fn new() -> Self {
+        Self {
+            router: Arc::new(DynamicFileRouter::new()),
+        }
+    }
+}
+
+// Visitor pattern for field extraction
+struct RunnerFieldVisitor {
+    runner_id: Option<String>,
+    runner_name: Option<String>,
+}
+
+// Visitor for extracting log message
+struct MessageVisitor {
+    message: Option<String>,
+}
+
+impl MessageVisitor {
+    fn new() -> Self {
+        Self { message: None }
+    }
+}
+
+impl tracing::field::Visit for MessageVisitor {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.message = Some(value.to_string());
+        }
+    }
+    
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = Some(format!("{:?}", value));
+        }
+    }
+}
+
+impl RunnerFieldVisitor {
+    fn new() -> Self {
+        Self {
+            runner_id: None,
+            runner_name: None,
+        }
+    }
+}
+
+impl tracing::field::Visit for RunnerFieldVisitor {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        match field.name() {
+            "runner_id" => self.runner_id = Some(value.to_string()),
+            "runner_name" => self.runner_name = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        match field.name() {
+            "runner_id" => {
+                let debug_str = format!("{:?}", value);
+                self.runner_id = Some(debug_str.trim_matches('"').to_string());
+            },
+            "runner_name" => {
+                let debug_str = format!("{:?}", value);
+                self.runner_name = Some(debug_str.trim_matches('"').to_string());
+            },
+            _ => {}
+        }
+    }
+}
+
+impl<S> Layer<S> for RunnerContextLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: LayerContext<'_, S>) {
+        let mut visitor = RunnerFieldVisitor::new();
+        attrs.record(&mut visitor);
+        
+        // Store runner context if we found a runner_id
+        if let Some(runner_id) = visitor.runner_id {
+            if is_valid_uuid_like(&runner_id) {
+                let runner_context = RunnerContext {
+                    runner_id: runner_id.clone(),
+                    runner_name: visitor.runner_name,
+                };
+                
+                if let Some(span) = ctx.span(id) {
+                    let mut extensions = span.extensions_mut();
+                    extensions.insert(runner_context);
+                }
+            }
+        }
+    }
+
+    fn on_event(&self, event: &Event<'_>, ctx: LayerContext<'_, S>) {
+        // Only process runner-related events from cloacina, but exclude internal logging
+        let target = event.metadata().target();
+        if target.starts_with("cloacina") && 
+           !target.contains("logging") && // Avoid recursion from logging operations
+           !target.contains("settings") { // Avoid recursion from settings loading
+            // Look for runner context in the span hierarchy
+            if let Some(scope) = ctx.event_scope(event) {
+                for span in scope.from_root() {
+                    let extensions = span.extensions();
+                    if let Some(runner_context) = extensions.get::<RunnerContext>() {
+                        // Route this event to the runner-specific file with runner name
+                        self.router.route_event_to_runner_with_name(&runner_context.runner_id, &runner_context.runner_name, event);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Dynamic file router for runner-specific logs
+pub struct DynamicFileRouter {
+    // We'll use the existing RUNNER_APPENDERS global for file handles
+}
+
+impl DynamicFileRouter {
+    pub fn new() -> Self {
+        Self {}
+    }
+    
+    fn route_event_to_runner_with_name(&self, runner_id: &str, runner_name: &Option<String>, event: &Event<'_>) {
+        // Extract the actual message from the event
+        let mut message_visitor = MessageVisitor::new();
+        event.record(&mut message_visitor);
+        
+        // Format the event to a string with clean, readable content
+        let formatted = format!(
+            "{} {:?} {}: {}",
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
+            event.metadata().level(),
+            event.metadata().target(),
+            message_visitor.message.unwrap_or_else(|| "No message".to_string())
+        );
+        
+        // Write to runner-specific file (but don't let errors block)
+        if let Err(e) = self.write_to_runner_file_with_name(runner_id, runner_name, &formatted) {
+            // Use stderr directly to avoid recursive logging
+            eprintln!("ERROR: Failed to write to runner log file: {:?}", e);
+        }
+    }
+    
+    fn write_to_runner_file_with_name(&self, runner_id: &str, runner_name: &Option<String>, content: &str) -> std::io::Result<()> {
+        match get_runner_appender_with_name(runner_id, runner_name) {
+            Ok(appender) => {
+                let mut writer = appender.lock().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
+                })?;
+                writeln!(writer, "{}", content)?;
+                writer.flush()?;
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("ERROR: Failed to get runner appender: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+    
+    fn write_to_runner_file(&self, runner_id: &str, content: &str) -> std::io::Result<()> {
+        match get_runner_appender(runner_id) {
+            Ok(appender) => {
+                let mut writer = appender.lock().map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
+                })?;
+                writeln!(writer, "{}", content)?;
+                writer.flush()?;
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("ERROR: Failed to get runner appender: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+}
+
+
+
 
 // Runner-specific logger
 #[derive(Clone, Serialize)]
@@ -133,112 +333,49 @@ impl Write for DailyRollingAppender {
     }
 }
 
-// Custom writer that routes logs to different files based on runner context
-struct ContextAwareWriter {
-    default_writer: Arc<Mutex<DailyRollingAppender>>,
+// Simplified writer - runner routing is now handled by the layer
+struct SimpleAppWriter {
+    writer: Arc<Mutex<DailyRollingAppender>>,
 }
 
-impl ContextAwareWriter {
-    fn new(default_writer: DailyRollingAppender) -> Self {
+impl SimpleAppWriter {
+    fn new(writer: DailyRollingAppender) -> Self {
         Self {
-            default_writer: Arc::new(Mutex::new(default_writer)),
+            writer: Arc::new(Mutex::new(writer)),
         }
     }
 }
 
-impl Write for ContextAwareWriter {
+impl Write for SimpleAppWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // For the ContextAwareWriter itself, we just delegate to default writer
-        // The actual routing happens in ContextWriter created by make_writer
-        let mut writer = self.default_writer.lock().map_err(|e| {
+        let mut writer = self.writer.lock().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
         })?;
         writer.write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let mut writer = self.default_writer.lock().map_err(|e| {
+        let mut writer = self.writer.lock().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
         })?;
         writer.flush()
     }
 }
 
-impl<'a> MakeWriter<'a> for ContextAwareWriter {
-    type Writer = ContextWriter;
 
-    fn make_writer(&'a self) -> Self::Writer {
-        // Extract runner_id from current tracing span context by parsing the debug output
-        // This is the most reliable approach given the tracing API limitations
-        let runner_id = extract_runner_id_from_current_span();
-
-        ContextWriter {
-            runner_id,
-            default_writer: self.default_writer.clone(),
+// Helper function to check if a string looks like a UUID
+fn is_valid_uuid_like(s: &str) -> bool {
+    // UUID format: 8-4-4-4-12 hex characters with dashes
+    // e.g., 1537f636-5a9f-4387-8b86-1109e4921b93
+    s.len() == 36 && 
+    s.chars().enumerate().all(|(i, c)| {
+        match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
         }
-    }
+    })
 }
 
-struct ContextWriter {
-    runner_id: Option<String>,
-    default_writer: Arc<Mutex<DailyRollingAppender>>,
-}
-
-// Helper function to extract runner_id from span debug output
-fn extract_runner_id_from_span_debug(span_debug: &str) -> Option<String> {
-    // Look for pattern like: runner_id="uuid-here"
-    if let Some(start) = span_debug.find("runner_id=") {
-        let after_equals = &span_debug[start + 10..]; // Skip "runner_id="
-        if let Some(quote_start) = after_equals.find('"') {
-            let after_quote = &after_equals[quote_start + 1..];
-            if let Some(quote_end) = after_quote.find('"') {
-                return Some(after_quote[..quote_end].to_string());
-            }
-        }
-        // Also try without quotes for cases like runner_id=uuid
-        if let Some(space_end) = after_equals.find(' ') {
-            return Some(after_equals[..space_end].to_string());
-        }
-        if let Some(brace_end) = after_equals.find('}') {
-            return Some(after_equals[..brace_end].to_string());
-        }
-    }
-    None
-}
-
-// Extract runner_id from the current span context
-fn extract_runner_id_from_current_span() -> Option<String> {
-    // Get the current span and check its debug representation
-    let current_span = tracing::Span::current();
-
-    // If we're not in any span, return None
-    if current_span == tracing::Span::none() {
-        return None;
-    }
-
-    // Convert span to debug string to extract the runner_id
-    let span_debug = format!("{:?}", current_span);
-
-    // Debug: Print span info for troubleshooting (only in development)
-    #[cfg(debug_assertions)]
-    {
-        if span_debug.contains("runner") {
-            eprintln!("DEBUG: Current span: {}", span_debug);
-        }
-    }
-
-    // Look for runner_id in the span or its parent spans
-    let result = extract_runner_id_from_span_debug(&span_debug);
-
-    #[cfg(debug_assertions)]
-    {
-        if result.is_some() {
-            eprintln!("DEBUG: Extracted runner_id: {:?}", result);
-        }
-    }
-
-    result
-}
 
 // Get or create runner-specific appender
 fn get_runner_appender(
@@ -250,19 +387,34 @@ fn get_runner_appender(
     }
 
     let appenders_registry = RUNNER_APPENDERS.get().unwrap();
-    let mut appenders = appenders_registry.lock().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-    })?;
+    
+    // First, check if appender already exists (quick operation)
+    {
+        let appenders = appenders_registry.lock().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
+        })?;
 
-    // Check if we already have an appender for this runner
-    if let Some(appender) = appenders.get(runner_id) {
-        return Ok(appender.clone());
+        if let Some(appender) = appenders.get(runner_id) {
+            return Ok(appender.clone());
+        }
+        // Lock is automatically released here when appenders goes out of scope
     }
-
-    // Create new appender for this runner
-    let settings = AppSettings::load().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, format!("Settings error: {}", e))
-    })?;
+    // Create new appender for this runner (do slow I/O without holding the lock)
+    // CRITICAL: Use a fallback approach to avoid infinite recursion from AppSettings::load()
+    let settings = match AppSettings::load() {
+        Ok(settings) => settings,
+        Err(_e) => {
+            // Create a fallback settings object to avoid infinite recursion
+            let data_dir = "/Users/dstorey/Library/Application Support/Cloacina".to_string();
+            AppSettings {
+                data_directory: data_dir.clone(),
+                app_database_path: format!("{}/cloacina-app.db", data_dir),
+                log_directory: format!("{}/logs", data_dir),
+                log_level: "info".to_string(),
+                max_log_files: 10,
+            }
+        }
+    };
 
     let runners_dir = std::path::Path::new(&settings.log_directory).join("runners");
     std::fs::create_dir_all(&runners_dir)?;
@@ -282,85 +434,95 @@ fn get_runner_appender(
     let appender = DailyRollingAppender::new(runners_dir.to_string_lossy().to_string(), filename);
 
     let appender_arc = Arc::new(Mutex::new(appender));
-    appenders.insert(runner_id.to_string(), appender_arc.clone());
+    
+    // Now acquire the lock again to insert the new appender
+    {
+        let mut appenders = appenders_registry.lock().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
+        })?;
+        
+        // Double-check that another thread didn't create it while we were doing I/O
+        if let Some(existing_appender) = appenders.get(runner_id) {
+            return Ok(existing_appender.clone());
+        }
+        
+        appenders.insert(runner_id.to_string(), appender_arc.clone());
+    }
 
     Ok(appender_arc)
 }
 
-impl Write for ContextWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        // Debug: Log what we're writing and whether we have a runner_id
-        #[cfg(debug_assertions)]
-        {
-            if let Ok(text) = std::str::from_utf8(buf) {
-                if text.contains("cloacina") {
-                    eprintln!(
-                        "DEBUG ContextWriter: Writing log with runner_id={:?}, text preview: {}",
-                        self.runner_id,
-                        text.lines()
-                            .next()
-                            .unwrap_or("")
-                            .chars()
-                            .take(100)
-                            .collect::<String>()
-                    );
-                }
-            }
-        }
-
-        // Route to runner-specific file if we have a runner_id
-        if let Some(ref runner_id) = self.runner_id {
-            match get_runner_appender(runner_id) {
-                Ok(runner_appender) => {
-                    // Write to both runner-specific log file AND main log
-                    let mut writer = runner_appender.lock().map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-                    })?;
-                    let result = writer.write(buf)?;
-
-                    // Also write to main log for now to ensure we don't lose logs
-                    let mut main_writer = self.default_writer.lock().map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-                    })?;
-                    let _ = main_writer.write(buf);
-
-                    Ok(result)
-                }
-                Err(e) => {
-                    eprintln!("DEBUG: Failed to get runner appender: {:?}", e);
-                    // Fall back to default writer if runner appender fails
-                    let mut writer = self.default_writer.lock().map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-                    })?;
-                    writer.write(buf)
-                }
-            }
-        } else {
-            // No runner context, use default writer
-            let mut writer = self.default_writer.lock().map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-            })?;
-            writer.write(buf)
-        }
+// Get or create runner-specific appender with known runner name
+fn get_runner_appender_with_name(
+    runner_id: &str,
+    runner_name: &Option<String>,
+) -> Result<Arc<Mutex<DailyRollingAppender>>, std::io::Error> {
+    // Initialize appenders registry if needed
+    if RUNNER_APPENDERS.get().is_none() {
+        let _ = RUNNER_APPENDERS.set(Arc::new(Mutex::new(HashMap::new())));
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        // Flush both runner-specific and default writers
-        if let Some(ref runner_id) = self.runner_id {
-            if let Ok(runner_appender) = get_runner_appender(runner_id) {
-                if let Ok(mut writer) = runner_appender.lock() {
-                    let _ = writer.flush();
-                }
-            }
-        }
-
-        // Always flush default writer too
-        let mut writer = self.default_writer.lock().map_err(|e| {
+    let appenders_registry = RUNNER_APPENDERS.get().unwrap();
+    
+    // First, check if appender already exists (quick operation)
+    {
+        let appenders = appenders_registry.lock().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
         })?;
-        writer.flush()
+
+        if let Some(appender) = appenders.get(runner_id) {
+            return Ok(appender.clone());
+        }
+        // Lock is automatically released here when appenders goes out of scope
     }
+
+    // Create new appender for this runner (do slow I/O without holding the lock)
+    let settings = match AppSettings::load() {
+        Ok(settings) => settings,
+        Err(_e) => {
+            // Create a fallback settings object to avoid infinite recursion
+            let data_dir = "/Users/dstorey/Library/Application Support/Cloacina".to_string();
+            AppSettings {
+                data_directory: data_dir.clone(),
+                app_database_path: format!("{}/cloacina-app.db", data_dir),
+                log_directory: format!("{}/logs", data_dir),
+                log_level: "info".to_string(),
+                max_log_files: 10,
+            }
+        }
+    };
+
+    let runners_dir = std::path::Path::new(&settings.log_directory).join("runners");
+    std::fs::create_dir_all(&runners_dir)?;
+
+    // Use the runner name from span context instead of registry lookup
+    let runner_name_str = runner_name
+        .as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or("unknown");
+
+    let filename = format!("{}-{}", runner_name_str, runner_id);
+    let appender = DailyRollingAppender::new(runners_dir.to_string_lossy().to_string(), filename);
+
+    let appender_arc = Arc::new(Mutex::new(appender));
+    
+    // Now acquire the lock again to insert the new appender
+    {
+        let mut appenders = appenders_registry.lock().map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
+        })?;
+        
+        // Double-check that another thread didn't create it while we were doing I/O
+        if let Some(existing_appender) = appenders.get(runner_id) {
+            return Ok(existing_appender.clone());
+        }
+        
+        appenders.insert(runner_id.to_string(), appender_arc.clone());
+    }
+
+    Ok(appender_arc)
 }
+
 
 // Initialize runner loggers registry
 pub fn initialize_runner_logging() -> Result<()> {
@@ -444,14 +606,14 @@ pub fn initialize_logging() -> Result<()> {
     // Create log directory if it doesn't exist
     std::fs::create_dir_all(&settings.log_directory)?;
 
-    // STEP 1: Simple file appender - no custom writer yet
-    let file_appender =
+    // Simple app writer for main application logs
+    let default_appender =
         DailyRollingAppender::new(settings.log_directory.clone(), "cloacina-app".to_string());
+    let app_writer = SimpleAppWriter::new(default_appender);
 
-    // Use the file appender directly for now
-    // IMPORTANT: We need to keep the guard alive for the entire program lifetime
-    let (non_blocking_appender, guard) = non_blocking(file_appender);
-
+    // Use non-blocking writer for performance
+    let (non_blocking_appender, guard) = non_blocking(app_writer);
+    
     // Leak the guard to keep it alive forever
     Box::leak(Box::new(guard));
 
@@ -466,12 +628,12 @@ pub fn initialize_logging() -> Result<()> {
         anyhow::anyhow!("Failed to set reload handle - logging already initialized")
     })?;
 
-    // STEP 1: Simple file layer - just get logs to file
+    // STEP 2: Context-aware file layer - routes logs to runner-specific files
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking_appender)
         .with_ansi(false);
 
-    // STEP 1: Console layer with filter for app logs only
+    // Console layer with filter for app logs only
     let console_filter = EnvFilter::from_default_env()
         .add_directive("cloacina_app=info".parse()?) // App logs at info level
         .add_directive("cloacina=warn".parse()?); // Only warnings/errors from cloacina library
@@ -480,10 +642,15 @@ pub fn initialize_logging() -> Result<()> {
         .with_writer(std::io::stderr)
         .with_filter(console_filter);
 
-    // Initialize the subscriber with both layers
-    // File layer gets the full filter, console layer has its own filter
+    // Create the runner context layer for routing runner logs
+    let runner_layer = RunnerContextLayer::new();
+
+    // Initialize the subscriber with all layers
+    // Apply filter layer first, then add other layers
+    // TOGGLE: Comment out runner_layer if it causes hanging
     tracing_subscriber::registry()
         .with(filter_layer)
+        .with(runner_layer)  // Comment this line to disable runner routing
         .with(file_layer)
         .with(console_layer)
         .init();
