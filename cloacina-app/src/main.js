@@ -279,11 +279,26 @@ async function refreshAppStatus() {
 
 // Navigation handling
 function switchView(viewName) {
+  // Close any open dropdowns
+  document.querySelectorAll('.dropdown').forEach(dropdown => {
+    dropdown.classList.remove('active');
+  });
+
   // Update navigation
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.remove('active');
   });
-  document.querySelector(`[data-view="${viewName}"]`).classList.add('active');
+
+  // For dropdown items, we need to handle them differently
+  const targetElement = document.querySelector(`[data-view="${viewName}"]`);
+  if (targetElement) {
+    if (targetElement.classList.contains('dropdown-item')) {
+      // If it's a dropdown item, don't set active on it but close dropdown
+      document.querySelector('#packages-dropdown').classList.remove('active');
+    } else {
+      targetElement.classList.add('active');
+    }
+  }
 
   // Update views
   document.querySelectorAll('.view').forEach(view => {
@@ -547,10 +562,36 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Navigation listeners
   document.querySelectorAll('.nav-item').forEach(item => {
+    if (!item.classList.contains('dropdown')) {
+      item.addEventListener('click', () => {
+        const viewName = item.getAttribute('data-view');
+        switchView(viewName);
+      });
+    }
+  });
+
+  // Dropdown navigation listeners
+  document.querySelectorAll('.dropdown-item').forEach(item => {
     item.addEventListener('click', () => {
       const viewName = item.getAttribute('data-view');
       switchView(viewName);
     });
+  });
+
+  // Packages dropdown toggle
+  const packagesDropdown = document.querySelector('#packages-dropdown');
+  const packagesButton = packagesDropdown.querySelector('.nav-button');
+
+  packagesButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    packagesDropdown.classList.toggle('active');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!packagesDropdown.contains(e.target)) {
+      packagesDropdown.classList.remove('active');
+    }
   });
 
   // Function to update database path based on runner name

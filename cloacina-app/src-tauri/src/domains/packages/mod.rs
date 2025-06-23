@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
-pub mod app;
-pub mod packages;
-pub mod runners;
+//! Package management domain for building, inspecting, debugging, and visualizing workflow packages.
+
+pub mod commands;
+pub mod types;

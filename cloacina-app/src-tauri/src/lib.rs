@@ -19,6 +19,7 @@ mod domains;
 use domains::app::commands::*;
 use domains::app::logging::*;
 use domains::app::settings::*;
+use domains::packages::commands::*;
 use domains::runners::commands::*;
 
 // Legacy commands for debugging
@@ -75,7 +76,12 @@ pub fn run() {
             open_log_directory,
             reload_logging_config,
             generate_reset_confirmation,
-            full_system_reset
+            full_system_reset,
+            // Package management commands
+            build_package,
+            inspect_package,
+            debug_package,
+            visualize_package
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

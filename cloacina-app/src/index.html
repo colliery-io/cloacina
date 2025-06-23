@@ -35,6 +35,31 @@
           <span class="nav-icon">🖥️</span>
           Local Runners
         </button>
+        <div class="nav-item dropdown" id="packages-dropdown">
+          <button class="nav-button">
+            <span class="nav-icon">📦</span>
+            Packages
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div class="dropdown-content">
+            <button class="dropdown-item" data-view="build-package">
+              <span class="dropdown-icon">🔨</span>
+              Build Package
+            </button>
+            <button class="dropdown-item" data-view="inspect-package">
+              <span class="dropdown-icon">🔍</span>
+              Inspect Package
+            </button>
+            <button class="dropdown-item" data-view="debug-package">
+              <span class="dropdown-icon">🐛</span>
+              Debug Package
+            </button>
+            <button class="dropdown-item" data-view="visualize-package">
+              <span class="dropdown-icon">📊</span>
+              Visualize Package
+            </button>
+          </div>
+        </div>
         <button class="nav-item" data-view="workflows">
           <span class="nav-icon">📋</span>
           Workflows
@@ -159,6 +184,51 @@
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Package Views -->
+      <div id="build-package-view" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h2>🔨 Build Package</h2>
+          </div>
+          <div class="card-content">
+            <p>Build Package functionality coming soon...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="inspect-package-view" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h2>🔍 Inspect Package</h2>
+          </div>
+          <div class="card-content">
+            <p>Inspect Package functionality coming soon...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="debug-package-view" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h2>🐛 Debug Package</h2>
+          </div>
+          <div class="card-content">
+            <p>Debug Package functionality coming soon...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="visualize-package-view" class="view">
+        <div class="card">
+          <div class="card-header">
+            <h2>📊 Visualize Package</h2>
+          </div>
+          <div class="card-content">
+            <p>Visualize Package functionality coming soon...</p>
           </div>
         </div>
       </div>
