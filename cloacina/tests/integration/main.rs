@@ -24,6 +24,8 @@ pub mod error;
 pub mod executor;
 pub mod logging;
 pub mod models;
+pub mod packaging;
+pub mod packaging_inspection;
 pub mod registry_simple_functional_test;
 pub mod registry_storage_tests;
 pub mod registry_workflow_registry_tests;

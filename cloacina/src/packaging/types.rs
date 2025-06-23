@@ -53,16 +53,17 @@ impl Default for CompileOptions {
 /// Package manifest containing workflow metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageManifest {
-    /// Manifest format version
-    pub version: String,
     /// Package information
     pub package: PackageInfo,
     /// Library information
     pub library: LibraryInfo,
     /// Task information
     pub tasks: Vec<TaskInfo>,
-    /// Cloacina compatibility version
-    pub cloacina_version: String,
+    /// Task execution order
+    pub execution_order: Vec<String>,
+    /// Workflow graph data (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph: Option<crate::WorkflowGraphData>,
 }
 
 /// Package information from Cargo.toml
@@ -73,11 +74,15 @@ pub struct PackageInfo {
     /// Package version
     pub version: String,
     /// Package description
-    pub description: Option<String>,
-    /// Package authors
-    pub authors: Option<Vec<String>>,
-    /// Package keywords
-    pub keywords: Option<Vec<String>>,
+    pub description: String,
+    /// Package author(s)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Workflow fingerprint/version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_fingerprint: Option<String>,
+    /// Cloacina compatibility version
+    pub cloacina_version: String,
 }
 
 /// Dynamic library information
@@ -85,23 +90,25 @@ pub struct PackageInfo {
 pub struct LibraryInfo {
     /// Library filename
     pub filename: String,
+    /// Exported symbols
+    pub symbols: Vec<String>,
     /// Target architecture
     pub architecture: String,
-    /// File size in bytes
-    pub size: u64,
-    /// SHA256 checksum
-    pub checksum: String,
 }
 
 /// Task information extracted from the workflow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInfo {
-    /// Task name
-    pub name: String,
+    /// Task index
+    pub index: u32,
+    /// Task identifier/name
+    pub id: String,
+    /// Task dependencies
+    pub dependencies: Vec<String>,
     /// Task description
-    pub description: Option<String>,
-    /// Task symbol name in the library
-    pub symbol: String,
+    pub description: String,
+    /// Source location in code
+    pub source_location: String,
 }
 
 /// Parsed Cargo.toml structure
@@ -133,5 +140,5 @@ pub struct CargoLib {
 
 /// Constants
 pub const MANIFEST_FILENAME: &str = "manifest.json";
-pub const EXECUTE_TASK_SYMBOL: &str = "execute_task";
+pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 pub const CLOACINA_VERSION: &str = env!("CARGO_PKG_VERSION");

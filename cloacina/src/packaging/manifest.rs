@@ -14,13 +14,9 @@
  *  limitations under the License.
  */
 
-use anyhow::{format_err, Context, Result};
+use anyhow::{Context, Result};
 use regex::Regex;
-use sha2::Digest;
-use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
-use std::str;
 
 use super::types::{
     CargoToml, LibraryInfo, PackageInfo, PackageManifest, TaskInfo, CLOACINA_VERSION,
@@ -39,13 +35,11 @@ pub fn generate_manifest(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Missing package section in Cargo.toml"))?;
 
-    // Use the provided target triple, or query rustc for host target if none specified
-    let architecture = match target {
-        Some(t) => {
-            validate_target(t)?;
-            t.clone()
-        }
-        None => get_target()?,
+    // Extract architecture from target or use current platform
+    let architecture = if let Some(target_triple) = target {
+        target_triple.clone()
+    } else {
+        get_current_architecture()
     };
 
     // Get library filename
@@ -55,154 +49,285 @@ pub fn generate_manifest(
         .to_string_lossy()
         .to_string();
 
-    // Get file metadata
-    let metadata = fs::metadata(so_path)
-        .with_context(|| format!("Failed to get metadata for: {:?}", so_path))?;
-    let file_size = metadata.len();
+    let (tasks, graph_data, package_metadata) =
+        extract_task_info_and_graph_from_library(&so_path, project_path)?;
 
-    // Calculate checksum
-    let checksum = calculate_file_checksum(so_path)?;
-
-    // Extract tasks from source code
-    let tasks = extract_tasks_from_source(project_path)?;
-
-    Ok(PackageManifest {
-        version: "1.0".to_string(),
+    let manifest = PackageManifest {
         package: PackageInfo {
             name: package.name.clone(),
             version: package.version.clone(),
-            description: package.description.clone(),
-            authors: package.authors.clone(),
-            keywords: package.keywords.clone(),
+            description: package_metadata
+                .description
+                .unwrap_or_else(|| format!("Packaged workflow: {}", package.name)),
+            author: package_metadata.author,
+            workflow_fingerprint: package_metadata.workflow_fingerprint,
+            cloacina_version: CLOACINA_VERSION.to_string(),
         },
         library: LibraryInfo {
             filename: library_filename,
+            symbols: vec![EXECUTE_TASK_SYMBOL.to_string()],
             architecture,
-            size: file_size,
-            checksum,
         },
         tasks,
-        cloacina_version: CLOACINA_VERSION.to_string(),
-    })
-}
-
-fn calculate_file_checksum(file_path: &PathBuf) -> Result<String> {
-    use std::io::Read;
-
-    let mut file = fs::File::open(file_path)
-        .with_context(|| format!("Failed to open file for checksum: {:?}", file_path))?;
-
-    let mut hasher = sha2::Sha256::new();
-    let mut buffer = [0; 8192];
-
-    loop {
-        let bytes_read = file
-            .read(&mut buffer)
-            .context("Failed to read file for checksum")?;
-
-        if bytes_read == 0 {
-            break;
-        }
-
-        use sha2::Digest;
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn extract_tasks_from_source(project_path: &PathBuf) -> Result<Vec<TaskInfo>> {
-    let src_dir = project_path.join("src");
-    let lib_rs = src_dir.join("lib.rs");
-    let main_rs = src_dir.join("main.rs");
-
-    // Check lib.rs first, then main.rs if lib.rs doesn't exist
-    let source_file = if lib_rs.exists() {
-        lib_rs
-    } else if main_rs.exists() {
-        main_rs
-    } else {
-        return Ok(Vec::new()); // No tasks if no source file
+        execution_order: vec![], // TODO: Generate from task dependencies based on extracted tasks
+        graph: graph_data,
     };
 
-    let source_content = fs::read_to_string(&source_file)
-        .with_context(|| format!("Failed to read source file: {:?}", source_file))?;
-
-    extract_tasks_from_content(&source_content)
+    Ok(manifest)
 }
 
-fn extract_tasks_from_content(content: &str) -> Result<Vec<TaskInfo>> {
+/// Package metadata extracted from the FFI
+#[derive(Debug, Clone)]
+pub(crate) struct PackageMetadata {
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub workflow_fingerprint: Option<String>,
+}
+
+/// Extract task information and graph data from a compiled library using FFI metadata functions
+fn extract_task_info_and_graph_from_library(
+    so_path: &PathBuf,
+    project_path: &PathBuf,
+) -> Result<(
+    Vec<TaskInfo>,
+    Option<crate::WorkflowGraphData>,
+    PackageMetadata,
+)> {
+    // Define the C structures that match the macro-generated ones
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct CTaskMetadata {
+        index: u32,
+        local_id: *const std::os::raw::c_char,
+        namespaced_id_template: *const std::os::raw::c_char,
+        dependencies_json: *const std::os::raw::c_char,
+        description: *const std::os::raw::c_char,
+        source_location: *const std::os::raw::c_char,
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    struct CPackageTasks {
+        task_count: u32,
+        tasks: *const CTaskMetadata,
+        package_name: *const std::os::raw::c_char,
+        package_description: *const std::os::raw::c_char,
+        package_author: *const std::os::raw::c_char,
+        workflow_fingerprint: *const std::os::raw::c_char,
+        graph_data_json: *const std::os::raw::c_char,
+    }
+
+    // Load the compiled library
+    let lib = unsafe {
+        libloading::Library::new(so_path).with_context(|| {
+            format!(
+                "Failed to load library for metadata extraction: {:?}",
+                so_path
+            )
+        })?
+    };
+
+    // Try to find a metadata function - first try the standard name
+    let get_metadata = unsafe {
+        // Try standard name first
+        match lib
+            .get::<unsafe extern "C" fn() -> *const CPackageTasks>(b"cloacina_get_task_metadata")
+        {
+            Ok(func) => func,
+            Err(_) => {
+                // If that fails, try to find package-specific functions by reading package names from Cargo.toml
+                let cargo_toml_path = project_path.join("Cargo.toml");
+                let _cargo_content = std::fs::read_to_string(&cargo_toml_path)
+                    .context("Failed to read Cargo.toml for package name extraction")?;
+
+                // Look for packaged_workflow attributes in source files to find package names
+                let package_names = extract_package_names_from_source(project_path)?;
+
+                let mut found_func = None;
+                for package_name in package_names {
+                    let normalized_name = package_name
+                        .replace("-", "_")
+                        .replace(" ", "_")
+                        .to_lowercase();
+                    let func_name = format!("cloacina_get_task_metadata_{}\0", normalized_name);
+
+                    if let Ok(func) = lib
+                        .get::<unsafe extern "C" fn() -> *const CPackageTasks>(func_name.as_bytes())
+                    {
+                        found_func = Some(func);
+                        break;
+                    }
+                }
+
+                found_func
+                    .ok_or_else(|| anyhow::anyhow!("No task metadata function found in library"))?
+            }
+        }
+    };
+
+    // Call the metadata function
+    let package_tasks_ptr = unsafe { get_metadata() };
+
+    if package_tasks_ptr.is_null() {
+        return Ok((
+            vec![],
+            None,
+            PackageMetadata {
+                description: None,
+                author: None,
+                workflow_fingerprint: None,
+            },
+        ));
+    }
+
+    let package_tasks = unsafe { &*package_tasks_ptr };
+
+    // Extract graph data JSON if available
+    let graph_data = if !package_tasks.graph_data_json.is_null() {
+        let graph_json_str = unsafe {
+            std::ffi::CStr::from_ptr(package_tasks.graph_data_json)
+                .to_str()
+                .unwrap_or("{}")
+        };
+
+        // Parse the JSON string into WorkflowGraphData
+        match serde_json::from_str::<crate::WorkflowGraphData>(graph_json_str) {
+            Ok(graph) => Some(graph),
+            Err(e) => {
+                eprintln!("Warning: Failed to parse graph data: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Convert C strings and data to Rust structures
     let mut tasks = Vec::new();
 
-    // Look for #[packaged_workflow] followed by function definitions
-    let workflow_regex =
-        Regex::new(r#"#\[packaged_workflow(?:\([^)]*\))?\]\s*(?:pub\s+)?fn\s+(\w+)"#)
-            .context("Failed to compile regex for workflow extraction")?;
+    if package_tasks.task_count > 0 && !package_tasks.tasks.is_null() {
+        let tasks_slice = unsafe {
+            std::slice::from_raw_parts(package_tasks.tasks, package_tasks.task_count as usize)
+        };
 
-    for captures in workflow_regex.captures_iter(content) {
-        if let Some(function_name) = captures.get(1) {
-            let task_name = function_name.as_str().to_string();
+        for (index, task_metadata) in tasks_slice.iter().enumerate() {
+            let local_id = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.local_id)
+                    .to_str()
+                    .unwrap_or("unknown")
+                    .to_string()
+            };
+
+            let description = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.description)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
+
+            let source_location = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.source_location)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            };
+
+            let dependencies_json = unsafe {
+                std::ffi::CStr::from_ptr(task_metadata.dependencies_json)
+                    .to_str()
+                    .unwrap_or("[]")
+            };
+
+            // Parse dependencies JSON
+            let dependencies: Vec<String> =
+                serde_json::from_str(dependencies_json).unwrap_or_else(|_| vec![]);
 
             tasks.push(TaskInfo {
-                name: task_name.clone(),
-                description: None, // Could be extracted from doc comments in the future
-                symbol: EXECUTE_TASK_SYMBOL.to_string(),
+                index: index as u32,
+                id: local_id,
+                dependencies,
+                description,
+                source_location,
             });
         }
     }
 
-    Ok(tasks)
+    // Extract package metadata
+    let package_description = if !package_tasks.package_description.is_null() {
+        unsafe {
+            std::ffi::CStr::from_ptr(package_tasks.package_description)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        }
+    } else {
+        None
+    };
+
+    let package_author = if !package_tasks.package_author.is_null() {
+        unsafe {
+            std::ffi::CStr::from_ptr(package_tasks.package_author)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        }
+    } else {
+        None
+    };
+
+    let workflow_fingerprint = if !package_tasks.workflow_fingerprint.is_null() {
+        unsafe {
+            std::ffi::CStr::from_ptr(package_tasks.workflow_fingerprint)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        }
+    } else {
+        None
+    };
+
+    let package_metadata = PackageMetadata {
+        description: package_description,
+        author: package_author,
+        workflow_fingerprint,
+    };
+
+    Ok((tasks, graph_data, package_metadata))
 }
 
-fn validate_target(target: &str) -> Result<()> {
-    // Basic format check - should have at least 2-4 components separated by hyphens
-    let parts: Vec<&str> = target.split('-').collect();
-    if parts.len() < 2 || parts.len() > 4 {
-        return Err(anyhow::anyhow!(
-            "Invalid target triple format: {}. Expected format like 'x86_64-unknown-linux-gnu'",
-            target
-        ));
+/// Extract package names from source files by looking for #[packaged_workflow] attributes
+pub(crate) fn extract_package_names_from_source(project_path: &PathBuf) -> Result<Vec<String>> {
+    let src_path = project_path.join("src");
+    let mut package_names = Vec::new();
+
+    // Regex to find packaged_workflow attributes and extract package names
+    let packaged_workflow_regex =
+        Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
+            .expect("Failed to compile regex");
+
+    // Walk through .rs files in src directory
+    for entry in std::fs::read_dir(&src_path)
+        .with_context(|| format!("Failed to read src directory: {:?}", src_path))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            let content = std::fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read file: {:?}", path))?;
+
+            for captures in packaged_workflow_regex.captures_iter(&content) {
+                if let Some(package_name) = captures.get(1) {
+                    package_names.push(package_name.as_str().to_string());
+                }
+            }
+        }
     }
 
-    // Check if rustc supports this target
-    let output = Command::new("rustc")
-        .arg("--print")
-        .arg("target-list")
-        .output()
-        .context("Failed to get supported targets from rustc")?;
-
-    let supported_targets =
-        str::from_utf8(&output.stdout).context("rustc target list output is not valid UTF-8")?;
-
-    if !supported_targets.lines().any(|line| line.trim() == target) {
-        return Err(anyhow::anyhow!(
-            "Target '{}' is not supported by rustc. Run 'rustc --print target-list' to see supported targets.",
-            target
-        ));
-    }
-
-    Ok(())
+    Ok(package_names)
 }
 
-fn get_target() -> Result<String> {
-    let output = Command::new("rustc")
-        .arg("-vV")
-        .output()
-        .context("Failed to run rustc to get the host target")?;
-    let output = str::from_utf8(&output.stdout).context("`rustc -vV` didn't return utf8 output")?;
-
-    let field = "host: ";
-    let host = output
-        .lines()
-        .find(|l| l.starts_with(field))
-        .map(|l| &l[field.len()..])
-        .ok_or_else(|| {
-            format_err!(
-                "`rustc -vV` didn't have a line for `{}`, got:\n{}",
-                field.trim(),
-                output
-            )
-        })?
-        .to_string();
-    Ok(host)
+pub(crate) fn get_current_architecture() -> String {
+    // Use the current host target
+    std::env::consts::ARCH.to_string()
 }

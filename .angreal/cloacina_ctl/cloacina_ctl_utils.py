@@ -3,12 +3,8 @@ Utility functions for cloacina-ctl testing and operations.
 """
 
 import subprocess
-from pathlib import Path
 
 
-def get_project_root():
-    """Get the project root directory."""
-    return Path(__file__).parent.parent.parent
 
 
 def run_cloacina_ctl_command(args, backend="postgres", cwd=None, check=True):

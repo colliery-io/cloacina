@@ -85,6 +85,7 @@ pub fn run() {
             // Dialog commands
             select_directory_dialog,
             save_file_dialog,
+            select_file_dialog,
             open_file_location,
             get_desktop_path,
             get_system_paths

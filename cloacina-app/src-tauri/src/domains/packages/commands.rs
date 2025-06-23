@@ -14,8 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::packaging::types::{PackageManifest, MANIFEST_FILENAME};
-use cloacina::packaging::{package_workflow, CompileOptions};
+use cloacina::packaging::{package_workflow, types::PackageManifest, CompileOptions};
 use flate2::read::GzDecoder;
 use std::fs::File;
 use std::io::Read;
@@ -28,6 +27,8 @@ use super::types::{
     InspectPackageRequest, InspectPackageResponse, VisualizePackageRequest,
     VisualizePackageResponse,
 };
+
+const MANIFEST_FILENAME: &str = "manifest.json";
 
 /// Build a workflow package from a Rust project
 #[command]
@@ -73,7 +74,7 @@ pub async fn build_package(request: BuildPackageRequest) -> Result<BuildPackageR
     }
 }
 
-/// Extract manifest from a package archive
+/// Extract manifest from a package archive using the library's PackageManifest type
 fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageManifest, String> {
     let file =
         File::open(package_path).map_err(|e| format!("Failed to open package file: {}", e))?;
@@ -125,36 +126,36 @@ pub async fn inspect_package(
         });
     }
 
-    // Extract manifest from package
+    // Extract manifest from package using library types
     match extract_manifest_from_package(&package_path) {
         Ok(manifest) => {
             let info = if request.format == "human" {
                 Some(format!(
                     "Package: {} v{}\n\
                      Description: {}\n\
-                     Authors: {}\n\
-                     Library: {} ({} bytes)\n\
+                     Author: {}\n\
+                     Workflow Version: {}\n\
+                     Library: {}\n\
                      Architecture: {}\n\
                      Tasks: {}\n\
                      Cloacina Version: {}",
                     manifest.package.name,
                     manifest.package.version,
+                    manifest.package.description,
                     manifest
                         .package
-                        .description
-                        .as_ref()
-                        .unwrap_or(&"N/A".to_string()),
+                        .author
+                        .as_deref()
+                        .unwrap_or("No authors specified"),
                     manifest
                         .package
-                        .authors
-                        .as_ref()
-                        .map(|a| a.join(", "))
-                        .unwrap_or_else(|| "N/A".to_string()),
+                        .workflow_fingerprint
+                        .as_deref()
+                        .unwrap_or("N/A"),
                     manifest.library.filename,
-                    manifest.library.size,
                     manifest.library.architecture,
                     manifest.tasks.len(),
-                    manifest.cloacina_version
+                    manifest.package.cloacina_version
                 ))
             } else {
                 None
@@ -208,14 +209,10 @@ pub async fn debug_package(request: DebugPackageRequest) -> Result<DebugPackageR
                     .enumerate()
                     .map(|(index, task)| super::types::TaskInfo {
                         index,
-                        id: task.name.clone(),
-                        description: task
-                            .description
-                            .as_ref()
-                            .unwrap_or(&"No description".to_string())
-                            .clone(),
-                        dependencies: Vec::new(), // TODO: Extract dependency info from workflow
-                        source_location: format!("Symbol: {}", task.symbol),
+                        id: task.id.clone(),
+                        description: task.description.clone(),
+                        dependencies: task.dependencies.clone(),
+                        source_location: task.source_location.clone(),
                     })
                     .collect();
 
@@ -273,22 +270,27 @@ pub async fn visualize_package(
                 .tasks
                 .iter()
                 .map(|task| super::types::GraphNode {
-                    id: task.name.clone(),
-                    label: task.name.clone(),
-                    description: task
-                        .description
-                        .as_ref()
-                        .unwrap_or(&"No description".to_string())
-                        .clone(),
+                    id: task.id.clone(),
+                    label: task.id.clone(),
+                    description: task.description.clone(),
                     node_type: "task".to_string(),
                     x: None, // Let D3.js calculate positions
                     y: None,
                 })
                 .collect();
 
-            // For now, we don't have dependency information in the manifest
-            // In a full implementation, we'd need to extract this from the workflow definition
-            let edges: Vec<super::types::GraphEdge> = Vec::new();
+            // Create edges from task dependencies
+            let edges: Vec<super::types::GraphEdge> = manifest
+                .tasks
+                .iter()
+                .flat_map(|task| {
+                    task.dependencies.iter().map(|dep| super::types::GraphEdge {
+                        source: dep.clone(),
+                        target: task.id.clone(),
+                        edge_type: "dependency".to_string(),
+                    })
+                })
+                .collect();
 
             let graph_data = super::types::GraphData { nodes, edges };
 
@@ -297,7 +299,7 @@ pub async fn visualize_package(
                 let task_list = manifest
                     .tasks
                     .iter()
-                    .map(|task| format!("  ┌─ {}", task.name))
+                    .map(|task| format!("  ┌─ {}", task.id))
                     .collect::<Vec<_>>()
                     .join("\n");
 

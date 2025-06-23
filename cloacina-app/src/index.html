@@ -5,7 +5,10 @@
     <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cloacina Desktop</title>
-    <script type="module" src="/main.js" defer></script>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://unpkg.com/dagre-d3@0.6.4/dist/dagre-d3.min.js"></script>
+    <script type="module" src="/main-modular.js" defer></script>
   </head>
 
   <body>
@@ -53,10 +56,6 @@
             <button class="dropdown-item" data-view="debug-package">
               <span class="dropdown-icon">🐛</span>
               Debug Package
-            </button>
-            <button class="dropdown-item" data-view="visualize-package">
-              <span class="dropdown-icon">📊</span>
-              Visualize Package
             </button>
           </div>
         </div>
@@ -113,65 +112,65 @@
                 <label for="new-max-tasks">Max Concurrent Tasks</label>
                 <input type="number" id="new-max-tasks" value="8" min="1" max="64" />
               </div>
+            </div>
 
-              <!-- Advanced Configuration -->
-              <div class="config-section">
-                <div class="config-section-header" onclick="toggleAdvancedConfig()">
-                  <span class="section-title">Advanced Configuration</span>
-                  <span class="expand-icon" id="advanced-expand-icon">▼</span>
+            <!-- Advanced Configuration -->
+            <div class="config-section">
+              <div class="config-section-header" onclick="toggleAdvancedConfig()">
+                <span class="section-title">Advanced Configuration</span>
+                <span class="expand-icon" id="advanced-expand-icon">▼</span>
+              </div>
+              <div class="config-section-content" id="advanced-config-content" style="display: none;">
+
+                <!-- Cron Scheduler Settings -->
+                <div class="config-subsection">
+                  <h4>Cron Scheduler</h4>
+                  <div class="config-grid">
+                    <div class="config-item">
+                      <label for="cron-poll-interval">Poll Interval (seconds)</label>
+                      <input type="number" id="cron-poll-interval" value="30" min="1" max="300" />
+                    </div>
+                    <div class="config-item">
+                      <label for="cron-recovery-interval">Recovery Interval (minutes)</label>
+                      <input type="number" id="cron-recovery-interval" value="5" min="1" max="60" />
+                    </div>
+                    <div class="config-item">
+                      <label for="cron-lost-threshold">Lost Threshold (minutes)</label>
+                      <input type="number" id="cron-lost-threshold" value="10" min="1" max="120" />
+                    </div>
+                  </div>
                 </div>
-                <div class="config-section-content" id="advanced-config-content" style="display: none;">
 
-                  <!-- Cron Scheduler Settings -->
-                  <div class="config-subsection">
-                    <h4>Cron Scheduler</h4>
-                    <div class="config-grid">
-                      <div class="config-item">
-                        <label for="cron-poll-interval">Poll Interval (seconds)</label>
-                        <input type="number" id="cron-poll-interval" value="30" min="1" max="300" />
-                      </div>
-                      <div class="config-item">
-                        <label for="cron-recovery-interval">Recovery Interval (minutes)</label>
-                        <input type="number" id="cron-recovery-interval" value="5" min="1" max="60" />
-                      </div>
-                      <div class="config-item">
-                        <label for="cron-lost-threshold">Lost Threshold (minutes)</label>
-                        <input type="number" id="cron-lost-threshold" value="10" min="1" max="120" />
-                      </div>
+                <!-- Registry Reconciler Settings -->
+                <div class="config-subsection">
+                  <h4>Registry Reconciler</h4>
+                  <div class="config-grid">
+                    <div class="config-item">
+                      <label for="registry-reconcile-interval">Reconcile Interval (seconds)</label>
+                      <input type="number" id="registry-reconcile-interval" value="60" min="10" max="600" />
                     </div>
                   </div>
-
-                  <!-- Registry Reconciler Settings -->
-                  <div class="config-subsection">
-                    <h4>Registry Reconciler</h4>
-                    <div class="config-grid">
-                      <div class="config-item">
-                        <label for="registry-reconcile-interval">Reconcile Interval (seconds)</label>
-                        <input type="number" id="registry-reconcile-interval" value="60" min="10" max="600" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Performance Settings -->
-                  <div class="config-subsection">
-                    <h4>Performance</h4>
-                    <div class="config-grid">
-                      <div class="config-item">
-                        <label for="executor-poll-interval">Executor Poll Interval (ms)</label>
-                        <input type="number" id="executor-poll-interval" value="100" min="10" max="1000" />
-                      </div>
-                      <div class="config-item">
-                        <label for="scheduler-poll-interval">Scheduler Poll Interval (ms)</label>
-                        <input type="number" id="scheduler-poll-interval" value="100" min="10" max="1000" />
-                      </div>
-                      <div class="config-item">
-                        <label for="task-timeout">Task Timeout (minutes)</label>
-                        <input type="number" id="task-timeout" value="5" min="1" max="60" />
-                      </div>
-                    </div>
-                  </div>
-
                 </div>
+
+                <!-- Performance Settings -->
+                <div class="config-subsection">
+                  <h4>Performance</h4>
+                  <div class="config-grid">
+                    <div class="config-item">
+                      <label for="executor-poll-interval">Executor Poll Interval (ms)</label>
+                      <input type="number" id="executor-poll-interval" value="100" min="10" max="1000" />
+                    </div>
+                    <div class="config-item">
+                      <label for="scheduler-poll-interval">Scheduler Poll Interval (ms)</label>
+                      <input type="number" id="scheduler-poll-interval" value="100" min="10" max="1000" />
+                    </div>
+                    <div class="config-item">
+                      <label for="task-timeout">Task Timeout (minutes)</label>
+                      <input type="number" id="task-timeout" value="5" min="1" max="60" />
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
             <div class="button-group">
@@ -293,9 +292,134 @@
         <div class="card">
           <div class="card-header">
             <h2>🔍 Inspect Package</h2>
+            <p>Examine local .cloacina package files and their contents</p>
           </div>
           <div class="card-content">
-            <p>Inspect Package functionality coming soon...</p>
+            <!-- File Selection Section -->
+            <div class="inspect-file-selection">
+              <div class="form-group">
+                <label for="inspect-package-path">Package File</label>
+                <div class="input-with-button">
+                  <input type="text" id="inspect-package-path" placeholder="Select .cloacina package file..." readonly>
+                  <button type="button" id="select-package-btn" class="btn btn-outline btn-sm">
+                    📁 Browse
+                  </button>
+                </div>
+                <small class="form-help">Select a .cloacina package file to inspect</small>
+              </div>
+
+              <div class="form-actions">
+                <button type="button" id="inspect-package-btn" class="btn btn-primary" disabled>
+                  <span class="btn-icon">🔍</span>
+                  Inspect Package
+                </button>
+                <button type="button" id="clear-inspect-btn" class="btn btn-outline">
+                  <span class="btn-icon">🧹</span>
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <!-- Package Information Display -->
+            <div id="package-info-section" class="output-section hidden">
+              <div class="output-header">
+                <h3>Package Information</h3>
+                <button id="close-package-info" class="btn btn-sm btn-outline">✕</button>
+              </div>
+
+              <!-- Package Overview -->
+              <div class="package-overview">
+                <div class="package-header">
+                  <div class="package-title">
+                    <h4 id="package-name">Package Name</h4>
+                    <span id="package-version" class="package-version">v1.0.0</span>
+                  </div>
+                  <div id="package-validation" class="validation-status"></div>
+                </div>
+                <div class="package-meta">
+                  <div class="meta-grid">
+                    <div class="meta-item">
+                      <label>Description:</label>
+                      <span id="package-description">Package description</span>
+                    </div>
+                    <div class="meta-item">
+                      <label>Author(s):</label>
+                      <span id="package-authors">Package authors</span>
+                    </div>
+                    <div class="meta-item">
+                      <label>Cloacina Version:</label>
+                      <span id="package-cloacina-version">0.2.0</span>
+                    </div>
+                    <div class="meta-item">
+                      <label>Architecture:</label>
+                      <span id="package-architecture">x86_64</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+
+              <!-- Task Visualization -->
+              <div class="package-section">
+                <div class="package-section-header">
+                  <h5>⚙️ Task Dependencies (<span id="task-count">0</span>)</h5>
+                  <div class="visualization-controls-inline">
+                    <label>
+                      <input type="checkbox" id="inspect-show-details" checked>
+                      Show descriptions
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Inline DAG visualization for inspect view -->
+                <div id="inspect-visualization-section" class="inspect-visualization-section hidden">
+                  <div class="inspect-visualization-layout">
+                    <div id="inspect-graph-container" class="inspect-graph-container">
+                      <svg id="inspect-workflow-svg" width="100%" height="400"></svg>
+                    </div>
+
+                    <!-- Task Details Panel for inspect view -->
+                    <div id="inspect-task-details-panel" class="task-details-panel hidden">
+                      <div class="panel-header">
+                        <h4>Task Details</h4>
+                        <button id="inspect-close-details-btn" class="btn btn-sm btn-outline">✕</button>
+                      </div>
+                      <div class="panel-content">
+                        <div class="detail-item">
+                          <label>Task ID:</label>
+                          <span id="inspect-detail-task-id">-</span>
+                        </div>
+                        <div class="detail-item">
+                          <label>Description:</label>
+                          <span id="inspect-detail-task-description">-</span>
+                        </div>
+                        <div class="detail-item">
+                          <label>Dependencies:</label>
+                          <div id="inspect-detail-task-dependencies">-</div>
+                        </div>
+                        <div class="detail-item">
+                          <label>Source:</label>
+                          <span id="inspect-detail-task-source">-</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Package Actions -->
+              <div class="package-actions">
+                <button id="debug-package-btn" class="btn btn-outline btn-sm">
+                  🐛 Debug Package
+                </button>
+                <button id="register-package-btn" class="btn btn-success btn-sm">
+                  📋 Register to System
+                </button>
+                <button id="open-package-folder-btn" class="btn btn-outline btn-sm">
+                  📂 Open Package Location
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -304,20 +428,125 @@
         <div class="card">
           <div class="card-header">
             <h2>🐛 Debug Package</h2>
+            <p>Execute and test individual tasks from .cloacina packages</p>
           </div>
           <div class="card-content">
-            <p>Debug Package functionality coming soon...</p>
-          </div>
-        </div>
-      </div>
+            <!-- File Selection Section -->
+            <div class="debug-file-selection">
+              <div class="form-group">
+                <label for="debug-package-path">Package File</label>
+                <div class="input-with-button">
+                  <input type="text" id="debug-package-path" placeholder="Select .cloacina package file..." readonly>
+                  <button type="button" id="select-debug-package-btn" class="btn btn-outline btn-sm">
+                    📁 Browse
+                  </button>
+                </div>
+                <small class="form-help">Select a .cloacina package file for debugging</small>
+              </div>
 
-      <div id="visualize-package-view" class="view">
-        <div class="card">
-          <div class="card-header">
-            <h2>📊 Visualize Package</h2>
-          </div>
-          <div class="card-content">
-            <p>Visualize Package functionality coming soon...</p>
+              <div class="form-actions">
+                <button type="button" id="load-debug-package-btn" class="btn btn-primary" disabled>
+                  <span class="btn-icon">🔍</span>
+                  Load Package
+                </button>
+                <button type="button" id="clear-debug-btn" class="btn btn-outline">
+                  <span class="btn-icon">🧹</span>
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <!-- Package Debug Information Display -->
+            <div id="debug-info-section" class="output-section hidden">
+              <div class="output-header">
+                <h3>Package Debug Console</h3>
+                <button id="close-debug-info" class="btn btn-sm btn-outline">✕</button>
+              </div>
+
+              <!-- Package Overview -->
+              <div class="package-overview">
+                <div class="package-header">
+                  <div class="package-title">
+                    <h4 id="debug-package-name">Package Name</h4>
+                    <span id="debug-package-version" class="package-version">v1.0.0</span>
+                  </div>
+                  <div id="debug-package-validation" class="validation-status"></div>
+                </div>
+              </div>
+
+              <!-- Task Selection and Execution -->
+              <div class="debug-execution-section">
+                <div class="debug-layout">
+                  <!-- Task List Panel -->
+                  <div class="debug-task-panel">
+                    <h5>📋 Available Tasks</h5>
+                    <div id="debug-task-list" class="debug-task-list">
+                      <!-- Tasks will be populated here -->
+                    </div>
+                  </div>
+
+                  <!-- Execution Panel -->
+                  <div class="debug-execution-panel">
+                    <div class="execution-header">
+                      <h5>⚡ Task Execution</h5>
+                      <div class="execution-controls">
+                        <button id="execute-task-btn" class="btn btn-success btn-sm" disabled>
+                          <span class="btn-icon">▶️</span>
+                          Execute Task
+                        </button>
+                        <button id="clear-execution-btn" class="btn btn-outline btn-sm">
+                          <span class="btn-icon">🧹</span>
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Selected Task Info -->
+                    <div id="selected-task-info" class="selected-task-info hidden">
+                      <div class="task-info-header">
+                        <span class="task-info-label">Selected Task:</span>
+                        <span id="selected-task-name" class="task-info-value">None</span>
+                      </div>
+                      <div class="task-info-description">
+                        <span id="selected-task-description">Select a task to execute</span>
+                      </div>
+                    </div>
+
+                    <!-- Execution Configuration -->
+                    <div id="execution-config" class="execution-config hidden">
+                      <div class="config-section">
+                        <h6>Context Data (JSON)</h6>
+                        <textarea id="execution-context" class="context-input" rows="4" placeholder='{"key": "value"}'>{}</textarea>
+                      </div>
+
+                      <div class="config-section">
+                        <h6>Environment Variables</h6>
+                        <div class="env-vars-section">
+                          <div id="env-vars-list" class="env-vars-list">
+                            <!-- Environment variables will be added here -->
+                          </div>
+                          <button id="add-env-var-btn" class="btn btn-outline btn-sm">
+                            <span class="btn-icon">➕</span>
+                            Add Variable
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Execution Output -->
+                    <div id="execution-output-section" class="execution-output-section hidden">
+                      <div class="output-header">
+                        <h6>Execution Output</h6>
+                        <div class="output-status">
+                          <span id="execution-status" class="execution-status">Ready</span>
+                        </div>
+                      </div>
+                      <div id="execution-output" class="execution-output"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -409,10 +638,6 @@
               <button id="save-settings-btn" class="btn btn-primary">
                 <span class="btn-icon">💾</span>
                 Save Settings
-              </button>
-              <button id="reset-settings-btn" class="btn btn-outline">
-                <span class="btn-icon">🔄</span>
-                Reset to Defaults
               </button>
             </div>
 

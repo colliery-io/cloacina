@@ -796,6 +796,9 @@ pub fn generate_packaged_workflow_impl(
                 pub task_count: u32,
                 pub tasks: *const cloacina_ctl_task_metadata,
                 pub package_name: *const std::os::raw::c_char,
+                pub package_description: *const std::os::raw::c_char,
+                pub package_author: *const std::os::raw::c_char,
+                pub workflow_fingerprint: *const std::os::raw::c_char,
                 pub graph_data_json: *const std::os::raw::c_char,
             }
 
@@ -815,6 +818,9 @@ pub fn generate_packaged_workflow_impl(
                 task_count: #task_count as u32,
                 tasks: TASK_METADATA_ARRAY.as_ptr(),
                 package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_description: concat!(#package_description, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_author: concat!(#package_author, "\0").as_ptr() as *const std::os::raw::c_char,
+                workflow_fingerprint: concat!(#package_fingerprint, "\0").as_ptr() as *const std::os::raw::c_char,
                 graph_data_json: GRAPH_DATA_JSON.as_ptr() as *const std::os::raw::c_char,
             };
 
@@ -975,6 +981,9 @@ pub fn generate_packaged_workflow_impl(
                 pub task_count: u32,
                 pub tasks: *const cloacina_ctl_task_metadata,
                 pub package_name: *const std::os::raw::c_char,
+                pub package_description: *const std::os::raw::c_char,
+                pub package_author: *const std::os::raw::c_char,
+                pub workflow_fingerprint: *const std::os::raw::c_char,
                 pub graph_data_json: *const std::os::raw::c_char,
             }
 
@@ -987,6 +996,9 @@ pub fn generate_packaged_workflow_impl(
                 task_count: 0,
                 tasks: std::ptr::null(),
                 package_name: concat!(#package_name, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_description: concat!(#package_description, "\0").as_ptr() as *const std::os::raw::c_char,
+                package_author: concat!(#package_author, "\0").as_ptr() as *const std::os::raw::c_char,
+                workflow_fingerprint: concat!(#package_fingerprint, "\0").as_ptr() as *const std::os::raw::c_char,
                 graph_data_json: EMPTY_GRAPH_DATA.as_ptr() as *const std::os::raw::c_char,
             };
 

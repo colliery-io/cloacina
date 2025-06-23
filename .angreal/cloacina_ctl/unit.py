@@ -73,7 +73,7 @@ def unit(backend=None, filter=None, verbose=False):
             if verbose:
                 cmd_args.append("--verbose")
 
-            # Run the tests from project root (no cwd specified)
+            # Run the tests from project root
             result = subprocess.run(
                 cmd_args,
                 capture_output=True,

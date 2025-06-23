@@ -177,6 +177,41 @@ pub async fn save_file_dialog(
     }
 }
 
+/// Open file picker dialog for selecting existing files
+#[command]
+pub async fn select_file_dialog(
+    app_handle: tauri::AppHandle,
+    title: String,
+    _filters: Option<Vec<serde_json::Value>>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let (tx, rx) = oneshot::channel();
+
+    app_handle
+        .dialog()
+        .file()
+        .set_title(&title)
+        .pick_file(move |file_path| {
+            let _ = tx.send(file_path);
+        });
+
+    // Wait for the dialog result
+    match rx.await {
+        Ok(Some(file_path)) => {
+            let path_str = file_path
+                .as_path()
+                .ok_or("Invalid path")?
+                .to_string_lossy()
+                .to_string();
+            Ok(Some(path_str))
+        }
+        Ok(None) => Ok(None), // User cancelled
+        Err(e) => Err(format!("Dialog error: {}", e)),
+    }
+}
+
 /// Open file location in system file manager
 #[command]
 pub async fn open_file_location(path: String) -> Result<(), String> {

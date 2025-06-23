@@ -26,6 +26,9 @@ pub mod manifest;
 pub mod types;
 pub mod validation;
 
+#[cfg(test)]
+mod tests;
+
 pub use archive::create_package_archive;
 pub use compile::compile_workflow;
 pub use manifest::generate_manifest;
