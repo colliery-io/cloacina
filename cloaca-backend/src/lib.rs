@@ -61,12 +61,14 @@ impl HelloClass {
 
 /// A simple hello world function for testing
 #[pyfunction]
+#[allow(dead_code)] // Used by PyO3 module exports
 fn hello_world() -> String {
     "Hello from Cloaca backend!".to_string()
 }
 
 /// Get the backend type based on compiled features
 #[pyfunction]
+#[allow(dead_code)] // Used by PyO3 module exports
 fn get_backend() -> &'static str {
     #[cfg(feature = "postgres")]
     {

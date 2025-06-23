@@ -49,6 +49,7 @@ pub fn get_backend_defaults() -> DefaultConfig {
     compile_error!("Either 'postgres' or 'sqlite' feature must be enabled");
 }
 
+#[cfg(feature = "postgres")]
 fn get_postgres_defaults() -> DefaultConfig {
     DefaultConfig {
         database: DatabaseConfig { pool_size: 10 },
@@ -60,6 +61,7 @@ fn get_postgres_defaults() -> DefaultConfig {
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn get_sqlite_defaults() -> DefaultConfig {
     DefaultConfig {
         database: DatabaseConfig { pool_size: 1 },

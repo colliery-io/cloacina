@@ -30,6 +30,7 @@ use crate::tasks::{to_pascal_case, TaskAttributes};
 /// C-compatible task metadata structure for FFI
 #[repr(C)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used in generated code via macros
 pub struct TaskMetadata {
     /// Local task ID (e.g., "collect_data")
     pub local_id: *const std::os::raw::c_char,
@@ -50,6 +51,7 @@ unsafe impl Sync for TaskMetadata {}
 /// C-compatible collection of task metadata for FFI
 #[repr(C)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Used in generated code via macros
 pub struct TaskMetadataCollection {
     /// Number of tasks in this package
     pub task_count: u32,

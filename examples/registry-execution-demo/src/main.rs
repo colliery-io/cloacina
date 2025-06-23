@@ -45,7 +45,7 @@ use cloacina::{Context, PipelineExecutor};
 use std::time::Duration;
 
 // Import cloacina-ctl for package building
-use cloacina_ctl::commands::package_workflow;
+use cloacina_ctl::commands::package::create::package_workflow;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -268,15 +268,11 @@ async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         quiet: false,
         color: "auto".to_string(),
         jobs: None,
-        command: cloacina_ctl::cli::Commands::Package {
+        command: cloacina_ctl::cli::Commands::Package(cloacina_ctl::cli::PackageCommands::Create {
             project_path: project_path.clone(),
             output: output_path.clone(),
-            cargo_flags: vec![
-                "--no-default-features".to_string(),
-                "--features".to_string(),
-                "postgres".to_string(),
-            ],
-        },
+            cargo_flags: vec![],
+        }),
     };
 
     // Build the package
@@ -285,11 +281,7 @@ async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         output_path.clone(),
         None,
         "debug".to_string(),
-        vec![
-            "--no-default-features".to_string(),
-            "--features".to_string(),
-            "sqlite".to_string(),
-        ],
+        vec![],
         &cli,
     )?;
 

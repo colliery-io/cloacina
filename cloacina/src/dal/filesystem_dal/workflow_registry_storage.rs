@@ -302,7 +302,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_file_handling() {
-        let (mut dal, temp_dir) = create_test_storage().await;
+        let (dal, temp_dir) = create_test_storage().await;
 
         // Create an empty file manually
         let id = Uuid::new_v4().to_string();

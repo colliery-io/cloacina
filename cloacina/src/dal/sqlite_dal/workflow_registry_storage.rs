@@ -20,13 +20,10 @@
 //! registry binary data storage, following the established DAL patterns.
 
 use async_trait::async_trait;
-use chrono::Utc;
 use uuid::Uuid;
 
 use crate::database::schema::workflow_registry;
-use crate::models::workflow_registry::{
-    NewWorkflowRegistryEntry, NewWorkflowRegistryEntryWithId, WorkflowRegistryEntry,
-};
+use crate::models::workflow_registry::{NewWorkflowRegistryEntryWithId, WorkflowRegistryEntry};
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 use crate::Database;
@@ -120,7 +117,7 @@ impl RegistryStorage for SqliteWorkflowRegistryDAL {
             data,
         };
 
-        let entry: WorkflowRegistryEntry = conn
+        let _entry: WorkflowRegistryEntry = conn
             .interact(move |conn| {
                 use diesel::prelude::*;
                 diesel::insert_into(workflow_registry::table)

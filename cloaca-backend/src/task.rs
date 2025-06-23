@@ -153,6 +153,7 @@ impl cloacina::Task for PythonTaskWrapper {
 }
 
 /// Build retry policy from Python decorator parameters
+#[allow(dead_code)] // Used by task decorator function
 fn build_retry_policy(
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
@@ -372,6 +373,7 @@ impl TaskDecorator {
     retry_condition = None,
     retry_jitter = None
 ))]
+#[allow(dead_code)] // Used by PyO3 module exports
 pub fn task(
     id: Option<String>,
     dependencies: Option<Vec<PyObject>>,

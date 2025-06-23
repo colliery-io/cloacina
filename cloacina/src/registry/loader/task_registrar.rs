@@ -442,7 +442,10 @@ impl Task for DynamicLibraryTask {
         let library_extension = get_library_extension();
         let temp_dir = tempfile::TempDir::new().map_err(|e| TaskError::ExecutionFailed {
             task_id: self.task_name.clone(),
-            message: format!("Failed to create temp directory: {}", e),
+            message: format!(
+                "Failed to create temp directory for package '{}': {}",
+                self.package_name, e
+            ),
             timestamp: Utc::now(),
         })?;
 
@@ -459,7 +462,12 @@ impl Task for DynamicLibraryTask {
         let lib = unsafe {
             Library::new(&temp_path).map_err(|e| TaskError::ExecutionFailed {
                 task_id: self.task_name.clone(),
-                message: format!("Failed to load library {}: {}", temp_path.display(), e),
+                message: format!(
+                    "Failed to load library for package '{}' at {}: {}",
+                    self.package_name,
+                    temp_path.display(),
+                    e
+                ),
                 timestamp: Utc::now(),
             })?
         };
@@ -480,7 +488,10 @@ impl Task for DynamicLibraryTask {
             lib.get(execute_task_symbol)
                 .map_err(|e| TaskError::ExecutionFailed {
                     task_id: self.task_name.clone(),
-                    message: format!("Symbol 'cloacina_execute_task' not found in library: {}", e),
+                    message: format!(
+                        "Symbol 'cloacina_execute_task' not found in library for package '{}': {}",
+                        self.package_name, e
+                    ),
                     timestamp: Utc::now(),
                 })?
         };

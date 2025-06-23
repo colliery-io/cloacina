@@ -330,6 +330,7 @@ impl PyWorkflow {
 
 /// Register a workflow constructor function
 #[pyfunction]
+#[allow(dead_code)] // Used by PyO3 module exports
 pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyResult<()> {
     // Pre-evaluate the constructor immediately while we have the GIL
     Python::with_gil(|py| {

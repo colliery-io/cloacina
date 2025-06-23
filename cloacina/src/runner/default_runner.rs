@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, watch, RwLock};
+use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::dal::FilesystemWorkflowRegistryDAL;
@@ -102,6 +103,13 @@ pub struct DefaultRunnerConfig {
 
     /// Path for storing packaged workflow registry files (when using filesystem storage)
     pub registry_storage_path: Option<std::path::PathBuf>,
+
+    /// Optional runner identifier for logging context
+    /// When set, all logs from this runner instance will include this context
+    pub runner_id: Option<String>,
+
+    /// Optional runner name for logging context
+    pub runner_name: Option<String>,
 }
 
 impl Default for DefaultRunnerConfig {
@@ -135,6 +143,8 @@ impl Default for DefaultRunnerConfig {
             registry_reconcile_interval: Duration::from_secs(60), // Every minute
             registry_enable_startup_reconciliation: true,
             registry_storage_path: None, // Use default temp directory
+            runner_id: None,
+            runner_name: None,
         }
     }
 }
@@ -523,6 +533,27 @@ impl DefaultRunner {
         Ok(default_runner)
     }
 
+    /// Creates a tracing span for this runner instance with proper context
+    fn create_runner_span(&self, operation: &str) -> tracing::Span {
+        if let (Some(runner_id), Some(runner_name)) =
+            (&self.config.runner_id, &self.config.runner_name)
+        {
+            tracing::info_span!(
+                "runner_task",
+                runner_id = %runner_id,
+                runner_name = %runner_name,
+                operation = operation,
+                component = "cloacina_runner"
+            )
+        } else {
+            tracing::info_span!(
+                "runner_task",
+                operation = operation,
+                component = "cloacina_runner"
+            )
+        }
+    }
+
     /// Starts the background scheduler and executor services
     ///
     /// This method:
@@ -544,41 +575,49 @@ impl DefaultRunner {
 
         // Start scheduler
         let scheduler = self.scheduler.clone();
-        let scheduler_handle = tokio::spawn(async move {
-            let mut scheduler_future = Box::pin(scheduler.run_scheduling_loop());
+        let scheduler_span = self.create_runner_span("task_scheduler");
+        let scheduler_handle = tokio::spawn(
+            async move {
+                let mut scheduler_future = Box::pin(scheduler.run_scheduling_loop());
 
-            tokio::select! {
-                result = &mut scheduler_future => {
-                    if let Err(e) = result {
-                        tracing::error!("Scheduler loop failed: {}", e);
-                    } else {
-                        tracing::info!("Scheduler loop completed");
+                tokio::select! {
+                    result = &mut scheduler_future => {
+                        if let Err(e) = result {
+                            tracing::error!("Scheduler loop failed: {}", e);
+                        } else {
+                            tracing::info!("Scheduler loop completed");
+                        }
+                    }
+                    _ = scheduler_shutdown_rx.recv() => {
+                        tracing::info!("Scheduler shutdown requested");
                     }
                 }
-                _ = scheduler_shutdown_rx.recv() => {
-                    tracing::info!("Scheduler shutdown requested");
-                }
             }
-        });
+            .instrument(scheduler_span),
+        );
 
         // Start executor
         let executor = self.executor.clone();
-        let executor_handle = tokio::spawn(async move {
-            let mut executor_future = Box::pin(executor.run());
+        let executor_span = self.create_runner_span("task_executor");
+        let executor_handle = tokio::spawn(
+            async move {
+                let mut executor_future = Box::pin(executor.run());
 
-            tokio::select! {
-                result = &mut executor_future => {
-                    if let Err(e) = result {
-                        tracing::error!("Executor failed: {}", e);
-                    } else {
-                        tracing::info!("Executor completed");
+                tokio::select! {
+                    result = &mut executor_future => {
+                        if let Err(e) = result {
+                            tracing::error!("Executor failed: {}", e);
+                        } else {
+                            tracing::info!("Executor completed");
+                        }
+                    }
+                    _ = executor_shutdown_rx.recv() => {
+                        tracing::info!("Executor shutdown requested");
                     }
                 }
-                _ = executor_shutdown_rx.recv() => {
-                    tracing::info!("Executor shutdown requested");
-                }
             }
-        });
+            .instrument(executor_span),
+        );
 
         // Store handles
         handles.scheduler_handle = Some(scheduler_handle);
@@ -611,22 +650,26 @@ impl DefaultRunner {
             // Start cron background service
             let mut cron_scheduler_clone = cron_scheduler.clone();
             let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-            let cron_handle = tokio::spawn(async move {
-                tokio::select! {
-                    result = cron_scheduler_clone.run_polling_loop() => {
-                        if let Err(e) = result {
-                            tracing::error!("Cron scheduler failed: {}", e);
-                        } else {
-                            tracing::info!("Cron scheduler completed");
+            let cron_span = self.create_runner_span("cron_scheduler");
+            let cron_handle = tokio::spawn(
+                async move {
+                    tokio::select! {
+                        result = cron_scheduler_clone.run_polling_loop() => {
+                            if let Err(e) = result {
+                                tracing::error!("Cron scheduler failed: {}", e);
+                            } else {
+                                tracing::info!("Cron scheduler completed");
+                            }
+                        }
+                        _ = broadcast_shutdown_rx.recv() => {
+                            tracing::info!("Cron scheduler shutdown requested via broadcast");
+                            // Send shutdown signal to cron scheduler
+                            let _ = cron_shutdown_tx.send(true);
                         }
                     }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Cron scheduler shutdown requested via broadcast");
-                        // Send shutdown signal to cron scheduler
-                        let _ = cron_shutdown_tx.send(true);
-                    }
                 }
-            });
+                .instrument(cron_span),
+            );
 
             // Store cron scheduler and handle
             *self.cron_scheduler.write().await = Some(Arc::new(cron_scheduler));
@@ -660,6 +703,7 @@ impl DefaultRunner {
                 // Start recovery background service
                 let mut recovery_service_clone = recovery_service.clone();
                 let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                let recovery_span = self.create_runner_span("cron_recovery");
                 let recovery_handle = tokio::spawn(async move {
                     tokio::select! {
                         result = recovery_service_clone.run_recovery_loop() => {
@@ -675,7 +719,7 @@ impl DefaultRunner {
                             let _ = recovery_shutdown_tx.send(true);
                         }
                     }
-                });
+                }.instrument(recovery_span));
 
                 // Store recovery service and handle
                 *self.cron_recovery.write().await = Some(Arc::new(recovery_service));
@@ -727,6 +771,7 @@ impl DefaultRunner {
 
                             // Start reconciler background service
                             let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                            let reconciler_span = self.create_runner_span("registry_reconciler");
                             let reconciler_handle = tokio::spawn(async move {
                                 tokio::select! {
                                     result = registry_reconciler.start_reconciliation_loop() => {
@@ -742,7 +787,7 @@ impl DefaultRunner {
                                         let _ = reconciler_shutdown_tx.send(true);
                                     }
                                 }
-                            });
+                            }.instrument(reconciler_span));
 
                             // Store workflow registry and reconciler
                             *self.workflow_registry.write().await = Some(workflow_registry_arc);
