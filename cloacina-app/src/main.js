@@ -60,8 +60,7 @@ function renderRunnersList() {
   }
 
   container.innerHTML = runners.map(runner => {
-    const registryType = runner.config.enable_registry_reconciler ? 'Registry Reconciler' :
-                        runner.config.enable_cron_scheduling ? 'Cron Scheduler' : 'Basic Runner';
+    const registryType = 'Full Runner (Cron + Registry)';
 
     return `
     <div class="runner-item">
@@ -138,8 +137,16 @@ async function createRunner() {
       name: runnerName,
       db_path: fullPath,
       max_concurrent_tasks: parseInt(document.querySelector("#new-max-tasks").value),
-      enable_cron_scheduling: document.querySelector("#new-enable-cron").checked,
-      enable_registry_reconciler: document.querySelector("#new-enable-registry").checked,
+      enable_cron_scheduling: true,
+      enable_registry_reconciler: true,
+      // Advanced configuration options
+      cron_poll_interval: parseInt(document.querySelector("#cron-poll-interval").value || "30"),
+      cron_recovery_interval: parseInt(document.querySelector("#cron-recovery-interval").value || "5"),
+      cron_lost_threshold: parseInt(document.querySelector("#cron-lost-threshold").value || "10"),
+      registry_reconcile_interval: parseInt(document.querySelector("#registry-reconcile-interval").value || "60"),
+      executor_poll_interval: parseInt(document.querySelector("#executor-poll-interval").value || "100"),
+      scheduler_poll_interval: parseInt(document.querySelector("#scheduler-poll-interval").value || "100"),
+      task_timeout: parseInt(document.querySelector("#task-timeout").value || "5"),
     };
 
     await invoke("create_runner", { config });
@@ -307,10 +314,27 @@ function greet() {
   }
 }
 
+// Toggle advanced configuration section
+function toggleAdvancedConfig() {
+  const content = document.querySelector("#advanced-config-content");
+  const icon = document.querySelector("#advanced-expand-icon");
+
+  if (content.style.display === "none" || !content.style.display) {
+    content.style.display = "block";
+    content.classList.add("expanded");
+    icon.classList.add("expanded");
+  } else {
+    content.style.display = "none";
+    content.classList.remove("expanded");
+    icon.classList.remove("expanded");
+  }
+}
+
 // Make functions globally accessible for onclick handlers
 window.startRunner = startRunner;
 window.stopRunner = stopRunner;
 window.deleteRunner = deleteRunner;
+window.toggleAdvancedConfig = toggleAdvancedConfig;
 
 // Load settings
 async function loadSettings() {

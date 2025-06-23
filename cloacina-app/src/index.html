@@ -86,22 +86,66 @@
               </div>
               <div class="config-item">
                 <label for="new-max-tasks">Max Concurrent Tasks</label>
-                <input type="number" id="new-max-tasks" value="4" min="1" max="32" />
+                <input type="number" id="new-max-tasks" value="8" min="1" max="64" />
               </div>
-              <div class="config-switches">
-                <div class="switch-item">
-                  <label class="switch">
-                    <input type="checkbox" id="new-enable-cron" />
-                    <span class="slider"></span>
-                  </label>
-                  <span>Cron Scheduling</span>
+
+              <!-- Advanced Configuration -->
+              <div class="config-section">
+                <div class="config-section-header" onclick="toggleAdvancedConfig()">
+                  <span class="section-title">Advanced Configuration</span>
+                  <span class="expand-icon" id="advanced-expand-icon">▼</span>
                 </div>
-                <div class="switch-item">
-                  <label class="switch">
-                    <input type="checkbox" id="new-enable-registry" checked />
-                    <span class="slider"></span>
-                  </label>
-                  <span>Registry Reconciler</span>
+                <div class="config-section-content" id="advanced-config-content" style="display: none;">
+
+                  <!-- Cron Scheduler Settings -->
+                  <div class="config-subsection">
+                    <h4>Cron Scheduler</h4>
+                    <div class="config-grid">
+                      <div class="config-item">
+                        <label for="cron-poll-interval">Poll Interval (seconds)</label>
+                        <input type="number" id="cron-poll-interval" value="30" min="1" max="300" />
+                      </div>
+                      <div class="config-item">
+                        <label for="cron-recovery-interval">Recovery Interval (minutes)</label>
+                        <input type="number" id="cron-recovery-interval" value="5" min="1" max="60" />
+                      </div>
+                      <div class="config-item">
+                        <label for="cron-lost-threshold">Lost Threshold (minutes)</label>
+                        <input type="number" id="cron-lost-threshold" value="10" min="1" max="120" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Registry Reconciler Settings -->
+                  <div class="config-subsection">
+                    <h4>Registry Reconciler</h4>
+                    <div class="config-grid">
+                      <div class="config-item">
+                        <label for="registry-reconcile-interval">Reconcile Interval (seconds)</label>
+                        <input type="number" id="registry-reconcile-interval" value="60" min="10" max="600" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Performance Settings -->
+                  <div class="config-subsection">
+                    <h4>Performance</h4>
+                    <div class="config-grid">
+                      <div class="config-item">
+                        <label for="executor-poll-interval">Executor Poll Interval (ms)</label>
+                        <input type="number" id="executor-poll-interval" value="100" min="10" max="1000" />
+                      </div>
+                      <div class="config-item">
+                        <label for="scheduler-poll-interval">Scheduler Poll Interval (ms)</label>
+                        <input type="number" id="scheduler-poll-interval" value="100" min="10" max="1000" />
+                      </div>
+                      <div class="config-item">
+                        <label for="task-timeout">Task Timeout (minutes)</label>
+                        <input type="number" id="task-timeout" value="5" min="1" max="60" />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>

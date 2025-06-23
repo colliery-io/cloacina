@@ -318,30 +318,61 @@ body {
 /* Configuration Grid */
 .config-grid {
   display: grid;
+  grid-template-columns: 1fr;
   gap: 1.5rem;
+}
+
+/* Basic config grid layout - database path should span full width */
+.config-grid:not(.config-subsection .config-grid) {
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "name name"
+    "db-path db-path"
+    "concurrency .";
+}
+
+.config-grid:not(.config-subsection .config-grid) .config-item:nth-child(1) {
+  grid-area: name;
+}
+
+.config-grid:not(.config-subsection .config-grid) .config-item:nth-child(2) {
+  grid-area: db-path;
+}
+
+.config-grid:not(.config-subsection .config-grid) .config-item:nth-child(3) {
+  grid-area: concurrency;
 }
 
 .config-item {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
 }
 
 .config-item label {
   font-weight: 500;
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 
 .config-item input[type="text"],
 .config-item input[type="number"] {
-  padding: 0.75rem;
+  padding: 0.5rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background-color: var(--surface);
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   transition: all 0.2s ease;
+  max-width: 150px;
+  width: fit-content;
+}
+
+/* Exception for path input group - should span full width */
+.path-input-group input {
+  max-width: none;
+  width: auto;
+  flex: 1;
 }
 
 .config-item input:focus {
@@ -730,4 +761,94 @@ input:checked + .slider:before {
 /* Smooth transitions */
 * {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Advanced Configuration Section */
+.config-section {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+}
+
+.config-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  cursor: pointer;
+  background-color: var(--surface-hover);
+  border-radius: var(--radius);
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.config-section-header:hover {
+  background-color: var(--border);
+}
+
+.section-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.expand-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.config-section-content {
+  padding: 0 1rem 1rem 1rem;
+  display: none;
+}
+
+.config-section-content.expanded {
+  display: block;
+  animation: slideDown 0.2s ease-out;
+}
+
+.config-subsection {
+  margin-bottom: 1.5rem;
+}
+
+.config-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.config-subsection h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Grid layout for advanced config items */
+.config-subsection .config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.config-subsection .config-grid .config-item {
+  gap: 0.25rem;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
 }

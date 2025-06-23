@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use diesel::prelude::*;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel::sqlite::SqliteConnection;

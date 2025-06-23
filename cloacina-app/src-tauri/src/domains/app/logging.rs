@@ -233,23 +233,6 @@ impl DynamicFileRouter {
             }
         }
     }
-
-    fn write_to_runner_file(&self, runner_id: &str, content: &str) -> std::io::Result<()> {
-        match get_runner_appender(runner_id) {
-            Ok(appender) => {
-                let mut writer = appender.lock().map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-                })?;
-                writeln!(writer, "{}", content)?;
-                writer.flush()?;
-                Ok(())
-            }
-            Err(e) => {
-                eprintln!("ERROR: Failed to get runner appender: {:?}", e);
-                Err(e)
-            }
-        }
-    }
 }
 
 // Runner-specific logger
@@ -267,10 +250,6 @@ impl RunnerLogger {
             runner_name,
             log_directory,
         }
-    }
-
-    pub fn get_log_file_pattern(&self) -> String {
-        format!("{}-{}", self.runner_name, self.runner_id)
     }
 
     pub fn get_runner_log_directory(&self) -> std::path::PathBuf {
@@ -386,81 +365,6 @@ fn is_valid_uuid_like(s: &str) -> bool {
             8 | 13 | 18 | 23 => c == '-',
             _ => c.is_ascii_hexdigit(),
         })
-}
-
-// Get or create runner-specific appender
-fn get_runner_appender(
-    runner_id: &str,
-) -> Result<Arc<Mutex<DailyRollingAppender>>, std::io::Error> {
-    // Initialize appenders registry if needed
-    if RUNNER_APPENDERS.get().is_none() {
-        let _ = RUNNER_APPENDERS.set(Arc::new(Mutex::new(HashMap::new())));
-    }
-
-    let appenders_registry = RUNNER_APPENDERS.get().unwrap();
-
-    // First, check if appender already exists (quick operation)
-    {
-        let appenders = appenders_registry.lock().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-        })?;
-
-        if let Some(appender) = appenders.get(runner_id) {
-            return Ok(appender.clone());
-        }
-        // Lock is automatically released here when appenders goes out of scope
-    }
-    // Create new appender for this runner (do slow I/O without holding the lock)
-    // CRITICAL: Use a fallback approach to avoid infinite recursion from AppSettings::load()
-    let settings = match AppSettings::load() {
-        Ok(settings) => settings,
-        Err(_e) => {
-            // Create a fallback settings object to avoid infinite recursion
-            let data_dir = "/Users/dstorey/Library/Application Support/Cloacina".to_string();
-            AppSettings {
-                data_directory: data_dir.clone(),
-                app_database_path: format!("{}/cloacina-app.db", data_dir),
-                log_directory: format!("{}/logs", data_dir),
-                log_level: "info".to_string(),
-                max_log_files: 10,
-            }
-        }
-    };
-
-    let runners_dir = std::path::Path::new(&settings.log_directory).join("runners");
-    std::fs::create_dir_all(&runners_dir)?;
-
-    // Get runner name for filename if available
-    let runner_name = if let Some(registry) = RUNNER_LOGGERS.get() {
-        registry
-            .lock()
-            .ok()
-            .and_then(|loggers| loggers.get(runner_id).map(|l| l.runner_name.clone()))
-            .unwrap_or_else(|| "unknown".to_string())
-    } else {
-        "unknown".to_string()
-    };
-
-    let filename = format!("{}-{}", runner_name, runner_id);
-    let appender = DailyRollingAppender::new(runners_dir.to_string_lossy().to_string(), filename);
-
-    let appender_arc = Arc::new(Mutex::new(appender));
-
-    // Now acquire the lock again to insert the new appender
-    {
-        let mut appenders = appenders_registry.lock().map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
-        })?;
-
-        // Double-check that another thread didn't create it while we were doing I/O
-        if let Some(existing_appender) = appenders.get(runner_id) {
-            return Ok(existing_appender.clone());
-        }
-
-        appenders.insert(runner_id.to_string(), appender_arc.clone());
-    }
-
-    Ok(appender_arc)
 }
 
 // Get or create runner-specific appender with known runner name
@@ -596,9 +500,6 @@ pub fn remove_runner_logger(runner_id: &str) -> Result<()> {
 }
 
 // Get runner logger information
-pub fn get_runner_logger(runner_id: &str) -> Option<RunnerLogger> {
-    RUNNER_LOGGERS.get()?.lock().ok()?.get(runner_id).cloned()
-}
 
 // List all runner loggers
 pub fn list_runner_loggers() -> Vec<RunnerLogger> {
