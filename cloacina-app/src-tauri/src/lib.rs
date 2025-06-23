@@ -81,7 +81,13 @@ pub fn run() {
             build_package,
             inspect_package,
             debug_package,
-            visualize_package
+            visualize_package,
+            // Dialog commands
+            select_directory_dialog,
+            save_file_dialog,
+            open_file_location,
+            get_desktop_path,
+            get_system_paths
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

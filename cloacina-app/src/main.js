@@ -552,6 +552,186 @@ async function changeDataDirectory() {
   }
 }
 
+// Package Management Functions
+
+// Build package functionality
+async function buildPackage() {
+  const projectPath = document.querySelector("#project-path").value.trim();
+  const outputPath = document.querySelector("#output-path").value.trim();
+  const profile = document.querySelector("#build-profile").value;
+  const targetTriple = document.querySelector("#target-triple").value;
+  const cargoFlags = document.querySelector("#cargo-flags").value.trim();
+
+  // Validation
+  if (!projectPath) {
+    alert("Please select a project directory");
+    return;
+  }
+
+  if (!outputPath) {
+    alert("Please specify an output path");
+    return;
+  }
+
+  // Parse cargo flags
+  const cargoFlagsArray = cargoFlags ? cargoFlags.split(/\s+/).filter(f => f.length > 0) : [];
+
+  const request = {
+    project_path: projectPath,
+    output_path: outputPath,
+    target: targetTriple || null,
+    profile: profile,
+    cargo_flags: cargoFlagsArray
+  };
+
+  // Show output section and set building status
+  const outputSection = document.querySelector("#build-output-section");
+  const buildStatus = document.querySelector("#build-status");
+  const buildOutput = document.querySelector("#build-output");
+  const buildActions = document.querySelector("#build-actions");
+
+  outputSection.classList.remove("hidden");
+  buildStatus.className = "build-status building";
+  buildStatus.textContent = "🔨 Building package...";
+  buildOutput.textContent = "Starting build process...\n";
+  buildActions.classList.add("hidden");
+
+  try {
+    const result = await invoke("build_package", { request });
+
+    if (result.success) {
+      buildStatus.className = "build-status success";
+      buildStatus.textContent = "✅ Package built successfully!";
+      buildOutput.textContent += `\n${result.output}`;
+
+      // Store the package path for later use
+      buildActions.dataset.packagePath = result.package_path;
+      buildActions.classList.remove("hidden");
+    } else {
+      buildStatus.className = "build-status error";
+      buildStatus.textContent = "❌ Build failed";
+      buildOutput.textContent += `\nError: ${result.error}`;
+    }
+  } catch (error) {
+    buildStatus.className = "build-status error";
+    buildStatus.textContent = "❌ Build failed";
+    buildOutput.textContent += `\nUnexpected error: ${error}`;
+  }
+}
+
+// Select project directory
+async function selectProjectDirectory() {
+  try {
+    const selectedPath = await invoke("select_directory_dialog", {
+      title: "Select Rust Project Directory"
+    });
+
+    if (selectedPath) {
+      document.querySelector("#project-path").value = selectedPath;
+
+      // Auto-generate output path if not set
+      const outputPathInput = document.querySelector("#output-path");
+      if (!outputPathInput.value.trim()) {
+        const projectName = selectedPath.split('/').pop() || 'workflow';
+        // Default to Desktop directory
+        try {
+          const desktopPath = await invoke("get_desktop_path");
+          outputPathInput.value = `${desktopPath}/${projectName}.cloacina`;
+        } catch (error) {
+          console.error("Failed to get desktop path:", error);
+          // Fallback to project directory
+          outputPathInput.value = `${selectedPath}/${projectName}.cloacina`;
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Failed to select project directory:", error);
+    alert(`Failed to open directory picker: ${error}`);
+  }
+}
+
+// Select output path
+async function selectOutputPath() {
+  try {
+    const selectedPath = await invoke("save_file_dialog", {
+      title: "Save Package As",
+      defaultFilename: "workflow.cloacina",
+      filters: [
+        { name: "Cloacina Package", extensions: ["cloacina"] },
+        { name: "All Files", extensions: ["*"] }
+      ]
+    });
+
+    if (selectedPath) {
+      document.querySelector("#output-path").value = selectedPath;
+    }
+  } catch (error) {
+    console.error("Failed to select output path:", error);
+    alert(`Failed to open save dialog: ${error}`);
+  }
+}
+
+// Clear build form
+function clearBuildForm() {
+  document.querySelector("#project-path").value = "";
+  document.querySelector("#output-path").value = "";
+  document.querySelector("#build-profile").value = "debug";
+  document.querySelector("#target-triple").value = "";
+  document.querySelector("#cargo-flags").value = "";
+
+  // Hide advanced section
+  const advancedContent = document.querySelector("#build-advanced-content");
+  const advancedIcon = document.querySelector("#build-advanced-icon");
+  advancedContent.style.display = "none";
+  advancedIcon.classList.remove("expanded");
+
+  // Hide output section
+  document.querySelector("#build-output-section").classList.add("hidden");
+}
+
+// Toggle advanced options for build package
+function toggleBuildAdvanced() {
+  const content = document.querySelector("#build-advanced-content");
+  const icon = document.querySelector("#build-advanced-icon");
+
+  if (content.style.display === "none" || !content.style.display) {
+    content.style.display = "block";
+    icon.classList.add("expanded");
+  } else {
+    content.style.display = "none";
+    icon.classList.remove("expanded");
+  }
+}
+
+// Open package location in system file manager
+async function openPackageLocation() {
+  const packagePath = document.querySelector("#build-actions").dataset.packagePath;
+  if (packagePath) {
+    try {
+      await invoke("open_file_location", { path: packagePath });
+    } catch (error) {
+      console.error("Failed to open package location:", error);
+      alert(`Failed to open package location: ${error}`);
+    }
+  }
+}
+
+// Inspect the built package
+function inspectBuiltPackage() {
+  const packagePath = document.querySelector("#build-actions").dataset.packagePath;
+  if (packagePath) {
+    // Switch to inspect package view and populate the path
+    switchView("inspect-package");
+    // We'll implement this when we create the inspect package page
+    console.log("Would inspect package at:", packagePath);
+  }
+}
+
+// Close build output section
+function closeBuildOutput() {
+  document.querySelector("#build-output-section").classList.add("hidden");
+}
+
 // Window load event
 window.addEventListener("DOMContentLoaded", () => {
   // Initialize app
@@ -634,6 +814,20 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#save-settings-btn").addEventListener("click", saveSettings);
   document.querySelector("#reset-settings-btn").addEventListener("click", resetSettings);
   document.querySelector("#full-reset-btn").addEventListener("click", fullSystemReset);
+
+  // Package management listeners
+  // Build package listeners
+  document.querySelector("#build-package-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    buildPackage();
+  });
+  document.querySelector("#select-project-btn").addEventListener("click", selectProjectDirectory);
+  document.querySelector("#select-output-btn").addEventListener("click", selectOutputPath);
+  document.querySelector("#clear-build-form-btn").addEventListener("click", clearBuildForm);
+  document.querySelector("#build-advanced-toggle").addEventListener("click", toggleBuildAdvanced);
+  document.querySelector("#close-build-output").addEventListener("click", closeBuildOutput);
+  document.querySelector("#open-package-location").addEventListener("click", openPackageLocation);
+  document.querySelector("#inspect-built-package").addEventListener("click", inspectBuiltPackage);
 
   // Legacy listeners (for debugging section)
   const testBtn = document.querySelector("#test-cloacina-btn");

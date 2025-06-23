@@ -193,9 +193,98 @@
         <div class="card">
           <div class="card-header">
             <h2>🔨 Build Package</h2>
+            <p>Compile a Rust workflow project into a distributable .cloacina package</p>
           </div>
           <div class="card-content">
-            <p>Build Package functionality coming soon...</p>
+            <form id="build-package-form" class="package-form">
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="project-path">Project Directory</label>
+                  <div class="input-with-button">
+                    <input type="text" id="project-path" placeholder="Select Rust project directory..." readonly>
+                    <button type="button" id="select-project-btn" class="btn btn-outline btn-sm">
+                      📁 Browse
+                    </button>
+                  </div>
+                  <small class="form-help">Path to the Rust project containing your workflow</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="output-path">Output Package Path</label>
+                  <div class="input-with-button">
+                    <input type="text" id="output-path" placeholder="Select output location...">
+                    <button type="button" id="select-output-btn" class="btn btn-outline btn-sm">
+                      📁 Browse
+                    </button>
+                  </div>
+                  <small class="form-help">Where to save the generated .cloacina package file</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="build-profile">Build Profile</label>
+                  <select id="build-profile">
+                    <option value="debug">Debug (faster build, larger binary)</option>
+                    <option value="release">Release (slower build, optimized binary)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="target-triple">Target Architecture (Optional)</label>
+                  <select id="target-triple">
+                    <option value="">Default (current platform)</option>
+                    <option value="x86_64-unknown-linux-gnu">Linux x86_64</option>
+                    <option value="aarch64-unknown-linux-gnu">Linux ARM64</option>
+                    <option value="x86_64-pc-windows-gnu">Windows x86_64</option>
+                    <option value="x86_64-apple-darwin">macOS x86_64</option>
+                    <option value="aarch64-apple-darwin">macOS ARM64</option>
+                  </select>
+                  <small class="form-help">Cross-compile for different platforms</small>
+                </div>
+              </div>
+
+              <div class="advanced-section">
+                <button type="button" id="build-advanced-toggle" class="advanced-toggle">
+                  <span id="build-advanced-icon" class="expand-icon">▶</span>
+                  Advanced Options
+                </button>
+                <div id="build-advanced-content" class="advanced-content" style="display: none;">
+                  <div class="form-group">
+                    <label for="cargo-flags">Additional Cargo Flags</label>
+                    <input type="text" id="cargo-flags" placeholder="e.g., --features extra-features">
+                    <small class="form-help">Extra arguments to pass to cargo build</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" id="build-package-btn" class="btn btn-primary">
+                  <span class="btn-icon">🔨</span>
+                  Build Package
+                </button>
+                <button type="button" id="clear-build-form-btn" class="btn btn-outline">
+                  <span class="btn-icon">🧹</span>
+                  Clear Form
+                </button>
+              </div>
+            </form>
+
+            <!-- Build Output Section -->
+            <div id="build-output-section" class="output-section hidden">
+              <div class="output-header">
+                <h3>Build Output</h3>
+                <button id="close-build-output" class="btn btn-sm btn-outline">✕</button>
+              </div>
+              <div id="build-status" class="build-status"></div>
+              <div id="build-output" class="output-content"></div>
+              <div id="build-actions" class="output-actions hidden">
+                <button id="open-package-location" class="btn btn-primary btn-sm">
+                  📂 Open Package Location
+                </button>
+                <button id="inspect-built-package" class="btn btn-outline btn-sm">
+                  🔍 Inspect Package
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
