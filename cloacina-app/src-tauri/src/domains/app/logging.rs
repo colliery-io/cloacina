@@ -21,12 +21,12 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
+use tracing::{span::Attributes, Event, Id, Subscriber};
 use tracing_appender::non_blocking;
 use tracing_subscriber::{
-    layer::SubscriberExt, reload, util::SubscriberInitExt, EnvFilter, Layer,
-    registry::LookupSpan, layer::Context as LayerContext,
+    layer::Context as LayerContext, layer::SubscriberExt, registry::LookupSpan, reload,
+    util::SubscriberInitExt, EnvFilter, Layer,
 };
-use tracing::{Event, Id, Subscriber, span::Attributes};
 
 // Global handle for reloading the filter
 static RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, tracing_subscriber::Registry>> =
@@ -82,7 +82,7 @@ impl tracing::field::Visit for MessageVisitor {
             self.message = Some(value.to_string());
         }
     }
-    
+
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.message = Some(format!("{:?}", value));
@@ -107,17 +107,17 @@ impl tracing::field::Visit for RunnerFieldVisitor {
             _ => {}
         }
     }
-    
+
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         match field.name() {
             "runner_id" => {
                 let debug_str = format!("{:?}", value);
                 self.runner_id = Some(debug_str.trim_matches('"').to_string());
-            },
+            }
             "runner_name" => {
                 let debug_str = format!("{:?}", value);
                 self.runner_name = Some(debug_str.trim_matches('"').to_string());
-            },
+            }
             _ => {}
         }
     }
@@ -130,7 +130,7 @@ where
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: LayerContext<'_, S>) {
         let mut visitor = RunnerFieldVisitor::new();
         attrs.record(&mut visitor);
-        
+
         // Store runner context if we found a runner_id
         if let Some(runner_id) = visitor.runner_id {
             if is_valid_uuid_like(&runner_id) {
@@ -138,7 +138,7 @@ where
                     runner_id: runner_id.clone(),
                     runner_name: visitor.runner_name,
                 };
-                
+
                 if let Some(span) = ctx.span(id) {
                     let mut extensions = span.extensions_mut();
                     extensions.insert(runner_context);
@@ -150,16 +150,22 @@ where
     fn on_event(&self, event: &Event<'_>, ctx: LayerContext<'_, S>) {
         // Only process runner-related events from cloacina, but exclude internal logging
         let target = event.metadata().target();
-        if target.starts_with("cloacina") && 
+        if target.starts_with("cloacina") &&
            !target.contains("logging") && // Avoid recursion from logging operations
-           !target.contains("settings") { // Avoid recursion from settings loading
+           !target.contains("settings")
+        {
+            // Avoid recursion from settings loading
             // Look for runner context in the span hierarchy
             if let Some(scope) = ctx.event_scope(event) {
                 for span in scope.from_root() {
                     let extensions = span.extensions();
                     if let Some(runner_context) = extensions.get::<RunnerContext>() {
                         // Route this event to the runner-specific file with runner name
-                        self.router.route_event_to_runner_with_name(&runner_context.runner_id, &runner_context.runner_name, event);
+                        self.router.route_event_to_runner_with_name(
+                            &runner_context.runner_id,
+                            &runner_context.runner_name,
+                            event,
+                        );
                         break;
                     }
                 }
@@ -177,29 +183,41 @@ impl DynamicFileRouter {
     pub fn new() -> Self {
         Self {}
     }
-    
-    fn route_event_to_runner_with_name(&self, runner_id: &str, runner_name: &Option<String>, event: &Event<'_>) {
+
+    fn route_event_to_runner_with_name(
+        &self,
+        runner_id: &str,
+        runner_name: &Option<String>,
+        event: &Event<'_>,
+    ) {
         // Extract the actual message from the event
         let mut message_visitor = MessageVisitor::new();
         event.record(&mut message_visitor);
-        
+
         // Format the event to a string with clean, readable content
         let formatted = format!(
             "{} {:?} {}: {}",
             chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.6fZ"),
             event.metadata().level(),
             event.metadata().target(),
-            message_visitor.message.unwrap_or_else(|| "No message".to_string())
+            message_visitor
+                .message
+                .unwrap_or_else(|| "No message".to_string())
         );
-        
+
         // Write to runner-specific file (but don't let errors block)
         if let Err(e) = self.write_to_runner_file_with_name(runner_id, runner_name, &formatted) {
             // Use stderr directly to avoid recursive logging
             eprintln!("ERROR: Failed to write to runner log file: {:?}", e);
         }
     }
-    
-    fn write_to_runner_file_with_name(&self, runner_id: &str, runner_name: &Option<String>, content: &str) -> std::io::Result<()> {
+
+    fn write_to_runner_file_with_name(
+        &self,
+        runner_id: &str,
+        runner_name: &Option<String>,
+        content: &str,
+    ) -> std::io::Result<()> {
         match get_runner_appender_with_name(runner_id, runner_name) {
             Ok(appender) => {
                 let mut writer = appender.lock().map_err(|e| {
@@ -215,7 +233,7 @@ impl DynamicFileRouter {
             }
         }
     }
-    
+
     fn write_to_runner_file(&self, runner_id: &str, content: &str) -> std::io::Result<()> {
         match get_runner_appender(runner_id) {
             Ok(appender) => {
@@ -233,9 +251,6 @@ impl DynamicFileRouter {
         }
     }
 }
-
-
-
 
 // Runner-specific logger
 #[derive(Clone, Serialize)]
@@ -362,20 +377,16 @@ impl Write for SimpleAppWriter {
     }
 }
 
-
 // Helper function to check if a string looks like a UUID
 fn is_valid_uuid_like(s: &str) -> bool {
     // UUID format: 8-4-4-4-12 hex characters with dashes
     // e.g., 1537f636-5a9f-4387-8b86-1109e4921b93
-    s.len() == 36 && 
-    s.chars().enumerate().all(|(i, c)| {
-        match i {
+    s.len() == 36
+        && s.chars().enumerate().all(|(i, c)| match i {
             8 | 13 | 18 | 23 => c == '-',
             _ => c.is_ascii_hexdigit(),
-        }
-    })
+        })
 }
-
 
 // Get or create runner-specific appender
 fn get_runner_appender(
@@ -387,7 +398,7 @@ fn get_runner_appender(
     }
 
     let appenders_registry = RUNNER_APPENDERS.get().unwrap();
-    
+
     // First, check if appender already exists (quick operation)
     {
         let appenders = appenders_registry.lock().map_err(|e| {
@@ -434,18 +445,18 @@ fn get_runner_appender(
     let appender = DailyRollingAppender::new(runners_dir.to_string_lossy().to_string(), filename);
 
     let appender_arc = Arc::new(Mutex::new(appender));
-    
+
     // Now acquire the lock again to insert the new appender
     {
         let mut appenders = appenders_registry.lock().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
         })?;
-        
+
         // Double-check that another thread didn't create it while we were doing I/O
         if let Some(existing_appender) = appenders.get(runner_id) {
             return Ok(existing_appender.clone());
         }
-        
+
         appenders.insert(runner_id.to_string(), appender_arc.clone());
     }
 
@@ -463,7 +474,7 @@ fn get_runner_appender_with_name(
     }
 
     let appenders_registry = RUNNER_APPENDERS.get().unwrap();
-    
+
     // First, check if appender already exists (quick operation)
     {
         let appenders = appenders_registry.lock().map_err(|e| {
@@ -505,24 +516,23 @@ fn get_runner_appender_with_name(
     let appender = DailyRollingAppender::new(runners_dir.to_string_lossy().to_string(), filename);
 
     let appender_arc = Arc::new(Mutex::new(appender));
-    
+
     // Now acquire the lock again to insert the new appender
     {
         let mut appenders = appenders_registry.lock().map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::Other, format!("Lock error: {}", e))
         })?;
-        
+
         // Double-check that another thread didn't create it while we were doing I/O
         if let Some(existing_appender) = appenders.get(runner_id) {
             return Ok(existing_appender.clone());
         }
-        
+
         appenders.insert(runner_id.to_string(), appender_arc.clone());
     }
 
     Ok(appender_arc)
 }
-
 
 // Initialize runner loggers registry
 pub fn initialize_runner_logging() -> Result<()> {
@@ -613,7 +623,7 @@ pub fn initialize_logging() -> Result<()> {
 
     // Use non-blocking writer for performance
     let (non_blocking_appender, guard) = non_blocking(app_writer);
-    
+
     // Leak the guard to keep it alive forever
     Box::leak(Box::new(guard));
 
@@ -650,7 +660,7 @@ pub fn initialize_logging() -> Result<()> {
     // TOGGLE: Comment out runner_layer if it causes hanging
     tracing_subscriber::registry()
         .with(filter_layer)
-        .with(runner_layer)  // Comment this line to disable runner routing
+        .with(runner_layer) // Comment this line to disable runner routing
         .with(file_layer)
         .with(console_layer)
         .init();
