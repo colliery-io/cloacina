@@ -92,7 +92,8 @@ pub fn run() {
             // Registry commands
             register_workflow_package,
             list_workflow_packages,
-            unregister_workflow_package
+            unregister_workflow_package,
+            execute_workflow
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

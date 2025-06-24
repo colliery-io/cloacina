@@ -217,4 +217,16 @@ export class ApiClient {
       version
     });
   }
+
+  /**
+   * Execute a workflow from a registered package
+   */
+  async executeWorkflow(runnerId, packageName, workflowName, context = {}) {
+    return await invoke("execute_workflow", {
+      runnerId,
+      packageName,
+      workflowName,
+      context
+    });
+  }
 }

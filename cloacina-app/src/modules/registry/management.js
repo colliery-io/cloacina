@@ -116,6 +116,10 @@ export class RegistryManager {
           </div>
         </div>
         <div class="workflow-controls">
+          <button class="btn btn-primary btn-sm" onclick="promptExecuteWorkflow('${workflow.package_name}')">
+            <span class="btn-icon">▶️</span>
+            Execute
+          </button>
           <button class="btn btn-danger btn-sm" onclick="unregisterWorkflow('${workflow.package_name}', '${workflow.version}')">
             <span class="btn-icon">🗑️</span>
             Unregister
@@ -305,6 +309,58 @@ export class RegistryManager {
   }
 
   /**
+   * Prompt for workflow execution
+   */
+  async promptExecuteWorkflow(packageName) {
+    console.log('RegistryManager.promptExecuteWorkflow called with:', packageName);
+    console.log('Current runner ID:', this.currentRunnerId);
+
+    if (!this.currentRunnerId) {
+      console.error('No current runner ID set');
+      UiHelpers.showAlert("No runner selected", 'error');
+      return;
+    }
+
+    // For now, we'll use a simple prompt to get the workflow name
+    // In the future, this could be enhanced to show available workflows from package metadata
+    const workflowName = prompt(`Enter the workflow name to execute from package "${packageName}":\n\nCommon workflow names:\n- complex_dag_workflow\n- data_processing`);
+
+    if (!workflowName || workflowName.trim() === '') {
+      console.log('User cancelled or entered empty workflow name');
+      return;
+    }
+
+    console.log('Executing workflow:', workflowName.trim());
+    await this.executeWorkflow(packageName, workflowName.trim());
+  }
+
+  /**
+   * Execute a workflow
+   */
+  async executeWorkflow(packageName, workflowName, context = {}) {
+    if (!this.currentRunnerId) {
+      UiHelpers.showAlert("No runner selected", 'error');
+      return;
+    }
+
+    try {
+      console.log(`Executing workflow: ${workflowName} from package: ${packageName} on runner: ${this.currentRunnerId}`);
+
+      const response = await this.apiClient.executeWorkflow(this.currentRunnerId, packageName, workflowName, context);
+
+      if (response.success) {
+        const executionId = response.result?.execution_id || 'unknown';
+        UiHelpers.showAlert(`Workflow '${workflowName}' executed successfully! Execution ID: ${executionId}`, 'success');
+      } else {
+        throw new Error(response.message || "Failed to execute workflow");
+      }
+    } catch (error) {
+      console.error("Failed to execute workflow:", error);
+      UiHelpers.showAlert(`Failed to execute workflow: ${error.message}`, 'error');
+    }
+  }
+
+  /**
    * Go back to runners view
    */
   goBackToRunners() {
@@ -321,9 +377,22 @@ export class RegistryManager {
   }
 }
 
-// Make unregisterWorkflow globally accessible for onclick handlers
+// Make workflow functions globally accessible for onclick handlers
 window.unregisterWorkflow = (packageName, version) => {
   if (window.registryManager) {
     window.registryManager.unregisterWorkflow(packageName, version);
+  }
+};
+
+window.promptExecuteWorkflow = (packageName) => {
+  console.log('promptExecuteWorkflow called with packageName:', packageName);
+  console.log('window.registryManager exists:', !!window.registryManager);
+
+  if (window.registryManager) {
+    console.log('Calling registryManager.promptExecuteWorkflow');
+    window.registryManager.promptExecuteWorkflow(packageName);
+  } else {
+    console.error('Registry manager not initialized');
+    alert('Registry manager not initialized. Please refresh and try again.');
   }
 };
