@@ -393,6 +393,8 @@ impl RunnerService {
             runner_config.max_concurrent_tasks = config.max_concurrent_tasks as usize;
             runner_config.enable_cron_scheduling = config.enable_cron_scheduling;
             runner_config.enable_registry_reconciler = config.enable_registry_reconciler;
+            // Always use SQLite registry storage for cloacina-app
+            runner_config.registry_storage_backend = "sqlite".to_string();
 
             // Pass runner context for logging
             runner_config.runner_id = Some(runner_id.to_string());

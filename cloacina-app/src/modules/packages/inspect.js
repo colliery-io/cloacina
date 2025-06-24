@@ -425,8 +425,41 @@ export class PackageInspectManager {
    * Register package to system
    */
   async registerPackageToSystem() {
-    // Placeholder for register functionality
-    console.log("Register package to system - not yet implemented");
+    const packagePath = document.querySelector("#inspect-package-path").value;
+    if (!packagePath) {
+      console.log("No package path available for registration");
+      return;
+    }
+
+    try {
+      // Get all available runners first
+      const runnersResult = await this.apiClient.getLocalRunners();
+      if (!runnersResult || runnersResult.length === 0) {
+        console.log("No runners available. Please create a runner first.");
+        return;
+      }
+
+      // For now, use the first available runner
+      // In the future, could show a runner selection dialog
+      const runner = runnersResult[0];
+
+      console.log(`Registering package to runner: ${runner.config.name} (${runner.id})`);
+
+      const result = await this.apiClient.invoke("register_workflow_package", {
+        runner_id: runner.id,
+        package_path: packagePath
+      });
+
+      if (result.success) {
+        console.log(`Package registered successfully to runner: ${runner.config.name}`);
+        console.log(`Package ID: ${result.package_id}`);
+      } else {
+        console.log(`Failed to register package: ${result.message || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Failed to register package:", error);
+      console.log(`Failed to register package: ${error}`);
+    }
   }
 
   /**

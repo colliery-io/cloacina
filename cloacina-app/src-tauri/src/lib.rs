@@ -88,7 +88,11 @@ pub fn run() {
             select_file_dialog,
             open_file_location,
             get_desktop_path,
-            get_system_paths
+            get_system_paths,
+            // Registry commands
+            register_workflow_package,
+            list_workflow_packages,
+            unregister_workflow_package
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,7 +5,8 @@ export const APP_VIEWS = {
   INSPECT_PACKAGE: 'inspect-package',
   DEBUG_PACKAGE: 'debug-package',
   WORKFLOWS: 'workflows',
-  SETTINGS: 'settings'
+  SETTINGS: 'settings',
+  RUNNER_REGISTRY: 'runner-registry'
 };
 
 export const RUNNER_STATUS = {

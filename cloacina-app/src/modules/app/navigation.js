@@ -73,6 +73,8 @@ export class NavigationManager {
     const targetView = document.querySelector(`#${viewName}-view`);
     if (targetView) {
       targetView.classList.add(UI_CLASSES.ACTIVE);
+    } else {
+      console.error(`Target view element not found: #${viewName}-view`);
     }
 
     // Update navigation active state

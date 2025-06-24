@@ -172,6 +172,13 @@ export class RunnerManager {
         Stop
       </button>`;
 
+    const registryButton = `
+      <button class="btn btn-secondary btn-sm" onclick="openRegistry('${runner.id}')">
+        <span class="btn-icon">📚</span>
+        Registry
+      </button>
+    `;
+
     const deleteButton = `
       <button class="btn btn-outline btn-sm" onclick="deleteRunner('${runner.id}')">
         <span class="btn-icon">🗑️</span>
@@ -179,7 +186,7 @@ export class RunnerManager {
       </button>
     `;
 
-    return startStopButton + deleteButton;
+    return startStopButton + registryButton + deleteButton;
   }
 
   /**
@@ -189,6 +196,7 @@ export class RunnerManager {
     window.startRunner = (runnerId) => this.startRunner(runnerId);
     window.stopRunner = (runnerId) => this.stopRunner(runnerId);
     window.deleteRunner = (runnerId) => this.deleteRunner(runnerId);
+    window.openRegistry = (runnerId) => this.openRegistry(runnerId);
   }
 
   /**
@@ -391,6 +399,42 @@ export class RunnerManager {
       console.error("Delete runner error:", error);
       console.log(`Failed to delete runner: ${error}`);
     }
+  }
+
+  /**
+   * Open registry view for a specific runner
+   */
+  openRegistry(runnerId) {
+    console.log(`Opening registry for runner: ${runnerId}`);
+
+    // Get the runner details for the registry title
+    const runner = this.runners.find(r => r.id === runnerId);
+    if (!runner) {
+      console.error(`Runner not found: ${runnerId}`);
+      return;
+    }
+
+    // Import and initialize registry manager if not already done
+    import('../registry/management.js').then(async (module) => {
+      const RegistryManager = module.RegistryManager;
+      if (!window.registryManager) {
+        window.registryManager = new RegistryManager();
+      }
+
+      // Switch to registry view using the navigation manager
+      const navigationManager = window.CloacinaApp?.modules?.navigation;
+      if (navigationManager) {
+        navigationManager.switchView('runner-registry');
+      } else {
+        console.error('navigationManager not available');
+      }
+
+      // Initialize the registry view with runner data
+      await window.registryManager.showRegistryForRunner(runnerId, runner.config.name);
+
+    }).catch(error => {
+      console.error('Failed to load registry module:', error);
+    });
   }
 
   /**

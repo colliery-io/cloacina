@@ -23,4 +23,4 @@
 pub mod workflow_registry_storage;
 
 // Re-export with specific name
-pub use workflow_registry_storage::FilesystemWorkflowRegistryDAL;
+pub use workflow_registry_storage::FilesystemRegistryStorage;

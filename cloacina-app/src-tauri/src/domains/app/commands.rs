@@ -22,6 +22,10 @@ use super::state::{APP_STATE, RUNNER_SERVICE};
 use crate::domains::runners::{RunnerDAL, RunnerService};
 use std::sync::Arc;
 
+// Import cloacina DAL for direct database operations
+use cloacina::dal::DAL;
+use cloacina::Database;
+
 #[derive(Serialize)]
 pub struct AppStatus {
     pub total_runners: usize,
@@ -295,6 +299,204 @@ pub async fn get_desktop_path() -> Result<String, String> {
     // Last resort error
     tracing::error!("Could not determine any suitable directory (desktop, home/Desktop, or home)");
     Err("Could not determine a suitable output directory".to_string())
+}
+
+/// Register a workflow package to a specific runner's registry
+#[command]
+pub async fn register_workflow_package(
+    runner_id: String,
+    package_path: String,
+) -> Result<serde_json::Value, String> {
+    use cloacina::dal::{SqliteWorkflowRegistryDAL, DAL};
+    use cloacina::registry::traits::RegistryStorage;
+    use serde_json::json;
+    use std::{fs, sync::Arc};
+
+    // Read the package file
+    let package_data =
+        fs::read(&package_path).map_err(|e| format!("Failed to read package file: {}", e))?;
+
+    // Get the specific runner to access its database connection
+    let runner_service_guard = RUNNER_SERVICE
+        .lock()
+        .map_err(|e| format!("Failed to acquire runner service lock: {}", e))?;
+    let runner_service = runner_service_guard
+        .as_ref()
+        .ok_or_else(|| "Runner service not initialized".to_string())?;
+    let runner_records = runner_service
+        .get_all_runners(&{
+            let state = APP_STATE
+                .lock()
+                .map_err(|e| format!("Failed to acquire app state lock: {}", e))?;
+            state.runners.clone()
+        })
+        .map_err(|e| format!("Failed to get runner configurations: {}", e))?;
+
+    let runner_config = runner_records
+        .iter()
+        .find(|r| r.id == runner_id)
+        .ok_or_else(|| "Runner configuration not found".to_string())?
+        .clone();
+
+    // Create database connection using the same URL pattern as the runner
+    let db_url = format!(
+        "sqlite://{}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        runner_config.config.db_path
+    );
+
+    let database = Database::new(&db_url, "", 5);
+
+    // Create the storage backend and DAL
+    let storage = Arc::new(SqliteWorkflowRegistryDAL::new(database.clone()))
+        as Arc<dyn RegistryStorage + Send + Sync>;
+    let dal = DAL::new(database);
+    let mut workflow_registry = dal.workflow_registry(storage);
+
+    // Use the high-level register_workflow_package method (handles everything internally)
+    let package_id = workflow_registry
+        .register_workflow_package(package_data)
+        .await
+        .map_err(|e| format!("Failed to register workflow package: {}", e))?;
+
+    // Get package info from the registered package
+    let package_info = workflow_registry
+        .get_workflow_package_by_id(package_id)
+        .await
+        .map_err(|e| format!("Failed to get package info: {}", e))?;
+
+    let (package_metadata, _) =
+        package_info.ok_or_else(|| "Package was registered but cannot be retrieved".to_string())?;
+
+    Ok(json!({
+        "success": true,
+        "package_id": package_id,
+        "runner_id": runner_id,
+        "package_name": package_metadata.package_name,
+        "version": package_metadata.version,
+        "message": format!("Workflow package '{}' v{} registered successfully",
+                          package_metadata.package_name, package_metadata.version)
+    }))
+}
+
+/// List all registered workflow packages for a specific runner
+#[command]
+pub async fn list_workflow_packages(runner_id: String) -> Result<serde_json::Value, String> {
+    use cloacina::dal::SqliteWorkflowRegistryDAL;
+    use cloacina::registry::WorkflowRegistryImpl;
+    use serde_json::json;
+
+    // Get runner config to create database connection
+    let runner_records = {
+        let runner_service_guard = RUNNER_SERVICE
+            .lock()
+            .map_err(|e| format!("Failed to acquire runner service lock: {}", e))?;
+        let runner_service = runner_service_guard
+            .as_ref()
+            .ok_or_else(|| "Runner service not initialized".to_string())?;
+        runner_service
+            .get_all_runners(&{
+                let state = APP_STATE
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire app state lock: {}", e))?;
+                state.runners.clone()
+            })
+            .map_err(|e| format!("Failed to get runner configurations: {}", e))?
+    };
+
+    let runner_config = runner_records
+        .iter()
+        .find(|r| r.id == runner_id)
+        .ok_or_else(|| "Runner configuration not found".to_string())?;
+
+    // Create database connection using the same URL pattern as the runner
+    let db_url = format!(
+        "sqlite://{}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        runner_config.config.db_path
+    );
+
+    let database = Database::new(&db_url, "", 5);
+
+    // Create DAL and list packages
+    let dal = DAL::new(database);
+    let workflows = dal
+        .workflow_packages()
+        .list_all_packages()
+        .await
+        .map_err(|e| format!("Failed to list packages: {}", e))?;
+
+    Ok(json!({
+        "success": true,
+        "runner_id": runner_id,
+        "workflows": workflows
+    }))
+}
+
+/// Unregister a workflow package from a specific runner's registry
+#[command]
+pub async fn unregister_workflow_package(
+    runner_id: String,
+    package_name: String,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    use cloacina::dal::SqliteWorkflowRegistryDAL;
+    use cloacina::registry::WorkflowRegistryImpl;
+    use serde_json::json;
+
+    // Get the specific runner to access its database connection
+    let runner = {
+        let state = APP_STATE
+            .lock()
+            .map_err(|e| format!("Failed to acquire app state lock: {}", e))?;
+        state
+            .runners
+            .get(&runner_id)
+            .ok_or_else(|| format!("Runner {} not found", runner_id))?
+            .clone()
+    };
+
+    // Get runner config to create database connection
+    let runner_records = {
+        let runner_service_guard = RUNNER_SERVICE
+            .lock()
+            .map_err(|e| format!("Failed to acquire runner service lock: {}", e))?;
+        let runner_service = runner_service_guard
+            .as_ref()
+            .ok_or_else(|| "Runner service not initialized".to_string())?;
+        runner_service
+            .get_all_runners(&{
+                let state = APP_STATE
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire app state lock: {}", e))?;
+                state.runners.clone()
+            })
+            .map_err(|e| format!("Failed to get runner configurations: {}", e))?
+    };
+
+    let runner_config = runner_records
+        .iter()
+        .find(|r| r.id == runner_id)
+        .ok_or_else(|| "Runner configuration not found".to_string())?;
+
+    // Create database connection using the same URL pattern as the runner
+    let db_url = format!(
+        "sqlite://{}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
+        runner_config.config.db_path
+    );
+
+    let database = Database::new(&db_url, "", 5);
+
+    // Create DAL and delete package
+    let dal = DAL::new(database);
+    dal.workflow_packages()
+        .delete_package_metadata(&package_name, &version)
+        .await
+        .map_err(|e| format!("Failed to delete package: {}", e))?;
+
+    Ok(json!({
+        "success": true,
+        "runner_id": runner_id,
+        "message": format!("Workflow {}/{} unregistered successfully from runner {}", package_name, version, runner_id)
+    }))
 }
 
 /// Get system path information for debugging

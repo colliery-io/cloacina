@@ -15,18 +15,25 @@
  */
 
 /*!
-# Registry Execution Demo
+# Registry Execution Demo - New DAL System
 
-This example demonstrates the complete workflow lifecycle:
+This example demonstrates the complete workflow lifecycle using the new DAL system:
 1. Build a .cloacina package
-2. Register it to the workflow registry
+2. Register it using WorkflowRegistryDAL with database storage
 3. Execute it using DefaultRunner
+
+## Features Demonstrated
+
+- **New DAL System**: Uses WorkflowRegistryDAL instead of manual registry management
+- **Database Storage**: Stores binary package data directly in the database workflow_registry table
+- **Atomic Operations**: Registration uses atomic transactions across workflow_registry and workflow_packages tables
+- **Storage Options**: Shows both database and filesystem storage backend options
 
 ## Usage
 
 ```bash
 cd examples/registry-execution-demo
-cargo run
+cargo run --features sqlite  # or --features postgres
 ```
 */
 
@@ -37,15 +44,13 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use chrono::{Duration as ChronoDuration, Utc};
 use cloacina::database::Database;
 use cloacina::registry::error::RegistryError;
-use cloacina::registry::storage::FilesystemRegistryStorage;
-use cloacina::registry::traits::WorkflowRegistry;
-use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{Context, PipelineExecutor};
+use std::sync::Arc;
 use std::time::Duration;
 
-// Import cloacina-ctl for package building
-use cloacina_ctl::commands::package::create::package_workflow;
+// Import cloacina library packaging functions (like cloacina-app)
+use cloacina::packaging::{package_workflow, CompileOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,12 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let package_data = build_package().await?;
     println!("✅ Package built: {} bytes\n", package_data.len());
 
-    // Step 2: Set up shared database and storage
-    println!("📋 Setting up shared storage and database...");
-    let storage_path = "/tmp/cloacina_demo_storage";
-    std::fs::create_dir_all(storage_path)?;
-    let storage = FilesystemRegistryStorage::new(storage_path)?;
-    println!("📋 Storage directory: {}", storage_path);
+    // Step 2: Set up shared database
+    println!("📋 Setting up shared database...");
 
     // Use a persistent file-based database that both registry and runner can share
     let db_path = "/tmp/cloacina_debug.db";
@@ -79,12 +80,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     conn.interact(move |conn| cloacina::database::run_migrations(conn))
         .await??;
 
-    // Step 3: Register the workflow package
-    println!("📋 Registering workflow package...");
-    let mut registry = WorkflowRegistryImpl::new(storage, database)?;
-    match registry.register_workflow(package_data).await {
+    // Step 3: Register the workflow package using the new DAL system
+    println!("📋 Registering workflow package using DAL system...");
+
+    // Create DAL and choose storage backend
+    let dal = cloacina::dal::DAL::new(database.clone());
+
+    // Option 1: Database storage (SQLite) - stores binary data in workflow_registry table
+    let storage = Arc::new(cloacina::dal::SqliteRegistryStorage::new(database.clone()));
+
+    // Option 2: Filesystem storage - stores binary data as files
+    // let storage_path = "/tmp/cloacina_demo_storage";
+    // std::fs::create_dir_all(storage_path)?;
+    // let storage = Arc::new(cloacina::dal::FilesystemRegistryStorage::new(storage_path));
+
+    let mut registry_dal = dal.workflow_registry(storage);
+
+    match registry_dal.register_workflow_package(package_data).await {
         Ok(package_id) => {
-            println!("✅ Package registered with ID: {}", package_id);
+            println!("✅ Package registered with DAL ID: {}", package_id);
         }
         Err(RegistryError::PackageExists {
             package_name,
@@ -101,43 +115,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!();
 
-    // Step 4: List available workflows
+    // Step 4: List available workflows using DAL
     println!("🔍 Available workflows:");
-    let workflows = registry.list_workflows().await?;
-    for workflow in &workflows {
+    let packages = registry_dal.list_packages().await?;
+    for package_info in &packages {
         println!(
-            "  - {} from package {} (v{}) - {} tasks",
-            "data_processing", // TODO: Extract actual workflow name from metadata
-            workflow.package_name,
-            workflow.version,
-            workflow.tasks.len()
+            "  - Package {} (v{}) - ID: {}",
+            package_info.package_name, package_info.version, package_info.id
         );
     }
     println!();
 
-    // Step 5: Get workflow from registry
+    // Step 5: Get workflow from registry using DAL
     println!("📥 Getting workflow from registry...");
-    let first_workflow = &workflows[0];
-    let loaded_workflow = registry
-        .get_workflow(&first_workflow.package_name, &first_workflow.version)
-        .await?;
-    if let Some(workflow) = &loaded_workflow {
-        println!(
-            "✅ Workflow loaded: {} v{}\n",
-            workflow.metadata.package_name, workflow.metadata.version
-        );
+    if !packages.is_empty() {
+        let first_package = &packages[0];
+        let loaded_workflow = registry_dal
+            .get_workflow_package_by_name(&first_package.package_name, &first_package.version)
+            .await?;
+        if let Some((metadata, _binary_data)) = &loaded_workflow {
+            println!(
+                "✅ Workflow loaded: {} v{}\n",
+                metadata.package_name, metadata.version
+            );
+        } else {
+            println!("❌ Failed to load workflow");
+            return Ok(());
+        }
     } else {
-        println!("❌ Failed to load workflow");
+        println!("❌ No packages found in registry");
         return Ok(());
     }
 
-    // Step 6: Set up DefaultRunner with shared database and storage
+    // Step 6: Set up DefaultRunner with shared database
     println!("▶️  Setting up execution environment with shared database...");
 
-    // Configure DefaultRunner with registry reconciler enabled and storage path
+    // Configure DefaultRunner with registry reconciler enabled (uses database storage now)
     let mut config = DefaultRunnerConfig::default();
     config.enable_registry_reconciler = true;
-    config.registry_storage_path = Some(PathBuf::from(storage_path));
+    // Configure registry to use SQLite database storage (matching our registration method)
+    config.registry_storage_backend = "sqlite".to_string();
     // Enable cron scheduling for automatic workflow execution
     config.enable_cron_scheduling = true;
     config.cron_enable_recovery = true;
@@ -211,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🕐 Running scheduled executions for 2 minutes (you can monitor the logs)...");
     println!("   Press Ctrl+C to shutdown gracefully before the 2 minutes are up");
 
-    let runtime_duration = Duration::from_secs(120); // 2 minutes demo
+    let runtime_duration = Duration::from_secs(20); // 2 minutes demo
 
     // Sleep for demo duration or until interrupted
     tokio::select! {
@@ -253,37 +270,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Build the package using the same approach as the tests
+    // Build the package using the library function directly (like cloacina-app)
     let workspace_root = find_workspace_root()?;
     let project_path = workspace_root.join("examples/simple-packaged-demo");
 
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("package.cloacina");
 
-    // Create minimal CLI for the package function (following test pattern)
-    let cli = cloacina_ctl::cli::Cli {
+    // Create compile options
+    let options = cloacina::packaging::CompileOptions {
         target: None,
         profile: "debug".to_string(),
-        verbose: false,
-        quiet: false,
-        color: "auto".to_string(),
+        cargo_flags: vec![],
         jobs: None,
-        command: cloacina_ctl::cli::Commands::Package(cloacina_ctl::cli::PackageCommands::Create {
-            project_path: project_path.clone(),
-            output: output_path.clone(),
-            cargo_flags: vec![],
-        }),
     };
 
-    // Build the package
-    package_workflow(
-        project_path,
-        output_path.clone(),
-        None,
-        "debug".to_string(),
-        vec![],
-        &cli,
-    )?;
+    // Build the package using the library function directly
+    cloacina::packaging::package_workflow(project_path, output_path.clone(), options)?;
 
     Ok(tokio::fs::read(output_path).await?)
 }

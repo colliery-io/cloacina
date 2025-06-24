@@ -29,6 +29,7 @@ pub mod packaging_inspection;
 pub mod registry_simple_functional_test;
 pub mod registry_storage_tests;
 pub mod registry_workflow_registry_tests;
+pub mod runner_configurable_registry_tests;
 pub mod scheduler;
 pub mod task;
 pub mod workflow;

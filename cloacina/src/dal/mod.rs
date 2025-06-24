@@ -39,4 +39,4 @@ pub use postgres_dal::*;
 pub use sqlite_dal::*;
 
 // Always re-export filesystem DAL (but only the specific type to avoid conflicts)
-pub use filesystem_dal::FilesystemWorkflowRegistryDAL;
+pub use filesystem_dal::FilesystemRegistryStorage;

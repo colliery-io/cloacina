@@ -564,6 +564,60 @@
         <!-- Workflows view placeholder -->
       </div>
 
+      <!-- Runner Registry View -->
+      <div id="runner-registry-view" class="view">
+        <div class="card registry-card">
+          <div class="card-header">
+            <div class="header-left">
+              <h2>📚 Workflow Registry</h2>
+              <p id="registry-runner-info" class="subtitle">Managing workflows for runner</p>
+            </div>
+            <div class="header-right">
+              <button id="back-to-runners-btn" class="btn btn-outline btn-sm">
+                <span class="btn-icon">←</span>
+                Back to Runners
+              </button>
+            </div>
+          </div>
+          <div class="card-content">
+            <!-- Add New Workflow Section -->
+            <div class="registry-section">
+              <h3>Add New Workflow</h3>
+              <div class="add-workflow-form">
+                <div class="form-row">
+                  <input type="file" id="workflow-file-input" accept=".cloacina" class="file-input">
+                  <button id="select-workflow-file-btn" class="btn btn-outline">
+                    <span class="btn-icon">📁</span>
+                    Select Workflow File
+                  </button>
+                  <span id="selected-file-name" class="file-name-display"></span>
+                </div>
+                <div class="form-row">
+                  <button id="register-workflow-btn" class="btn btn-primary" disabled>
+                    <span class="btn-icon">➕</span>
+                    Register Workflow
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Registered Workflows List -->
+            <div class="registry-section">
+              <div class="section-header">
+                <h3>Registered Workflows</h3>
+                <button id="refresh-registry-btn" class="btn btn-outline btn-sm">
+                  <span class="btn-icon">🔄</span>
+                  Refresh
+                </button>
+              </div>
+              <div id="workflows-list" class="workflows-list">
+                <!-- Workflows will be dynamically populated -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="settings-view" class="view">
         <div class="card settings-card">
           <div class="card-header">

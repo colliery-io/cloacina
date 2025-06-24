@@ -2112,3 +2112,176 @@ input:checked + .slider:before {
   min-width: 80px !important;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
 }
+
+/* Registry Styles */
+.registry-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.registry-card .header-left h2 {
+  margin: 0 0 4px 0;
+}
+
+.registry-card .subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.registry-section {
+  margin-bottom: 2rem;
+}
+
+.registry-section h3 {
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.section-header h3 {
+  margin: 0;
+}
+
+.add-workflow-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-row:last-child {
+  margin-bottom: 0;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-name-display {
+  color: var(--text-secondary);
+  font-style: italic;
+  flex: 1;
+}
+
+.workflows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.workflow-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.2s ease;
+}
+
+.workflow-item:hover {
+  border-color: var(--primary);
+}
+
+.workflow-info {
+  flex: 1;
+}
+
+.workflow-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.workflow-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.workflow-version {
+  background: var(--primary);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.workflow-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.workflow-description {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.workflow-author {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.workflow-metadata {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.metadata-item {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.workflow-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.empty-state, .error-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+}
+
+.empty-state h4, .error-state h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+}
+
+.empty-state p, .error-state p {
+  margin: 0 0 1rem 0;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}

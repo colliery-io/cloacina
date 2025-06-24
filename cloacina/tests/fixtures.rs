@@ -32,6 +32,7 @@ use diesel::sql_types::Text;
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, Once};
 use tracing::info;
+use uuid;
 
 #[cfg(feature = "postgres")]
 use diesel::pg::PgConnection;
@@ -117,30 +118,62 @@ impl TestFixture {
         self.db.clone()
     }
 
+    /// Get the database URL for this fixture
+    pub fn get_database_url(&self) -> String {
+        #[cfg(feature = "postgres")]
+        {
+            "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string()
+        }
+        #[cfg(feature = "sqlite")]
+        {
+            "file:memdb1?mode=memory&cache=shared".to_string()
+        }
+    }
+
+    /// Get the name of the current backend (postgres or sqlite)
+    pub fn get_current_backend(&self) -> &'static str {
+        #[cfg(feature = "postgres")]
+        {
+            "postgres"
+        }
+        #[cfg(feature = "sqlite")]
+        {
+            "sqlite"
+        }
+    }
+
     /// Create a storage backend using this fixture's database
     /// Returns the appropriate backend based on active feature flags
     #[cfg(feature = "postgres")]
-    pub fn create_storage(&self) -> cloacina::dal::PostgresWorkflowRegistryDAL {
-        cloacina::dal::PostgresWorkflowRegistryDAL::new(self.db.clone())
+    pub fn create_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
+        cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
     }
 
     /// Create a storage backend using this fixture's database
     /// Returns the appropriate backend based on active feature flags
     #[cfg(feature = "sqlite")]
-    pub fn create_storage(&self) -> cloacina::dal::SqliteWorkflowRegistryDAL {
-        cloacina::dal::SqliteWorkflowRegistryDAL::new(self.db.clone())
+    pub fn create_storage(&self) -> cloacina::dal::SqliteRegistryStorage {
+        cloacina::dal::SqliteRegistryStorage::new(self.db.clone())
     }
 
     /// Create a PostgreSQL storage backend using this fixture's database
     #[cfg(feature = "postgres")]
-    pub fn create_postgres_storage(&self) -> cloacina::dal::PostgresWorkflowRegistryDAL {
-        cloacina::dal::PostgresWorkflowRegistryDAL::new(self.db.clone())
+    pub fn create_postgres_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
+        cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
     }
 
     /// Create a SQLite storage backend using this fixture's database
     #[cfg(feature = "sqlite")]
-    pub fn create_sqlite_storage(&self) -> cloacina::dal::SqliteWorkflowRegistryDAL {
-        cloacina::dal::SqliteWorkflowRegistryDAL::new(self.db.clone())
+    pub fn create_sqlite_storage(&self) -> cloacina::dal::SqliteRegistryStorage {
+        cloacina::dal::SqliteRegistryStorage::new(self.db.clone())
+    }
+
+    /// Create a filesystem storage backend for testing
+    pub fn create_filesystem_storage(&self) -> cloacina::dal::FilesystemRegistryStorage {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cloacina_test_storage_{}", uuid::Uuid::new_v4()));
+        cloacina::dal::FilesystemRegistryStorage::new(temp_dir)
+            .expect("Failed to create filesystem storage")
     }
 
     /// Initialize the fixture with additional setup

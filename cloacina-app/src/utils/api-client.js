@@ -183,4 +183,38 @@ export class ApiClient {
       filters: options.filters || null
     });
   }
+
+  /**
+   * Registry Operations
+   */
+
+  /**
+   * Register a workflow package to a runner's registry
+   */
+  async registerWorkflowPackage(runnerId, packagePath) {
+    return await invoke("register_workflow_package", {
+      runnerId,
+      packagePath
+    });
+  }
+
+  /**
+   * List all workflow packages for a runner
+   */
+  async listWorkflowPackages(runnerId) {
+    return await invoke("list_workflow_packages", {
+      runnerId
+    });
+  }
+
+  /**
+   * Unregister a workflow package from a runner's registry
+   */
+  async unregisterWorkflowPackage(runnerId, packageName, version) {
+    return await invoke("unregister_workflow_package", {
+      runnerId,
+      packageName,
+      version
+    });
+  }
 }
