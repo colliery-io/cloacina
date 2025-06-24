@@ -22,11 +22,3 @@ async-trait = "0.1"
 tempfile = "3.0"
 uuid = { version = "1.0", features = ["v4"] }
 tracing = "0.1"
-
-[[example]]
-name = "end_to_end_demo"
-path = "examples/end_to_end_demo.rs"
-
-[[example]]
-name = "package_workflow"
-path = "examples/package_workflow.rs"

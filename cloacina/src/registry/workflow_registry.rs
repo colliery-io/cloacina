@@ -33,7 +33,6 @@ use crate::database::Database;
 use crate::models::workflow_packages::{
     NewWorkflowPackage as ModelNewWorkflowPackage, WorkflowPackage,
 };
-use crate::models::workflow_registry::WorkflowRegistryEntry;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::{PackageLoader, PackageValidator, TaskRegistrar};
 use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
@@ -161,30 +160,6 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             reason: "No dynamic library file (.so/.dylib/.dll) found in .cloacina package"
                 .to_string(),
         })
-    }
-
-    /// Create workflow metadata from package metadata and database record.
-    fn create_workflow_metadata(
-        registry_entry: &WorkflowRegistryEntry,
-        package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
-        registry_id: &str,
-    ) -> WorkflowMetadata {
-        WorkflowMetadata {
-            id: registry_entry.id.into(),
-            registry_id: Uuid::parse_str(registry_id).unwrap_or_else(|_| Uuid::new_v4()),
-            package_name: package_metadata.package_name.clone(),
-            version: package_metadata.version.clone(),
-            description: package_metadata.description.clone(),
-            author: package_metadata.author.clone(),
-            tasks: package_metadata
-                .tasks
-                .iter()
-                .map(|t| t.local_id.clone())
-                .collect(),
-            schedules: Vec::new(), // Could be extracted from graph_data
-            created_at: registry_entry.created_at.into(),
-            updated_at: registry_entry.created_at.into(), // Use created_at for both initially
-        }
     }
 
     /// Store package metadata in the database.

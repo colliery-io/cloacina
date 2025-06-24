@@ -46,7 +46,7 @@ use crate::registry::traits::RegistryStorage;
 /// # Example
 ///
 /// ```rust,no_run
-/// use cloacina::registry::storage::FilesystemRegistryStorage;
+/// use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
 /// use cloacina::registry::RegistryStorage;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,11 +64,11 @@ use crate::registry::traits::RegistryStorage;
 /// # }
 /// ```
 #[derive(Debug, Clone)]
-pub struct FilesystemWorkflowRegistryDAL {
+pub struct FilesystemRegistryStorage {
     storage_dir: PathBuf,
 }
 
-impl FilesystemWorkflowRegistryDAL {
+impl FilesystemRegistryStorage {
     /// Create a new filesystem workflow registry DAL.
     ///
     /// # Arguments
@@ -83,10 +83,10 @@ impl FilesystemWorkflowRegistryDAL {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use cloacina::dal::filesystem_dal::FilesystemWorkflowRegistryDAL;
+    /// use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let dal = FilesystemWorkflowRegistryDAL::new("/var/lib/cloacina/registry")?;
+    /// let dal = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
     /// # Ok(())
     /// # }
     /// ```
@@ -133,7 +133,7 @@ impl FilesystemWorkflowRegistryDAL {
 }
 
 #[async_trait]
-impl RegistryStorage for FilesystemWorkflowRegistryDAL {
+impl RegistryStorage for FilesystemRegistryStorage {
     async fn store_binary(&mut self, data: Vec<u8>) -> Result<String, StorageError> {
         let id = Uuid::new_v4();
         let file_path = self.file_path(&id.to_string());
@@ -240,9 +240,9 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    async fn create_test_storage() -> (FilesystemWorkflowRegistryDAL, TempDir) {
+    async fn create_test_storage() -> (FilesystemRegistryStorage, TempDir) {
         let temp_dir = TempDir::new().unwrap();
-        let dal = FilesystemWorkflowRegistryDAL::new(temp_dir.path()).unwrap();
+        let dal = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
         (dal, temp_dir)
     }
 
@@ -302,7 +302,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_file_handling() {
-        let (mut dal, temp_dir) = create_test_storage().await;
+        let (dal, temp_dir) = create_test_storage().await;
 
         // Create an empty file manually
         let id = Uuid::new_v4().to_string();
@@ -362,7 +362,7 @@ mod tests {
         let nested_path = temp_dir.path().join("deeply").join("nested").join("path");
 
         // Should create directories if they don't exist
-        let dal = FilesystemWorkflowRegistryDAL::new(&nested_path).unwrap();
+        let dal = FilesystemRegistryStorage::new(&nested_path).unwrap();
 
         assert!(nested_path.exists(), "Nested directories should be created");
         assert!(nested_path.is_dir(), "Path should be a directory");

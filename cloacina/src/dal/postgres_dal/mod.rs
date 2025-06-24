@@ -101,6 +101,8 @@ pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod workflow_packages;
+pub mod workflow_registry;
 pub mod workflow_registry_storage;
 
 // #[cfg(feature = "auth")]
@@ -114,8 +116,10 @@ use pipeline_execution::PipelineExecutionDAL;
 use recovery_event::RecoveryEventDAL;
 use task_execution::TaskExecutionDAL;
 use task_execution_metadata::TaskExecutionMetadataDAL;
+use workflow_packages::WorkflowPackagesDAL;
+use workflow_registry::WorkflowRegistryDAL;
 // Re-export with specific name to avoid ambiguity
-pub use workflow_registry_storage::PostgresWorkflowRegistryDAL;
+pub use workflow_registry_storage::PostgresRegistryStorage;
 
 // Re-export for public API
 pub use cron_execution::CronExecutionStats;
@@ -255,6 +259,23 @@ impl DAL {
     /// Returns a CronExecutionDAL for cron execution audit operations
     pub fn cron_execution(&self) -> CronExecutionDAL {
         CronExecutionDAL { dal: self }
+    }
+
+    /// Returns a WorkflowPackagesDAL for workflow package metadata operations
+    pub fn workflow_packages(&self) -> WorkflowPackagesDAL {
+        WorkflowPackagesDAL { dal: self }
+    }
+
+    /// Returns a WorkflowRegistryDAL for complete workflow package management
+    ///
+    /// # Arguments
+    ///
+    /// * `storage` - Storage backend for binary package data
+    pub fn workflow_registry(
+        &self,
+        storage: std::sync::Arc<dyn crate::registry::traits::RegistryStorage + Send + Sync>,
+    ) -> WorkflowRegistryDAL {
+        WorkflowRegistryDAL::new(self.clone(), storage)
     }
 
     // /// Returns an AuthTokensDAL for authentication token operations

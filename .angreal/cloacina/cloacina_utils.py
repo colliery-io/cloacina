@@ -21,8 +21,14 @@ def validate_backend(backend):
 def get_backends_to_test(backend):
     """Return list of backend configurations based on selection."""
     all_backends = [
-        ("PostgreSQL", ["cargo", "test", "--lib", "--no-default-features", "--features", "postgres,macros"]),
-        ("SQLite", ["cargo", "test", "--lib", "--no-default-features", "--features", "sqlite,macros"])
+        ("PostgreSQL", ["cargo", "test",
+                        "-p", "cloacina",
+                        "--lib", "--no-default-features",
+                        "--features", "postgres,macros"]),
+        ("SQLite", ["cargo", "test",
+                    "-p", "cloacina",
+                    "--lib", "--no-default-features",
+                      "--features", "sqlite,macros"])
     ]
 
     if backend == "postgres":

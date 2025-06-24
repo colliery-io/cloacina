@@ -23,11 +23,11 @@ use diesel::prelude::*;
 use serial_test::serial;
 use tempfile::TempDir;
 
-use cloacina::dal::FilesystemWorkflowRegistryDAL as FilesystemRegistryStorage;
+use cloacina::dal::FilesystemRegistryStorage;
 #[cfg(feature = "postgres")]
-use cloacina::dal::PostgresWorkflowRegistryDAL as PostgresRegistryStorage;
+use cloacina::dal::PostgresRegistryStorage;
 #[cfg(feature = "sqlite")]
-use cloacina::dal::SqliteWorkflowRegistryDAL as SqliteRegistryStorage;
+use cloacina::dal::SqliteRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 

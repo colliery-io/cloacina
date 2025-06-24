@@ -1,0 +1,37 @@
+{
+  "name": "cloacina-desktop",
+  "version": "0.1.0",
+  "description": "Cloacina Desktop Application",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "preview": "tauri dev --no-watch",
+    "lint": "eslint src --ext .js",
+    "lint:fix": "eslint src --ext .js --fix",
+    "dead-code": "node src/find-dead-code.js",
+    "analyze": "node src/analyze-main-files.js",
+    "clean": "rm -rf node_modules dist",
+    "format": "prettier --write src/**/*.{js,html,css}"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.0.0",
+    "eslint": "^8.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "knip": "^3.0.0",
+    "prettier": "^3.0.0",
+    "unimport": "^3.14.6",
+    "depcheck": "^1.4.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [
+    "tauri",
+    "desktop",
+    "workflow",
+    "orchestration"
+  ],
+  "author": "Cloacina Team",
+  "license": "MIT"
+}

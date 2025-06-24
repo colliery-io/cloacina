@@ -19,8 +19,6 @@ from cloacina import integration  # noqa: F401
 from cloacina import macros  # noqa: F401
 from cloacina import all  # noqa: F401
 
-# Import cloacina-ctl command modules
-from cloacina_ctl import * # noqa: F403
 
 # Import demos module
 from demos import rust_demos  # noqa: F401
@@ -29,3 +27,6 @@ from demos import python_demos  # noqa: F401
 
 # Import performance module
 import performance  # noqa: F401
+
+# Import app development commands
+from app import dev  # noqa: F401

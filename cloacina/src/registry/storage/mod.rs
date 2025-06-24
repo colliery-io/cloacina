@@ -46,9 +46,9 @@
 
 // Re-export DAL implementations for backward compatibility
 #[cfg(feature = "postgres")]
-pub use crate::dal::PostgresWorkflowRegistryDAL as PostgresRegistryStorage;
+pub use crate::dal::PostgresRegistryStorage;
 
 #[cfg(feature = "sqlite")]
-pub use crate::dal::SqliteWorkflowRegistryDAL as SqliteRegistryStorage;
+pub use crate::dal::SqliteRegistryStorage;
 
-pub use crate::dal::FilesystemWorkflowRegistryDAL as FilesystemRegistryStorage;
+pub use crate::dal::FilesystemRegistryStorage;

@@ -15,3 +15,6 @@
  */
 
 pub mod context;
+pub mod workflow_packages;
+pub mod workflow_registry;
+pub mod workflow_registry_reconciler_integration;

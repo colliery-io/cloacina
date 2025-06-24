@@ -20,7 +20,7 @@
 //! RegistryStorage trait with real database connections and filesystem operations.
 //! The same test suite runs against all backends.
 
-use cloacina::dal::FilesystemWorkflowRegistryDAL as FilesystemRegistryStorage;
+use cloacina::dal::FilesystemRegistryStorage;
 use cloacina::registry::error::StorageError;
 use cloacina::registry::traits::RegistryStorage;
 use std::sync::Arc;

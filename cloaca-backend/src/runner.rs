@@ -94,12 +94,6 @@ enum RuntimeMessage {
     Shutdown,
 }
 
-/// Simplified runner for Python bindings that doesn't start background services
-struct SimplifiedRunner {
-    database: cloacina::Database,
-    dal: Arc<cloacina::dal::DAL>,
-}
-
 /// Handle to the background async runtime thread
 struct AsyncRuntimeHandle {
     tx: mpsc::UnboundedSender<RuntimeMessage>,

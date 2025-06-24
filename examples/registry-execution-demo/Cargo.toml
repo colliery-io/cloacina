@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 cloacina = { path = "../../cloacina", default-features = false,  features = ["sqlite"] }
-cloacina-ctl = { path = "../../cloacina-ctl", default-features = false }
+cloacina-ctl = { path = "../../cloacina-ctl", default-features = false, features = ["sqlite"] }
 tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 tempfile = "3.8"

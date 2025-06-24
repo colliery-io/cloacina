@@ -136,6 +136,56 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if let Some(record) = package_record {
+            // DEBUG: Log the registry_id and its string representation
+            tracing::debug!(
+                "Found package record with registry_id: {:?}",
+                record.registry_id
+            );
+            let registry_id_string = record.registry_id.to_string();
+            tracing::debug!("registry_id.to_string() = '{}'", registry_id_string);
+
+            // Deserialize package metadata from JSON string
+            let metadata: crate::registry::loader::package_loader::PackageMetadata =
+                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
+            Ok(Some((registry_id_string, metadata)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Retrieve package metadata by UUID from the database.
+    pub async fn get_package_metadata_by_id(
+        &self,
+        package_id: Uuid,
+    ) -> Result<
+        Option<(
+            String,
+            crate::registry::loader::package_loader::PackageMetadata,
+        )>,
+        RegistryError,
+    > {
+        let conn = self
+            .dal
+            .database
+            .pool()
+            .get()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+
+        let package_uuid = UniversalUuid::from(package_id);
+
+        let package_record: Option<WorkflowPackage> = conn
+            .interact(move |conn| {
+                workflow_packages::table
+                    .filter(workflow_packages::id.eq(&package_uuid))
+                    .first::<WorkflowPackage>(conn)
+                    .optional()
+            })
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?
+            .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+
+        if let Some(record) = package_record {
             // Deserialize package metadata from JSON string
             let metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
@@ -188,6 +238,32 @@ impl<'a> WorkflowPackagesDAL<'a> {
                     .filter(workflow_packages::version.eq(&version)),
             )
             .execute(conn)
+        })
+        .await
+        .map_err(|e| RegistryError::Database(e.to_string()))?
+        .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Delete package metadata by UUID from the database.
+    pub async fn delete_package_metadata_by_id(
+        &self,
+        package_id: Uuid,
+    ) -> Result<(), RegistryError> {
+        let conn = self
+            .dal
+            .database
+            .pool()
+            .get()
+            .await
+            .map_err(|e| RegistryError::Database(e.to_string()))?;
+
+        let package_uuid = UniversalUuid::from(package_id);
+
+        conn.interact(move |conn| {
+            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(&package_uuid)))
+                .execute(conn)
         })
         .await
         .map_err(|e| RegistryError::Database(e.to_string()))?

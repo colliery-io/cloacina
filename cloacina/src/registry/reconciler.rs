@@ -504,74 +504,91 @@ impl RegistryReconciler {
             .await
             .map_err(RegistryError::Loader)?;
 
-        // Check if package has workflow data
-        if let Some(ref graph_data) = package_metadata.graph_data {
+        // Check if package has tasks (which means it has a workflow since it was compiled with the macro)
+        if !package_metadata.tasks.is_empty() {
             debug!(
-                "Package {} has workflow graph data with {} tasks",
+                "Package {} has {} tasks - workflow exists since it compiled with packaged_workflow macro",
                 metadata.package_name,
-                graph_data
-                    .get("metadata")
-                    .and_then(|m| m.get("task_count"))
-                    .and_then(|c| c.as_u64())
-                    .unwrap_or(0)
+                package_metadata.tasks.len()
             );
 
-            // Extract the workflow_id from package metadata by parsing the namespaced_id_template
-            // Template format: {tenant}::package_name::workflow_id::task_id
-            let workflow_id = if let Some(first_task) = package_metadata.tasks.first() {
-                let template = &first_task.namespaced_id_template;
-                debug!("Parsing workflow_id from template: '{}'", template);
+            // Extract the workflow name from the package metadata
+            // The workflow name comes from the #[packaged_workflow(name = "...")] macro
+            // Since package_loader::PackageMetadata doesn't have workflow_name field directly,
+            // we need to extract it from the task metadata namespaced templates
+            let workflow_name = {
+                // Extract workflow name from namespaced_id_template
+                if let Some(first_task) = package_metadata.tasks.first() {
+                    let template = &first_task.namespaced_id_template;
+                    debug!("Parsing workflow_name from template: '{}'", template);
 
-                // Split by "::" and extract the workflow_id part (3rd component)
-                let parts: Vec<&str> = template.split("::").collect();
-                if parts.len() >= 3 {
-                    let workflow_part = parts[2];
-                    // Handle both {workflow} placeholder and actual workflow_id
-                    if workflow_part == "{workflow}" {
-                        // This is a template, need to look up actual workflow_id from registered tasks
-                        let task_registry = crate::task::global_task_registry();
-                        let mut found_id = None;
-                        if let Ok(registry) = task_registry.read() {
-                            for (namespace, _) in registry.iter() {
-                                if namespace.package_name == metadata.package_name
-                                    && namespace.tenant_id == self.config.default_tenant_id
-                                {
-                                    debug!(
-                                        "Found registered task with workflow_id: '{}'",
-                                        namespace.workflow_id
-                                    );
-                                    found_id = Some(namespace.workflow_id.clone());
-                                    break;
+                    // Split by "::" and extract the workflow_id part (3rd component)
+                    let parts: Vec<&str> = template.split("::").collect();
+                    if parts.len() >= 3 {
+                        let workflow_part = parts[2];
+                        // Handle both {workflow} placeholder and actual workflow_id
+                        if workflow_part == "{workflow}" {
+                            // This is a template, need to look up actual workflow_id from registered tasks
+                            let task_registry = crate::task::global_task_registry();
+                            let mut found_id = None;
+                            if let Ok(registry) = task_registry.read() {
+                                for (namespace, _) in registry.iter() {
+                                    if namespace.package_name == metadata.package_name
+                                        && namespace.tenant_id == self.config.default_tenant_id
+                                    {
+                                        debug!(
+                                            "Found registered task with workflow_id: '{}'",
+                                            namespace.workflow_id
+                                        );
+                                        found_id = Some(namespace.workflow_id.clone());
+                                        break;
+                                    }
                                 }
                             }
+                            // Use found ID or fallback
+                            found_id.unwrap_or_else(|| metadata.package_name.clone())
+                        } else {
+                            // This is the actual workflow_id
+                            workflow_part.to_string()
                         }
-                        // Use found ID or fallback
-                        found_id.unwrap_or_else(|| metadata.package_name.clone())
                     } else {
-                        // This is the actual workflow_id
-                        workflow_part.to_string()
+                        debug!("Template format unexpected, using package name as fallback");
+                        metadata.package_name.clone()
                     }
                 } else {
-                    debug!("Template format unexpected, using package name as fallback");
+                    debug!("No tasks in package metadata, using package name as fallback");
                     metadata.package_name.clone()
                 }
-            } else {
-                debug!("No tasks in package metadata, using package name as fallback");
-                metadata.package_name.clone()
             };
 
             debug!(
-                "Using workflow_id '{}' for FFI constructor (extracted from task metadata)",
-                workflow_id
+                "Using workflow_name '{}' for workflow registration",
+                workflow_name
             );
 
-            // Use workflow_id as the workflow name for registration
-            let workflow_name = workflow_id.clone();
+            // Get the package name from the first task's metadata (this is the correct package name for task lookup)
+            let task_package_name = if let Some(first_task) = package_metadata.tasks.first() {
+                // Extract package name from namespaced template: {tenant}::package_name::workflow_id::task_id
+                let template = &first_task.namespaced_id_template;
+                let parts: Vec<&str> = template.split("::").collect();
+                if parts.len() >= 2 {
+                    parts[1].to_string() // Get the package_name part
+                } else {
+                    metadata.package_name.clone() // Fallback to metadata package name
+                }
+            } else {
+                metadata.package_name.clone() // Fallback to metadata package name
+            };
+
+            debug!(
+                "Using task_package_name '{}' for task lookup (extracted from task metadata)",
+                task_package_name
+            );
 
             // Create the workflow directly using host registries (avoid FFI isolation issues)
             let _workflow = self.create_workflow_from_host_registry(
-                &metadata.package_name,
-                &workflow_id,
+                &task_package_name, // Use the correct package name from task metadata
+                &workflow_name,
                 &self.config.default_tenant_id,
             )?;
 
@@ -586,8 +603,8 @@ impl RegistryReconciler {
 
             // Create a constructor that recreates the workflow from host registry each time
             let workflow_name_for_closure = workflow_name.clone();
-            let package_name_for_closure = metadata.package_name.clone();
-            let workflow_id_for_closure = workflow_id.clone();
+            let package_name_for_closure = task_package_name.clone(); // Use the correct package name
+            let workflow_name_for_closure_static = workflow_name.clone();
             let tenant_id_for_closure = self.config.default_tenant_id.clone();
 
             registry.insert(
@@ -601,7 +618,7 @@ impl RegistryReconciler {
                     // Recreate the workflow from the host task registry each time
                     match Self::create_workflow_from_host_registry_static(
                         &package_name_for_closure,
-                        &workflow_id_for_closure,
+                        &workflow_name_for_closure_static,
                         &tenant_id_for_closure,
                     ) {
                         Ok(workflow) => workflow,
@@ -633,11 +650,11 @@ impl RegistryReconciler {
     fn create_workflow_from_host_registry(
         &self,
         package_name: &str,
-        workflow_id: &str,
+        workflow_name: &str,
         tenant_id: &str,
     ) -> Result<crate::workflow::Workflow, RegistryError> {
         // Create workflow and add registered tasks from host registry
-        let mut workflow = crate::workflow::Workflow::new(workflow_id);
+        let mut workflow = crate::workflow::Workflow::new(workflow_name);
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
@@ -653,7 +670,7 @@ impl RegistryReconciler {
         for (namespace, task_constructor) in registry.iter() {
             // Only include tasks from this package, workflow, and tenant
             if namespace.package_name == package_name
-                && namespace.workflow_id == workflow_id
+                && namespace.workflow_id == workflow_name
                 && namespace.tenant_id == tenant_id
             {
                 let task = task_constructor();
@@ -671,7 +688,7 @@ impl RegistryReconciler {
 
         debug!(
             "Created workflow '{}' with {} tasks from host registry",
-            workflow_id, found_tasks
+            workflow_name, found_tasks
         );
 
         // Validate and finalize the workflow
@@ -687,11 +704,11 @@ impl RegistryReconciler {
     /// Static version of create_workflow_from_host_registry for use in closures
     fn create_workflow_from_host_registry_static(
         package_name: &str,
-        workflow_id: &str,
+        workflow_name: &str,
         tenant_id: &str,
     ) -> Result<crate::workflow::Workflow, RegistryError> {
         // Create workflow and add registered tasks from host registry
-        let mut workflow = crate::workflow::Workflow::new(workflow_id);
+        let mut workflow = crate::workflow::Workflow::new(workflow_name);
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
@@ -707,7 +724,7 @@ impl RegistryReconciler {
         for (namespace, task_constructor) in registry.iter() {
             // Only include tasks from this package, workflow, and tenant
             if namespace.package_name == package_name
-                && namespace.workflow_id == workflow_id
+                && namespace.workflow_id == workflow_name
                 && namespace.tenant_id == tenant_id
             {
                 let task = task_constructor();
@@ -725,7 +742,7 @@ impl RegistryReconciler {
 
         debug!(
             "Created workflow '{}' with {} tasks from host registry (static)",
-            workflow_id, found_tasks
+            workflow_name, found_tasks
         );
 
         // Validate and finalize the workflow
@@ -736,105 +753,6 @@ impl RegistryReconciler {
             })?;
 
         Ok(workflow.finalize())
-    }
-
-    /// Create a workflow from a package using its FFI constructor function (legacy method)
-    fn create_workflow_from_package(
-        &self,
-        package_data: &[u8],
-        tenant_id: &str,
-        workflow_id: &str,
-    ) -> Result<crate::workflow::Workflow, RegistryError> {
-        Self::call_workflow_constructor_ffi(package_data, tenant_id, workflow_id)
-    }
-
-    /// Call the cloacina_create_workflow FFI function from a loaded package
-    fn call_workflow_constructor_ffi(
-        package_data: &[u8],
-        tenant_id: &str,
-        workflow_id: &str,
-    ) -> Result<crate::workflow::Workflow, RegistryError> {
-        use libloading::Library;
-
-        // Write package data to a temporary file for loading
-        let temp_dir = tempfile::TempDir::new().map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::TempDirectory {
-                error: e.to_string(),
-            })
-        })?;
-
-        let library_extension = if cfg!(target_os = "macos") {
-            "dylib"
-        } else if cfg!(target_os = "windows") {
-            "dll"
-        } else {
-            "so"
-        };
-
-        let temp_path = temp_dir
-            .path()
-            .join(format!("workflow_package.{}", library_extension));
-        std::fs::write(&temp_path, package_data).map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                path: temp_path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            })
-        })?;
-
-        // Load the dynamic library
-        let lib = unsafe {
-            Library::new(&temp_path).map_err(|e| {
-                RegistryError::Loader(crate::registry::error::LoaderError::LibraryLoad {
-                    path: temp_path.to_string_lossy().to_string(),
-                    error: e.to_string(),
-                })
-            })?
-        };
-
-        // Get the workflow constructor function
-        let create_workflow = unsafe {
-            lib.get::<unsafe extern "C" fn(
-                *const std::os::raw::c_char,
-                *const std::os::raw::c_char,
-            ) -> *const crate::workflow::Workflow>(b"cloacina_create_workflow")
-                .map_err(|e| {
-                    RegistryError::Loader(crate::registry::error::LoaderError::SymbolNotFound {
-                        symbol: "cloacina_create_workflow".to_string(),
-                        error: e.to_string(),
-                    })
-                })?
-        };
-
-        // Convert Rust strings to C strings
-        let tenant_id_cstring = std::ffi::CString::new(tenant_id).map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::MetadataExtraction {
-                reason: format!("Invalid tenant_id string: {}", e),
-            })
-        })?;
-
-        let workflow_id_cstring = std::ffi::CString::new(workflow_id).map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::MetadataExtraction {
-                reason: format!("Invalid workflow_id string: {}", e),
-            })
-        })?;
-
-        // Call the constructor function with tenant and workflow context
-        let workflow_ptr =
-            unsafe { create_workflow(tenant_id_cstring.as_ptr(), workflow_id_cstring.as_ptr()) };
-        if workflow_ptr.is_null() {
-            return Err(RegistryError::Loader(
-                crate::registry::error::LoaderError::MetadataExtraction {
-                    reason: "Workflow constructor returned null pointer".to_string(),
-                },
-            ));
-        }
-
-        // Convert the pointer back to a Rust object
-        // Note: This takes ownership of the workflow, so we need to make sure
-        // the FFI function allocated it properly with Box::into_raw
-        let workflow = unsafe { Box::from_raw(workflow_ptr as *mut crate::workflow::Workflow) };
-
-        Ok(*workflow)
     }
 
     /// Unregister tasks from the global task registry

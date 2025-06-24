@@ -28,7 +28,7 @@ use cloacina_macros::{packaged_workflow, task};
 
 #[packaged_workflow(
     package = "complex_dag_workflow",
-    version = "1.0.0",
+    name = "complex_dag_workflow",
     description = "Complex DAG structure for testing visualization capabilities",
     author = "Cloacina Team"
 )]

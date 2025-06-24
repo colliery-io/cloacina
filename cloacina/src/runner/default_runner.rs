@@ -18,14 +18,21 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, watch, RwLock};
+use tracing::Instrument;
 use uuid::Uuid;
 
-use crate::dal::FilesystemWorkflowRegistryDAL;
+use crate::dal::FilesystemRegistryStorage;
+#[cfg(feature = "postgres")]
+use crate::dal::PostgresRegistryStorage;
+#[cfg(feature = "sqlite")]
+use crate::dal::SqliteRegistryStorage;
 use crate::dal::DAL;
+
 use crate::executor::pipeline_executor::*;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
+use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::task::TaskState;
 use crate::UniversalUuid;
@@ -102,6 +109,16 @@ pub struct DefaultRunnerConfig {
 
     /// Path for storing packaged workflow registry files (when using filesystem storage)
     pub registry_storage_path: Option<std::path::PathBuf>,
+
+    /// Registry storage backend type ("filesystem", "sqlite", "postgres")
+    pub registry_storage_backend: String,
+
+    /// Optional runner identifier for logging context
+    /// When set, all logs from this runner instance will include this context
+    pub runner_id: Option<String>,
+
+    /// Optional runner name for logging context
+    pub runner_name: Option<String>,
 }
 
 impl Default for DefaultRunnerConfig {
@@ -135,6 +152,9 @@ impl Default for DefaultRunnerConfig {
             registry_reconcile_interval: Duration::from_secs(60), // Every minute
             registry_enable_startup_reconciliation: true,
             registry_storage_path: None, // Use default temp directory
+            registry_storage_backend: "filesystem".to_string(),
+            runner_id: None,
+            runner_name: None,
         }
     }
 }
@@ -166,8 +186,7 @@ pub struct DefaultRunner {
     /// Optional cron recovery service for handling lost executions
     cron_recovery: Arc<RwLock<Option<Arc<crate::CronRecoveryService>>>>,
     /// Optional workflow registry for packaged workflows
-    workflow_registry:
-        Arc<RwLock<Option<Arc<WorkflowRegistryImpl<FilesystemWorkflowRegistryDAL>>>>>,
+    workflow_registry: Arc<RwLock<Option<Arc<dyn WorkflowRegistry>>>>,
     /// Optional registry reconciler for packaged workflows
     registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
 }
@@ -523,6 +542,27 @@ impl DefaultRunner {
         Ok(default_runner)
     }
 
+    /// Creates a tracing span for this runner instance with proper context
+    fn create_runner_span(&self, operation: &str) -> tracing::Span {
+        if let (Some(runner_id), Some(runner_name)) =
+            (&self.config.runner_id, &self.config.runner_name)
+        {
+            tracing::info_span!(
+                "runner_task",
+                runner_id = %runner_id,
+                runner_name = %runner_name,
+                operation = operation,
+                component = "cloacina_runner"
+            )
+        } else {
+            tracing::info_span!(
+                "runner_task",
+                operation = operation,
+                component = "cloacina_runner"
+            )
+        }
+    }
+
     /// Starts the background scheduler and executor services
     ///
     /// This method:
@@ -544,41 +584,49 @@ impl DefaultRunner {
 
         // Start scheduler
         let scheduler = self.scheduler.clone();
-        let scheduler_handle = tokio::spawn(async move {
-            let mut scheduler_future = Box::pin(scheduler.run_scheduling_loop());
+        let scheduler_span = self.create_runner_span("task_scheduler");
+        let scheduler_handle = tokio::spawn(
+            async move {
+                let mut scheduler_future = Box::pin(scheduler.run_scheduling_loop());
 
-            tokio::select! {
-                result = &mut scheduler_future => {
-                    if let Err(e) = result {
-                        tracing::error!("Scheduler loop failed: {}", e);
-                    } else {
-                        tracing::info!("Scheduler loop completed");
+                tokio::select! {
+                    result = &mut scheduler_future => {
+                        if let Err(e) = result {
+                            tracing::error!("Scheduler loop failed: {}", e);
+                        } else {
+                            tracing::info!("Scheduler loop completed");
+                        }
+                    }
+                    _ = scheduler_shutdown_rx.recv() => {
+                        tracing::info!("Scheduler shutdown requested");
                     }
                 }
-                _ = scheduler_shutdown_rx.recv() => {
-                    tracing::info!("Scheduler shutdown requested");
-                }
             }
-        });
+            .instrument(scheduler_span),
+        );
 
         // Start executor
         let executor = self.executor.clone();
-        let executor_handle = tokio::spawn(async move {
-            let mut executor_future = Box::pin(executor.run());
+        let executor_span = self.create_runner_span("task_executor");
+        let executor_handle = tokio::spawn(
+            async move {
+                let mut executor_future = Box::pin(executor.run());
 
-            tokio::select! {
-                result = &mut executor_future => {
-                    if let Err(e) = result {
-                        tracing::error!("Executor failed: {}", e);
-                    } else {
-                        tracing::info!("Executor completed");
+                tokio::select! {
+                    result = &mut executor_future => {
+                        if let Err(e) = result {
+                            tracing::error!("Executor failed: {}", e);
+                        } else {
+                            tracing::info!("Executor completed");
+                        }
+                    }
+                    _ = executor_shutdown_rx.recv() => {
+                        tracing::info!("Executor shutdown requested");
                     }
                 }
-                _ = executor_shutdown_rx.recv() => {
-                    tracing::info!("Executor shutdown requested");
-                }
             }
-        });
+            .instrument(executor_span),
+        );
 
         // Store handles
         handles.scheduler_handle = Some(scheduler_handle);
@@ -611,22 +659,26 @@ impl DefaultRunner {
             // Start cron background service
             let mut cron_scheduler_clone = cron_scheduler.clone();
             let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-            let cron_handle = tokio::spawn(async move {
-                tokio::select! {
-                    result = cron_scheduler_clone.run_polling_loop() => {
-                        if let Err(e) = result {
-                            tracing::error!("Cron scheduler failed: {}", e);
-                        } else {
-                            tracing::info!("Cron scheduler completed");
+            let cron_span = self.create_runner_span("cron_scheduler");
+            let cron_handle = tokio::spawn(
+                async move {
+                    tokio::select! {
+                        result = cron_scheduler_clone.run_polling_loop() => {
+                            if let Err(e) = result {
+                                tracing::error!("Cron scheduler failed: {}", e);
+                            } else {
+                                tracing::info!("Cron scheduler completed");
+                            }
+                        }
+                        _ = broadcast_shutdown_rx.recv() => {
+                            tracing::info!("Cron scheduler shutdown requested via broadcast");
+                            // Send shutdown signal to cron scheduler
+                            let _ = cron_shutdown_tx.send(true);
                         }
                     }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Cron scheduler shutdown requested via broadcast");
-                        // Send shutdown signal to cron scheduler
-                        let _ = cron_shutdown_tx.send(true);
-                    }
                 }
-            });
+                .instrument(cron_span),
+            );
 
             // Store cron scheduler and handle
             *self.cron_scheduler.write().await = Some(Arc::new(cron_scheduler));
@@ -660,6 +712,7 @@ impl DefaultRunner {
                 // Start recovery background service
                 let mut recovery_service_clone = recovery_service.clone();
                 let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                let recovery_span = self.create_runner_span("cron_recovery");
                 let recovery_handle = tokio::spawn(async move {
                     tokio::select! {
                         result = recovery_service_clone.run_recovery_loop() => {
@@ -675,7 +728,7 @@ impl DefaultRunner {
                             let _ = recovery_shutdown_tx.send(true);
                         }
                     }
-                });
+                }.instrument(recovery_span));
 
                 // Store recovery service and handle
                 *self.cron_recovery.write().await = Some(Arc::new(recovery_service));
@@ -699,62 +752,93 @@ impl DefaultRunner {
                 default_tenant_id: "public".to_string(),
             };
 
-            // Create filesystem storage for the registry
-            let storage_path = self
-                .config
-                .registry_storage_path
-                .clone()
-                .unwrap_or_else(|| std::env::temp_dir().join("cloacina_registry"));
+            // Create storage backend based on configuration
+            let workflow_registry_result = match self.config.registry_storage_backend.as_str() {
+                "filesystem" => {
+                    let storage_path = self
+                        .config
+                        .registry_storage_path
+                        .clone()
+                        .unwrap_or_else(|| std::env::temp_dir().join("cloacina_registry"));
 
-            match FilesystemWorkflowRegistryDAL::new(storage_path) {
-                Ok(storage) => {
-                    // Create workflow registry
-                    match WorkflowRegistryImpl::new(storage, self.database.clone()) {
-                        Ok(workflow_registry) => {
-                            let workflow_registry_arc = Arc::new(workflow_registry);
-
-                            // Create Registry Reconciler
-                            let registry_reconciler = RegistryReconciler::new(
-                                workflow_registry_arc.clone(),
-                                reconciler_config,
-                                reconciler_shutdown_rx,
-                            )
-                            .map_err(|e| {
-                                PipelineError::Configuration {
-                                    message: format!("Failed to create registry reconciler: {}", e),
-                                }
-                            })?;
-
-                            // Start reconciler background service
-                            let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-                            let reconciler_handle = tokio::spawn(async move {
-                                tokio::select! {
-                                    result = registry_reconciler.start_reconciliation_loop() => {
-                                        if let Err(e) = result {
-                                            tracing::error!("Registry reconciler failed: {}", e);
-                                        } else {
-                                            tracing::info!("Registry reconciler completed");
-                                        }
-                                    }
-                                    _ = broadcast_shutdown_rx.recv() => {
-                                        tracing::info!("Registry reconciler shutdown requested via broadcast");
-                                        // Send shutdown signal to reconciler
-                                        let _ = reconciler_shutdown_tx.send(true);
-                                    }
-                                }
-                            });
-
-                            // Store workflow registry and reconciler
-                            *self.workflow_registry.write().await = Some(workflow_registry_arc);
-                            handles.registry_reconciler_handle = Some(reconciler_handle);
+                    match FilesystemRegistryStorage::new(storage_path) {
+                        Ok(storage) => {
+                            WorkflowRegistryImpl::new(storage, self.database.clone())
+                                .map(|registry| Arc::new(registry) as Arc<dyn WorkflowRegistry>)
+                                .map_err(|e| format!("Failed to create filesystem workflow registry: {}", e))
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to create workflow registry: {}", e);
-                        }
+                        Err(e) => Err(format!("Failed to create filesystem storage: {}", e))
                     }
                 }
+                "sqlite" => {
+                    #[cfg(feature = "sqlite")]
+                    {
+                        let dal = crate::dal::DAL::new(self.database.clone());
+                        let storage = Arc::new(SqliteRegistryStorage::new(self.database.clone()));
+                        let registry_dal = dal.workflow_registry(storage);
+                        Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
+                    }
+                    #[cfg(not(feature = "sqlite"))]
+                    {
+                        Err("SQLite registry storage not available. Build with --features sqlite".to_string())
+                    }
+                }
+                "postgres" => {
+                    #[cfg(feature = "postgres")]
+                    {
+                        let dal = crate::dal::DAL::new(self.database.clone());
+                        let storage = Arc::new(PostgresRegistryStorage::new(self.database.clone()));
+                        let registry_dal = dal.workflow_registry(storage);
+                        Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
+                    }
+                    #[cfg(not(feature = "postgres"))]
+                    {
+                        Err("PostgreSQL registry storage not available. Build with --features postgres".to_string())
+                    }
+                }
+                backend => {
+                    Err(format!("Unknown registry storage backend: {}. Valid options: filesystem, sqlite, postgres", backend))
+                }
+            };
+
+            match workflow_registry_result {
+                Ok(workflow_registry_arc) => {
+                    // Create Registry Reconciler
+                    let registry_reconciler = RegistryReconciler::new(
+                        workflow_registry_arc.clone(),
+                        reconciler_config,
+                        reconciler_shutdown_rx,
+                    )
+                    .map_err(|e| PipelineError::Configuration {
+                        message: format!("Failed to create registry reconciler: {}", e),
+                    })?;
+
+                    // Start reconciler background service
+                    let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+                    let reconciler_span = self.create_runner_span("registry_reconciler");
+                    let reconciler_handle = tokio::spawn(async move {
+                        tokio::select! {
+                            result = registry_reconciler.start_reconciliation_loop() => {
+                                if let Err(e) = result {
+                                    tracing::error!("Registry reconciler failed: {}", e);
+                                } else {
+                                    tracing::info!("Registry reconciler completed");
+                                }
+                            }
+                            _ = broadcast_shutdown_rx.recv() => {
+                                tracing::info!("Registry reconciler shutdown requested via broadcast");
+                                // Send shutdown signal to reconciler
+                                let _ = reconciler_shutdown_tx.send(true);
+                            }
+                        }
+                    }.instrument(reconciler_span));
+
+                    // Store workflow registry and reconciler
+                    *self.workflow_registry.write().await = Some(workflow_registry_arc);
+                    handles.registry_reconciler_handle = Some(reconciler_handle);
+                }
                 Err(e) => {
-                    tracing::error!("Failed to create registry storage: {}", e);
+                    tracing::error!("Failed to create workflow registry: {}", e);
                 }
             }
         }
@@ -1528,9 +1612,7 @@ impl DefaultRunner {
     /// # Returns
     /// * `Some(Arc<WorkflowRegistry>)` - If the registry is enabled and initialized
     /// * `None` - If the registry is not enabled or not yet initialized
-    pub async fn get_workflow_registry(
-        &self,
-    ) -> Option<Arc<WorkflowRegistryImpl<FilesystemWorkflowRegistryDAL>>> {
+    pub async fn get_workflow_registry(&self) -> Option<Arc<dyn WorkflowRegistry>> {
         let registry = self.workflow_registry.read().await;
         registry.clone()
     }
@@ -1579,5 +1661,139 @@ impl Drop for DefaultRunner {
         // Note: Can't use async in Drop, but we can attempt shutdown
         // Users should call shutdown() explicitly for graceful shutdown
         tracing::info!("DefaultRunner dropping - consider calling shutdown() explicitly");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_default_runner_config() {
+        let config = DefaultRunnerConfig::default();
+
+        // Test default values
+        assert_eq!(config.max_concurrent_tasks, 4);
+        assert_eq!(config.executor_poll_interval, Duration::from_millis(100));
+        assert_eq!(config.scheduler_poll_interval, Duration::from_millis(100));
+        assert_eq!(config.task_timeout, Duration::from_secs(300));
+        assert_eq!(config.pipeline_timeout, Some(Duration::from_secs(3600)));
+        assert!(config.enable_recovery);
+        assert!(config.enable_cron_scheduling);
+        assert!(config.enable_registry_reconciler);
+        assert_eq!(config.registry_storage_backend, "filesystem");
+        assert!(config.registry_storage_path.is_none());
+        assert!(config.runner_id.is_none());
+        assert!(config.runner_name.is_none());
+    }
+
+    #[test]
+    fn test_registry_storage_backend_configuration() {
+        let mut config = DefaultRunnerConfig::default();
+
+        // Test filesystem backend
+        config.registry_storage_backend = "filesystem".to_string();
+        assert_eq!(config.registry_storage_backend, "filesystem");
+
+        // Test sqlite backend
+        config.registry_storage_backend = "sqlite".to_string();
+        assert_eq!(config.registry_storage_backend, "sqlite");
+
+        // Test postgres backend
+        config.registry_storage_backend = "postgres".to_string();
+        assert_eq!(config.registry_storage_backend, "postgres");
+
+        // Test custom path for filesystem
+        let custom_path = std::path::PathBuf::from("/custom/registry/path");
+        config.registry_storage_path = Some(custom_path.clone());
+        assert_eq!(config.registry_storage_path, Some(custom_path));
+    }
+
+    #[test]
+    fn test_runner_identification() {
+        let mut config = DefaultRunnerConfig::default();
+
+        config.runner_id = Some("test-runner-123".to_string());
+        config.runner_name = Some("Test Runner".to_string());
+
+        assert_eq!(config.runner_id, Some("test-runner-123".to_string()));
+        assert_eq!(config.runner_name, Some("Test Runner".to_string()));
+    }
+
+    #[test]
+    fn test_registry_configuration_options() {
+        let mut config = DefaultRunnerConfig::default();
+
+        // Test disabling registry reconciler
+        config.enable_registry_reconciler = false;
+        assert!(!config.enable_registry_reconciler);
+
+        // Test custom reconcile interval
+        config.registry_reconcile_interval = Duration::from_secs(30);
+        assert_eq!(config.registry_reconcile_interval, Duration::from_secs(30));
+
+        // Test disabling startup reconciliation
+        config.registry_enable_startup_reconciliation = false;
+        assert!(!config.registry_enable_startup_reconciliation);
+    }
+
+    #[test]
+    fn test_cron_configuration() {
+        let mut config = DefaultRunnerConfig::default();
+
+        // Test cron settings
+        config.cron_poll_interval = Duration::from_secs(60);
+        config.cron_recovery_interval = Duration::from_secs(300);
+        config.cron_lost_threshold_minutes = 15;
+        config.cron_max_recovery_age = Duration::from_secs(86400);
+        config.cron_max_recovery_attempts = 5;
+
+        assert_eq!(config.cron_poll_interval, Duration::from_secs(60));
+        assert_eq!(config.cron_recovery_interval, Duration::from_secs(300));
+        assert_eq!(config.cron_lost_threshold_minutes, 15);
+        assert_eq!(config.cron_max_recovery_age, Duration::from_secs(86400));
+        assert_eq!(config.cron_max_recovery_attempts, 5);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_db_pool_size_sqlite() {
+        let config = DefaultRunnerConfig::default();
+        assert_eq!(config.db_pool_size, 1); // SQLite uses single connection
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn test_db_pool_size_postgres() {
+        let config = DefaultRunnerConfig::default();
+        assert_eq!(config.db_pool_size, 10); // PostgreSQL uses connection pool
+    }
+
+    #[test]
+    fn test_config_clone() {
+        let config = DefaultRunnerConfig::default();
+        let cloned = config.clone();
+
+        assert_eq!(
+            config.registry_storage_backend,
+            cloned.registry_storage_backend
+        );
+        assert_eq!(config.max_concurrent_tasks, cloned.max_concurrent_tasks);
+        assert_eq!(
+            config.enable_registry_reconciler,
+            cloned.enable_registry_reconciler
+        );
+    }
+
+    #[test]
+    fn test_config_debug() {
+        let config = DefaultRunnerConfig::default();
+        let debug_str = format!("{:?}", config);
+
+        // Verify debug formatting includes key fields
+        assert!(debug_str.contains("registry_storage_backend"));
+        assert!(debug_str.contains("filesystem"));
+        assert!(debug_str.contains("max_concurrent_tasks"));
     }
 }

@@ -125,6 +125,47 @@ impl PackageLoader {
         Ok(Self { temp_dir })
     }
 
+    /// Generate graph data from task dependencies (like cloacina-app does)
+    fn generate_graph_data_from_tasks(
+        &self,
+        tasks: &[TaskMetadata],
+    ) -> Result<serde_json::Value, LoaderError> {
+        use tracing::debug;
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        // Create nodes for each task
+        for task in tasks {
+            nodes.push(serde_json::json!({
+                "id": task.local_id,
+                "label": task.local_id,
+                "description": task.description,
+                "node_type": "task"
+            }));
+        }
+
+        // Create edges from task dependencies
+        for task in tasks {
+            for dependency in &task.dependencies {
+                edges.push(serde_json::json!({
+                    "source": dependency,
+                    "target": task.local_id,
+                    "edge_type": "dependency"
+                }));
+            }
+        }
+
+        Ok(serde_json::json!({
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": {
+                "task_count": tasks.len(),
+                "generated_from": "task_dependencies"
+            }
+        }))
+    }
+
     /// Extract metadata from a binary package
     ///
     /// # Arguments
@@ -339,30 +380,7 @@ impl PackageLoader {
             }
         };
 
-        // Extract graph data
-        let graph_data = if c_package.graph_data_json.is_null() {
-            None
-        } else {
-            let graph_json = unsafe {
-                CStr::from_ptr(c_package.graph_data_json)
-                    .to_str()
-                    .map_err(|e| LoaderError::MetadataExtraction {
-                        reason: format!("Invalid UTF-8 in graph data: {}", e),
-                    })?
-            };
-
-            if graph_json.trim().is_empty() {
-                None
-            } else {
-                Some(serde_json::from_str(graph_json).map_err(|e| {
-                    LoaderError::MetadataExtraction {
-                        reason: format!("Invalid JSON in graph data: {}", e),
-                    }
-                })?)
-            }
-        };
-
-        // Extract tasks
+        // Extract tasks first
         let mut tasks = Vec::new();
         if c_package.task_count > 0 && !c_package.tasks.is_null() {
             let tasks_slice = unsafe {
@@ -373,6 +391,61 @@ impl PackageLoader {
                 tasks.push(self.convert_c_task_to_rust(c_task)?);
             }
         }
+
+        // Extract graph data (if available), or generate from tasks
+        let graph_data = {
+            use tracing::debug;
+
+            if c_package.graph_data_json.is_null() {
+                // No graph data field, generate from task dependencies
+                if !tasks.is_empty() {
+                    debug!(
+                        "No graph_data field found, generating from {} tasks",
+                        tasks.len()
+                    );
+                    self.generate_graph_data_from_tasks(&tasks).ok()
+                } else {
+                    None
+                }
+            } else {
+                let graph_json = unsafe {
+                    CStr::from_ptr(c_package.graph_data_json)
+                        .to_str()
+                        .map_err(|e| LoaderError::MetadataExtraction {
+                            reason: format!("Invalid UTF-8 in graph data: {}", e),
+                        })?
+                };
+
+                if graph_json.trim().is_empty() {
+                    // Empty graph data field, generate from task dependencies
+                    if !tasks.is_empty() {
+                        debug!(
+                            "Empty graph_data field, generating from {} tasks",
+                            tasks.len()
+                        );
+                        self.generate_graph_data_from_tasks(&tasks).ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    let graph_json_str = graph_json.trim();
+                    // First try to parse as JSON
+                    match serde_json::from_str::<serde_json::Value>(graph_json_str) {
+                        Ok(json_value) => Some(json_value),
+                        Err(_) => {
+                            // If it's not valid JSON, it might be a description string
+                            // Generate graph data from task dependencies instead (like cloacina-app does)
+                            debug!("Graph data field contains non-JSON data: '{}', generating from {} tasks", graph_json_str, tasks.len());
+                            if !tasks.is_empty() {
+                                self.generate_graph_data_from_tasks(&tasks).ok()
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                }
+            }
+        };
 
         // Determine available symbols (basic check)
         let symbols = vec![

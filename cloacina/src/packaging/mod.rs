@@ -22,12 +22,17 @@
 
 pub mod archive;
 pub mod compile;
+pub mod debug;
 pub mod manifest;
 pub mod types;
 pub mod validation;
 
+#[cfg(test)]
+mod tests;
+
 pub use archive::create_package_archive;
 pub use compile::compile_workflow;
+pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
 pub use manifest::generate_manifest;
 pub use types::CompileOptions;
 pub use types::{CompileResult, PackageManifest};
