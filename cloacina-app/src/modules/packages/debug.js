@@ -30,6 +30,7 @@ export class DebugPackageManager {
     document.querySelector("#close-debug-info")?.addEventListener("click", () => this.closeDebugInfo());
     document.querySelector("#add-env-var-btn")?.addEventListener("click", () => this.addEnvironmentVariable());
     document.querySelector("#clear-execution-btn")?.addEventListener("click", () => this.clearExecutionPanel());
+    document.querySelector("#copy-execution-output-btn")?.addEventListener("click", () => this.copyExecutionOutput());
 
     // Auto-load event listener
     document.addEventListener('autoLoadDebugPackage', (event) => {
@@ -42,10 +43,16 @@ export class DebugPackageManager {
    */
   async selectPackageFile() {
     try {
-      const selectedPath = await this.fileDialogs.selectPackageForDebug();
+      const selectedPath = await this.apiClient.selectFileDialog({
+        title: "Select Cloacina Package File for Debug",
+        filters: [
+          { name: "Cloacina Package", extensions: ["cloacina"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
 
       if (selectedPath) {
-        UiHelpers.setText("#debug-package-path", selectedPath);
+        document.querySelector("#debug-package-path").value = selectedPath;
         UiHelpers.setButtonState("#load-debug-package-btn", false);
       }
     } catch (error) {
@@ -138,7 +145,7 @@ export class DebugPackageManager {
     UiHelpers.removeClassFromAll('.debug-task-item', 'selected');
 
     // Select current task
-    UiHelpers.addClass(taskElement, 'selected');
+    taskElement.classList.add('selected');
     this.selectedTask = task;
 
     // Show selected task info
@@ -325,5 +332,40 @@ export class DebugPackageManager {
     UiHelpers.setText("#debug-package-path", packagePath);
     UiHelpers.setButtonState("#load-debug-package-btn", false);
     this.loadPackage();
+  }
+
+  /**
+   * Copy execution output to clipboard
+   */
+  async copyExecutionOutput() {
+    try {
+      const outputElement = document.querySelector("#execution-output");
+      const outputText = outputElement.textContent || outputElement.innerText || '';
+
+      if (!outputText.trim()) {
+        UiHelpers.showAlert("No output to copy");
+        return;
+      }
+
+      // Use the Clipboard API if available
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(outputText);
+        UiHelpers.showAlert("Output copied to clipboard");
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = outputText;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        UiHelpers.showAlert("Output copied to clipboard");
+      }
+    } catch (error) {
+      console.error("Failed to copy output:", error);
+      UiHelpers.showAlert("Failed to copy output to clipboard");
+    }
   }
 }

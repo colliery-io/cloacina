@@ -31,6 +31,7 @@ export class PackageBuildManager {
 
     // Output controls
     document.querySelector("#close-build-output")?.addEventListener("click", () => this.closeBuildOutput());
+    document.querySelector("#copy-build-output-btn")?.addEventListener("click", () => this.copyBuildOutput());
     document.querySelector("#open-package-location")?.addEventListener("click", () => this.openPackageLocation());
     document.querySelector("#inspect-built-package")?.addEventListener("click", () => this.inspectBuiltPackage());
   }
@@ -182,7 +183,7 @@ export class PackageBuildManager {
       const projectPath = document.querySelector("#project-path")?.value;
       const defaultName = projectPath ? `${UiHelpers.extractFilename(projectPath)}.cloacina` : "package.cloacina";
 
-      const selectedPath = await this.apiClient.selectFileDialog({
+      const selectedPath = await this.apiClient.saveFileDialog({
         title: "Select Output Location",
         defaultPath: defaultName,
         filters: [
@@ -270,5 +271,40 @@ export class PackageBuildManager {
       detail: { packagePath: this.lastBuiltPackagePath }
     });
     document.dispatchEvent(event);
+  }
+
+  /**
+   * Copy build output to clipboard
+   */
+  async copyBuildOutput() {
+    try {
+      const outputElement = document.querySelector("#build-output");
+      const outputText = outputElement.textContent || outputElement.innerText || '';
+
+      if (!outputText.trim()) {
+        UiHelpers.showAlert("No build output to copy");
+        return;
+      }
+
+      // Use the Clipboard API if available
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(outputText);
+        UiHelpers.showAlert("Build output copied to clipboard");
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = outputText;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        UiHelpers.showAlert("Build output copied to clipboard");
+      }
+    } catch (error) {
+      console.error("Failed to copy build output:", error);
+      UiHelpers.showAlert("Failed to copy build output to clipboard");
+    }
   }
 }

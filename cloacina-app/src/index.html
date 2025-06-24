@@ -8,7 +8,7 @@
     <script src="https://d3js.org/d3.v5.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://unpkg.com/dagre-d3@0.6.4/dist/dagre-d3.min.js"></script>
-    <script type="module" src="/main-modular.js" defer></script>
+    <script type="module" src="/main.js" defer></script>
   </head>
 
   <body>
@@ -271,7 +271,12 @@
             <div id="build-output-section" class="output-section hidden">
               <div class="output-header">
                 <h3>Build Output</h3>
-                <button id="close-build-output" class="btn btn-sm btn-outline">✕</button>
+                <div class="output-controls">
+                  <button type="button" id="copy-build-output-btn" class="btn btn-outline btn-sm" title="Copy output to clipboard">
+                    📋 Copy
+                  </button>
+                  <button id="close-build-output" class="btn btn-sm btn-outline">✕</button>
+                </div>
               </div>
               <div id="build-status" class="build-status"></div>
               <div id="build-output" class="output-content"></div>
@@ -537,8 +542,11 @@
                     <div id="execution-output-section" class="execution-output-section hidden">
                       <div class="output-header">
                         <h6>Execution Output</h6>
-                        <div class="output-status">
+                        <div class="output-controls">
                           <span id="execution-status" class="execution-status">Ready</span>
+                          <button type="button" id="copy-execution-output-btn" class="btn btn-outline btn-sm" title="Copy output to clipboard">
+                            📋 Copy
+                          </button>
                         </div>
                       </div>
                       <div id="execution-output" class="execution-output"></div>

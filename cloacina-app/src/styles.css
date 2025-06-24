@@ -2010,7 +2010,7 @@ input:checked + .slider:before {
   font-weight: 600;
 }
 
-.output-status {
+.output-controls {
   display: flex;
   align-items: center;
   gap: 0.5rem;

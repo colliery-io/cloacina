@@ -14,7 +14,10 @@
  *  limitations under the License.
  */
 
-use cloacina::packaging::{package_workflow, types::PackageManifest, CompileOptions};
+use cloacina::packaging::{
+    debug_package as lib_debug_package, extract_manifest_from_package, package_workflow,
+    CompileOptions, DebugResult,
+};
 use flate2::read::GzDecoder;
 use std::fs::File;
 use std::io::Read;
@@ -72,38 +75,6 @@ pub async fn build_package(request: BuildPackageRequest) -> Result<BuildPackageR
             package_path: None,
         }),
     }
-}
-
-/// Extract manifest from a package archive using the library's PackageManifest type
-fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageManifest, String> {
-    let file =
-        File::open(package_path).map_err(|e| format!("Failed to open package file: {}", e))?;
-
-    let gz_decoder = GzDecoder::new(file);
-    let mut archive = Archive::new(gz_decoder);
-
-    for entry in archive
-        .entries()
-        .map_err(|e| format!("Failed to read archive entries: {}", e))?
-    {
-        let mut entry = entry.map_err(|e| format!("Failed to read archive entry: {}", e))?;
-
-        if let Ok(path) = entry.path() {
-            if path.to_string_lossy() == MANIFEST_FILENAME {
-                let mut contents = String::new();
-                entry
-                    .read_to_string(&mut contents)
-                    .map_err(|e| format!("Failed to read manifest contents: {}", e))?;
-
-                let manifest: PackageManifest = serde_json::from_str(&contents)
-                    .map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
-
-                return Ok(manifest);
-            }
-        }
-    }
-
-    Err("Manifest file not found in package".to_string())
 }
 
 /// Inspect a workflow package
@@ -175,7 +146,7 @@ pub async fn inspect_package(
             success: false,
             manifest: None,
             info: None,
-            error: Some(e),
+            error: Some(e.to_string()),
         }),
     }
 }
@@ -185,30 +156,19 @@ pub async fn inspect_package(
 pub async fn debug_package(request: DebugPackageRequest) -> Result<DebugPackageResponse, String> {
     let package_path = PathBuf::from(&request.package_path);
 
-    // Validate package path exists
-    if !package_path.exists() {
-        return Ok(DebugPackageResponse {
-            success: false,
-            tasks: None,
-            output: None,
-            error: Some(format!(
-                "Package path does not exist: {}",
-                request.package_path
-            )),
-        });
-    }
-
-    // Extract manifest to get task information
-    match extract_manifest_from_package(&package_path) {
-        Ok(manifest) => {
-            if request.task_identifier.is_none() {
-                // List tasks
-                let tasks: Vec<super::types::TaskInfo> = manifest
-                    .tasks
+    // Use the library debug function
+    match lib_debug_package(
+        &package_path,
+        request.task_identifier.as_deref(),
+        request.context.as_deref(),
+    ) {
+        Ok(result) => match result {
+            DebugResult::TaskList { tasks } => {
+                // Convert library TaskDebugInfo to our TaskInfo type
+                let task_info: Vec<super::types::TaskInfo> = tasks
                     .iter()
-                    .enumerate()
-                    .map(|(index, task)| super::types::TaskInfo {
-                        index,
+                    .map(|task| super::types::TaskInfo {
+                        index: task.index,
                         id: task.id.clone(),
                         description: task.description.clone(),
                         dependencies: task.dependencies.clone(),
@@ -218,26 +178,23 @@ pub async fn debug_package(request: DebugPackageRequest) -> Result<DebugPackageR
 
                 Ok(DebugPackageResponse {
                     success: true,
-                    tasks: Some(tasks),
+                    tasks: Some(task_info),
                     output: None,
                     error: None,
                 })
-            } else {
-                // Execute specific task - this would require dynamic loading and execution
-                // For now, return a message indicating this feature needs more work
-                Ok(DebugPackageResponse {
-                    success: false,
-                    tasks: None,
-                    output: None,
-                    error: Some("Task execution debugging not yet implemented - requires dynamic library loading".to_string()),
-                })
             }
-        }
+            DebugResult::TaskExecution { output } => Ok(DebugPackageResponse {
+                success: true,
+                tasks: None,
+                output: Some(output),
+                error: None,
+            }),
+        },
         Err(e) => Ok(DebugPackageResponse {
             success: false,
             tasks: None,
             output: None,
-            error: Some(e),
+            error: Some(e.to_string()),
         }),
     }
 }
@@ -324,7 +281,7 @@ pub async fn visualize_package(
             success: false,
             visualization: None,
             graph_data: None,
-            error: Some(e),
+            error: Some(e.to_string()),
         }),
     }
 }

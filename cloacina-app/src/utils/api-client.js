@@ -159,4 +159,28 @@ export class ApiClient {
   async openUrl(url) {
     return await invoke("open_url", { url });
   }
+
+  /**
+   * File dialog operations using backend commands
+   */
+  async selectFileDialog(options = {}) {
+    return await invoke("select_file_dialog", {
+      title: options.title || "Select File",
+      filters: options.filters || null
+    });
+  }
+
+  async selectDirectoryDialog(options = {}) {
+    return await invoke("select_directory_dialog", {
+      title: options.title || "Select Directory"
+    });
+  }
+
+  async saveFileDialog(options = {}) {
+    return await invoke("save_file_dialog", {
+      title: options.title || "Save File",
+      defaultFilename: options.defaultPath || null,
+      filters: options.filters || null
+    });
+  }
 }

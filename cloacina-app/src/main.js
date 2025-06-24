@@ -1,138 +1,126 @@
-function displayWorkflowVisualization(graphData, layout = "hierarchical") {
-  console.log("Displaying graph with data:", graphData);
+// Modular Main Application Entry Point
+import { AppInitializer } from './modules/app/initialization.js';
+import { NavigationManager } from './modules/app/navigation.js';
+import { SettingsManager } from './modules/app/settings.js';
+import { RunnerManager } from './modules/runners/management.js';
+import { PackageBuildManager } from './modules/packages/build.js';
+import { PackageInspectManager } from './modules/packages/inspect.js';
+import { DebugPackageManager } from './modules/packages/debug.js';
 
-  // Clear previous visualization
-  d3.select("#workflow-svg").selectAll("*").remove();
-
-  if (!graphData.nodes || graphData.nodes.length === 0) {
-    d3.select("#workflow-svg")
-      .append("text")
-      .attr("x", "50%")
-      .attr("y", "50%")
-      .attr("text-anchor", "middle")
-      .attr("fill", "var(--text-secondary)")
-      .text("No tasks found in this workflow");
-    return;
+class CloacinaDesktopApp {
+  constructor() {
+    this.modules = {};
+    this.isInitialized = false;
   }
 
-  const svg = d3.select("#workflow-svg");
-  const container = document.querySelector("#graph-container");
-  const width = container.clientWidth;
-  const height = 600;
+  /**
+   * Initialize the application and all modules
+   */
+  async init() {
+    try {
+      console.log('Initializing Cloacina Desktop App...');
 
-  svg.attr("width", width).attr("height", height);
+      // Core app modules
+      this.modules.appInitializer = new AppInitializer();
+      this.modules.navigation = new NavigationManager();
+      this.modules.settings = new SettingsManager();
 
-  // Create a new directed graph
-  const g = new dagreD3.graphlib.Graph()
-    .setGraph({
-      nodesep: 50,    // Horizontal separation between nodes
-      ranksep: 60,    // Vertical separation between ranks
-      rankdir: "LR",  // Left-to-right layout
-      marginx: 20,
-      marginy: 20
-    })
-    .setDefaultEdgeLabel(() => ({}));
+      // Feature modules
+      this.modules.runnerManager = new RunnerManager();
+      this.modules.packageBuild = new PackageBuildManager();
+      this.modules.packageInspect = new PackageInspectManager();
+      this.modules.debugPackage = new DebugPackageManager();
 
-  // Add nodes to the graph
-  graphData.nodes.forEach(node => {
-    const nodeHtml = `
-      <div class="dagre-node" style="
-        background: var(--primary);
-        color: white;
-        border-radius: 8px;
-        padding: 8px 12px;
-        text-align: center;
-        min-width: 80px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      ">
-        <div style="font-weight: 500; font-size: 11px;">${node.label}</div>
-        ${document.querySelector("#show-details").checked && node.description ?
-          `<div style="font-size: 9px; opacity: 0.8; margin-top: 2px;">${node.description.length > 30 ? node.description.substring(0, 30) + '...' : node.description}</div>` :
-          ''}
-      </div>
-    `;
+      // Setup global functions and error handlers
+      this.modules.appInitializer.setupGlobalFunctions();
+      this.modules.appInitializer.setupErrorHandlers();
 
-    g.setNode(node.id, {
-      labelType: "html",
-      label: nodeHtml,
-      width: 100,
-      height: document.querySelector("#show-details").checked && node.description ? 50 : 35,
-      data: node // Store original node data for click events
+      // Initialize the backend
+      await this.modules.appInitializer.initializeApp();
+
+      // Load initial data
+      await this.loadInitialData();
+
+      // Setup cross-module event listeners
+      this.setupCrossModuleEvents();
+
+      this.isInitialized = true;
+      console.log('Cloacina Desktop App initialized successfully');
+
+    } catch (error) {
+      console.error('Failed to initialize application:', error);
+      this.modules.appInitializer?.updateAppStatus(null, `Initialization failed: ${error}`);
+    }
+  }
+
+  /**
+   * Load initial application data
+   */
+  async loadInitialData() {
+    try {
+      // Load runners
+      await this.modules.runnerManager.loadRunners();
+
+      // Load settings
+      await this.modules.settings.loadSettings();
+
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+    }
+  }
+
+  /**
+   * Setup cross-module event listeners for communication between modules
+   */
+  setupCrossModuleEvents() {
+    // Navigation events from package build to inspect
+    document.addEventListener('navigateToInspect', (event) => {
+      this.modules.navigation.navigateToInspectPackage(event.detail.packagePath);
     });
-  });
 
-  // Add edges to the graph
-  graphData.edges.forEach(edge => {
-    g.setEdge(edge.source, edge.target, {
-      style: "stroke: var(--text-secondary); stroke-width: 2px; fill: none;",
-      arrowheadStyle: "fill: var(--text-secondary);"
+    // Navigation events to debug package
+    document.addEventListener('navigateToDebug', (event) => {
+      this.modules.navigation.navigateToDebugPackage(event.detail.packagePath);
     });
-  });
 
-  // Create the renderer
-  const render = new dagreD3.render();
+    // Auto-load debug package event
+    document.addEventListener('autoLoadDebugPackage', (event) => {
+      this.modules.debugPackage.autoLoadPackage(event.detail.packagePath);
+    });
 
-  // Create SVG group for the graph
-  const svgGroup = svg.append("g");
-
-  // Run the renderer
-  render(svgGroup, g);
-
-  // Add click handlers to nodes
-  svgGroup.selectAll(".node")
-    .on("click", function(event, nodeId) {
-      const nodeData = g.node(nodeId);
-      if (nodeData && nodeData.data) {
-        showTaskDetails(event, nodeData.data);
+    // Auto-load inspect package event
+    document.addEventListener('autoLoadInspectPackage', (event) => {
+      if (event.detail.packagePath) {
+        document.querySelector("#inspect-package-path").value = event.detail.packagePath;
+        this.modules.packageInspect.inspectPackage();
       }
-    })
-    .on("mouseover", function(event, nodeId) {
-      // Highlight connected edges
-      const nodeData = g.node(nodeId);
-      if (nodeData && nodeData.data) {
-        highlightNodeConnections(nodeId);
-      }
-    })
-    .on("mouseout", function() {
-      // Remove highlights
-      unhighlightNode();
     });
+  }
 
-  // Center the graph
-  const graphBounds = svgGroup.node().getBBox();
-  const xCenterOffset = (width - graphBounds.width) / 2;
-  const yCenterOffset = (height - graphBounds.height) / 2;
+  /**
+   * Get a specific module instance
+   */
+  getModule(moduleName) {
+    return this.modules[moduleName];
+  }
 
-  svgGroup.attr("transform", `translate(${xCenterOffset}, ${yCenterOffset})`);
-
-  // Add zoom and pan
-  currentZoom = d3.zoom()
-    .scaleExtent([0.1, 3])
-    .on("zoom", (event) => {
-      svgGroup.attr("transform", event.transform);
-    });
-
-  svg.call(currentZoom);
-
-  // Set initial zoom to fit content
-  const padding = 40;
-  const scale = Math.min(
-    (width - padding) / graphBounds.width,
-    (height - padding) / graphBounds.height,
-    1 // Don't zoom in beyond 100%
-  );
-
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const translateX = centerX - (graphBounds.width * scale) / 2;
-  const translateY = centerY - (graphBounds.height * scale) / 2;
-
-  svg.call(
-    currentZoom.transform,
-    d3.zoomIdentity.translate(translateX, translateY).scale(scale)
-  );
-
-  // Store current graph reference
-  currentSimulation = null; // Not using D3 simulation anymore
-  window.currentDagreGraph = g; // Store for debugging
+  /**
+   * Check if app is initialized
+   */
+  get initialized() {
+    return this.isInitialized;
+  }
 }
+
+// Create global app instance
+const app = new CloacinaDesktopApp();
+
+// Initialize when DOM is ready
+window.addEventListener("DOMContentLoaded", async () => {
+  await app.init();
+});
+
+// Export for debugging and development
+window.CloacinaApp = app;
+
+export default app;
