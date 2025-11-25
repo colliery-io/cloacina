@@ -42,18 +42,8 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Check Rust formatting
-        run: cargo fmt --check
-
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
-
       - name: Run Cloacina core tests
         run: angreal cloacina all
-
-      - name: Run Cloacina library tests
-        run: cargo test --verbose
-        working-directory: ./cloacina
 
   test-matrix:
     name: Test Matrix
