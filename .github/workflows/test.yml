@@ -42,11 +42,14 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run linting checks
-        run: angreal app lint
+      - name: Check Rust formatting
+        run: cargo fmt --check
 
-      - name: Run Rust tests
-        run: angreal app test
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Cloacina core tests
+        run: angreal cloacina all
 
       - name: Run Cloacina library tests
         run: cargo test --verbose
@@ -77,4 +80,4 @@ jobs:
         run: pip install angreal
 
       - name: Run unit tests only
-        run: angreal app test-unit
+        run: angreal cloacina unit
