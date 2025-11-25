@@ -49,7 +49,7 @@ use cloacina::{Context, PipelineExecutor};
 use std::sync::Arc;
 use std::time::Duration;
 
-// Import cloacina library packaging functions (like cloacina-app)
+// Import cloacina library packaging functions
 use cloacina::packaging::{package_workflow, CompileOptions};
 
 #[tokio::main]
@@ -270,7 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    // Build the package using the library function directly (like cloacina-app)
+    // Build the package using the library function directly
     let workspace_root = find_workspace_root()?;
     let project_path = workspace_root.join("examples/simple-packaged-demo");
 
