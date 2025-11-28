@@ -81,8 +81,10 @@ jobs:
         if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
           brew services start postgresql@14
-          sleep 3
-          createdb cloacina_test || true
+          sleep 5
+          # Create the cloacina user and database that tests expect
+          createuser -s cloacina || true
+          createdb -O cloacina cloacina || true
 
       - name: Run all Python bindings tests
         run: |
