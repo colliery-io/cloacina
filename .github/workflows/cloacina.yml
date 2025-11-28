@@ -138,7 +138,12 @@ jobs:
           createdb cloacina_test || true
 
       - name: Run integration tests (${{ matrix.backend }})
-        run: angreal cloacina integration --backend ${{ matrix.backend }}
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+            angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+          else
+            angreal cloacina integration --backend ${{ matrix.backend }}
+          fi
 
   # Macro tests - only need to run once per backend (ubuntu only)
   macro-tests:
