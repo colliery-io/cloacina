@@ -53,8 +53,10 @@ jobs:
       - name: Install PostgreSQL (macOS)
         if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
-          brew install postgresql
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          brew install postgresql@14
+          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Install PostgreSQL (Ubuntu)
         if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
@@ -69,7 +71,7 @@ jobs:
           path: ~/.docker
           key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
-      - name: Start PostgreSQL services
+      - name: Start PostgreSQL services (Ubuntu)
         if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
@@ -78,7 +80,7 @@ jobs:
       - name: Start PostgreSQL services (macOS)
         if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
-          brew services start postgresql
+          brew services start postgresql@14
           sleep 3
           createdb cloacina_test || true
 
