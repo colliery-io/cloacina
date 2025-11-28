@@ -85,4 +85,9 @@ jobs:
           createdb cloacina_test || true
 
       - name: Run all Python bindings tests
-        run: angreal cloaca test --backend ${{ matrix.backend }}
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+            angreal cloaca test --backend ${{ matrix.backend }} --skip-docker
+          else
+            angreal cloaca test --backend ${{ matrix.backend }}
+          fi
