@@ -208,6 +208,7 @@ async fn test_register_real_workflow_package() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
     let database = fixture.get_database();
 
     // Use the appropriate storage backend for the database type
@@ -277,6 +278,7 @@ async fn test_list_workflows_empty() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
     let database = fixture.get_database();
     let storage = create_test_storage(database.clone());
 
@@ -330,6 +332,7 @@ async fn test_concurrent_registry_operations() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
     let database = fixture.get_database();
     let storage = create_test_storage(database.clone());
 
@@ -431,6 +434,7 @@ async fn test_database_integration() {
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
     let database = fixture.get_database();
     let storage = create_test_storage(database.clone());
 
