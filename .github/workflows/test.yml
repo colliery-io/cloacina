@@ -69,5 +69,5 @@ jobs:
       - name: Install angreal
         run: pip install angreal
 
-      - name: Run unit tests only
-        run: angreal cloacina unit
+      - name: Run unit tests only (SQLite - cross-platform)
+        run: angreal cloacina unit --backend sqlite

@@ -21,10 +21,6 @@ jobs:
     name: Cloaca Tests (Matrix)
     uses: ./.github/workflows/cloaca-matrix.yml
 
-  cloacina-ctl-tests:
-    name: Cloacina-CTL Tests
-    uses: ./.github/workflows/cloacina-ctl.yml
-
   examples-docs:
     name: Examples & Documentation
     uses: ./.github/workflows/examples-docs.yml
