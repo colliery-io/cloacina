@@ -1,41 +1,23 @@
 ---
-name: Cloaca Python Bindings Matrix Tests
+name: Cloaca Python Bindings Tests
 
 on:
-  workflow_call:  # Only called by ci.yml
+  workflow_call:
 
 concurrency:
-  group: cloaca-matrix-tests-${{ github.ref }}
+  group: cloaca-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  discover-tests:
-    name: Discover Python Tests
-    runs-on: ubuntu-latest
-    outputs:
-      test-files: ${{ steps.discover.outputs.test-files }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Discover test files
-        id: discover
-        run: |
-          cd python-tests
-          test_files=$(find . -name "test_*.py" -type f | sed 's|^\./||' | sort | jq -R -s -c 'split("\n")[:-1]')
-          echo "test-files=$test_files" >> $GITHUB_OUTPUT
-          echo "Found test files: $test_files"
-
-  cloaca-matrix-postgres:
-    name: Python Tests (PostgreSQL) - ${{ matrix.test-file }}
-    needs: discover-tests
+  # Consolidated Python bindings tests - single pytest run per backend per platform
+  cloaca-bindings:
+    name: Python Bindings (${{ matrix.backend }}, ${{ matrix.os }})
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        test-file: ${{ fromJson(needs.discover-tests.outputs.test-files) }}
-    runs-on: ubuntu-latest
+        backend: [postgres, sqlite]
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -54,10 +36,13 @@ jobs:
       - name: Cache Rust build
         uses: actions/cache@v4
         with:
-          path: target
-          key: ${{ runner.os }}-cloaca-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cloaca-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloaca-postgres-
+            ${{ runner.os }}-cloaca-${{ matrix.backend }}-
             ${{ runner.os }}-cloaca-
 
       - name: Install angreal
@@ -65,56 +50,37 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
+      - name: Install PostgreSQL (macOS)
+        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        run: |
+          brew install postgresql
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      - name: Install PostgreSQL (Ubuntu)
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
       - name: Docker Compose Cache
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
         uses: actions/cache@v4
         with:
           path: ~/.docker
           key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
       - name: Start PostgreSQL services
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
 
-      - name: Run single test file via angreal - ${{ matrix.test-file }}
-        run: angreal cloaca test --backend postgres --file ${{ matrix.test-file }}
-
-  cloaca-matrix-sqlite:
-    name: Python Tests (SQLite) - ${{ matrix.test-file }}
-    needs: discover-tests
-    strategy:
-      fail-fast: false
-      matrix:
-        test-file: ${{ fromJson(needs.discover-tests.outputs.test-files) }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cloaca-sqlite-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloaca-sqlite-
-            ${{ runner.os }}-cloaca-
-
-      - name: Install angreal
+      - name: Start PostgreSQL services (macOS)
+        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+          brew services start postgresql
+          sleep 3
+          createdb cloacina_test || true
 
-      - name: Run single test file via angreal - ${{ matrix.test-file }}
-        run: angreal cloaca test --backend sqlite --file ${{ matrix.test-file }}
+      - name: Run all Python bindings tests
+        run: angreal cloaca test --backend ${{ matrix.backend }}
