@@ -4,31 +4,139 @@ name: CI
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - '.metis/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - 'CHANGELOG.md'
+      - '.vscode/**'
+      - '.idea/**'
   pull_request:
     branches: [main, develop]
+    paths-ignore:
+      - '.metis/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - 'CHANGELOG.md'
+      - '.vscode/**'
+      - '.idea/**'
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # All test suites run in parallel - no artificial dependencies
+  # Detect what changed to conditionally run jobs
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      python: ${{ steps.filter.outputs.python }}
+      examples: ${{ steps.filter.outputs.examples }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'cloacina/**'
+              - 'cloacina-macros/**'
+              - 'Cargo.*'
+              - 'rust-toolchain.toml'
+            python:
+              - 'python-tests/**'
+              - 'cloaca/**'
+              - 'cloaca-backend/**'
+              - 'cloacina/**'
+              - 'Cargo.*'
+            examples:
+              - 'examples/**'
+              - 'tutorials/**'
+            workflows:
+              - '.github/workflows/**'
+
+  # Quick gate - only runs if code changed (not for doc-only changes)
+  quick-checks:
+    name: Quick Checks
+    needs: changes
+    if: |
+      needs.changes.outputs.rust == 'true' ||
+      needs.changes.outputs.python == 'true' ||
+      needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-check-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (SQLite)
+        run: cargo clippy --features sqlite --all-targets
+
+      - name: Clippy (PostgreSQL)
+        run: cargo clippy --features postgres --all-targets
+
+      - name: Cargo check (SQLite)
+        run: cargo check --features sqlite
+
+      - name: Cargo check (PostgreSQL)
+        run: cargo check --features postgres
+
+  # Rust tests - only if rust files changed
   cloacina-tests:
     name: Cloacina Tests
+    needs: [quick-checks, changes]
+    if: needs.changes.outputs.rust == 'true'
     uses: ./.github/workflows/cloacina.yml
 
+  # Python bindings tests - only if python or rust files changed
   cloaca-tests:
-    name: Cloaca Tests (Matrix)
+    name: Cloaca Tests
+    needs: [quick-checks, changes]
+    if: needs.changes.outputs.python == 'true'
     uses: ./.github/workflows/cloaca-matrix.yml
 
-  cloacina-ctl-tests:
-    name: Cloacina-CTL Tests
-    uses: ./.github/workflows/cloacina-ctl.yml
-
+  # Examples - only on main/develop or if examples changed
   examples-docs:
     name: Examples & Documentation
+    needs: [quick-checks, changes]
+    if: |
+      needs.changes.outputs.examples == 'true' ||
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/develop'
     uses: ./.github/workflows/examples-docs.yml
 
+  # Performance tests - only on main or with label
   performance:
     name: Performance Tests
+    needs: [quick-checks, changes]
+    if: |
+      github.ref == 'refs/heads/main' ||
+      contains(github.event.pull_request.labels.*.name, 'run-perf')
     uses: ./.github/workflows/performance.yml

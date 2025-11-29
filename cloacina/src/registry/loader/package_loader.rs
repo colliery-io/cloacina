@@ -125,7 +125,7 @@ impl PackageLoader {
         Ok(Self { temp_dir })
     }
 
-    /// Generate graph data from task dependencies (like cloacina-app does)
+    /// Generate graph data from task dependencies
     fn generate_graph_data_from_tasks(
         &self,
         tasks: &[TaskMetadata],
@@ -434,7 +434,7 @@ impl PackageLoader {
                         Ok(json_value) => Some(json_value),
                         Err(_) => {
                             // If it's not valid JSON, it might be a description string
-                            // Generate graph data from task dependencies instead (like cloacina-app does)
+                            // Generate graph data from task dependencies instead
                             debug!("Graph data field contains non-JSON data: '{}', generating from {} tasks", graph_json_str, tasks.len());
                             if !tasks.is_empty() {
                                 self.generate_graph_data_from_tasks(&tasks).ok()

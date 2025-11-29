@@ -35,7 +35,8 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 @angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
 @angreal.argument(name="filter", short="k", help="filter tests using pytest -k expression syntax")
 @angreal.argument(name="file", long="file", help="run specific test file by filename")
-def test(backend=None, filter=None, file=None):
+@angreal.argument(name="skip_docker", long="skip-docker", help="skip Docker setup/teardown (use when postgres is already running)", takes_value=False, is_flag=True)
+def test(backend=None, filter=None, file=None, skip_docker=False):
     """Run Python binding tests in isolated virtual environments.
 
     Creates fresh virtual environments for each test run to ensure
@@ -72,8 +73,8 @@ def test(backend=None, filter=None, file=None):
             print("Step 1: Generating files...")
             generate(backend_name)
 
-            # Step 2: Setup Docker for postgres backend
-            if backend_name == "postgres":
+            # Step 2: Setup Docker for postgres backend (unless skip_docker is set)
+            if backend_name == "postgres" and not skip_docker:
                 print("Step 2: Setting up Docker services for postgres...")
                 exit_code = docker_up()
                 if exit_code != 0:
@@ -84,6 +85,8 @@ def test(backend=None, filter=None, file=None):
                 # Verify container health
                 if not check_postgres_container_health():
                     raise Exception("PostgreSQL container is not healthy")
+            elif backend_name == "postgres" and skip_docker:
+                print("Step 2: Skipping Docker setup (--skip-docker flag set)")
 
             # Step 3: Build and install cloaca backend in test environment
             venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend_name, venv_name)
@@ -124,13 +127,13 @@ def test(backend=None, filter=None, file=None):
 
                     # Try smart reset first (much faster)
                     if smart_postgres_reset():
-                        print("✓ Fast PostgreSQL reset completed")
-                    else:
+                        print("Fast PostgreSQL reset completed")
+                    elif not skip_docker:
                         print("Fast reset failed, falling back to Docker restart...")
                         docker_down(remove_volumes=True)
                         exit_code = docker_up()
                         if exit_code != 0:
-                            print(f"✗ Failed to restart Docker for {test_file.name}")
+                            print(f"Failed to restart Docker for {test_file.name}")
                             file_results.append((test_file.name, False))
                             all_passed = False
                             continue
@@ -139,10 +142,12 @@ def test(backend=None, filter=None, file=None):
 
                         # Verify container health after restart
                         if not check_postgres_container_health():
-                            print(f"✗ PostgreSQL container unhealthy after restart for {test_file.name}")
+                            print(f"PostgreSQL container unhealthy after restart for {test_file.name}")
                             file_results.append((test_file.name, False))
                             all_passed = False
                             continue
+                    else:
+                        print("Fast reset failed but --skip-docker set, continuing anyway...")
 
                 if backend_name == "sqlite":
                     print("Cleaning SQLite database files...")
@@ -257,8 +262,8 @@ def test(backend=None, filter=None, file=None):
             print(f"✗ Failed to setup {backend_name} test environment: {e}")
             all_passed = False
         finally:
-            # Clean up Docker services for postgres backend
-            if backend_name == "postgres":
+            # Clean up Docker services for postgres backend (unless skip_docker is set)
+            if backend_name == "postgres" and not skip_docker:
                 print("Cleaning up Docker services...")
                 docker_down(remove_volumes=True)
 

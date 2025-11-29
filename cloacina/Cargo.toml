@@ -15,7 +15,7 @@ categories.workspace = true
 [features]
 default = ["macros"]
 postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres"]
-sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite"]
+sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]
 macros = ["cloacina-macros"]
 
@@ -35,9 +35,10 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = { version = "0.10" }
 croner = { version = "2.1.0" }
 deadpool = { version = "0.12" }
-deadpool-diesel = { version = "0.6", features = ["sqlite", "postgres"] }
+deadpool-diesel = { version = "0.6" }
 diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
+libsqlite3-sys = { version = "0.35", optional = true }
 dotenvy = { version = "0.15" }
 flate2 = { version = "1.0" }
 libloading = { version = "0.8" }

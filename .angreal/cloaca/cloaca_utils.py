@@ -157,7 +157,14 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     # Install pip and dependencies
     print("Installing dependencies...")
     subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
-    subprocess.run([str(pip_exe), "install", "maturin", "pytest", "pytest-asyncio", "psycopg2", "pytest-timeout"], check=True, capture_output=True)
+
+    # Base dependencies for all backends
+    deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout"]
+    # Only install psycopg2 for postgres backend (requires libpq)
+    if backend_name == "postgres":
+        deps.append("psycopg2")
+
+    subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
 
     # Install dispatcher package
     print("Installing dispatcher package...")
