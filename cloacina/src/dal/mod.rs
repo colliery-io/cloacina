@@ -17,11 +17,22 @@
 //! Data Access Layer with conditional backend support
 //!
 //! This module provides storage-specific DAL implementations:
-//! - postgres_dal: For PostgreSQL backend using native types
-//! - sqlite_dal: For SQLite backend using universal wrapper types
+//! - unified: Runtime backend selection (PostgreSQL or SQLite)
+//! - postgres_dal: Legacy PostgreSQL backend (being migrated)
+//! - sqlite_dal: Legacy SQLite backend (being migrated)
 //! - filesystem_dal: For filesystem-based storage operations
+//!
+//! # Migration Status
+//!
+//! The codebase is transitioning from compile-time backend selection
+//! (postgres_dal/sqlite_dal) to runtime backend selection (unified).
+//! During the transition, both approaches are available.
 
-// Conditional imports based on database backend
+// Unified DAL with runtime backend selection (new approach)
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub mod unified;
+
+// Legacy DAL implementations (being migrated to unified)
 #[cfg(feature = "postgres")]
 mod postgres_dal;
 
@@ -31,12 +42,27 @@ mod sqlite_dal;
 // Filesystem DAL is always available
 mod filesystem_dal;
 
-// Re-export the appropriate DAL implementation
-#[cfg(feature = "postgres")]
+// Re-export the appropriate legacy DAL implementation for backward compatibility
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub use postgres_dal::*;
 
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub use sqlite_dal::*;
 
-// Always re-export filesystem DAL (but only the specific type to avoid conflicts)
+// When both features are enabled, export under qualified names
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub mod legacy_postgres {
+    pub use super::postgres_dal::*;
+}
+
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub mod legacy_sqlite {
+    pub use super::sqlite_dal::*;
+}
+
+// Always re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;
+
+// Re-export unified DAL types for convenience
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
+pub use unified::DAL as UnifiedDAL;
