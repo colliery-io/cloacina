@@ -92,9 +92,11 @@ impl BackendType {
 
         // SQLite URLs can be:
         // - sqlite:// prefix
+        // - file: URI format (e.g., file:test?mode=memory&cache=shared)
         // - file paths (relative or absolute)
         // - :memory: for in-memory databases
         if url.starts_with("sqlite://")
+            || url.starts_with("file:")
             || url.starts_with("/")
             || url.starts_with("./")
             || url.starts_with("../")
@@ -510,6 +512,15 @@ fn test_sqlite_connection_strings() {
             assert_eq!(BackendType::from_url(":memory:"), BackendType::Sqlite);
             assert_eq!(BackendType::from_url("database.sqlite"), BackendType::Sqlite);
             assert_eq!(BackendType::from_url("database.sqlite3"), BackendType::Sqlite);
+            // SQLite URI format with mode and cache options
+            assert_eq!(
+                BackendType::from_url("file:test?mode=memory&cache=shared"),
+                BackendType::Sqlite
+            );
+            assert_eq!(
+                BackendType::from_url("file:cloacina_test?mode=memory&cache=shared"),
+                BackendType::Sqlite
+            );
         }
     }
 }

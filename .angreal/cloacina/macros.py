@@ -3,8 +3,6 @@ import angreal  # type: ignore
 
 from .cloacina_utils import (
     PROJECT_ROOT,
-    validate_backend,
-    get_check_backends,
     print_section_header,
     print_final_success
 )
@@ -20,23 +18,8 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     when_to_use=["validating workflow macros", "testing compile-time checks", "ensuring macro safety"],
     when_not_to_use=["runtime testing", "integration testing", "performance testing"]
 )
-@angreal.argument(
-    name="backend",
-    long="backend",
-    help="test specific backend: postgres, sqlite, or both (default)",
-    required=False
-)
-def macros(backend=None):
-    """Run tests for macro validation system for PostgreSQL and/or SQLite."""
-
-    # Validate backend selection
-    if not validate_backend(backend):
-        raise RuntimeError("Invalid backend specified")
-
-    # Get backend configurations for cargo check
-    backends = get_check_backends(backend)
-    if backends is None:
-        raise RuntimeError("Failed to get backend configurations")
+def macros():
+    """Run tests for macro validation system with both backends enabled."""
 
     # Test that invalid examples fail to compile as expected
     failure_examples = [
@@ -45,43 +28,43 @@ def macros(backend=None):
         "duplicate_task_ids"
     ]
 
-    for backend_name, cmd_base in backends:
-        print_section_header(f"Running macro tests for {backend_name}")
-        print("\nTesting macro validation failure examples...")
+    print_section_header("Running macro validation tests")
+    print("\nTesting macro validation failure examples...")
 
-        all_passed = True
-        for example in failure_examples:
-            print(f"\n   Testing {example} (should fail to compile)...")
-            try:
-                cmd = cmd_base + ["--bin", example]
-                result = subprocess.run(
-                    cmd,
-                    cwd=str(PROJECT_ROOT / "examples/validation_failures"),
-                    capture_output=True,
-                    text=True
-                )
+    # Use cargo check with both backends enabled
+    cmd_base = ["cargo", "check", "--features", "postgres,sqlite,macros"]
 
-                if result.returncode == 0:
-                    print(f"ERROR: {example} compiled when it should have failed!")
-                    all_passed = False
-                else:
-                    print(f"SUCCESS: {example} failed to compile as expected")
-                    # Show brief indication of what was detected
-                    if "depends on undefined task" in result.stderr:
-                        print("   → Missing dependency error message generated")
-                    elif "Circular dependency detected" in result.stderr:
-                        print("   → Circular dependency error message generated")
-                    elif "Duplicate task ID" in result.stderr:
-                        print("   → Duplicate task ID error message generated")
+    all_passed = True
+    for example in failure_examples:
+        print(f"\n   Testing {example} (should fail to compile)...")
+        try:
+            cmd = cmd_base + ["--bin", example]
+            result = subprocess.run(
+                cmd,
+                cwd=str(PROJECT_ROOT / "examples/validation_failures"),
+                capture_output=True,
+                text=True
+            )
 
-            except subprocess.CalledProcessError as e:
-                print(f"Error testing {example}: {e}")
+            if result.returncode == 0:
+                print(f"ERROR: {example} compiled when it should have failed!")
                 all_passed = False
+            else:
+                print(f"SUCCESS: {example} failed to compile as expected")
+                # Show brief indication of what was detected
+                if "depends on undefined task" in result.stderr:
+                    print("   -> Missing dependency error message generated")
+                elif "Circular dependency detected" in result.stderr:
+                    print("   -> Circular dependency error message generated")
+                elif "Duplicate task ID" in result.stderr:
+                    print("   -> Duplicate task ID error message generated")
 
-        if not all_passed:
-            print(f"\n{backend_name} macro tests failed!")
-            raise RuntimeError(f"{backend_name} macro tests failed")
-        else:
-            print(f"\n{backend_name} macro tests passed")
+        except subprocess.CalledProcessError as e:
+            print(f"Error testing {example}: {e}")
+            all_passed = False
 
-    print_final_success("All macro tests passed for both backends!")
+    if not all_passed:
+        print("\nMacro tests failed!")
+        raise RuntimeError("Macro tests failed")
+
+    print_final_success("All macro validation tests passed!")
