@@ -59,7 +59,7 @@ mod postgres_tests {
 
         // Test updating the context
         let mut updated_context = loaded_context.clone_data();
-        updated_context.insert("test_key", 43).unwrap();
+        updated_context.update("test_key", 43).unwrap();
 
         // Update in database
         dal.context()
@@ -121,7 +121,7 @@ mod sqlite_tests {
 
         // Test updating the context
         let mut updated_context = loaded_context.clone_data();
-        updated_context.insert("test_key", 43).unwrap();
+        updated_context.update("test_key", 43).unwrap();
 
         // Update in database
         dal.context()
