@@ -45,10 +45,8 @@
 //! ```
 
 // Re-export DAL implementations for backward compatibility
-#[cfg(feature = "postgres")]
 pub use crate::dal::PostgresRegistryStorage;
 
-#[cfg(feature = "sqlite")]
 pub use crate::dal::SqliteRegistryStorage;
 
 pub use crate::dal::FilesystemRegistryStorage;

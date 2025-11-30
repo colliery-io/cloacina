@@ -24,9 +24,7 @@ use serial_test::serial;
 use tempfile::TempDir;
 
 use cloacina::dal::FilesystemRegistryStorage;
-#[cfg(feature = "postgres")]
 use cloacina::dal::PostgresRegistryStorage;
-#[cfg(feature = "sqlite")]
 use cloacina::dal::SqliteRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
@@ -130,14 +128,9 @@ fn create_mock_elf_data() -> Vec<u8> {
 }
 
 /// Helper to create a test storage backend appropriate for the current database
-#[cfg(feature = "postgres")]
-fn create_test_storage(database: cloacina::Database) -> PostgresRegistryStorage {
+fn create_test_storage(database: cloacina::Database) -> impl cloacina::registry::traits::RegistryStorage {
+    // Always use PostgreSQL storage for these tests as a concrete type
     PostgresRegistryStorage::new(database)
-}
-
-#[cfg(feature = "sqlite")]
-fn create_test_storage(database: cloacina::Database) -> SqliteRegistryStorage {
-    SqliteRegistryStorage::new(database)
 }
 
 /// Helper to create a test filesystem storage (for tests that specifically need filesystem)

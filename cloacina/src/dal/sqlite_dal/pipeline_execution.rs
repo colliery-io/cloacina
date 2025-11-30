@@ -15,8 +15,9 @@
  */
 
 use super::DAL;
+use super::models::{NewSqlitePipelineExecution, SqlitePipelineExecution, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::pipeline_executions;
-use crate::database::universal_types::{current_timestamp, UniversalUuid};
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
@@ -47,34 +48,41 @@ impl<'a> PipelineExecutionDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let now = current_timestamp_string();
 
-        // Insert with explicit values for SQLite
+        // Create new database record using SQLite-specific model
+        let new_sqlite_execution = NewSqlitePipelineExecution {
+            id: uuid_to_blob(&id.0),
+            pipeline_name: new_execution.pipeline_name,
+            pipeline_version: new_execution.pipeline_version,
+            status: new_execution.status,
+            context_id: new_execution.context_id.map(|id| uuid_to_blob(&id.0)),
+            started_at: now.clone(),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        // Insert with SQLite-specific types
         conn.interact(move |conn| {
             diesel::insert_into(pipeline_executions::table)
-                .values((
-                    pipeline_executions::id.eq(&id),
-                    pipeline_executions::pipeline_name.eq(&new_execution.pipeline_name),
-                    pipeline_executions::pipeline_version.eq(&new_execution.pipeline_version),
-                    pipeline_executions::status.eq(&new_execution.status),
-                    pipeline_executions::context_id.eq(&new_execution.context_id),
-                    pipeline_executions::started_at.eq(&now),
-                    pipeline_executions::recovery_attempts.eq(0),
-                    pipeline_executions::created_at.eq(&now),
-                    pipeline_executions::updated_at.eq(&now),
-                ))
+                .values(&new_sqlite_execution)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        // Retrieve the inserted record
-        let execution = conn
-            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+        // Retrieve the inserted record and convert to domain type
+        let id_blob = uuid_to_blob(&id.0);
+        let execution: SqlitePipelineExecution = conn
+            .interact(move |conn| {
+                pipeline_executions::table
+                    .filter(pipeline_executions::id.eq(&id_blob))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(execution.into())
     }
 
     /// Retrieves a pipeline execution by its unique identifier.
@@ -87,12 +95,17 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let execution = conn
-            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+        let id_blob = uuid_to_blob(&id.0);
+        let execution: SqlitePipelineExecution = conn
+            .interact(move |conn| {
+                pipeline_executions::table
+                    .filter(pipeline_executions::id.eq(&id_blob))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(execution.into())
     }
 
     /// Retrieves all active pipeline executions (status is either "Pending" or "Running").
@@ -102,7 +115,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let executions = conn
+        let executions: Vec<SqlitePipelineExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
@@ -111,7 +124,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(executions.into_iter().map(|e| e.into()).collect())
     }
 
     /// Updates the status of a pipeline execution.
@@ -129,9 +142,10 @@ impl<'a> PipelineExecutionDAL<'a> {
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
         let status = status.to_string();
+        let id_blob = uuid_to_blob(&id.0);
 
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
                 .set(pipeline_executions::status.eq(status))
                 .execute(conn)
         })
@@ -151,9 +165,10 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let now = current_timestamp();
+        let now = current_timestamp_string();
+        let id_blob = uuid_to_blob(&id.0);
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
                 .set((
                     pipeline_executions::status.eq("Completed"),
                     pipeline_executions::completed_at.eq(Some(now)),
@@ -211,12 +226,13 @@ impl<'a> PipelineExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let reason = reason.to_string();
 
-        let now = current_timestamp();
+        let now = current_timestamp_string();
+        let id_blob = uuid_to_blob(&id.0);
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
                 .set((
                     pipeline_executions::status.eq("Failed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::completed_at.eq(Some(now.clone())),
                     pipeline_executions::error_details.eq(reason),
                     pipeline_executions::updated_at.eq(now),
                 ))
@@ -242,13 +258,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let now = current_timestamp();
+        let now = current_timestamp_string();
+        let id_blob = uuid_to_blob(&id.0);
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
                 .set((
                     pipeline_executions::recovery_attempts
                         .eq(pipeline_executions::recovery_attempts + 1),
-                    pipeline_executions::last_recovery_at.eq(Some(now)),
+                    pipeline_executions::last_recovery_at.eq(Some(now.clone())),
                     pipeline_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -269,12 +286,13 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let now = current_timestamp();
+        let now = current_timestamp_string();
+        let id_blob = uuid_to_blob(&id.0);
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
                 .set((
                     pipeline_executions::status.eq("Cancelled"),
-                    pipeline_executions::completed_at.eq(Some(now)),
+                    pipeline_executions::completed_at.eq(Some(now.clone())),
                     pipeline_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -303,9 +321,11 @@ impl<'a> PipelineExecutionDAL<'a> {
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
 
+        let id_blob = uuid_to_blob(&id.0);
+        let context_id_blob = uuid_to_blob(&final_context_id.0);
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set(pipeline_executions::context_id.eq(Some(final_context_id)))
+            diesel::update(pipeline_executions::table.filter(pipeline_executions::id.eq(&id_blob)))
+                .set(pipeline_executions::context_id.eq(Some(context_id_blob)))
                 .execute(conn)
         })
         .await
@@ -324,7 +344,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let executions = conn
+        let executions: Vec<SqlitePipelineExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .order(pipeline_executions::started_at.desc())
@@ -334,6 +354,6 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(executions.into_iter().map(|e| e.into()).collect())
     }
 }

@@ -28,6 +28,7 @@
 //! - Duplicate prevention through unique constraints
 
 use super::DAL;
+use super::models::{NewSqliteCronExecution, SqliteCronExecution, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::cron_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
@@ -62,26 +63,35 @@ impl<'a> CronExecutionDAL<'a> {
     /// * Returns database errors for connection or constraint violations
     pub async fn create(
         &self,
-        mut new_execution: NewCronExecution,
+        new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
         // For SQLite, explicitly set timestamps since no database defaults exist
-        let now = UniversalTimestamp::now();
-        new_execution.claimed_at = Some(now);
-        new_execution.created_at = Some(now);
-        new_execution.updated_at = Some(now);
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp_string();
 
-        let execution: CronExecution = conn
+        // Create SQLite-specific model with converted types
+        let new_sqlite_execution = NewSqliteCronExecution {
+            id: uuid_to_blob(&id.0),
+            schedule_id: uuid_to_blob(&new_execution.schedule_id.0),
+            pipeline_execution_id: new_execution.pipeline_execution_id.map(|pid| uuid_to_blob(&pid.0)),
+            scheduled_time: new_execution.scheduled_time.0.to_rfc3339(),
+            claimed_at: new_execution.claimed_at.unwrap_or_else(|| UniversalTimestamp::now()).0.to_rfc3339(),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        let execution: SqliteCronExecution = conn
             .interact(move |conn| {
                 diesel::insert_into(cron_executions::table)
-                    .values(&new_execution)
+                    .values(&new_sqlite_execution)
                     .get_result(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(execution.into())
     }
 
     /// Updates the pipeline execution ID for an existing cron execution record.
@@ -101,13 +111,15 @@ impl<'a> CronExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
-        let now_ts = UniversalTimestamp::now();
+        let cron_exec_id_blob = uuid_to_blob(&cron_execution_id.0);
+        let pipeline_exec_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let now_str = current_timestamp_string();
 
         conn.interact(move |conn| {
-            diesel::update(cron_executions::table.find(cron_execution_id))
+            diesel::update(cron_executions::table.filter(cron_executions::id.eq(&cron_exec_id_blob)))
                 .set((
-                    cron_executions::pipeline_execution_id.eq(pipeline_execution_id),
-                    cron_executions::updated_at.eq(now_ts),
+                    cron_executions::pipeline_execution_id.eq(pipeline_exec_id_blob),
+                    cron_executions::updated_at.eq(now_str),
                 ))
                 .execute(conn)
         })
@@ -140,11 +152,11 @@ impl<'a> CronExecutionDAL<'a> {
     ) -> Result<Vec<CronExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
         let cutoff_time =
-            UniversalTimestamp(Utc::now() - chrono::Duration::minutes(older_than_minutes as i64));
+            (Utc::now() - chrono::Duration::minutes(older_than_minutes as i64)).to_rfc3339();
 
         // Find cron executions that don't have corresponding pipeline executions
         // and were claimed before the cutoff time
-        let lost_executions = conn
+        let lost_executions: Vec<SqliteCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
                     .left_join(
@@ -160,7 +172,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(lost_executions)
+        Ok(lost_executions.into_iter().map(|e| e.into()).collect())
     }
 
     /// Retrieves a cron execution record by its ID.
@@ -172,12 +184,17 @@ impl<'a> CronExecutionDAL<'a> {
     /// * `Result<CronExecution, ValidationError>` - The cron execution record
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let id_blob = uuid_to_blob(&id.0);
 
-        let execution = conn
-            .interact(move |conn| cron_executions::table.find(id).first(conn))
+        let execution: SqliteCronExecution = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .filter(cron_executions::id.eq(&id_blob))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(execution)
+        Ok(execution.into())
     }
 
     /// Retrieves all cron execution records for a specific schedule.
@@ -199,11 +216,12 @@ impl<'a> CronExecutionDAL<'a> {
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let schedule_id_blob = uuid_to_blob(&schedule_id.0);
 
-        let executions = conn
+        let executions: Vec<SqliteCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id_blob))
                     .order(cron_executions::scheduled_time.desc())
                     .limit(limit)
                     .offset(offset)
@@ -212,7 +230,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(executions.into_iter().map(|e| e.into()).collect())
     }
 
     /// Retrieves the cron execution record for a specific pipeline execution.
@@ -230,18 +248,19 @@ impl<'a> CronExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let pipeline_exec_id_blob = uuid_to_blob(&pipeline_execution_id.0);
 
-        let execution = conn
+        let execution: Option<SqliteCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(cron_executions::pipeline_execution_id.eq(pipeline_exec_id_blob))
                     .first(conn)
                     .optional()
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(execution.map(|e| e.into()))
     }
 
     /// Retrieves cron execution records within a time range.
@@ -265,14 +284,14 @@ impl<'a> CronExecutionDAL<'a> {
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
-        let start_ts = UniversalTimestamp(start_time);
-        let end_ts = UniversalTimestamp(end_time);
+        let start_str = start_time.to_rfc3339();
+        let end_str = end_time.to_rfc3339();
 
-        let executions = conn
+        let executions: Vec<SqliteCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::scheduled_time.ge(start_ts))
-                    .filter(cron_executions::scheduled_time.lt(end_ts))
+                    .filter(cron_executions::scheduled_time.ge(start_str))
+                    .filter(cron_executions::scheduled_time.lt(end_str))
                     .order(cron_executions::scheduled_time.desc())
                     .limit(limit)
                     .offset(offset)
@@ -281,7 +300,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(executions.into_iter().map(|e| e.into()).collect())
     }
 
     /// Counts the total number of executions for a specific schedule.
@@ -296,11 +315,12 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let schedule_id_blob = uuid_to_blob(&schedule_id.0);
 
         let count: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id_blob))
                     .count()
                     .first(conn)
             })
@@ -327,13 +347,14 @@ impl<'a> CronExecutionDAL<'a> {
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
         let conn = self.dal.pool.get().await?;
-        let scheduled_ts = UniversalTimestamp(scheduled_time);
+        let schedule_id_blob = uuid_to_blob(&schedule_id.0);
+        let scheduled_str = scheduled_time.to_rfc3339();
 
         let count: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_id))
-                    .filter(cron_executions::scheduled_time.eq(scheduled_ts))
+                    .filter(cron_executions::schedule_id.eq(schedule_id_blob))
+                    .filter(cron_executions::scheduled_time.eq(scheduled_str))
                     .count()
                     .first(conn)
             })
@@ -355,11 +376,12 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let schedule_id_blob = uuid_to_blob(&schedule_id.0);
 
-        let execution = conn
+        let execution: Option<SqliteCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id_blob))
                     .order(cron_executions::scheduled_time.desc())
                     .first(conn)
                     .optional()
@@ -367,7 +389,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(execution.map(|e| e.into()))
     }
 
     /// Deletes old execution records beyond a certain age.
@@ -385,12 +407,12 @@ impl<'a> CronExecutionDAL<'a> {
         older_than: DateTime<Utc>,
     ) -> Result<usize, ValidationError> {
         let conn = self.dal.pool.get().await?;
-        let cutoff_ts = UniversalTimestamp(older_than);
+        let cutoff_str = older_than.to_rfc3339();
 
         let deleted_count = conn
             .interact(move |conn| {
                 diesel::delete(cron_executions::table)
-                    .filter(cron_executions::scheduled_time.lt(cutoff_ts))
+                    .filter(cron_executions::scheduled_time.lt(cutoff_str))
                     .execute(conn)
             })
             .await
@@ -414,13 +436,14 @@ impl<'a> CronExecutionDAL<'a> {
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
         let conn = self.dal.pool.get().await?;
-        let since_ts = UniversalTimestamp(since);
+        let since_str = since.to_rfc3339();
 
         // Get total executions
+        let since_str_clone = since_str.clone();
         let total_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .filter(cron_executions::claimed_at.ge(since_str_clone))
                     .count()
                     .first(conn)
             })
@@ -428,11 +451,12 @@ impl<'a> CronExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Get successful executions (those with pipeline executions)
+        let since_str_clone = since_str.clone();
         let successful_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
                     .inner_join(crate::database::schema::sqlite::pipeline_executions::table)
-                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .filter(cron_executions::claimed_at.ge(since_str_clone))
                     .count()
                     .first(conn)
             })
@@ -440,7 +464,7 @@ impl<'a> CronExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Get lost executions (no pipeline execution after 10 minutes)
-        let lost_cutoff = UniversalTimestamp(Utc::now() - chrono::Duration::minutes(10));
+        let lost_cutoff_str = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
         let lost_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
@@ -450,8 +474,8 @@ impl<'a> CronExecutionDAL<'a> {
                                 .eq(crate::database::schema::sqlite::pipeline_executions::id.nullable())),
                     )
                     .filter(crate::database::schema::sqlite::pipeline_executions::id.is_null())
-                    .filter(cron_executions::claimed_at.ge(since_ts))
-                    .filter(cron_executions::claimed_at.lt(lost_cutoff))
+                    .filter(cron_executions::claimed_at.ge(since_str))
+                    .filter(cron_executions::claimed_at.lt(lost_cutoff_str))
                     .count()
                     .first(conn)
             })

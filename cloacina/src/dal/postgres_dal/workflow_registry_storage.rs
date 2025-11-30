@@ -24,9 +24,9 @@ use uuid::Uuid;
 
 use crate::database::schema::postgres::workflow_registry;
 use crate::database::Database;
-use crate::models::workflow_registry::{NewWorkflowRegistryEntry, WorkflowRegistryEntry};
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
+use super::models::{NewPgWorkflowRegistryEntry, PgWorkflowRegistryEntry};
 
 /// PostgreSQL binary storage backend.
 #[derive(Debug, Clone)]
@@ -55,9 +55,11 @@ impl RegistryStorage for PostgresRegistryStorage {
                 StorageError::Backend(format!("Failed to get database connection: {}", e))
             })?;
 
-        let new_entry = NewWorkflowRegistryEntry::new(data);
+        let new_entry = NewPgWorkflowRegistryEntry {
+            data,
+        };
 
-        let entry: WorkflowRegistryEntry = conn
+        let entry: PgWorkflowRegistryEntry = conn
             .interact(move |conn| {
                 diesel::insert_into(workflow_registry::table)
                     .values(&new_entry)
@@ -73,8 +75,6 @@ impl RegistryStorage for PostgresRegistryStorage {
     async fn retrieve_binary(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
-        let registry_universal_uuid =
-            crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
         let conn = self
             .database
@@ -84,11 +84,11 @@ impl RegistryStorage for PostgresRegistryStorage {
                 StorageError::Backend(format!("Failed to get database connection: {}", e))
             })?;
 
-        let entry: Option<WorkflowRegistryEntry> = conn
+        let entry: Option<PgWorkflowRegistryEntry> = conn
             .interact(move |conn| {
                 workflow_registry::table
-                    .filter(workflow_registry::id.eq(&registry_universal_uuid))
-                    .first::<WorkflowRegistryEntry>(conn)
+                    .filter(workflow_registry::id.eq(&registry_uuid))
+                    .first::<PgWorkflowRegistryEntry>(conn)
                     .optional()
             })
             .await
@@ -101,8 +101,6 @@ impl RegistryStorage for PostgresRegistryStorage {
     async fn delete_binary(&mut self, id: &str) -> Result<(), StorageError> {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
-        let registry_universal_uuid =
-            crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
         let conn = self
             .database
@@ -114,7 +112,7 @@ impl RegistryStorage for PostgresRegistryStorage {
 
         conn.interact(move |conn| {
             diesel::delete(
-                workflow_registry::table.filter(workflow_registry::id.eq(&registry_universal_uuid)),
+                workflow_registry::table.filter(workflow_registry::id.eq(&registry_uuid)),
             )
             .execute(conn)
         })

@@ -29,6 +29,7 @@
 //! The module uses Diesel ORM for database operations and implements optimistic locking
 //! patterns for concurrent task execution.
 
+use super::models::{NewPgTaskExecution, PgTaskExecution};
 use super::DAL;
 use crate::database::schema::postgres::task_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
@@ -82,14 +83,26 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        // Convert domain model to backend-specific type
+        let new_pg_task = NewPgTaskExecution {
+            pipeline_execution_id: new_task.pipeline_execution_id.0,
+            task_name: new_task.task_name,
+            status: new_task.status,
+            attempt: new_task.attempt,
+            max_attempts: new_task.max_attempts,
+            trigger_rules: new_task.trigger_rules,
+            task_configuration: new_task.task_configuration,
+        };
+
         let task: TaskExecution = conn
             .interact(move |conn| {
                 diesel::insert_into(task_executions::table)
-                    .values(&new_task)
-                    .get_result(conn)
+                    .values(&new_pg_task)
+                    .get_result::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(task)
     }
@@ -112,15 +125,18 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let tasks = conn
+        let tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
                     .filter(task_executions::status.eq("NotStarted"))
-                    .load(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(tasks)
     }
@@ -143,14 +159,15 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Get task info for logging before updating
-        let task = conn
+        let task: TaskExecution = conn
             .interact(move |conn| {
                 task_executions::table
                     .find(task_id.0)
-                    .first::<TaskExecution>(conn)
+                    .first::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         let task_id_clone = task_id;
         conn.interact(move |conn| {
@@ -194,14 +211,15 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Get task info for logging before updating
-        let task = conn
+        let task: TaskExecution = conn
             .interact(move |conn| {
                 task_executions::table
                     .find(task_id.0)
-                    .first::<TaskExecution>(conn)
+                    .first::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         let task_id_clone = task_id;
         let reason_owned = reason.to_string();
@@ -245,14 +263,17 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let tasks = conn
+        let tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-                    .load(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(tasks)
     }
@@ -380,10 +401,13 @@ impl<'a> TaskExecutionDAL<'a> {
                 task_executions::table
                     .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_ids))
                     .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
-                    .load(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(tasks)
     }
@@ -440,14 +464,17 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let orphaned_tasks = conn
+        let orphaned_tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Running"))
-                    .load(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(orphaned_tasks)
     }
@@ -579,10 +606,15 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let task = conn
-            .interact(move |conn| task_executions::table.find(task_id.0).first(conn))
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(task_id.0)
+                    .first::<PgTaskExecution>(conn)
+            })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(task)
     }
@@ -599,7 +631,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let ready_tasks = conn
+        let ready_tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Ready"))
@@ -608,10 +640,13 @@ impl<'a> TaskExecutionDAL<'a> {
                             .is_null()
                             .or(task_executions::retry_at.le(diesel::dsl::now)),
                     )
-                    .load(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(ready_tasks)
     }
@@ -675,14 +710,17 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let tasks = conn
+        let tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
-                    .load::<TaskExecution>(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         let mut stats = RetryStats::default();
 
@@ -723,17 +761,18 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         // Use a more explicit query to avoid type inference issues
-        let exhausted_tasks = conn
+        let exhausted_tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
                     .filter(task_executions::status.eq("Failed"))
-                    .load::<TaskExecution>(conn)
+                    .load::<PgTaskExecution>(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
             .into_iter()
-            .filter(|task| task.attempt >= task.max_attempts)
+            .map(|pg| pg.into())
+            .filter(|task: &TaskExecution| task.attempt >= task.max_attempts)
             .collect();
 
         Ok(exhausted_tasks)
@@ -901,13 +940,15 @@ impl<'a> TaskExecutionDAL<'a> {
 /// This structure contains the essential information about a task that has been
 /// atomically claimed for execution.
 #[derive(Debug, QueryableByName)]
+#[diesel(table_name = task_executions)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ClaimResult {
     /// Unique identifier of the claimed task
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: UniversalUuid,
+    pub id: Uuid,
     /// ID of the pipeline execution this task belongs to
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub pipeline_execution_id: UniversalUuid,
+    pub pipeline_execution_id: Uuid,
     /// Name of the task that was claimed
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub task_name: String,

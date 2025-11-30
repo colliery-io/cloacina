@@ -14,12 +14,14 @@
  *  limitations under the License.
  */
 
-use crate::dal::DAL;
+use super::models::{NewPgRecoveryEvent, PgRecoveryEvent};
+use super::DAL;
 use crate::database::schema::postgres::recovery_events;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
+use uuid::Uuid;
 
 /// Data access layer for recovery event operations.
 ///
@@ -113,17 +115,24 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let result = conn
+        // Convert domain model to backend model
+        let new_pg_event = NewPgRecoveryEvent {
+            pipeline_execution_id: new_event.pipeline_execution_id.0,
+            task_execution_id: new_event.task_execution_id.map(|id| id.0),
+            recovery_type: new_event.recovery_type,
+            details: new_event.details,
+        };
+
+        let pg_result: PgRecoveryEvent = conn
             .interact(move |conn| {
                 diesel::insert_into(recovery_events::table)
-                    .values(&new_event)
-                    .returning(RecoveryEvent::as_returning())
+                    .values(&new_pg_event)
                     .get_result(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(result)
+        Ok(pg_result.into())
     }
 
     /// Gets all recovery events for a specific pipeline execution.
@@ -163,17 +172,18 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let events = conn
+        let uuid_id: Uuid = pipeline_execution_id.0;
+        let pg_events: Vec<PgRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(recovery_events::pipeline_execution_id.eq(uuid_id))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(events)
+        Ok(pg_events.into_iter().map(|pg| pg.into()).collect())
     }
 
     /// Gets all recovery events for a specific task execution.
@@ -213,17 +223,18 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let events = conn
+        let uuid_id: Uuid = task_execution_id.0;
+        let pg_events: Vec<PgRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::task_execution_id.eq(task_execution_id.0))
+                    .filter(recovery_events::task_execution_id.eq(uuid_id))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(events)
+        Ok(pg_events.into_iter().map(|pg| pg.into()).collect())
     }
 
     /// Gets recovery events by type for monitoring and analysis.
@@ -263,7 +274,7 @@ impl<'a> RecoveryEventDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let recovery_type = recovery_type.to_string();
 
-        let events = conn
+        let pg_events: Vec<PgRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
                     .filter(recovery_events::recovery_type.eq(recovery_type))
@@ -273,7 +284,7 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(events)
+        Ok(pg_events.into_iter().map(|pg| pg.into()).collect())
     }
 
     /// Gets all workflow unavailability events for monitoring unknown workflow cleanup.
@@ -341,7 +352,7 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let events = conn
+        let pg_events: Vec<PgRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
                     .order(recovery_events::recovered_at.desc())
@@ -351,6 +362,6 @@ impl<'a> RecoveryEventDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(events)
+        Ok(pg_events.into_iter().map(|pg| pg.into()).collect())
     }
 }

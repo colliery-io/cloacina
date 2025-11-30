@@ -282,7 +282,7 @@ pub struct NewPgWorkflowPackage {
 // Conversion Implementations: PostgreSQL models <-> Domain models
 // ============================================================================
 
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::models::context::DbContext;
 use crate::models::cron_execution::CronExecution;
 use crate::models::cron_schedule::CronSchedule;
@@ -396,7 +396,7 @@ impl From<PgCronSchedule> for CronSchedule {
             workflow_name: pg.workflow_name,
             cron_expression: pg.cron_expression,
             timezone: pg.timezone,
-            enabled: pg.enabled,
+            enabled: UniversalBool(pg.enabled),
             catchup_policy: pg.catchup_policy,
             start_date: pg
                 .start_date

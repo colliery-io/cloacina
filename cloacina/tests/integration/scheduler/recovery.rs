@@ -16,7 +16,8 @@
 
 use crate::fixtures::get_or_init_fixture;
 use cloacina::dal::DAL;
-use cloacina::database::schema::task_executions;
+use cloacina::database::schema::postgres::task_executions as pg_task_executions;
+use cloacina::database::schema::sqlite::task_executions as sqlite_task_executions;
 use cloacina::models::pipeline_execution::NewPipelineExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use cloacina::*;
@@ -149,15 +150,30 @@ async fn test_task_abandonment_after_max_retries() {
 
     // Manually set recovery attempts to maximum (3)
     let task_id = task_with_max_retries.id;
-    let conn = dal.pool.get().await.unwrap();
-    conn.interact(move |conn| {
-        diesel::update(task_executions::table.find(task_id))
-            .set(task_executions::recovery_attempts.eq(3))
-            .execute(conn)
-    })
-    .await
-    .unwrap()
-    .unwrap();
+    match database.backend() {
+        cloacina::database::BackendType::Postgres => {
+            let conn = dal.pool().expect_postgres().get().await.unwrap();
+            conn.interact(move |conn| {
+                diesel::update(pg_task_executions::table.find(task_id))
+                    .set(pg_task_executions::recovery_attempts.eq(3))
+                    .execute(conn)
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        cloacina::database::BackendType::Sqlite => {
+            let conn = dal.pool().expect_sqlite().get().await.unwrap();
+            conn.interact(move |conn| {
+                diesel::update(sqlite_task_executions::table.find(task_id))
+                    .set(sqlite_task_executions::recovery_attempts.eq(3))
+                    .execute(conn)
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        }
+    }
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon task");
 
@@ -352,15 +368,30 @@ async fn test_multiple_orphaned_tasks_recovery() {
 
     // Set max retries on one task
     let task_id = max_retry_task.id;
-    let conn = dal.pool.get().await.unwrap();
-    conn.interact(move |conn| {
-        diesel::update(task_executions::table.find(task_id))
-            .set(task_executions::recovery_attempts.eq(3))
-            .execute(conn)
-    })
-    .await
-    .unwrap()
-    .unwrap();
+    match database.backend() {
+        cloacina::database::BackendType::Postgres => {
+            let conn = dal.pool().expect_postgres().get().await.unwrap();
+            conn.interact(move |conn| {
+                diesel::update(pg_task_executions::table.find(task_id))
+                    .set(pg_task_executions::recovery_attempts.eq(3))
+                    .execute(conn)
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        cloacina::database::BackendType::Sqlite => {
+            let conn = dal.pool().expect_sqlite().get().await.unwrap();
+            conn.interact(move |conn| {
+                diesel::update(sqlite_task_executions::table.find(task_id))
+                    .set(sqlite_task_executions::recovery_attempts.eq(3))
+                    .execute(conn)
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        }
+    }
 
     info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
 

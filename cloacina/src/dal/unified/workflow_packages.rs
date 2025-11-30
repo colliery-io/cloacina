@@ -23,7 +23,7 @@
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::database::BackendType;
-use crate::models::workflow_packages::{NewWorkflowPackage, WorkflowPackage};
+use crate::models::workflow_packages::WorkflowPackage;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageMetadata;
 use diesel::prelude::*;
@@ -48,12 +48,10 @@ impl<'a> WorkflowPackagesDAL<'a> {
         package_metadata: &PackageMetadata,
     ) -> Result<Uuid, RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.store_package_metadata_postgres(registry_id, package_metadata)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.store_package_metadata_sqlite(registry_id, package_metadata)
                     .await
@@ -61,12 +59,12 @@ impl<'a> WorkflowPackagesDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn store_package_metadata_postgres(
         &self,
         registry_id: &str,
         package_metadata: &PackageMetadata,
     ) -> Result<Uuid, RegistryError> {
+        use crate::dal::postgres_dal::models::{NewPgWorkflowPackage, PgWorkflowPackage};
         use crate::database::schema::postgres::workflow_packages;
 
         let conn = self
@@ -77,25 +75,24 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
-        let registry_universal_uuid = UniversalUuid::from(registry_uuid);
         let metadata = serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
 
-        let new_package = NewWorkflowPackage::new(
-            registry_universal_uuid,
-            package_metadata.package_name.clone(),
-            package_metadata.version.clone(),
-            package_metadata.description.clone(),
-            package_metadata.author.clone(),
+        let pg_new = NewPgWorkflowPackage {
+            registry_id: registry_uuid,
+            package_name: package_metadata.package_name.clone(),
+            version: package_metadata.version.clone(),
+            description: package_metadata.description.clone(),
+            author: package_metadata.author.clone(),
             metadata,
-        );
+        };
 
         let package_name_clone = package_metadata.package_name.clone();
         let version_clone = package_metadata.version.clone();
 
-        let inserted_package: WorkflowPackage = conn
+        let pg_package: PgWorkflowPackage = conn
             .interact(move |conn| {
                 diesel::insert_into(workflow_packages::table)
-                    .values(&new_package)
+                    .values(&pg_new)
                     .get_result(conn)
             })
             .await
@@ -111,17 +108,18 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 _ => RegistryError::Database(format!("Database error: {}", e)),
             })?;
 
-        Ok(inserted_package.id.into())
+        Ok(pg_package.id)
     }
 
-    #[cfg(feature = "sqlite")]
     async fn store_package_metadata_sqlite(
         &self,
         registry_id: &str,
         package_metadata: &PackageMetadata,
     ) -> Result<Uuid, RegistryError> {
+        use crate::dal::sqlite_dal::models::{
+            current_timestamp_string, uuid_to_blob, NewSqliteWorkflowPackage, SqliteWorkflowPackage,
+        };
         use crate::database::schema::sqlite::workflow_packages;
-        use crate::database::universal_types::current_timestamp;
 
         let conn = self
             .dal
@@ -134,35 +132,29 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
         let metadata = serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
 
-        let new_package = NewWorkflowPackage::new(
-            UniversalUuid::from(registry_uuid),
-            package_metadata.package_name.clone(),
-            package_metadata.version.clone(),
-            package_metadata.description.clone(),
-            package_metadata.author.clone(),
-            metadata,
-        );
-
         // For SQLite, generate UUID and timestamps client-side
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let id_blob = uuid_to_blob(&id.0);
+        let now = current_timestamp_string();
+
+        let sqlite_new = NewSqliteWorkflowPackage {
+            id: id_blob.clone(),
+            registry_id: uuid_to_blob(&registry_uuid),
+            package_name: package_metadata.package_name.clone(),
+            version: package_metadata.version.clone(),
+            description: package_metadata.description.clone(),
+            author: package_metadata.author.clone(),
+            metadata,
+            created_at: now.clone(),
+            updated_at: now,
+        };
 
         let package_name_clone = package_metadata.package_name.clone();
         let version_clone = package_metadata.version.clone();
 
         conn.interact(move |conn| {
             diesel::insert_into(workflow_packages::table)
-                .values((
-                    workflow_packages::id.eq(&id),
-                    workflow_packages::registry_id.eq(&new_package.registry_id),
-                    workflow_packages::package_name.eq(&new_package.package_name),
-                    workflow_packages::version.eq(&new_package.version),
-                    workflow_packages::description.eq(&new_package.description),
-                    workflow_packages::author.eq(&new_package.author),
-                    workflow_packages::metadata.eq(&new_package.metadata),
-                    workflow_packages::created_at.eq(&now),
-                    workflow_packages::updated_at.eq(&now),
-                ))
+                .values(&sqlite_new)
                 .execute(conn)
         })
         .await
@@ -178,7 +170,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             _ => RegistryError::Database(format!("Database error: {}", e)),
         })?;
 
-        Ok(id.into())
+        Ok(id.0)
     }
 
     /// Retrieve package metadata from the database.
@@ -188,12 +180,10 @@ impl<'a> WorkflowPackagesDAL<'a> {
         version: &str,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.get_package_metadata_postgres(package_name, version)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.get_package_metadata_sqlite(package_name, version)
                     .await
@@ -201,12 +191,12 @@ impl<'a> WorkflowPackagesDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_package_metadata_postgres(
         &self,
         package_name: &str,
         version: &str,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
+        use crate::dal::postgres_dal::models::PgWorkflowPackage;
         use crate::database::schema::postgres::workflow_packages;
 
         let conn = self
@@ -219,33 +209,33 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        let package_record: Option<WorkflowPackage> = conn
+        let pg_package: Option<PgWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<PgWorkflowPackage>(conn)
                     .optional()
             })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        if let Some(record) = package_record {
+        if let Some(pg_record) = pg_package {
             let metadata: PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.to_string(), metadata)))
+                serde_json::from_str(&pg_record.metadata).map_err(RegistryError::Serialization)?;
+            Ok(Some((pg_record.registry_id.to_string(), metadata)))
         } else {
             Ok(None)
         }
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_package_metadata_sqlite(
         &self,
         package_name: &str,
         version: &str,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
+        use crate::dal::sqlite_dal::models::{blob_to_uuid, SqliteWorkflowPackage};
         use crate::database::schema::sqlite::workflow_packages;
 
         let conn = self
@@ -259,22 +249,24 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        let package_record: Option<WorkflowPackage> = conn
+        let sqlite_package: Option<SqliteWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<SqliteWorkflowPackage>(conn)
                     .optional()
             })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        if let Some(record) = package_record {
+        if let Some(sqlite_record) = sqlite_package {
+            let registry_uuid = blob_to_uuid(&sqlite_record.registry_id)
+                .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
             let metadata: PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.to_string(), metadata)))
+                serde_json::from_str(&sqlite_record.metadata).map_err(RegistryError::Serialization)?;
+            Ok(Some((registry_uuid.to_string(), metadata)))
         } else {
             Ok(None)
         }
@@ -286,18 +278,16 @@ impl<'a> WorkflowPackagesDAL<'a> {
         package_id: Uuid,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => self.get_package_metadata_by_id_postgres(package_id).await,
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => self.get_package_metadata_by_id_sqlite(package_id).await,
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_package_metadata_by_id_postgres(
         &self,
         package_id: Uuid,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
+        use crate::dal::postgres_dal::models::PgWorkflowPackage;
         use crate::database::schema::postgres::workflow_packages;
 
         let conn = self
@@ -307,31 +297,31 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_record: Option<WorkflowPackage> = conn
+        let pg_package: Option<PgWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::id.eq(&package_id))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<PgWorkflowPackage>(conn)
                     .optional()
             })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        if let Some(record) = package_record {
+        if let Some(pg_record) = pg_package {
             let metadata: PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.to_string(), metadata)))
+                serde_json::from_str(&pg_record.metadata).map_err(RegistryError::Serialization)?;
+            Ok(Some((pg_record.registry_id.to_string(), metadata)))
         } else {
             Ok(None)
         }
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_package_metadata_by_id_sqlite(
         &self,
         package_id: Uuid,
     ) -> Result<Option<(String, PackageMetadata)>, RegistryError> {
+        use crate::dal::sqlite_dal::models::{blob_to_uuid, uuid_to_blob, SqliteWorkflowPackage};
         use crate::database::schema::sqlite::workflow_packages;
 
         let conn = self
@@ -342,23 +332,25 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_uuid = UniversalUuid::from(package_id);
+        let package_blob = uuid_to_blob(&package_id);
 
-        let package_record: Option<WorkflowPackage> = conn
+        let sqlite_package: Option<SqliteWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
-                    .filter(workflow_packages::id.eq(&package_uuid))
-                    .first::<WorkflowPackage>(conn)
+                    .filter(workflow_packages::id.eq(&package_blob))
+                    .first::<SqliteWorkflowPackage>(conn)
                     .optional()
             })
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        if let Some(record) = package_record {
+        if let Some(sqlite_record) = sqlite_package {
+            let registry_uuid = blob_to_uuid(&sqlite_record.registry_id)
+                .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
             let metadata: PackageMetadata =
-                serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.to_string(), metadata)))
+                serde_json::from_str(&sqlite_record.metadata).map_err(RegistryError::Serialization)?;
+            Ok(Some((registry_uuid.to_string(), metadata)))
         } else {
             Ok(None)
         }
@@ -367,15 +359,13 @@ impl<'a> WorkflowPackagesDAL<'a> {
     /// List all packages in the registry.
     pub async fn list_all_packages(&self) -> Result<Vec<WorkflowPackage>, RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => self.list_all_packages_postgres().await,
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => self.list_all_packages_sqlite().await,
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn list_all_packages_postgres(&self) -> Result<Vec<WorkflowPackage>, RegistryError> {
+        use crate::dal::postgres_dal::models::PgWorkflowPackage;
         use crate::database::schema::postgres::workflow_packages;
 
         let conn = self
@@ -385,17 +375,17 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_records: Vec<WorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<WorkflowPackage>(conn))
+        let pg_packages: Vec<PgWorkflowPackage> = conn
+            .interact(move |conn| workflow_packages::table.load::<PgWorkflowPackage>(conn))
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        Ok(package_records)
+        Ok(pg_packages.into_iter().map(Into::into).collect())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn list_all_packages_sqlite(&self) -> Result<Vec<WorkflowPackage>, RegistryError> {
+        use crate::dal::sqlite_dal::models::SqliteWorkflowPackage;
         use crate::database::schema::sqlite::workflow_packages;
 
         let conn = self
@@ -406,13 +396,13 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_records: Vec<WorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<WorkflowPackage>(conn))
+        let sqlite_packages: Vec<SqliteWorkflowPackage> = conn
+            .interact(move |conn| workflow_packages::table.load::<SqliteWorkflowPackage>(conn))
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        Ok(package_records)
+        Ok(sqlite_packages.into_iter().map(Into::into).collect())
     }
 
     /// Delete package metadata from the database.
@@ -422,12 +412,10 @@ impl<'a> WorkflowPackagesDAL<'a> {
         version: &str,
     ) -> Result<(), RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.delete_package_metadata_postgres(package_name, version)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.delete_package_metadata_sqlite(package_name, version)
                     .await
@@ -435,7 +423,6 @@ impl<'a> WorkflowPackagesDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn delete_package_metadata_postgres(
         &self,
         package_name: &str,
@@ -468,7 +455,6 @@ impl<'a> WorkflowPackagesDAL<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn delete_package_metadata_sqlite(
         &self,
         package_name: &str,
@@ -505,14 +491,11 @@ impl<'a> WorkflowPackagesDAL<'a> {
     /// Delete package metadata by UUID from the database.
     pub async fn delete_package_metadata_by_id(&self, package_id: Uuid) -> Result<(), RegistryError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => self.delete_package_metadata_by_id_postgres(package_id).await,
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => self.delete_package_metadata_by_id_sqlite(package_id).await,
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn delete_package_metadata_by_id_postgres(
         &self,
         package_id: Uuid,
@@ -537,11 +520,11 @@ impl<'a> WorkflowPackagesDAL<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn delete_package_metadata_by_id_sqlite(
         &self,
         package_id: Uuid,
     ) -> Result<(), RegistryError> {
+        use crate::dal::sqlite_dal::models::uuid_to_blob;
         use crate::database::schema::sqlite::workflow_packages;
 
         let conn = self
@@ -552,10 +535,10 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_uuid = UniversalUuid::from(package_id);
+        let package_blob = uuid_to_blob(&package_id);
 
         conn.interact(move |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(&package_uuid)))
+            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(&package_blob)))
                 .execute(conn)
         })
         .await

@@ -223,6 +223,7 @@ impl ThreadTaskExecutor {
         let mut results = Vec::new();
 
         for claim_result in claim_results {
+            // The unified DAL's ClaimResult already uses UniversalUuid
             let claimed_task = ClaimedTask {
                 task_execution_id: claim_result.id,
                 pipeline_execution_id: claim_result.pipeline_execution_id,

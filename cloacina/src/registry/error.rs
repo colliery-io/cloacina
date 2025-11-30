@@ -164,8 +164,7 @@ pub enum StorageError {
     Backend(String),
 
     /// Database error from Diesel operations.
-    #[cfg(any(feature = "postgres", feature = "sqlite"))]
-    #[error("Database error: {0}")]
+#[error("Database error: {0}")]
     Database(#[from] diesel::result::Error),
 }
 

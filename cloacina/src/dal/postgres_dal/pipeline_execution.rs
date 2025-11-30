@@ -14,12 +14,14 @@
  *  limitations under the License.
  */
 
+use super::models::{NewPgPipelineExecution, PgPipelineExecution};
 use super::DAL;
 use crate::database::schema::postgres::pipeline_executions;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
+use uuid::Uuid;
 
 /// Data Access Layer for managing pipeline executions in the database.
 ///
@@ -50,16 +52,24 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution: PipelineExecution = conn
+        // Convert domain model to backend model
+        let new_pg_execution = NewPgPipelineExecution {
+            pipeline_name: new_execution.pipeline_name,
+            pipeline_version: new_execution.pipeline_version,
+            status: new_execution.status,
+            context_id: new_execution.context_id.map(|id| id.0),
+        };
+
+        let pg_execution: PgPipelineExecution = conn
             .interact(move |conn| {
                 diesel::insert_into(pipeline_executions::table)
-                    .values(&new_execution)
+                    .values(&new_pg_execution)
                     .get_result(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(pg_execution.into())
     }
 
     /// Retrieves a pipeline execution by its unique identifier.
@@ -77,12 +87,13 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution = conn
-            .interact(move |conn| pipeline_executions::table.find(id).first(conn))
+        let uuid_id: Uuid = id.0;
+        let pg_execution: PgPipelineExecution = conn
+            .interact(move |conn| pipeline_executions::table.find(uuid_id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(execution)
+        Ok(pg_execution.into())
     }
 
     /// Retrieves all active pipeline executions (status is either "Pending" or "Running").
@@ -97,7 +108,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions = conn
+        let pg_executions: Vec<PgPipelineExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
@@ -106,7 +117,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(pg_executions.into_iter().map(|pg| pg.into()).collect())
     }
 
     /// Updates the status of a pipeline execution.
@@ -128,10 +139,11 @@ impl<'a> PipelineExecutionDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let uuid_id: Uuid = id.0;
         let status = status.to_string();
 
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
+            diesel::update(pipeline_executions::table.find(uuid_id))
                 .set(pipeline_executions::status.eq(status))
                 .execute(conn)
         })
@@ -156,8 +168,9 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id: Uuid = id.0;
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
+            diesel::update(pipeline_executions::table.find(uuid_id))
                 .set((
                     pipeline_executions::status.eq("Completed"),
                     pipeline_executions::completed_at.eq(diesel::dsl::now),
@@ -223,10 +236,11 @@ impl<'a> PipelineExecutionDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+        let uuid_id: Uuid = id.0;
         let reason = reason.to_string();
 
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
+            diesel::update(pipeline_executions::table.find(uuid_id))
                 .set((
                     pipeline_executions::status.eq("Failed"),
                     pipeline_executions::completed_at.eq(diesel::dsl::now),
@@ -260,8 +274,9 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id: Uuid = id.0;
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
+            diesel::update(pipeline_executions::table.find(uuid_id))
                 .set((
                     pipeline_executions::recovery_attempts
                         .eq(pipeline_executions::recovery_attempts + 1),
@@ -291,8 +306,9 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id: Uuid = id.0;
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
+            diesel::update(pipeline_executions::table.find(uuid_id))
                 .set((
                     pipeline_executions::status.eq("Cancelled"),
                     pipeline_executions::completed_at.eq(diesel::dsl::now),
@@ -329,9 +345,11 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id: Uuid = id.0;
+        let context_uuid: Uuid = final_context_id.0;
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id.0))
-                .set(pipeline_executions::context_id.eq(Some(final_context_id.0)))
+            diesel::update(pipeline_executions::table.find(uuid_id))
+                .set(pipeline_executions::context_id.eq(Some(context_uuid)))
                 .execute(conn)
         })
         .await
@@ -355,7 +373,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions = conn
+        let pg_executions: Vec<PgPipelineExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .order(pipeline_executions::started_at.desc())
@@ -365,6 +383,6 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(executions)
+        Ok(pg_executions.into_iter().map(|pg| pg.into()).collect())
     }
 }

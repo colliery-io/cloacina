@@ -86,9 +86,7 @@ pub use workflow_registry_storage::UnifiedRegistryStorage;
 macro_rules! backend_dispatch {
     ($backend:expr, $pg_block:block, $sqlite_block:block) => {
         match $backend {
-            #[cfg(feature = "postgres")]
             $crate::database::BackendType::Postgres => $pg_block,
-            #[cfg(feature = "sqlite")]
             $crate::database::BackendType::Sqlite => $sqlite_block,
         }
     };
@@ -114,9 +112,7 @@ macro_rules! backend_dispatch {
 macro_rules! connection_match {
     ($conn:expr, $pg_var:ident => $pg_block:block, $sqlite_var:ident => $sqlite_block:block) => {
         match $conn {
-            #[cfg(feature = "postgres")]
             $crate::database::AnyConnection::Postgres($pg_var) => $pg_block,
-            #[cfg(feature = "sqlite")]
             $crate::database::AnyConnection::Sqlite($sqlite_var) => $sqlite_block,
         }
     };
@@ -204,5 +200,27 @@ impl DAL {
     /// Returns a workflow packages DAL for package operations.
     pub fn workflow_packages(&self) -> WorkflowPackagesDAL {
         WorkflowPackagesDAL::new(self)
+    }
+
+    /// Creates a workflow registry implementation with the given storage backend.
+    ///
+    /// # Arguments
+    ///
+    /// * `storage` - A storage backend implementing `RegistryStorage`
+    ///
+    /// # Returns
+    ///
+    /// A `WorkflowRegistryImpl` configured with the provided storage and this DAL's database.
+    pub fn workflow_registry<S: crate::registry::traits::RegistryStorage + 'static>(
+        &self,
+        storage: S,
+    ) -> crate::registry::workflow_registry::WorkflowRegistryImpl<S> {
+        // Note: WorkflowRegistryImpl::new can fail, so we unwrap here.
+        // In a more robust implementation, this could return a Result.
+        crate::registry::workflow_registry::WorkflowRegistryImpl::new(
+            storage,
+            self.database.clone(),
+        )
+        .expect("Failed to create workflow registry")
     }
 }

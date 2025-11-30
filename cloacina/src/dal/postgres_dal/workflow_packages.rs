@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use crate::dal::postgres_dal::DAL;
 use crate::database::schema::postgres::workflow_packages;
-use crate::models::workflow_packages::{NewWorkflowPackage, WorkflowPackage};
 use crate::registry::error::RegistryError;
+use super::models::{NewPgWorkflowPackage, PgWorkflowPackage};
 
 /// PostgreSQL DAL for workflow packages metadata operations.
 pub struct WorkflowPackagesDAL<'a> {
@@ -48,22 +48,20 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
         let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
-        let registry_universal_uuid =
-            crate::database::universal_types::UniversalUuid::from(registry_uuid);
         let metadata =
             serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
 
-        let new_package = NewWorkflowPackage::new(
-            registry_universal_uuid,
-            package_metadata.package_name.clone(),
-            package_metadata.version.clone(),
-            package_metadata.description.clone(),
-            package_metadata.author.clone(),
+        let new_package = NewPgWorkflowPackage {
+            registry_id: registry_uuid,
+            package_name: package_metadata.package_name.clone(),
+            version: package_metadata.version.clone(),
+            description: package_metadata.description.clone(),
+            author: package_metadata.author.clone(),
             metadata,
-        );
+        };
 
-        // Insert using NewWorkflowPackage model, let PostgreSQL handle UUID and timestamps
-        let inserted_package: WorkflowPackage = conn
+        // Insert using NewPgWorkflowPackage model, let PostgreSQL handle UUID and timestamps
+        let inserted_package: PgWorkflowPackage = conn
             .interact(move |conn| {
                 diesel::insert_into(workflow_packages::table)
                     .values(&new_package)
@@ -82,7 +80,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
                 _ => RegistryError::Database(format!("Database error: {}", e)),
             })?;
 
-        Ok(inserted_package.id.into())
+        Ok(inserted_package.id)
     }
 
     /// Retrieve package metadata from the database.
@@ -107,12 +105,12 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        let package_record: Option<WorkflowPackage> = conn
+        let package_record: Option<PgWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<PgWorkflowPackage>(conn)
                     .optional()
             })
             .await
@@ -147,11 +145,11 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_record: Option<WorkflowPackage> = conn
+        let package_record: Option<PgWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::id.eq(&package_id))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<PgWorkflowPackage>(conn)
                     .optional()
             })
             .await
@@ -169,7 +167,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
     }
 
     /// List all packages in the registry.
-    pub async fn list_all_packages(&self) -> Result<Vec<WorkflowPackage>, RegistryError> {
+    pub async fn list_all_packages(&self) -> Result<Vec<crate::models::workflow_packages::WorkflowPackage>, RegistryError> {
         let conn = self
             .dal
             .database
@@ -177,13 +175,13 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_records: Vec<WorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<WorkflowPackage>(conn))
+        let package_records: Vec<PgWorkflowPackage> = conn
+            .interact(move |conn| workflow_packages::table.load::<PgWorkflowPackage>(conn))
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        Ok(package_records)
+        Ok(package_records.into_iter().map(|pg| pg.into()).collect())
     }
 
     /// Delete package metadata from the database.

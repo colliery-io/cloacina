@@ -29,7 +29,6 @@ use uuid::Uuid;
 
 use crate::fixtures::get_or_init_fixture;
 
-#[cfg(feature = "postgres")]
 use serial_test::serial;
 
 /// Helper to create test data that simulates a compiled .so file
@@ -218,65 +217,66 @@ mod filesystem_tests {
 // Database backend tests (PostgreSQL/SQLite)
 mod database_tests {
     use super::*;
+    use cloacina::dal::PostgresRegistryStorage;
 
-    async fn create_database_storage() -> impl RegistryStorage {
+    async fn create_database_storage() -> PostgresRegistryStorage {
         let fixture = get_or_init_fixture().await;
         let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
         fixture.initialize().await;
-        fixture.create_storage()
+        fixture.create_postgres_storage()
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_store_and_retrieve() {
         let storage = create_database_storage().await;
         storage_tests::test_store_and_retrieve_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_retrieve_nonexistent() {
         let storage = create_database_storage().await;
         storage_tests::test_retrieve_nonexistent_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_delete() {
         let storage = create_database_storage().await;
         storage_tests::test_delete_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_invalid_uuid() {
         let storage = create_database_storage().await;
         storage_tests::test_invalid_uuid_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_empty_data() {
         let storage = create_database_storage().await;
         storage_tests::test_empty_data_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_large_data() {
         let storage = create_database_storage().await;
         storage_tests::test_large_data_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_uuid_format() {
         let storage = create_database_storage().await;
         storage_tests::test_uuid_format_impl(storage).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_binary_data_integrity() {
         let storage = create_database_storage().await;
         storage_tests::test_binary_data_integrity_impl(storage).await;

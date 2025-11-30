@@ -343,7 +343,7 @@ pub fn current_timestamp_string() -> String {
 // Conversion Implementations: SQLite models <-> Domain models
 // ============================================================================
 
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::models::context::DbContext;
 use crate::models::cron_execution::CronExecution;
 use crate::models::cron_schedule::CronSchedule;
@@ -494,7 +494,7 @@ impl From<SqliteCronSchedule> for CronSchedule {
             workflow_name: s.workflow_name,
             cron_expression: s.cron_expression,
             timezone: s.timezone,
-            enabled: s.enabled != 0,
+            enabled: UniversalBool(s.enabled != 0),
             catchup_policy: s.catchup_policy,
             start_date: s
                 .start_date

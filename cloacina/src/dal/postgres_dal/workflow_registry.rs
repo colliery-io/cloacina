@@ -30,6 +30,7 @@ use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
 use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use super::models::{NewPgWorkflowPackage, NewPgWorkflowRegistryEntry, PgWorkflowPackage, PgWorkflowRegistryEntry};
 
 /// High-level workflow registry DAL that coordinates metadata and binary storage.
 ///
@@ -151,15 +152,15 @@ impl WorkflowRegistryDAL {
         let (registry_id, package_id) = conn
             .interact(move |conn| {
                 use crate::database::schema::postgres::{workflow_packages, workflow_registry};
-                use crate::models::workflow_packages::NewWorkflowPackage;
-                use crate::models::workflow_registry::NewWorkflowRegistryEntry;
                 use diesel::prelude::*;
                 use diesel::result::Error;
 
                 conn.transaction::<_, Error, _>(|conn| {
                     // 1. Insert binary data into workflow_registry
-                    let new_registry_entry = NewWorkflowRegistryEntry::new(package_data_clone);
-                    let registry_entry: crate::models::workflow_registry::WorkflowRegistryEntry =
+                    let new_registry_entry = NewPgWorkflowRegistryEntry {
+                        data: package_data_clone,
+                    };
+                    let registry_entry: PgWorkflowRegistryEntry =
                         diesel::insert_into(workflow_registry::table)
                             .values(&new_registry_entry)
                             .get_result(conn)?;
@@ -170,16 +171,16 @@ impl WorkflowRegistryDAL {
                     let metadata_json = serde_json::to_string(&metadata_clone)
                         .map_err(|e| Error::RollbackTransaction)?;
 
-                    let new_package = NewWorkflowPackage::new(
-                        registry_entry.id,
-                        metadata_clone.package_name.clone(),
-                        metadata_clone.version.clone(),
-                        metadata_clone.description.clone(),
-                        metadata_clone.author.clone(),
-                        metadata_json,
-                    );
+                    let new_package = NewPgWorkflowPackage {
+                        registry_id: registry_entry.id,
+                        package_name: metadata_clone.package_name.clone(),
+                        version: metadata_clone.version.clone(),
+                        description: metadata_clone.description.clone(),
+                        author: metadata_clone.author.clone(),
+                        metadata: metadata_json,
+                    };
 
-                    let package_entry: crate::models::workflow_packages::WorkflowPackage =
+                    let package_entry: PgWorkflowPackage =
                         diesel::insert_into(workflow_packages::table)
                             .values(&new_package)
                             .get_result(conn)?;
@@ -241,16 +242,12 @@ impl WorkflowRegistryDAL {
 
                     let registry_uuid =
                         Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
-                    let registry_universal_uuid =
-                        crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
-                    let entry: Option<crate::models::workflow_registry::WorkflowRegistryEntry> =
+                    let entry: Option<PgWorkflowRegistryEntry> =
                         conn.interact(move |conn| {
                             workflow_registry::table
-                                .filter(workflow_registry::id.eq(&registry_universal_uuid))
-                                .first::<crate::models::workflow_registry::WorkflowRegistryEntry>(
-                                    conn,
-                                )
+                                .filter(workflow_registry::id.eq(&registry_uuid))
+                                .first::<PgWorkflowRegistryEntry>(conn)
                                 .optional()
                         })
                         .await
@@ -331,16 +328,12 @@ impl WorkflowRegistryDAL {
 
                     let registry_uuid =
                         Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
-                    let registry_universal_uuid =
-                        crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
-                    let entry: Option<crate::models::workflow_registry::WorkflowRegistryEntry> =
+                    let entry: Option<PgWorkflowRegistryEntry> =
                         conn.interact(move |conn| {
                             workflow_registry::table
-                                .filter(workflow_registry::id.eq(&registry_universal_uuid))
-                                .first::<crate::models::workflow_registry::WorkflowRegistryEntry>(
-                                    conn,
-                                )
+                                .filter(workflow_registry::id.eq(&registry_uuid))
+                                .first::<PgWorkflowRegistryEntry>(conn)
                                 .optional()
                         })
                         .await
@@ -425,12 +418,11 @@ impl WorkflowRegistryDAL {
 
             let registry_uuid = Uuid::parse_str(&registry_id)
                 .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
-            let uuid_param = crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
             let _ = conn
                 .interact(move |conn| {
                     diesel::delete(
-                        workflow_registry::table.filter(workflow_registry::id.eq(uuid_param)),
+                        workflow_registry::table.filter(workflow_registry::id.eq(&registry_uuid)),
                     )
                     .execute(conn)
                 })
@@ -489,12 +481,11 @@ impl WorkflowRegistryDAL {
 
             let registry_uuid = Uuid::parse_str(&registry_id)
                 .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
-            let uuid_param = crate::database::universal_types::UniversalUuid::from(registry_uuid);
 
             let _ = conn
                 .interact(move |conn| {
                     diesel::delete(
-                        workflow_registry::table.filter(workflow_registry::id.eq(uuid_param)),
+                        workflow_registry::table.filter(workflow_registry::id.eq(&registry_uuid)),
                     )
                     .execute(conn)
                 })

@@ -42,11 +42,11 @@
 //! ```
 
 use super::DAL;
+use super::models::{SqliteDbContext, NewSqliteDbContext, uuid_to_blob, current_timestamp_string};
 use crate::context::Context;
 use crate::database::schema::sqlite::contexts;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ContextError;
-use crate::models::context::{DbContext, NewDbContext};
 use diesel::prelude::*;
 use tracing::warn;
 
@@ -106,20 +106,20 @@ impl<'a> ContextDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
-        let now = crate::database::universal_types::current_timestamp();
+        let now = current_timestamp_string();
 
-        // Create new database record
-        let new_context = NewDbContext { value };
+        // Create new database record using SQLite-specific model
+        let new_context = NewSqliteDbContext {
+            id: uuid_to_blob(&id.0),
+            value,
+            created_at: now.clone(),
+            updated_at: now,
+        };
 
-        // Insert with explicit ID and timestamps for SQLite
+        // Insert with SQLite-specific types
         conn.interact(move |conn| {
             diesel::insert_into(contexts::table)
-                .values((
-                    contexts::id.eq(&id),
-                    &new_context,
-                    contexts::created_at.eq(&now),
-                    contexts::updated_at.eq(&now),
-                ))
+                .values(&new_context)
                 .execute(conn)
         })
         .await
@@ -149,9 +149,14 @@ impl<'a> ContextDAL<'a> {
     {
         let conn = self.dal.pool.get().await?;
 
-        // Get the database record
-        let db_context: DbContext = conn
-            .interact(move |conn| contexts::table.find(id).first(conn))
+        // Get the database record using SQLite-specific model
+        let id_blob = uuid_to_blob(&id.0);
+        let db_context: SqliteDbContext = conn
+            .interact(move |conn| {
+                contexts::table
+                    .filter(contexts::id.eq(&id_blob))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
@@ -189,10 +194,11 @@ impl<'a> ContextDAL<'a> {
         let value = context.to_json()?;
 
         // Update the database record with new timestamp
-        let now = crate::database::universal_types::current_timestamp();
+        let id_blob = uuid_to_blob(&id.0);
+        let now = current_timestamp_string();
         conn.interact(move |conn| {
-            diesel::update(contexts::table.find(id))
-                .set((contexts::value.eq(value), contexts::updated_at.eq(&now)))
+            diesel::update(contexts::table.filter(contexts::id.eq(&id_blob)))
+                .set((contexts::value.eq(value), contexts::updated_at.eq(now)))
                 .execute(conn)
         })
         .await
@@ -214,9 +220,12 @@ impl<'a> ContextDAL<'a> {
     /// * `Result<(), ContextError>` - Success or error
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
         let conn = self.dal.pool.get().await?;
-        conn.interact(move |conn| diesel::delete(contexts::table.find(id)).execute(conn))
-            .await
-            .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
+        let id_blob = uuid_to_blob(&id.0);
+        conn.interact(move |conn| {
+            diesel::delete(contexts::table.filter(contexts::id.eq(&id_blob))).execute(conn)
+        })
+        .await
+        .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
         Ok(())
     }
 
@@ -243,8 +252,8 @@ impl<'a> ContextDAL<'a> {
     {
         let conn = self.dal.pool.get().await?;
 
-        // Get the database records with pagination
-        let db_contexts: Vec<DbContext> = conn
+        // Get the database records with pagination using SQLite-specific model
+        let db_contexts: Vec<SqliteDbContext> = conn
             .interact(move |conn| {
                 contexts::table
                     .limit(limit)

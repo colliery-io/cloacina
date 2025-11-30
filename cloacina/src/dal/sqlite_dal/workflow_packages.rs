@@ -22,12 +22,10 @@
 use diesel::prelude::*;
 use uuid::Uuid;
 
+use super::models::{NewSqliteWorkflowPackage, SqliteWorkflowPackage, uuid_to_blob, current_timestamp_string, blob_to_uuid};
 use crate::dal::sqlite_dal::DAL;
 use crate::database::schema::sqlite::workflow_packages;
-use crate::database::universal_types::{current_timestamp, UniversalUuid};
-use crate::models::workflow_packages::{
-    NewWorkflowPackage as ModelNewWorkflowPackage, WorkflowPackage,
-};
+use crate::models::workflow_packages::WorkflowPackage;
 use crate::registry::error::RegistryError;
 
 /// SQLite DAL for workflow packages metadata operations.
@@ -45,8 +43,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
     ) -> Result<Uuid, RegistryError> {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
@@ -55,33 +52,28 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let metadata =
             serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
 
-        let new_package = ModelNewWorkflowPackage::new(
-            UniversalUuid::from(registry_uuid),
-            package_metadata.package_name.clone(),
-            package_metadata.version.clone(),
-            package_metadata.description.clone(),
-            package_metadata.author.clone(),
-            metadata,
-        );
+        // Generate UUID client-side
+        let id = Uuid::new_v4();
+        let id_blob = uuid_to_blob(&id);
+        let registry_id_blob = uuid_to_blob(&registry_uuid);
+        let now = current_timestamp_string();
 
-        // Following DAL pattern: manually generate UUID and timestamps
-        let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let new_package = NewSqliteWorkflowPackage {
+            id: id_blob,
+            registry_id: registry_id_blob,
+            package_name: package_metadata.package_name.clone(),
+            version: package_metadata.version.clone(),
+            description: package_metadata.description.clone(),
+            author: package_metadata.author.clone(),
+            metadata,
+            created_at: now.clone(),
+            updated_at: now,
+        };
 
         // Insert with explicit values following DAL pattern
         conn.interact(move |conn| {
             diesel::insert_into(workflow_packages::table)
-                .values((
-                    workflow_packages::id.eq(&id),
-                    workflow_packages::registry_id.eq(&new_package.registry_id),
-                    workflow_packages::package_name.eq(&new_package.package_name),
-                    workflow_packages::version.eq(&new_package.version),
-                    workflow_packages::description.eq(&new_package.description),
-                    workflow_packages::author.eq(&new_package.author),
-                    workflow_packages::metadata.eq(&new_package.metadata),
-                    workflow_packages::created_at.eq(&now),
-                    workflow_packages::updated_at.eq(&now),
-                ))
+                .values(&new_package)
                 .execute(conn)
         })
         .await
@@ -97,7 +89,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             _ => RegistryError::Database(format!("Database error: {}", e)),
         })?;
 
-        Ok(id.into())
+        Ok(id)
     }
 
     /// Retrieve package metadata from the database.
@@ -114,8 +106,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
     > {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
@@ -123,12 +114,12 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let package_name = package_name.to_string();
         let version = version.to_string();
 
-        let package_record: Option<WorkflowPackage> = conn
+        let package_record: Option<SqliteWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
                     .filter(workflow_packages::package_name.eq(&package_name))
                     .filter(workflow_packages::version.eq(&version))
-                    .first::<WorkflowPackage>(conn)
+                    .first::<SqliteWorkflowPackage>(conn)
                     .optional()
             })
             .await
@@ -136,12 +127,16 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if let Some(record) = package_record {
+            // Convert blob to UUID
+            let registry_uuid = blob_to_uuid(&record.registry_id)
+                .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
+            let registry_id_string = registry_uuid.to_string();
+
             // DEBUG: Log the registry_id and its string representation
             tracing::debug!(
                 "Found package record with registry_id: {:?}",
-                record.registry_id
+                registry_id_string
             );
-            let registry_id_string = record.registry_id.to_string();
             tracing::debug!("registry_id.to_string() = '{}'", registry_id_string);
 
             // Deserialize package metadata from JSON string
@@ -166,19 +161,18 @@ impl<'a> WorkflowPackagesDAL<'a> {
     > {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_uuid = UniversalUuid::from(package_id);
+        let package_id_blob = uuid_to_blob(&package_id);
 
-        let package_record: Option<WorkflowPackage> = conn
+        let package_record: Option<SqliteWorkflowPackage> = conn
             .interact(move |conn| {
                 workflow_packages::table
-                    .filter(workflow_packages::id.eq(&package_uuid))
-                    .first::<WorkflowPackage>(conn)
+                    .filter(workflow_packages::id.eq(&package_id_blob))
+                    .first::<SqliteWorkflowPackage>(conn)
                     .optional()
             })
             .await
@@ -186,10 +180,14 @@ impl<'a> WorkflowPackagesDAL<'a> {
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         if let Some(record) = package_record {
+            // Convert blob to UUID
+            let registry_uuid = blob_to_uuid(&record.registry_id)
+                .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
+
             // Deserialize package metadata from JSON string
             let metadata: crate::registry::loader::package_loader::PackageMetadata =
                 serde_json::from_str(&record.metadata).map_err(RegistryError::Serialization)?;
-            Ok(Some((record.registry_id.to_string(), metadata)))
+            Ok(Some((registry_uuid.to_string(), metadata)))
         } else {
             Ok(None)
         }
@@ -199,19 +197,24 @@ impl<'a> WorkflowPackagesDAL<'a> {
     pub async fn list_all_packages(&self) -> Result<Vec<WorkflowPackage>, RegistryError> {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_records: Vec<WorkflowPackage> = conn
-            .interact(move |conn| workflow_packages::table.load::<WorkflowPackage>(conn))
+        let package_records: Vec<SqliteWorkflowPackage> = conn
+            .interact(move |conn| workflow_packages::table.load::<SqliteWorkflowPackage>(conn))
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?
             .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
-        Ok(package_records)
+        // Convert to domain types
+        let domain_packages: Vec<WorkflowPackage> = package_records
+            .into_iter()
+            .map(|p| p.into())
+            .collect();
+
+        Ok(domain_packages)
     }
 
     /// Delete package metadata from the database.
@@ -222,8 +225,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
     ) -> Result<(), RegistryError> {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
@@ -253,16 +255,15 @@ impl<'a> WorkflowPackagesDAL<'a> {
     ) -> Result<(), RegistryError> {
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(e.to_string()))?;
 
-        let package_uuid = UniversalUuid::from(package_id);
+        let package_id_blob = uuid_to_blob(&package_id);
 
         conn.interact(move |conn| {
-            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(&package_uuid)))
+            diesel::delete(workflow_packages::table.filter(workflow_packages::id.eq(&package_id_blob)))
                 .execute(conn)
         })
         .await

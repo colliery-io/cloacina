@@ -29,55 +29,38 @@
 //! During the transition, both approaches are available.
 
 // Unified DAL with runtime backend selection (new approach)
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod unified;
 
 // Legacy DAL implementations (being migrated to unified)
-#[cfg(feature = "postgres")]
 mod postgres_dal;
 
-#[cfg(feature = "sqlite")]
 mod sqlite_dal;
 
 // Filesystem DAL is always available
 mod filesystem_dal;
 
 // Re-export the appropriate legacy DAL implementation for backward compatibility
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-pub use postgres_dal::*;
-
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub use sqlite_dal::*;
-
-// When both features are enabled, export under qualified names
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
 pub mod legacy_postgres {
     pub use super::postgres_dal::*;
 }
 
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
 pub mod legacy_sqlite {
     pub use super::sqlite_dal::*;
 }
 
-// When both features are enabled, export unified DAL as the primary DAL
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
+// Export unified DAL as the primary DAL
 pub use unified::DAL;
 
 // Export CronExecutionStats from the unified module
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
 pub use unified::cron_execution::CronExecutionStats;
 
 // Re-export registry storage types for dual-backend builds
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
 pub use postgres_dal::PostgresRegistryStorage;
 
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
 pub use sqlite_dal::SqliteRegistryStorage;
 
 // Always re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;
 
 // Re-export unified DAL types for convenience
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use unified::DAL as UnifiedDAL;

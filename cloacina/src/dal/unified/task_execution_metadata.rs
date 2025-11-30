@@ -46,18 +46,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => self.create_postgres(new_metadata).await,
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => self.create_sqlite(new_metadata).await,
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::postgres_dal::models::{NewPgTaskExecutionMetadata, PgTaskExecutionMetadata};
         use crate::database::schema::postgres::task_execution_metadata;
 
         let conn = self
@@ -67,25 +65,34 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let metadata: TaskExecutionMetadata = conn
+        let pg_new = NewPgTaskExecutionMetadata {
+            task_execution_id: new_metadata.task_execution_id.0,
+            pipeline_execution_id: new_metadata.pipeline_execution_id.0,
+            task_name: new_metadata.task_name,
+            context_id: new_metadata.context_id.map(|u| u.0),
+        };
+
+        let pg_metadata: PgTaskExecutionMetadata = conn
             .interact(move |conn| {
                 diesel::insert_into(task_execution_metadata::table)
-                    .values(&new_metadata)
+                    .values(&pg_new)
                     .get_result(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(pg_metadata.into())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::sqlite_dal::models::{
+            current_timestamp_string, uuid_to_blob, NewSqliteTaskExecutionMetadata,
+            SqliteTaskExecutionMetadata,
+        };
         use crate::database::schema::sqlite::task_execution_metadata;
-        use crate::database::universal_types::current_timestamp;
 
         let conn = self
             .dal
@@ -97,32 +104,34 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         // For SQLite, generate UUID and timestamps client-side
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let id_blob = uuid_to_blob(&id.0);
+        let now = current_timestamp_string();
+
+        let sqlite_new = NewSqliteTaskExecutionMetadata {
+            id: id_blob.clone(),
+            task_execution_id: uuid_to_blob(&new_metadata.task_execution_id.0),
+            pipeline_execution_id: uuid_to_blob(&new_metadata.pipeline_execution_id.0),
+            task_name: new_metadata.task_name,
+            context_id: new_metadata.context_id.map(|u| uuid_to_blob(&u.0)),
+            created_at: now.clone(),
+            updated_at: now,
+        };
 
         conn.interact(move |conn| {
             diesel::insert_into(task_execution_metadata::table)
-                .values((
-                    task_execution_metadata::id.eq(&id),
-                    task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
-                    task_execution_metadata::pipeline_execution_id
-                        .eq(&new_metadata.pipeline_execution_id),
-                    task_execution_metadata::task_name.eq(&new_metadata.task_name),
-                    task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                    task_execution_metadata::created_at.eq(&now),
-                    task_execution_metadata::updated_at.eq(&now),
-                ))
+                .values(&sqlite_new)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Retrieve the inserted record
-        let metadata = conn
-            .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+        let sqlite_metadata: SqliteTaskExecutionMetadata = conn
+            .interact(move |conn| task_execution_metadata::table.find(id_blob).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(sqlite_metadata.into())
     }
 
     /// Retrieves task execution metadata for a specific pipeline and task.
@@ -132,12 +141,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.get_by_pipeline_and_task_postgres(pipeline_id, task_namespace)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.get_by_pipeline_and_task_sqlite(pipeline_id, task_namespace)
                     .await
@@ -145,12 +152,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_by_pipeline_and_task_postgres(
         &self,
         pipeline_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecutionMetadata;
         use crate::database::schema::postgres::task_execution_metadata;
 
         let conn = self
@@ -160,26 +167,27 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id = pipeline_id.0;
         let task_name_owned = task_namespace.to_string();
-        let metadata = conn
+        let pg_metadata: PgTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_id))
                     .filter(task_execution_metadata::task_name.eq(&task_name_owned))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(pg_metadata.into())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_by_pipeline_and_task_sqlite(
         &self,
         pipeline_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecutionMetadata};
         use crate::database::schema::sqlite::task_execution_metadata;
 
         let conn = self
@@ -190,18 +198,19 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let pipeline_blob = uuid_to_blob(&pipeline_id.0);
         let task_name = task_namespace.to_string();
-        let metadata = conn
+        let sqlite_metadata: SqliteTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_blob))
                     .filter(task_execution_metadata::task_name.eq(task_name))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(sqlite_metadata.into())
     }
 
     /// Retrieves task execution metadata by task execution ID.
@@ -210,20 +219,18 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.get_by_task_execution_postgres(task_execution_id).await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => self.get_by_task_execution_sqlite(task_execution_id).await,
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_by_task_execution_postgres(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecutionMetadata;
         use crate::database::schema::postgres::task_execution_metadata;
 
         let conn = self
@@ -233,23 +240,24 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let metadata = conn
+        let uuid_id = task_execution_id.0;
+        let pg_metadata: PgTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
+                    .filter(task_execution_metadata::task_execution_id.eq(uuid_id))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(pg_metadata.into())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_by_task_execution_sqlite(
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecutionMetadata};
         use crate::database::schema::sqlite::task_execution_metadata;
 
         let conn = self
@@ -260,16 +268,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let metadata = conn
+        let task_blob = uuid_to_blob(&task_execution_id.0);
+        let sqlite_metadata: SqliteTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+                    .filter(task_execution_metadata::task_execution_id.eq(task_blob))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(sqlite_metadata.into())
     }
 
     /// Updates the context ID for a specific task execution.
@@ -279,12 +288,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.update_context_id_postgres(task_execution_id, context_id)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.update_context_id_sqlite(task_execution_id, context_id)
                     .await
@@ -292,7 +299,6 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn update_context_id_postgres(
         &self,
         task_execution_id: UniversalUuid,
@@ -308,10 +314,11 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let context_uuid: Option<Uuid> = context_id.map(|id| id.into());
+        let uuid_id = task_execution_id.0;
+        let context_uuid: Option<Uuid> = context_id.map(|id| id.0);
         conn.interact(move |conn| {
             diesel::update(task_execution_metadata::table)
-                .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
+                .filter(task_execution_metadata::task_execution_id.eq(uuid_id))
                 .set((
                     task_execution_metadata::context_id.eq(context_uuid),
                     task_execution_metadata::updated_at.eq(diesel::dsl::now),
@@ -324,14 +331,13 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn update_context_id_sqlite(
         &self,
         task_execution_id: UniversalUuid,
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
         use crate::database::schema::sqlite::task_execution_metadata;
-        use crate::database::universal_types::current_timestamp;
 
         let conn = self
             .dal
@@ -341,12 +347,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let task_blob = uuid_to_blob(&task_execution_id.0);
+        let context_blob: Option<Vec<u8>> = context_id.map(|u| uuid_to_blob(&u.0));
+        let now = current_timestamp_string();
+
         conn.interact(move |conn| {
             diesel::update(task_execution_metadata::table)
-                .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+                .filter(task_execution_metadata::task_execution_id.eq(task_blob))
                 .set((
-                    task_execution_metadata::context_id.eq(context_id),
-                    task_execution_metadata::updated_at.eq(current_timestamp()),
+                    task_execution_metadata::context_id.eq(context_blob),
+                    task_execution_metadata::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -362,12 +372,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.upsert_task_execution_metadata_postgres(new_metadata)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.upsert_task_execution_metadata_sqlite(new_metadata)
                     .await
@@ -375,11 +383,11 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn upsert_task_execution_metadata_postgres(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::postgres_dal::models::{NewPgTaskExecutionMetadata, PgTaskExecutionMetadata};
         use crate::database::schema::postgres::task_execution_metadata;
 
         let conn = self
@@ -389,14 +397,22 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let metadata: TaskExecutionMetadata = conn
+        let context_uuid = new_metadata.context_id.map(|u| u.0);
+        let pg_new = NewPgTaskExecutionMetadata {
+            task_execution_id: new_metadata.task_execution_id.0,
+            pipeline_execution_id: new_metadata.pipeline_execution_id.0,
+            task_name: new_metadata.task_name,
+            context_id: context_uuid,
+        };
+
+        let pg_metadata: PgTaskExecutionMetadata = conn
             .interact(move |conn| {
                 diesel::insert_into(task_execution_metadata::table)
-                    .values(&new_metadata)
+                    .values(&pg_new)
                     .on_conflict(task_execution_metadata::task_execution_id)
                     .do_update()
                     .set((
-                        task_execution_metadata::context_id.eq(&new_metadata.context_id),
+                        task_execution_metadata::context_id.eq(&pg_new.context_id),
                         task_execution_metadata::updated_at.eq(diesel::dsl::now),
                     ))
                     .get_result(conn)
@@ -404,16 +420,18 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(pg_metadata.into())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn upsert_task_execution_metadata_sqlite(
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
+        use crate::dal::sqlite_dal::models::{
+            current_timestamp_string, uuid_to_blob, NewSqliteTaskExecutionMetadata,
+            SqliteTaskExecutionMetadata,
+        };
         use crate::database::schema::sqlite::task_execution_metadata;
-        use crate::database::universal_types::current_timestamp;
 
         let conn = self
             .dal
@@ -425,12 +443,13 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         // SQLite doesn't support ON CONFLICT DO UPDATE with RETURNING
         // Check if the record exists first
-        let task_exec_id = new_metadata.task_execution_id.clone();
-        let existing = conn
+        let task_exec_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
+        let task_exec_blob_clone = task_exec_blob.clone();
+        let existing: Option<SqliteTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::task_execution_id.eq(&task_exec_id))
-                    .first::<TaskExecutionMetadata>(conn)
+                    .filter(task_execution_metadata::task_execution_id.eq(&task_exec_blob_clone))
+                    .first::<SqliteTaskExecutionMetadata>(conn)
                     .optional()
             })
             .await
@@ -439,47 +458,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         match existing {
             Some(_) => {
                 // Update existing record
-                let task_exec_id = new_metadata.task_execution_id.clone();
-                let context_id = new_metadata.context_id.clone();
+                let task_exec_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
+                let context_blob: Option<Vec<u8>> =
+                    new_metadata.context_id.map(|u| uuid_to_blob(&u.0));
+                let now = current_timestamp_string();
+
                 conn.interact(move |conn| {
                     diesel::update(task_execution_metadata::table)
-                        .filter(task_execution_metadata::task_execution_id.eq(&task_exec_id))
+                        .filter(task_execution_metadata::task_execution_id.eq(&task_exec_blob))
                         .set((
-                            task_execution_metadata::context_id.eq(&context_id),
-                            task_execution_metadata::updated_at.eq(current_timestamp()),
-                        ))
-                        .execute(conn)
-                })
-                .await
-                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-                // Retrieve the updated record
-                let task_exec_id = new_metadata.task_execution_id;
-                Ok(conn
-                    .interact(move |conn| {
-                        task_execution_metadata::table
-                            .filter(task_execution_metadata::task_execution_id.eq(&task_exec_id))
-                            .first(conn)
-                    })
-                    .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
-            }
-            None => {
-                // Create new record
-                let id = UniversalUuid::new_v4();
-                let now = current_timestamp();
-
-                conn.interact(move |conn| {
-                    diesel::insert_into(task_execution_metadata::table)
-                        .values((
-                            task_execution_metadata::id.eq(&id),
-                            task_execution_metadata::task_execution_id
-                                .eq(&new_metadata.task_execution_id),
-                            task_execution_metadata::pipeline_execution_id
-                                .eq(&new_metadata.pipeline_execution_id),
-                            task_execution_metadata::task_name.eq(&new_metadata.task_name),
-                            task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                            task_execution_metadata::created_at.eq(&now),
+                            task_execution_metadata::context_id.eq(&context_blob),
                             task_execution_metadata::updated_at.eq(&now),
                         ))
                         .execute(conn)
@@ -487,11 +475,50 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 .await
                 .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-                // Retrieve the inserted record
-                Ok(conn
-                    .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+                // Retrieve the updated record
+                let task_exec_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
+                let sqlite_metadata: SqliteTaskExecutionMetadata = conn
+                    .interact(move |conn| {
+                        task_execution_metadata::table
+                            .filter(task_execution_metadata::task_execution_id.eq(&task_exec_blob))
+                            .first(conn)
+                    })
                     .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+                Ok(sqlite_metadata.into())
+            }
+            None => {
+                // Create new record
+                let id = UniversalUuid::new_v4();
+                let id_blob = uuid_to_blob(&id.0);
+                let now = current_timestamp_string();
+
+                let sqlite_new = NewSqliteTaskExecutionMetadata {
+                    id: id_blob.clone(),
+                    task_execution_id: uuid_to_blob(&new_metadata.task_execution_id.0),
+                    pipeline_execution_id: uuid_to_blob(&new_metadata.pipeline_execution_id.0),
+                    task_name: new_metadata.task_name,
+                    context_id: new_metadata.context_id.map(|u| uuid_to_blob(&u.0)),
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+
+                conn.interact(move |conn| {
+                    diesel::insert_into(task_execution_metadata::table)
+                        .values(&sqlite_new)
+                        .execute(conn)
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+                // Retrieve the inserted record
+                let sqlite_metadata: SqliteTaskExecutionMetadata = conn
+                    .interact(move |conn| task_execution_metadata::table.find(id_blob).first(conn))
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+                Ok(sqlite_metadata.into())
             }
         }
     }
@@ -503,12 +530,10 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.get_dependency_metadata_postgres(pipeline_id, dependency_task_names)
                     .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.get_dependency_metadata_sqlite(pipeline_id, dependency_task_names)
                     .await
@@ -516,12 +541,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_postgres(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecutionMetadata;
         use crate::database::schema::postgres::task_execution_metadata;
 
         let conn = self
@@ -531,26 +556,27 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id = pipeline_id.0;
         let dependency_task_names_owned = dependency_task_names.to_vec();
-        let metadata = conn
+        let pg_metadata: Vec<PgTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_id))
                     .filter(task_execution_metadata::task_name.eq_any(&dependency_task_names_owned))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(pg_metadata.into_iter().map(Into::into).collect())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_sqlite(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecutionMetadata};
         use crate::database::schema::sqlite::task_execution_metadata;
 
         let conn = self
@@ -561,18 +587,19 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let pipeline_blob = uuid_to_blob(&pipeline_id.0);
         let dependency_task_names = dependency_task_names.to_vec();
-        let metadata = conn
+        let sqlite_metadata: Vec<SqliteTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_blob))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(sqlite_metadata.into_iter().map(Into::into).collect())
     }
 
     /// Retrieves metadata and context data for multiple dependency tasks in a single query.
@@ -586,7 +613,6 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
 
         match self.dal.backend() {
-            #[cfg(feature = "postgres")]
             BackendType::Postgres => {
                 self.get_dependency_metadata_with_contexts_postgres(
                     pipeline_id,
@@ -594,7 +620,6 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 )
                 .await
             }
-            #[cfg(feature = "sqlite")]
             BackendType::Sqlite => {
                 self.get_dependency_metadata_with_contexts_sqlite(
                     pipeline_id,
@@ -605,12 +630,12 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         }
     }
 
-    #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_with_contexts_postgres(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_namespaces: &[TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecutionMetadata;
         use crate::database::schema::postgres::{contexts, task_execution_metadata};
 
         let conn = self
@@ -620,38 +645,42 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let uuid_id = pipeline_id.0;
         let dependency_task_names_owned: Vec<String> = dependency_task_namespaces
             .iter()
             .map(|ns| ns.to_string())
             .collect();
 
-        let results = conn
+        let results: Vec<(PgTaskExecutionMetadata, Option<String>)> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .left_join(
                         contexts::table
                             .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
                     )
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_id))
                     .filter(task_execution_metadata::task_name.eq_any(&dependency_task_names_owned))
                     .select((
                         task_execution_metadata::all_columns,
                         contexts::value.nullable(),
                     ))
-                    .load::<(TaskExecutionMetadata, Option<String>)>(conn)
+                    .load::<(PgTaskExecutionMetadata, Option<String>)>(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(results)
+        Ok(results
+            .into_iter()
+            .map(|(m, c)| (m.into(), c))
+            .collect())
     }
 
-    #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_with_contexts_sqlite(
         &self,
         pipeline_id: UniversalUuid,
         dependency_task_namespaces: &[TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecutionMetadata};
         use crate::database::schema::sqlite::{contexts, task_execution_metadata};
 
         let conn = self
@@ -662,29 +691,33 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let pipeline_blob = uuid_to_blob(&pipeline_id.0);
         let dependency_task_names: Vec<String> = dependency_task_namespaces
             .iter()
             .map(|ns| ns.to_string())
             .collect();
 
-        let results = conn
+        let results: Vec<(SqliteTaskExecutionMetadata, Option<String>)> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .left_join(
                         contexts::table
                             .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
                     )
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_blob))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .select((
                         task_execution_metadata::all_columns,
                         contexts::value.nullable(),
                     ))
-                    .load::<(TaskExecutionMetadata, Option<String>)>(conn)
+                    .load::<(SqliteTaskExecutionMetadata, Option<String>)>(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(results)
+        Ok(results
+            .into_iter()
+            .map(|(m, c)| (m.into(), c))
+            .collect())
     }
 }

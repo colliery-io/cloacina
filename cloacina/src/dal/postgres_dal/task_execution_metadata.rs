@@ -27,6 +27,7 @@
 //! - Context IDs
 //! - Creation and update timestamps
 
+use super::models::{NewPgTaskExecutionMetadata, PgTaskExecutionMetadata};
 use super::DAL;
 use crate::database::schema::postgres::task_execution_metadata;
 use crate::database::universal_types::UniversalUuid;
@@ -63,14 +64,23 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        // Convert domain model to backend-specific type
+        let new_pg_metadata = NewPgTaskExecutionMetadata {
+            task_execution_id: new_metadata.task_execution_id.0,
+            pipeline_execution_id: new_metadata.pipeline_execution_id.0,
+            task_name: new_metadata.task_name,
+            context_id: new_metadata.context_id.map(|id| id.0),
+        };
+
         let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
                 diesel::insert_into(task_execution_metadata::table)
-                    .values(&new_metadata)
-                    .get_result(conn)
+                    .values(&new_pg_metadata)
+                    .get_result::<PgTaskExecutionMetadata>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(metadata)
     }
@@ -97,15 +107,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         // Convert TaskNamespace to string for database query
         let task_name_owned = task_namespace.to_string();
-        let metadata = conn
+        let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
                     .filter(task_execution_metadata::task_name.eq(&task_name_owned))
-                    .first(conn)
+                    .first::<PgTaskExecutionMetadata>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(metadata)
     }
@@ -128,14 +139,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let metadata = conn
+        let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .filter(task_execution_metadata::task_execution_id.eq(task_execution_id.0))
-                    .first(conn)
+                    .first::<PgTaskExecutionMetadata>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(metadata)
     }
@@ -197,20 +209,30 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        // Convert domain model to backend-specific type
+        let new_pg_metadata = NewPgTaskExecutionMetadata {
+            task_execution_id: new_metadata.task_execution_id.0,
+            pipeline_execution_id: new_metadata.pipeline_execution_id.0,
+            task_name: new_metadata.task_name,
+            context_id: new_metadata.context_id.map(|id| id.0),
+        };
+
+        let context_id_for_update = new_pg_metadata.context_id;
         let metadata: TaskExecutionMetadata = conn
             .interact(move |conn| {
                 diesel::insert_into(task_execution_metadata::table)
-                    .values(&new_metadata)
+                    .values(&new_pg_metadata)
                     .on_conflict(task_execution_metadata::task_execution_id)
                     .do_update()
                     .set((
-                        task_execution_metadata::context_id.eq(&new_metadata.context_id),
+                        task_execution_metadata::context_id.eq(&context_id_for_update),
                         task_execution_metadata::updated_at.eq(diesel::dsl::now),
                     ))
-                    .get_result(conn)
+                    .get_result::<PgTaskExecutionMetadata>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
 
         Ok(metadata)
     }
@@ -236,15 +258,18 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let dependency_task_names_owned = dependency_task_names.to_vec();
-        let metadata = conn
+        let metadata: Vec<TaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id.0))
                     .filter(task_execution_metadata::task_name.eq_any(&dependency_task_names_owned))
-                    .load(conn)
+                    .load::<PgTaskExecutionMetadata>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
 
         Ok(metadata)
     }
@@ -286,7 +311,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .iter()
             .map(|ns| ns.to_string())
             .collect();
-        let results = conn
+        let results: Vec<(TaskExecutionMetadata, Option<String>)> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .left_join(
@@ -299,10 +324,13 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                         task_execution_metadata::all_columns,
                         contexts::value.nullable(),
                     ))
-                    .load::<(TaskExecutionMetadata, Option<String>)>(conn)
+                    .load::<(PgTaskExecutionMetadata, Option<String>)>(conn)
             })
             .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|(pg, ctx)| (pg.into(), ctx))
+            .collect();
 
         Ok(results)
     }

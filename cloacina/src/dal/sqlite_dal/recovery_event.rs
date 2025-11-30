@@ -15,8 +15,9 @@
  */
 
 use super::DAL;
+use super::models::{NewSqliteRecoveryEvent, SqliteRecoveryEvent, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::recovery_events;
-use crate::database::universal_types::{current_timestamp, UniversalUuid};
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
@@ -110,21 +111,24 @@ impl<'a> RecoveryEventDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let now = current_timestamp_string();
+
+        // Create SQLite-specific model with converted types
+        let new_sqlite_event = NewSqliteRecoveryEvent {
+            id: uuid_to_blob(&id.0),
+            pipeline_execution_id: uuid_to_blob(&new_event.pipeline_execution_id.0),
+            task_execution_id: new_event.task_execution_id.map(|tid| uuid_to_blob(&tid.0)),
+            recovery_type: new_event.recovery_type,
+            recovered_at: now.clone(),
+            details: new_event.details,
+            created_at: now.clone(),
+            updated_at: now,
+        };
 
         // Insert with explicit values for SQLite
         conn.interact(move |conn| {
             diesel::insert_into(recovery_events::table)
-                .values((
-                    recovery_events::id.eq(&id),
-                    recovery_events::pipeline_execution_id.eq(&new_event.pipeline_execution_id),
-                    recovery_events::task_execution_id.eq(&new_event.task_execution_id),
-                    recovery_events::recovery_type.eq(&new_event.recovery_type),
-                    recovery_events::recovered_at.eq(&now),
-                    recovery_events::details.eq(&new_event.details),
-                    recovery_events::created_at.eq(&now),
-                    recovery_events::updated_at.eq(&now),
-                ))
+                .values(&new_sqlite_event)
                 .execute(conn)
         })
         .await
@@ -134,15 +138,20 @@ impl<'a> RecoveryEventDAL<'a> {
         })??;
 
         // Retrieve the inserted record
-        let result = conn
-            .interact(move |conn| recovery_events::table.find(id).first(conn))
+        let id_blob = uuid_to_blob(&id.0);
+        let result: SqliteRecoveryEvent = conn
+            .interact(move |conn| {
+                recovery_events::table
+                    .filter(recovery_events::id.eq(&id_blob))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))
             .map_err(|e| ValidationError::DatabaseQuery {
                 message: format!("Failed to retrieve created recovery event: {}", e),
             })??;
 
-        Ok(result)
+        Ok(result.into())
     }
 
     /// Gets all recovery events for a specific pipeline execution.
@@ -176,11 +185,12 @@ impl<'a> RecoveryEventDAL<'a> {
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let pipeline_exec_id_blob = uuid_to_blob(&pipeline_execution_id.0);
 
-        let events = conn
+        let events: Vec<SqliteRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(recovery_events::pipeline_execution_id.eq(pipeline_exec_id_blob))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })
@@ -190,7 +200,7 @@ impl<'a> RecoveryEventDAL<'a> {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
 
-        Ok(events)
+        Ok(events.into_iter().map(|e| e.into()).collect())
     }
 
     /// Gets all recovery events for a specific task execution.
@@ -224,11 +234,12 @@ impl<'a> RecoveryEventDAL<'a> {
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_exec_id_blob = uuid_to_blob(&task_execution_id.0);
 
-        let events = conn
+        let events: Vec<SqliteRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
-                    .filter(recovery_events::task_execution_id.eq(task_execution_id))
+                    .filter(recovery_events::task_execution_id.eq(task_exec_id_blob))
                     .order(recovery_events::recovered_at.desc())
                     .load(conn)
             })
@@ -238,7 +249,7 @@ impl<'a> RecoveryEventDAL<'a> {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
 
-        Ok(events)
+        Ok(events.into_iter().map(|e| e.into()).collect())
     }
 
     /// Gets recovery events by type for monitoring and analysis.
@@ -273,7 +284,7 @@ impl<'a> RecoveryEventDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let recovery_type = recovery_type.to_string();
 
-        let events = conn
+        let events: Vec<SqliteRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
                     .filter(recovery_events::recovery_type.eq(recovery_type))
@@ -286,7 +297,7 @@ impl<'a> RecoveryEventDAL<'a> {
                 message: format!("Failed to get recovery events: {}", e),
             })??;
 
-        Ok(events)
+        Ok(events.into_iter().map(|e| e.into()).collect())
     }
 
     /// Gets all workflow unavailability events for monitoring unknown workflow cleanup.
@@ -349,7 +360,7 @@ impl<'a> RecoveryEventDAL<'a> {
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let events = conn
+        let events: Vec<SqliteRecoveryEvent> = conn
             .interact(move |conn| {
                 recovery_events::table
                     .order(recovery_events::recovered_at.desc())
@@ -362,6 +373,6 @@ impl<'a> RecoveryEventDAL<'a> {
                 message: format!("Failed to get recent recovery events: {}", e),
             })??;
 
-        Ok(events)
+        Ok(events.into_iter().map(|e| e.into()).collect())
     }
 }

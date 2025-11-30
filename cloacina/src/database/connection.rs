@@ -34,16 +34,14 @@
 //! use cloacina::database::connection::Database;
 //!
 //! // PostgreSQL
-//! #[cfg(feature = "postgres")]
-//! let db = Database::new(
+//! //! let db = Database::new(
 //!     "postgres://username:password@localhost:5432",
 //!     "my_database",
 //!     10
 //! );
 //!
 //! // SQLite
-//! #[cfg(feature = "sqlite")]
-//! let db = Database::new(
+//! //! let db = Database::new(
 //!     "path/to/database.db",
 //!     "", // Not used for SQLite
 //!     10
@@ -52,20 +50,15 @@
 
 use tracing::info;
 
-#[cfg(feature = "postgres")]
 use deadpool_diesel::postgres::{
     Manager as PgManager, Pool as PgPool, Runtime as PgRuntime,
 };
-#[cfg(feature = "postgres")]
 use diesel::PgConnection;
-#[cfg(feature = "postgres")]
 use url::Url;
 
-#[cfg(feature = "sqlite")]
 use deadpool_diesel::sqlite::{
     Manager as SqliteManager, Pool as SqlitePool, Runtime as SqliteRuntime,
 };
-#[cfg(feature = "sqlite")]
 use diesel::SqliteConnection;
 
 // =============================================================================
@@ -76,10 +69,8 @@ use diesel::SqliteConnection;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendType {
     /// PostgreSQL backend
-    #[cfg(feature = "postgres")]
     Postgres,
     /// SQLite backend
-    #[cfg(feature = "sqlite")]
     Sqlite,
 }
 
@@ -95,28 +86,24 @@ impl BackendType {
     /// # Panics
     /// Panics if the URL scheme doesn't match any enabled backend.
     pub fn from_url(url: &str) -> Self {
-        #[cfg(feature = "postgres")]
         if url.starts_with("postgres://") || url.starts_with("postgresql://") {
             return BackendType::Postgres;
         }
 
-        #[cfg(feature = "sqlite")]
+        // SQLite URLs can be:
+        // - sqlite:// prefix
+        // - file paths (relative or absolute)
+        // - :memory: for in-memory databases
+        if url.starts_with("sqlite://")
+            || url.starts_with("/")
+            || url.starts_with("./")
+            || url.starts_with("../")
+            || url == ":memory:"
+            || url.ends_with(".db")
+            || url.ends_with(".sqlite")
+            || url.ends_with(".sqlite3")
         {
-            // SQLite URLs can be:
-            // - sqlite:// prefix
-            // - file paths (relative or absolute)
-            // - :memory: for in-memory databases
-            if url.starts_with("sqlite://")
-                || url.starts_with("/")
-                || url.starts_with("./")
-                || url.starts_with("../")
-                || url == ":memory:"
-                || url.ends_with(".db")
-                || url.ends_with(".sqlite")
-                || url.ends_with(".sqlite3")
-            {
-                return BackendType::Sqlite;
-            }
+            return BackendType::Sqlite;
         }
 
         panic!(
@@ -135,10 +122,8 @@ impl BackendType {
 #[derive(diesel::MultiConnection)]
 pub enum AnyConnection {
     /// PostgreSQL connection variant
-    #[cfg(feature = "postgres")]
     Postgres(PgConnection),
     /// SQLite connection variant
-    #[cfg(feature = "sqlite")]
     Sqlite(SqliteConnection),
 }
 
@@ -148,19 +133,15 @@ pub enum AnyConnection {
 #[derive(Clone)]
 pub enum AnyPool {
     /// PostgreSQL connection pool
-    #[cfg(feature = "postgres")]
     Postgres(PgPool),
     /// SQLite connection pool
-    #[cfg(feature = "sqlite")]
     Sqlite(SqlitePool),
 }
 
 impl std::fmt::Debug for AnyPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[cfg(feature = "postgres")]
             AnyPool::Postgres(_) => write!(f, "AnyPool::Postgres(...)"),
-            #[cfg(feature = "sqlite")]
             AnyPool::Sqlite(_) => write!(f, "AnyPool::Sqlite(...)"),
         }
     }
@@ -168,102 +149,53 @@ impl std::fmt::Debug for AnyPool {
 
 impl AnyPool {
     /// Returns a reference to the PostgreSQL pool if this is a PostgreSQL backend.
-    #[cfg(feature = "postgres")]
-    pub fn as_postgres(&self) -> Option<&PgPool> {
+pub fn as_postgres(&self) -> Option<&PgPool> {
         match self {
             AnyPool::Postgres(pool) => Some(pool),
-            #[cfg(feature = "sqlite")]
-            _ => None,
+                _ => None,
         }
     }
 
     /// Returns a reference to the SQLite pool if this is a SQLite backend.
-    #[cfg(feature = "sqlite")]
-    pub fn as_sqlite(&self) -> Option<&SqlitePool> {
+pub fn as_sqlite(&self) -> Option<&SqlitePool> {
         match self {
             AnyPool::Sqlite(pool) => Some(pool),
-            #[cfg(feature = "postgres")]
-            _ => None,
+                _ => None,
         }
     }
 
     /// Returns the PostgreSQL pool, panicking if this is not a PostgreSQL backend.
-    #[cfg(feature = "postgres")]
-    pub fn expect_postgres(&self) -> &PgPool {
+pub fn expect_postgres(&self) -> &PgPool {
         match self {
             AnyPool::Postgres(pool) => pool,
-            #[cfg(feature = "sqlite")]
-            _ => panic!("Expected PostgreSQL pool but got SQLite"),
+                _ => panic!("Expected PostgreSQL pool but got SQLite"),
         }
     }
 
     /// Returns the SQLite pool, panicking if this is not a SQLite backend.
-    #[cfg(feature = "sqlite")]
-    pub fn expect_sqlite(&self) -> &SqlitePool {
+pub fn expect_sqlite(&self) -> &SqlitePool {
         match self {
             AnyPool::Sqlite(pool) => pool,
-            #[cfg(feature = "postgres")]
-            _ => panic!("Expected SQLite pool but got PostgreSQL"),
+                _ => panic!("Expected SQLite pool but got PostgreSQL"),
         }
     }
 
-    /// Gets a connection from the pool.
-    ///
-    /// This method is only available when exactly one backend is enabled.
-    /// For dual-backend builds, use `expect_postgres().get()` or `expect_sqlite().get()`.
-    #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-    pub async fn get(
-        &self,
-    ) -> Result<
-        deadpool::managed::Object<PgManager>,
-        deadpool::managed::PoolError<deadpool_diesel::Error>,
-    > {
-        match self {
-            AnyPool::Postgres(pool) => pool.get().await,
-        }
-    }
-
-    /// Gets a connection from the pool.
-    ///
-    /// This method is only available when exactly one backend is enabled.
-    /// For dual-backend builds, use `expect_postgres().get()` or `expect_sqlite().get()`.
-    #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-    pub async fn get(
-        &self,
-    ) -> Result<
-        deadpool::managed::Object<SqliteManager>,
-        deadpool::managed::PoolError<deadpool_diesel::Error>,
-    > {
-        match self {
-            AnyPool::Sqlite(pool) => pool.get().await,
-        }
-    }
 }
 
 // =============================================================================
 // Legacy Type Aliases (for backward compatibility during migration)
 // =============================================================================
+// Note: With dual-backend support, use AnyConnection and AnyPool instead.
+// These aliases default to PostgreSQL for backwards compatibility.
 
-/// Type alias for the connection type based on the selected backend
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+/// Type alias for the connection type (defaults to PostgreSQL)
 pub type DbConnection = PgConnection;
 
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub type DbConnection = SqliteConnection;
-
-/// Type alias for the connection manager based on the selected backend
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+/// Type alias for the connection manager (defaults to PostgreSQL)
 pub type DbConnectionManager = PgManager;
 
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub type DbConnectionManager = SqliteManager;
-
-/// Type alias for the connection pool
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+/// Type alias for the connection pool (defaults to PostgreSQL)
 pub type DbPool = PgPool;
-
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub type DbPool = SqlitePool;
 
 /// Represents a pool of database connections.
 ///
@@ -325,8 +257,7 @@ impl Database {
         let backend = BackendType::from_url(connection_string);
 
         match backend {
-            #[cfg(feature = "postgres")]
-            BackendType::Postgres => {
+                BackendType::Postgres => {
                 let connection_url = Self::build_postgres_url(connection_string, _database_name);
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
@@ -345,8 +276,7 @@ impl Database {
                     schema: schema.map(String::from),
                 }
             }
-            #[cfg(feature = "sqlite")]
-            BackendType::Sqlite => {
+                BackendType::Sqlite => {
                 let connection_url = Self::build_sqlite_url(connection_string);
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
                 let pool = SqlitePool::builder(manager)
@@ -386,16 +316,14 @@ impl Database {
     }
 
     /// Builds a PostgreSQL connection URL.
-    #[cfg(feature = "postgres")]
-    fn build_postgres_url(base_url: &str, database_name: &str) -> String {
+fn build_postgres_url(base_url: &str, database_name: &str) -> String {
         let mut url = Url::parse(base_url).expect("Invalid PostgreSQL URL");
         url.set_path(database_name);
         url.to_string()
     }
 
     /// Builds a SQLite connection URL.
-    #[cfg(feature = "sqlite")]
-    fn build_sqlite_url(connection_string: &str) -> String {
+fn build_sqlite_url(connection_string: &str) -> String {
         // Strip sqlite:// prefix if present
         if let Some(path) = connection_string.strip_prefix("sqlite://") {
             path.to_string()
@@ -411,8 +339,7 @@ impl Database {
         use diesel_migrations::MigrationHarness;
 
         match &self.pool {
-            #[cfg(feature = "postgres")]
-            AnyPool::Postgres(pool) => {
+                AnyPool::Postgres(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
                     conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
@@ -421,8 +348,7 @@ impl Database {
                 .await
                 .map_err(|e| format!("Failed to run migrations: {}", e))?;
             }
-            #[cfg(feature = "sqlite")]
-            AnyPool::Sqlite(pool) => {
+                AnyPool::Sqlite(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
                     conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
@@ -439,14 +365,12 @@ impl Database {
     ///
     /// Creates the schema if it doesn't exist and runs migrations within it.
     /// Returns an error if called on a SQLite backend.
-    #[cfg(feature = "postgres")]
-    pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
+pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
         use diesel::prelude::*;
 
         let pool = match &self.pool {
             AnyPool::Postgres(pool) => pool,
-            #[cfg(feature = "sqlite")]
-            AnyPool::Sqlite(_) => {
+                AnyPool::Sqlite(_) => {
                 return Err("Schema setup is not supported for SQLite".to_string());
             }
         };
@@ -491,8 +415,7 @@ impl Database {
     ///
     /// For PostgreSQL, this sets the search path to the configured schema.
     /// For SQLite, this is a no-op and returns an error.
-    #[cfg(feature = "postgres")]
-    pub async fn get_connection_with_schema(
+pub async fn get_connection_with_schema(
         &self,
     ) -> Result<
         deadpool::managed::Object<PgManager>,
@@ -502,8 +425,7 @@ impl Database {
 
         let pool = match &self.pool {
             AnyPool::Postgres(pool) => pool,
-            #[cfg(feature = "sqlite")]
-            AnyPool::Sqlite(_) => {
+                AnyPool::Sqlite(_) => {
                 panic!("get_connection_with_schema called on SQLite backend");
             }
         };
@@ -529,8 +451,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "postgres")]
-    fn test_postgres_url_parsing_scenarios() {
+fn test_postgres_url_parsing_scenarios() {
         // Test complete URL with credentials and port
         let mut url = Url::parse("postgres://postgres:postgres@localhost:5432").unwrap();
         url.set_path("test_db");
@@ -557,8 +478,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "sqlite")]
-    fn test_sqlite_connection_strings() {
+fn test_sqlite_connection_strings() {
         // Test file path
         let url = Database::build_sqlite_url("/path/to/database.db");
         assert_eq!(url, "/path/to/database.db");
@@ -578,13 +498,11 @@ mod tests {
 
     #[test]
     fn test_backend_type_detection() {
-        #[cfg(feature = "postgres")]
         {
             assert_eq!(BackendType::from_url("postgres://localhost/db"), BackendType::Postgres);
             assert_eq!(BackendType::from_url("postgresql://localhost/db"), BackendType::Postgres);
         }
 
-        #[cfg(feature = "sqlite")]
         {
             assert_eq!(BackendType::from_url("sqlite:///path/to/db"), BackendType::Sqlite);
             assert_eq!(BackendType::from_url("/absolute/path.db"), BackendType::Sqlite);

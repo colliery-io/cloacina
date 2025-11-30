@@ -21,10 +21,8 @@
 //!
 //! Note: This module is only available when using the PostgreSQL backend.
 
-#[cfg(feature = "postgres")]
 pub use postgres_impl::*;
 
-#[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
     use diesel::connection::Connection;
@@ -343,21 +341,4 @@ mod postgres_impl {
             assert_eq!(config.password, "");
         }
     }
-}
-
-// For SQLite builds, provide empty stubs to prevent compilation errors
-#[cfg(not(feature = "postgres"))]
-pub struct DatabaseAdmin;
-
-#[cfg(not(feature = "postgres"))]
-pub struct TenantConfig;
-
-#[cfg(not(feature = "postgres"))]
-pub struct TenantCredentials;
-
-#[cfg(not(feature = "postgres"))]
-#[derive(Debug, thiserror::Error)]
-pub enum AdminError {
-    #[error("PostgreSQL admin features not available")]
-    Unavailable,
 }

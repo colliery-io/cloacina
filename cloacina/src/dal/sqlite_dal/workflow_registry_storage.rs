@@ -23,10 +23,9 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use uuid::Uuid;
 
+use super::models::{NewSqliteWorkflowRegistryEntry, SqliteWorkflowRegistryEntry, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::workflow_registry;
-use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::database::Database;
-use crate::models::workflow_registry::{NewWorkflowRegistryEntryWithId, WorkflowRegistryEntry};
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
@@ -61,20 +60,23 @@ impl RegistryStorage for SqliteRegistryStorage {
         let conn = self
             .database
             .pool()
+            .expect_sqlite()
             .get()
             .await
             .map_err(|e| StorageError::Backend(format!("Failed to get connection: {}", e)))?;
 
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
+        // Generate UUID client-side
+        let id = Uuid::new_v4();
+        let id_blob = uuid_to_blob(&id);
+        let now = current_timestamp_string();
 
-        let new_entry = NewWorkflowRegistryEntryWithId {
-            id: id.clone(),
+        let new_entry = NewSqliteWorkflowRegistryEntry {
+            id: id_blob,
             created_at: now,
             data,
         };
 
-        let _entry: WorkflowRegistryEntry = conn
+        let _entry: SqliteWorkflowRegistryEntry = conn
             .interact(move |conn| {
                 diesel::insert_into(workflow_registry::table)
                     .values(&new_entry)
@@ -94,17 +96,18 @@ impl RegistryStorage for SqliteRegistryStorage {
         let conn = self
             .database
             .pool()
+            .expect_sqlite()
             .get()
             .await
             .map_err(|e| StorageError::Backend(format!("Failed to get connection: {}", e)))?;
 
-        let entry_id = UniversalUuid::from(uuid);
+        let entry_id_blob = uuid_to_blob(&uuid);
 
-        let result: Result<Option<WorkflowRegistryEntry>, diesel::result::Error> = conn
+        let result: Result<Option<SqliteWorkflowRegistryEntry>, diesel::result::Error> = conn
             .interact(move |conn| {
                 workflow_registry::table
-                    .filter(workflow_registry::id.eq(&entry_id))
-                    .first::<WorkflowRegistryEntry>(conn)
+                    .filter(workflow_registry::id.eq(&entry_id_blob))
+                    .first::<SqliteWorkflowRegistryEntry>(conn)
                     .optional()
             })
             .await
@@ -124,15 +127,16 @@ impl RegistryStorage for SqliteRegistryStorage {
         let conn = self
             .database
             .pool()
+            .expect_sqlite()
             .get()
             .await
             .map_err(|e| StorageError::Backend(format!("Failed to get connection: {}", e)))?;
 
-        let entry_id = UniversalUuid::from(uuid);
+        let entry_id_blob = uuid_to_blob(&uuid);
 
         let _rows_affected: usize = conn
             .interact(move |conn| {
-                diesel::delete(workflow_registry::table.filter(workflow_registry::id.eq(&entry_id)))
+                diesel::delete(workflow_registry::table.filter(workflow_registry::id.eq(&entry_id_blob)))
                     .execute(conn)
             })
             .await

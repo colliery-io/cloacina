@@ -30,8 +30,9 @@
 //! patterns for concurrent task execution.
 
 use super::DAL;
+use super::models::{NewSqliteTaskExecution, SqliteTaskExecution, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::task_executions;
-use crate::database::universal_types::{current_timestamp, UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use diesel::prelude::*;
@@ -77,7 +78,7 @@ impl<'a> TaskExecutionDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let now = current_timestamp_string();
 
         tracing::debug!(
             "[DEBUG] Database creating task execution with task_name '{}' in pipeline {}",
@@ -85,34 +86,40 @@ impl<'a> TaskExecutionDAL<'a> {
             new_task.pipeline_execution_id
         );
 
-        // Insert with explicit values for SQLite
+        // Create SQLite-specific model
+        let new_sqlite_task = NewSqliteTaskExecution {
+            id: uuid_to_blob(&id.0),
+            pipeline_execution_id: uuid_to_blob(&new_task.pipeline_execution_id.0),
+            task_name: new_task.task_name,
+            status: new_task.status,
+            attempt: new_task.attempt,
+            max_attempts: new_task.max_attempts,
+            trigger_rules: new_task.trigger_rules,
+            task_configuration: new_task.task_configuration,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        // Insert with SQLite-specific types
         conn.interact(move |conn| {
             diesel::insert_into(task_executions::table)
-                .values((
-                    task_executions::id.eq(&id),
-                    task_executions::pipeline_execution_id.eq(&new_task.pipeline_execution_id),
-                    task_executions::task_name.eq(&new_task.task_name),
-                    task_executions::status.eq(&new_task.status),
-                    task_executions::attempt.eq(&new_task.attempt),
-                    task_executions::max_attempts.eq(&new_task.max_attempts),
-                    task_executions::trigger_rules.eq(&new_task.trigger_rules),
-                    task_executions::task_configuration.eq(&new_task.task_configuration),
-                    task_executions::recovery_attempts.eq(0),
-                    task_executions::created_at.eq(&now),
-                    task_executions::updated_at.eq(&now),
-                ))
+                .values(&new_sqlite_task)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Retrieve the inserted record
-        let task = conn
-            .interact(move |conn| task_executions::table.find(id).first(conn))
+        let task: SqliteTaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::id.eq(uuid_to_blob(&id.0)))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(task)
+        Ok(task.into())
     }
 
     /// Retrieves all pending (NotStarted) tasks for a specific pipeline execution.
@@ -128,17 +135,17 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let tasks = conn
+        let tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::status.eq("NotStarted"))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(tasks)
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
     }
 
     /// Marks a task as ready for execution.
@@ -154,20 +161,24 @@ impl<'a> TaskExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
 
         // Get task info for logging before updating
-        let task = conn
+        let task_blob = uuid_to_blob(&task_id.0);
+        let task: SqliteTaskExecution = conn
             .interact(move |conn| {
                 task_executions::table
-                    .find(task_id)
-                    .first::<TaskExecution>(conn)
+                    .filter(task_executions::id.eq(task_blob))
+                    .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
+        let task_domain: TaskExecution = task.into();
+        let task_blob = uuid_to_blob(&task_id.0);
+
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Ready"),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -176,9 +187,9 @@ impl<'a> TaskExecutionDAL<'a> {
 
         tracing::debug!(
             "Task state change: {} -> Ready (task: {}, pipeline: {})",
-            task.status,
-            task.task_name,
-            task.pipeline_execution_id
+            task_domain.status,
+            task_domain.task_name,
+            task_domain.pipeline_execution_id
         );
         Ok(())
     }
@@ -200,22 +211,26 @@ impl<'a> TaskExecutionDAL<'a> {
         let reason = reason.to_string();
 
         // Get task info for logging before updating
-        let task = conn
+        let task_blob = uuid_to_blob(&task_id.0);
+        let task: SqliteTaskExecution = conn
             .interact(move |conn| {
                 task_executions::table
-                    .find(task_id)
-                    .first::<TaskExecution>(conn)
+                    .filter(task_executions::id.eq(task_blob))
+                    .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
+        let task_domain: TaskExecution = task.into();
+        let task_blob = uuid_to_blob(&task_id.0);
         let reason_for_update = reason.clone();
+
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Skipped"),
                     task_executions::error_details.eq(&reason_for_update),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -224,9 +239,9 @@ impl<'a> TaskExecutionDAL<'a> {
 
         tracing::info!(
             "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
-            task.status,
-            task.task_name,
-            task.pipeline_execution_id,
+            task_domain.status,
+            task_domain.task_name,
+            task_domain.pipeline_execution_id,
             reason
         );
         Ok(())
@@ -245,16 +260,16 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let tasks = conn
+        let tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(tasks)
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
     }
 
     /// Gets the current status of a specific task in a pipeline.
@@ -282,7 +297,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let status: String = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::task_name.eq(task_name))
                     .select(task_executions::status)
                     .first(conn)
@@ -327,7 +342,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let results: Vec<(String, String)> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::task_name.eq_any(&task_names))
                     .select((task_executions::task_name, task_executions::status))
                     .load(conn)
@@ -361,18 +376,19 @@ impl<'a> TaskExecutionDAL<'a> {
         }
 
         let conn = self.dal.pool.get().await?;
+        let pipeline_blobs: Vec<Vec<u8>> = pipeline_execution_ids.iter().map(|id| uuid_to_blob(&id.0)).collect();
 
-        let tasks: Vec<TaskExecution> = conn
+        let tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_execution_ids))
+                    .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_blobs))
                     .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(tasks)
+        Ok(tasks.into_iter().map(|t| t.into()).collect())
     }
 
     /// Checks if all tasks in a pipeline have reached a terminal state.
@@ -396,7 +412,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let incomplete_count: i64 = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
                     .count()
                     .get_result(conn)
@@ -417,7 +433,7 @@ impl<'a> TaskExecutionDAL<'a> {
     pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let orphaned_tasks = conn
+        let orphaned_tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Running"))
@@ -426,7 +442,7 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(orphaned_tasks)
+        Ok(orphaned_tasks.into_iter().map(|t| t.into()).collect())
     }
 
     /// Resets a task from "Running" to "Ready" state for recovery.
@@ -444,15 +460,16 @@ impl<'a> TaskExecutionDAL<'a> {
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_blob = uuid_to_blob(&task_id.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Ready"),
-                    task_executions::started_at.eq(None::<UniversalTimestamp>),
+                    task_executions::started_at.eq(None::<String>),
                     task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
-                    task_executions::last_recovery_at.eq(Some(current_timestamp())),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::last_recovery_at.eq(Some(current_timestamp_string())),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -477,14 +494,15 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
         let reason = reason.to_string();
+        let task_blob = uuid_to_blob(&task_id.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Failed"),
-                    task_executions::completed_at.eq(Some(current_timestamp())),
+                    task_executions::completed_at.eq(Some(current_timestamp_string())),
                     task_executions::error_details.eq(format!("ABANDONED: {}", reason)),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -511,7 +529,7 @@ impl<'a> TaskExecutionDAL<'a> {
         let failed_count: i64 = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::status.eq("Failed"))
                     .filter(task_executions::error_details.like("ABANDONED:%"))
                     .count()
@@ -536,12 +554,16 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<TaskExecution, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let task = conn
-            .interact(move |conn| task_executions::table.find(task_id).first(conn))
+        let task: SqliteTaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::id.eq(uuid_to_blob(&task_id.0)))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(task)
+        Ok(task.into())
     }
 
     /// Retrieves tasks that are ready for retry (retry_at time has passed).
@@ -550,22 +572,23 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<Vec<TaskExecution>, ValidationError>` - List of tasks ready for retry
     pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let now = current_timestamp_string();
 
-        let ready_tasks = conn
+        let ready_tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
                     .filter(task_executions::status.eq("Ready"))
                     .filter(
                         task_executions::retry_at
                             .is_null()
-                            .or(task_executions::retry_at.le(current_timestamp())),
+                            .or(task_executions::retry_at.le(now)),
                     )
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(ready_tasks)
+        Ok(ready_tasks.into_iter().map(|t| t.into()).collect())
     }
 
     /// Updates a task's retry schedule with a new attempt count and retry time.
@@ -584,16 +607,18 @@ impl<'a> TaskExecutionDAL<'a> {
         new_attempt: i32,
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_blob = uuid_to_blob(&task_id.0);
+        let retry_at_str = super::models::datetime_to_string(&retry_at.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Ready"),
                     task_executions::attempt.eq(new_attempt),
-                    task_executions::retry_at.eq(Some(retry_at)),
-                    task_executions::started_at.eq(None::<UniversalTimestamp>),
-                    task_executions::completed_at.eq(None::<UniversalTimestamp>),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::retry_at.eq(Some(retry_at_str)),
+                    task_executions::started_at.eq(None::<String>),
+                    task_executions::completed_at.eq(None::<String>),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -616,18 +641,19 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<RetryStats, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let tasks = conn
+        let tasks: Vec<SqliteTaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
-                    .load::<TaskExecution>(conn)
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
+                    .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         let mut stats = RetryStats::default();
 
-        for task in tasks {
+        for sqlite_task in tasks {
+            let task: TaskExecution = sqlite_task.into();
             if task.attempt > 1 {
                 stats.tasks_with_retries += 1;
                 stats.total_retries += task.attempt - 1;
@@ -659,17 +685,18 @@ impl<'a> TaskExecutionDAL<'a> {
         let conn = self.dal.pool.get().await?;
 
         // Use a more explicit query to avoid type inference issues
-        let exhausted_tasks = conn
+        let exhausted_tasks: Vec<TaskExecution> = conn
             .interact(move |conn| {
                 task_executions::table
-                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id))
+                    .filter(task_executions::pipeline_execution_id.eq(uuid_to_blob(&pipeline_execution_id.0)))
                     .filter(task_executions::status.eq("Failed"))
-                    .load::<TaskExecution>(conn)
+                    .load::<SqliteTaskExecution>(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
             .into_iter()
-            .filter(|task| task.attempt >= task.max_attempts)
+            .map(|t| t.into())
+            .filter(|task: &TaskExecution| task.attempt >= task.max_attempts)
             .collect();
 
         Ok(exhausted_tasks)
@@ -686,17 +713,18 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_blob = uuid_to_blob(&task_id.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::attempt.eq(1),
-                    task_executions::retry_at.eq(None::<UniversalTimestamp>),
-                    task_executions::started_at.eq(None::<UniversalTimestamp>),
-                    task_executions::completed_at.eq(None::<UniversalTimestamp>),
+                    task_executions::retry_at.eq(None::<String>),
+                    task_executions::started_at.eq(None::<String>),
+                    task_executions::completed_at.eq(None::<String>),
                     task_executions::last_error.eq(None::<String>),
                     task_executions::status.eq("Ready"),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -715,13 +743,14 @@ impl<'a> TaskExecutionDAL<'a> {
     /// * `Result<(), ValidationError>` - Success or error
     pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_blob = uuid_to_blob(&task_id.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Completed"),
-                    task_executions::completed_at.eq(Some(current_timestamp())),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::completed_at.eq(Some(current_timestamp_string())),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -746,14 +775,15 @@ impl<'a> TaskExecutionDAL<'a> {
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
         let error_message = error_message.to_string();
+        let task_blob = uuid_to_blob(&task_id.0);
 
         conn.interact(move |conn| {
-            diesel::update(task_executions::table.find(task_id))
+            diesel::update(task_executions::table.filter(task_executions::id.eq(task_blob)))
                 .set((
                     task_executions::status.eq("Failed"),
-                    task_executions::completed_at.eq(Some(current_timestamp())),
+                    task_executions::completed_at.eq(Some(current_timestamp_string())),
                     task_executions::last_error.eq(error_message),
-                    task_executions::updated_at.eq(current_timestamp()),
+                    task_executions::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -783,13 +813,14 @@ impl<'a> TaskExecutionDAL<'a> {
         conn.interact(move |conn| {
             use diesel::connection::Connection;
             conn.transaction(|conn| {
+                let now = current_timestamp_string();
                 // Find ready tasks up to the limit
-                let tasks: Vec<TaskExecution> = task_executions::table
+                let tasks: Vec<SqliteTaskExecution> = task_executions::table
                     .filter(task_executions::status.eq("Ready"))
                     .filter(
                         task_executions::retry_at
                             .is_null()
-                            .or(task_executions::retry_at.le(current_timestamp())),
+                            .or(task_executions::retry_at.le(&now)),
                     )
                     .order(task_executions::id.asc())
                     .limit(limit)
@@ -797,12 +828,15 @@ impl<'a> TaskExecutionDAL<'a> {
 
                 let mut results = Vec::new();
 
-                for task in tasks {
+                for sqlite_task in tasks {
+                    let task: TaskExecution = sqlite_task.into();
+                    let task_blob = uuid_to_blob(&task.id.0);
+
                     // Update each task to Running
-                    diesel::update(task_executions::table.find(&task.id))
+                    diesel::update(task_executions::table.filter(task_executions::id.eq(&task_blob)))
                         .set((
                             task_executions::status.eq("Running"),
-                            task_executions::started_at.eq(Some(current_timestamp())),
+                            task_executions::started_at.eq(Some(current_timestamp_string())),
                         ))
                         .execute(conn)?;
 

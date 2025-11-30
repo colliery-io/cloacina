@@ -22,6 +22,7 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::models::{NewSqliteWorkflowPackage, NewSqliteWorkflowRegistryEntry, SqliteWorkflowPackage, SqliteWorkflowRegistryEntry, uuid_to_blob, current_timestamp_string, blob_to_uuid};
 use crate::dal::sqlite_dal::DAL;
 use crate::packaging::extract_manifest_from_package;
 use crate::registry::error::RegistryError;
@@ -131,8 +132,7 @@ impl WorkflowRegistryDAL {
         // 4. Execute atomic transaction: store binary data and metadata together
         let conn = self
             .dal
-            .database
-            .pool()
+            .pool
             .get()
             .await
             .map_err(|e| RegistryError::Database(format!("Failed to get connection: {}", e)))?;
@@ -140,57 +140,61 @@ impl WorkflowRegistryDAL {
         let package_data_clone = package_data.clone();
         let package_metadata_clone = package_metadata.clone();
 
-        let (registry_id, package_id) = conn
+        let (_registry_id, package_id) = conn
             .interact(move |conn| {
                 use crate::database::schema::sqlite::{workflow_packages, workflow_registry};
-                use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-                use crate::models::workflow_packages::NewWorkflowPackage;
-                use crate::models::workflow_registry::NewWorkflowRegistryEntry;
                 use diesel::prelude::*;
                 use diesel::result::Error;
 
                 conn.transaction::<_, Error, _>(|conn| {
                     // 1. Insert binary data into workflow_registry with explicit ID and timestamp
-                    let registry_id = UniversalUuid::new_v4();
-                    let now = UniversalTimestamp::now();
-                    let new_registry_entry = NewWorkflowRegistryEntry::new(package_data_clone);
+                    let registry_uuid = Uuid::new_v4();
+                    let registry_id_blob = uuid_to_blob(&registry_uuid);
+                    let now = current_timestamp_string();
 
-                    let registry_entry: crate::models::workflow_registry::WorkflowRegistryEntry =
+                    let new_registry_entry = NewSqliteWorkflowRegistryEntry {
+                        id: registry_id_blob.clone(),
+                        created_at: now.clone(),
+                        data: package_data_clone,
+                    };
+
+                    let registry_entry: SqliteWorkflowRegistryEntry =
                         diesel::insert_into(workflow_registry::table)
-                            .values((
-                                workflow_registry::id.eq(&registry_id),
-                                &new_registry_entry,
-                                workflow_registry::created_at.eq(&now),
-                            ))
+                            .values(&new_registry_entry)
                             .get_result(conn)?;
 
-                    let registry_id_str = registry_entry.id.to_string();
+                    let registry_id_str = blob_to_uuid(&registry_entry.id)
+                        .map_err(|_| Error::RollbackTransaction)?
+                        .to_string();
 
                     // 2. Insert metadata into workflow_packages with explicit ID and timestamps
                     let metadata_json = serde_json::to_string(&package_metadata_clone)
                         .map_err(|_| Error::RollbackTransaction)?;
 
-                    let package_id = UniversalUuid::new_v4();
-                    let new_package = NewWorkflowPackage::new(
-                        registry_entry.id,
-                        package_metadata_clone.package_name.clone(),
-                        package_metadata_clone.version.clone(),
-                        package_metadata_clone.description.clone(),
-                        package_metadata_clone.author.clone(),
-                        metadata_json,
-                    );
+                    let package_uuid = Uuid::new_v4();
+                    let package_id_blob = uuid_to_blob(&package_uuid);
 
-                    let package_entry: crate::models::workflow_packages::WorkflowPackage =
+                    let new_package = NewSqliteWorkflowPackage {
+                        id: package_id_blob,
+                        registry_id: registry_id_blob,
+                        package_name: package_metadata_clone.package_name.clone(),
+                        version: package_metadata_clone.version.clone(),
+                        description: package_metadata_clone.description.clone(),
+                        author: package_metadata_clone.author.clone(),
+                        metadata: metadata_json,
+                        created_at: now.clone(),
+                        updated_at: now,
+                    };
+
+                    let package_entry: SqliteWorkflowPackage =
                         diesel::insert_into(workflow_packages::table)
-                            .values((
-                                workflow_packages::id.eq(&package_id),
-                                &new_package,
-                                workflow_packages::created_at.eq(&now),
-                                workflow_packages::updated_at.eq(&now),
-                            ))
+                            .values(&new_package)
                             .get_result(conn)?;
 
-                    Ok((registry_id_str, package_entry.id))
+                    let package_uuid_result = blob_to_uuid(&package_entry.id)
+                        .map_err(|_| Error::RollbackTransaction)?;
+
+                    Ok((registry_id_str, package_uuid_result))
                 })
             })
             .await
@@ -206,7 +210,7 @@ impl WorkflowRegistryDAL {
                 _ => RegistryError::Database(format!("Database error: {}", e)),
             })?;
 
-        Ok(package_id.into())
+        Ok(package_id)
     }
 
     /// Retrieve a workflow package by UUID.
@@ -242,20 +246,19 @@ impl WorkflowRegistryDAL {
             use diesel::prelude::*;
 
             let conn =
-                self.dal.database.pool().get().await.map_err(|e| {
+                self.dal.pool.get().await.map_err(|e| {
                     RegistryError::Database(format!("Failed to get connection: {}", e))
                 })?;
 
             let registry_uuid =
                 Uuid::parse_str(&registry_id).map_err(RegistryError::InvalidUuid)?;
-            let registry_universal_uuid =
-                crate::database::universal_types::UniversalUuid::from(registry_uuid);
+            let registry_id_blob = uuid_to_blob(&registry_uuid);
 
-            let entry: Option<crate::models::workflow_registry::WorkflowRegistryEntry> = conn
+            let entry: Option<SqliteWorkflowRegistryEntry> = conn
                 .interact(move |conn| {
                     workflow_registry::table
-                        .filter(workflow_registry::id.eq(&registry_universal_uuid))
-                        .first::<crate::models::workflow_registry::WorkflowRegistryEntry>(conn)
+                        .filter(workflow_registry::id.eq(&registry_id_blob))
+                        .first::<SqliteWorkflowRegistryEntry>(conn)
                         .optional()
                 })
                 .await
@@ -311,7 +314,7 @@ impl WorkflowRegistryDAL {
             use diesel::prelude::*;
 
             let conn =
-                self.dal.database.pool().get().await.map_err(|e| {
+                self.dal.pool.get().await.map_err(|e| {
                     RegistryError::Database(format!("Failed to get connection: {}", e))
                 })?;
 
@@ -326,19 +329,18 @@ impl WorkflowRegistryDAL {
                 RegistryError::InvalidUuid(e)
             })?;
             tracing::debug!("Successfully parsed UUID: {}", registry_uuid);
-            let registry_universal_uuid =
-                crate::database::universal_types::UniversalUuid::from(registry_uuid);
+            let registry_id_blob = uuid_to_blob(&registry_uuid);
 
             tracing::debug!(
                 "Querying workflow_registry table for UUID: {}",
-                registry_universal_uuid
+                registry_uuid
             );
 
-            let entry: Option<crate::models::workflow_registry::WorkflowRegistryEntry> = conn
+            let entry: Option<SqliteWorkflowRegistryEntry> = conn
                 .interact(move |conn| {
                     workflow_registry::table
-                        .filter(workflow_registry::id.eq(&registry_universal_uuid))
-                        .first::<crate::models::workflow_registry::WorkflowRegistryEntry>(conn)
+                        .filter(workflow_registry::id.eq(&registry_id_blob))
+                        .first::<SqliteWorkflowRegistryEntry>(conn)
                         .optional()
                 })
                 .await
@@ -398,21 +400,20 @@ impl WorkflowRegistryDAL {
             // 3. Delete workflow_registry entry
             use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
-            use uuid::Uuid;
 
             let conn =
-                self.dal.database.pool().get().await.map_err(|e| {
+                self.dal.pool.get().await.map_err(|e| {
                     RegistryError::Database(format!("Failed to get connection: {}", e))
                 })?;
 
             let registry_uuid = Uuid::parse_str(&registry_id)
                 .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
-            let uuid_param = crate::database::universal_types::UniversalUuid::from(registry_uuid);
+            let registry_id_blob = uuid_to_blob(&registry_uuid);
 
             let _ = conn
                 .interact(move |conn| {
                     diesel::delete(
-                        workflow_registry::table.filter(workflow_registry::id.eq(uuid_param)),
+                        workflow_registry::table.filter(workflow_registry::id.eq(registry_id_blob)),
                     )
                     .execute(conn)
                 })
@@ -469,21 +470,20 @@ impl WorkflowRegistryDAL {
             // 3. Delete workflow_registry entry
             use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
-            use uuid::Uuid;
 
             let conn =
-                self.dal.database.pool().get().await.map_err(|e| {
+                self.dal.pool.get().await.map_err(|e| {
                     RegistryError::Database(format!("Failed to get connection: {}", e))
                 })?;
 
             let registry_uuid = Uuid::parse_str(&registry_id)
                 .map_err(|e| RegistryError::Database(format!("Invalid registry UUID: {}", e)))?;
-            let uuid_param = crate::database::universal_types::UniversalUuid::from(registry_uuid);
+            let registry_id_blob = uuid_to_blob(&registry_uuid);
 
             let _ = conn
                 .interact(move |conn| {
                     diesel::delete(
-                        workflow_registry::table.filter(workflow_registry::id.eq(uuid_param)),
+                        workflow_registry::table.filter(workflow_registry::id.eq(registry_id_blob)),
                     )
                     .execute(conn)
                 })

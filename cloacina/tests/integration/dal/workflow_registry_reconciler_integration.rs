@@ -20,7 +20,6 @@ use crate::fixtures::get_or_init_fixture;
 use cloacina::packaging::{package_workflow, CompileOptions};
 use cloacina::registry::traits::WorkflowRegistry;
 use serial_test::serial;
-use std::sync::Arc;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -77,7 +76,7 @@ async fn test_dal_register_then_reconciler_load() {
 
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let package_id = registry_dal
@@ -171,7 +170,7 @@ async fn test_dal_register_then_get_workflow_package_by_id_failure_case() {
 
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let package_id = registry_dal

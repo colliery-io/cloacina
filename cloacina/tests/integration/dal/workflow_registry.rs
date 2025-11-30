@@ -18,7 +18,6 @@ use crate::fixtures::get_or_init_fixture;
 use cloacina::packaging::{package_workflow, CompileOptions};
 use cloacina::registry::error::RegistryError;
 use serial_test::serial;
-use std::sync::Arc;
 use uuid::Uuid;
 
 fn create_mock_package() -> Vec<u8> {
@@ -76,7 +75,7 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -110,7 +109,7 @@ async fn test_register_and_get_workflow_package_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -153,7 +152,7 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -194,7 +193,7 @@ async fn test_get_workflow_package_by_name_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -244,7 +243,7 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
@@ -282,7 +281,7 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
@@ -329,7 +328,7 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
@@ -376,7 +375,7 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
@@ -432,7 +431,7 @@ async fn test_list_packages_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Get initial count
@@ -472,7 +471,7 @@ async fn test_list_packages_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Get initial count
@@ -521,7 +520,7 @@ async fn test_register_duplicate_package_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -558,7 +557,7 @@ async fn test_register_duplicate_package_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
@@ -604,7 +603,7 @@ async fn test_exists_operations_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Check non-existent package
@@ -652,7 +651,7 @@ async fn test_exists_operations_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Check non-existent package
@@ -709,7 +708,7 @@ async fn test_get_nonexistent_package_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let registry_dal = dal.workflow_registry(storage);
 
     let fake_id = Uuid::new_v4();
@@ -738,7 +737,7 @@ async fn test_get_nonexistent_package_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let registry_dal = dal.workflow_registry(storage);
 
     let fake_id = Uuid::new_v4();
@@ -776,7 +775,7 @@ async fn test_unregister_nonexistent_package_with_db_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let fake_id = Uuid::new_v4();
@@ -809,7 +808,7 @@ async fn test_unregister_nonexistent_package_with_fs_storage() {
     fixture.initialize().await;
 
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_filesystem_storage());
+    let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let fake_id = Uuid::new_v4();

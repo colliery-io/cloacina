@@ -16,7 +16,6 @@
 
 //! Integration tests for multi-tenant functionality
 
-#[cfg(feature = "postgres")]
 mod postgres_multi_tenant_tests {
     use cloacina::runner::DefaultRunner;
     use cloacina::PipelineError;
@@ -98,7 +97,6 @@ mod postgres_multi_tenant_tests {
     }
 }
 
-#[cfg(feature = "sqlite")]
 mod sqlite_multi_tenant_tests {
     use cloacina::runner::DefaultRunner;
 

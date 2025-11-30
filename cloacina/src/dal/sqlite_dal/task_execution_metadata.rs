@@ -28,8 +28,9 @@
 //! - Creation and update timestamps
 
 use super::DAL;
+use super::models::{NewSqliteTaskExecutionMetadata, SqliteTaskExecutionMetadata, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::task_execution_metadata;
-use crate::database::universal_types::{current_timestamp, UniversalUuid};
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
 use diesel::prelude::*;
@@ -59,33 +60,39 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
 
         // For SQLite, we need to manually generate the UUID and timestamps
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp();
+        let now = current_timestamp_string();
 
-        // Insert with explicit values for SQLite
+        // Create SQLite-specific model
+        let new_sqlite_metadata = NewSqliteTaskExecutionMetadata {
+            id: uuid_to_blob(&id.0),
+            task_execution_id: uuid_to_blob(&new_metadata.task_execution_id.0),
+            pipeline_execution_id: uuid_to_blob(&new_metadata.pipeline_execution_id.0),
+            task_name: new_metadata.task_name,
+            context_id: new_metadata.context_id.map(|c| uuid_to_blob(&c.0)),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        // Insert with SQLite-specific types
         conn.interact(move |conn| {
             diesel::insert_into(task_execution_metadata::table)
-                .values((
-                    task_execution_metadata::id.eq(&id),
-                    task_execution_metadata::task_execution_id.eq(&new_metadata.task_execution_id),
-                    task_execution_metadata::pipeline_execution_id
-                        .eq(&new_metadata.pipeline_execution_id),
-                    task_execution_metadata::task_name.eq(&new_metadata.task_name),
-                    task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                    task_execution_metadata::created_at.eq(&now),
-                    task_execution_metadata::updated_at.eq(&now),
-                ))
+                .values(&new_sqlite_metadata)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         // Retrieve the inserted record
-        let metadata = conn
-            .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+        let metadata: SqliteTaskExecutionMetadata = conn
+            .interact(move |conn| {
+                task_execution_metadata::table
+                    .filter(task_execution_metadata::id.eq(uuid_to_blob(&id.0)))
+                    .first(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(metadata.into())
     }
 
     /// Retrieves task execution metadata for a specific pipeline and task
@@ -105,17 +112,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         // Convert TaskNamespace to string for database query
         let task_name = task_namespace.to_string();
 
-        let metadata = conn
+        let metadata: SqliteTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_to_blob(&pipeline_id.0)))
                     .filter(task_execution_metadata::task_name.eq(task_name))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(metadata.into())
     }
 
     /// Retrieves task execution metadata by task execution ID
@@ -131,16 +138,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self.dal.pool.get().await?;
 
-        let metadata = conn
+        let metadata: SqliteTaskExecutionMetadata = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+                    .filter(task_execution_metadata::task_execution_id.eq(uuid_to_blob(&task_execution_id.0)))
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(metadata.into())
     }
 
     /// Updates the context ID for a specific task execution
@@ -157,13 +164,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let context_id_blob = context_id.map(|c| uuid_to_blob(&c.0));
 
         conn.interact(move |conn| {
             diesel::update(task_execution_metadata::table)
-                .filter(task_execution_metadata::task_execution_id.eq(task_execution_id))
+                .filter(task_execution_metadata::task_execution_id.eq(uuid_to_blob(&task_execution_id.0)))
                 .set((
-                    task_execution_metadata::context_id.eq(context_id),
-                    task_execution_metadata::updated_at.eq(current_timestamp()),
+                    task_execution_metadata::context_id.eq(context_id_blob),
+                    task_execution_metadata::updated_at.eq(current_timestamp_string()),
                 ))
                 .execute(conn)
         })
@@ -188,17 +196,15 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         let conn = self.dal.pool.get().await?;
+        let task_execution_id_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
 
         // SQLite doesn't support ON CONFLICT DO UPDATE with RETURNING
         // So we need to check if the record exists first
         let existing = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(
-                        task_execution_metadata::task_execution_id
-                            .eq(&new_metadata.task_execution_id),
-                    )
-                    .first::<TaskExecutionMetadata>(conn)
+                    .filter(task_execution_metadata::task_execution_id.eq(&task_execution_id_blob))
+                    .first::<SqliteTaskExecutionMetadata>(conn)
                     .optional()
             })
             .await
@@ -207,15 +213,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         match existing {
             Some(_) => {
                 // Update existing record
+                let task_execution_id_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
+                let context_id_blob = new_metadata.context_id.map(|c| uuid_to_blob(&c.0));
                 conn.interact(move |conn| {
                     diesel::update(task_execution_metadata::table)
-                        .filter(
-                            task_execution_metadata::task_execution_id
-                                .eq(&new_metadata.task_execution_id),
-                        )
+                        .filter(task_execution_metadata::task_execution_id.eq(&task_execution_id_blob))
                         .set((
-                            task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                            task_execution_metadata::updated_at.eq(current_timestamp()),
+                            task_execution_metadata::context_id.eq(context_id_blob),
+                            task_execution_metadata::updated_at.eq(current_timestamp_string()),
                         ))
                         .execute(conn)
                 })
@@ -223,46 +228,53 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
                 .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
                 // Retrieve the updated record
-                Ok(conn
+                let task_execution_id_blob = uuid_to_blob(&new_metadata.task_execution_id.0);
+                let metadata: SqliteTaskExecutionMetadata = conn
                     .interact(move |conn| {
                         task_execution_metadata::table
-                            .filter(
-                                task_execution_metadata::task_execution_id
-                                    .eq(&new_metadata.task_execution_id),
-                            )
+                            .filter(task_execution_metadata::task_execution_id.eq(&task_execution_id_blob))
                             .first(conn)
                     })
                     .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+                Ok(metadata.into())
             }
             None => {
                 // Create new record
                 let id = UniversalUuid::new_v4();
-                let now = current_timestamp();
+                let now = current_timestamp_string();
+
+                let new_sqlite_metadata = NewSqliteTaskExecutionMetadata {
+                    id: uuid_to_blob(&id.0),
+                    task_execution_id: uuid_to_blob(&new_metadata.task_execution_id.0),
+                    pipeline_execution_id: uuid_to_blob(&new_metadata.pipeline_execution_id.0),
+                    task_name: new_metadata.task_name,
+                    context_id: new_metadata.context_id.map(|c| uuid_to_blob(&c.0)),
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
 
                 conn.interact(move |conn| {
                     diesel::insert_into(task_execution_metadata::table)
-                        .values((
-                            task_execution_metadata::id.eq(&id),
-                            task_execution_metadata::task_execution_id
-                                .eq(&new_metadata.task_execution_id),
-                            task_execution_metadata::pipeline_execution_id
-                                .eq(&new_metadata.pipeline_execution_id),
-                            task_execution_metadata::task_name.eq(&new_metadata.task_name),
-                            task_execution_metadata::context_id.eq(&new_metadata.context_id),
-                            task_execution_metadata::created_at.eq(&now),
-                            task_execution_metadata::updated_at.eq(&now),
-                        ))
+                        .values(&new_sqlite_metadata)
                         .execute(conn)
                 })
                 .await
                 .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
                 // Retrieve the inserted record
-                Ok(conn
-                    .interact(move |conn| task_execution_metadata::table.find(id).first(conn))
+                let id_blob = uuid_to_blob(&id.0);
+                let metadata: SqliteTaskExecutionMetadata = conn
+                    .interact(move |conn| {
+                        task_execution_metadata::table
+                            .filter(task_execution_metadata::id.eq(id_blob))
+                            .first(conn)
+                    })
                     .await
-                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??)
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+                Ok(metadata.into())
             }
         }
     }
@@ -283,17 +295,17 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         let conn = self.dal.pool.get().await?;
         let dependency_task_names = dependency_task_names.to_vec();
 
-        let metadata = conn
+        let metadata: Vec<SqliteTaskExecutionMetadata> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_to_blob(&pipeline_id.0)))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(metadata)
+        Ok(metadata.into_iter().map(|m| m.into()).collect())
     }
 
     /// Retrieves metadata and context data for multiple dependency tasks in a single query.
@@ -328,24 +340,24 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .map(|ns| ns.to_string())
             .collect();
 
-        let results = conn
+        let results: Vec<(SqliteTaskExecutionMetadata, Option<String>)> = conn
             .interact(move |conn| {
                 task_execution_metadata::table
                     .left_join(
                         contexts::table
                             .on(task_execution_metadata::context_id.eq(contexts::id.nullable())),
                     )
-                    .filter(task_execution_metadata::pipeline_execution_id.eq(pipeline_id))
+                    .filter(task_execution_metadata::pipeline_execution_id.eq(uuid_to_blob(&pipeline_id.0)))
                     .filter(task_execution_metadata::task_name.eq_any(dependency_task_names))
                     .select((
                         task_execution_metadata::all_columns,
                         contexts::value.nullable(),
                     ))
-                    .load::<(TaskExecutionMetadata, Option<String>)>(conn)
+                    .load(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(results)
+        Ok(results.into_iter().map(|(m, v)| (m.into(), v)).collect())
     }
 }

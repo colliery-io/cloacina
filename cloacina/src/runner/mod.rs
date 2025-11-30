@@ -24,5 +24,4 @@ pub mod default_runner;
 
 pub use default_runner::{DefaultRunner, DefaultRunnerConfig};
 
-#[cfg(feature = "postgres")]
 pub use default_runner::DefaultRunnerBuilder;

@@ -29,11 +29,12 @@
 //! The module uses Diesel ORM for database operations and supports atomic updates
 //! for schedule timing information.
 
+use super::models::{NewPgCronSchedule, PgCronSchedule};
 use super::DAL;
 use crate::database::schema::postgres::cron_schedules;
-use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
-use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
+use crate::models::cron_schedule::CronSchedule;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use uuid::Uuid;
@@ -57,7 +58,7 @@ impl<'a> CronScheduleDAL<'a> {
     /// * `Result<CronSchedule, ValidationError>` - The created cron schedule record
     pub async fn create(
         &self,
-        new_schedule: NewCronSchedule,
+        new_schedule: crate::models::cron_schedule::NewCronSchedule,
     ) -> Result<CronSchedule, ValidationError> {
         let conn = self
             .dal
@@ -66,16 +67,27 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedule: CronSchedule = conn
+        let pg_new = NewPgCronSchedule {
+            workflow_name: new_schedule.workflow_name,
+            cron_expression: new_schedule.cron_expression,
+            timezone: new_schedule.timezone.unwrap_or_else(|| "UTC".to_string()),
+            enabled: new_schedule.enabled.map(|b| b.0).unwrap_or(true),
+            catchup_policy: new_schedule.catchup_policy.unwrap_or_else(|| "skip".to_string()),
+            start_date: new_schedule.start_date.map(|ts| ts.0.naive_utc()),
+            end_date: new_schedule.end_date.map(|ts| ts.0.naive_utc()),
+            next_run_at: new_schedule.next_run_at.0.naive_utc(),
+        };
+
+        let pg_schedule: PgCronSchedule = conn
             .interact(move |conn| {
                 diesel::insert_into(cron_schedules::table)
-                    .values(&new_schedule)
+                    .values(&pg_new)
                     .get_result(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(schedule)
+        Ok(pg_schedule.into())
     }
 
     /// Retrieves a cron schedule by its ID.
@@ -92,13 +104,13 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
+        let uuid_id: Uuid = id.0;
 
-        let schedule = conn
+        let pg_schedule: PgCronSchedule = conn
             .interact(move |conn| cron_schedules::table.find(uuid_id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-        Ok(schedule)
+        Ok(pg_schedule.into())
     }
 
     /// Retrieves all enabled cron schedules that are due for execution.
@@ -124,15 +136,15 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let now_ts = UniversalTimestamp(now);
+        let now_ts = now.naive_utc();
 
-        let schedules = conn
+        let pg_schedules: Vec<PgCronSchedule> = conn
             .interact(move |conn| {
                 // Set transaction isolation level to serializable
                 diesel::sql_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(conn)?;
 
                 let schedules = cron_schedules::table
-                    .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
+                    .filter(cron_schedules::enabled.eq(true))
                     .filter(cron_schedules::next_run_at.le(now_ts))
                     .filter(
                         cron_schedules::start_date
@@ -152,7 +164,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(schedules)
+        Ok(pg_schedules.into_iter().map(Into::into).collect())
     }
 
     /// Updates the last run and next run times for a cron schedule.
@@ -178,17 +190,16 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let last_run_ts = UniversalTimestamp(last_run);
-        let next_run_ts = UniversalTimestamp(next_run);
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
+        let last_run_ts = last_run.naive_utc();
+        let next_run_ts = next_run.naive_utc();
 
         conn.interact(move |conn| {
             diesel::update(cron_schedules::table.find(uuid_id))
                 .set((
                     cron_schedules::last_run_at.eq(Some(last_run_ts)),
                     cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::updated_at.eq(diesel::dsl::now),
                 ))
                 .execute(conn)
         })
@@ -221,9 +232,8 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let next_run_ts = UniversalTimestamp(next_run);
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
+        let next_run_ts = next_run.naive_utc();
 
         // Convert optional references to owned strings for the closure
         let cron_expr_owned = cron_expression.map(|s| s.to_string());
@@ -240,7 +250,7 @@ impl<'a> CronScheduleDAL<'a> {
                         cron_schedules::cron_expression.eq(expr),
                         cron_schedules::timezone.eq(tz),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(diesel::dsl::now),
                     ))
                     .execute(conn)
             } else if let Some(ref expr) = &cron_expr_owned {
@@ -249,7 +259,7 @@ impl<'a> CronScheduleDAL<'a> {
                     .set((
                         cron_schedules::cron_expression.eq(expr),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(diesel::dsl::now),
                     ))
                     .execute(conn)
             } else if let Some(ref tz) = &timezone_owned {
@@ -258,7 +268,7 @@ impl<'a> CronScheduleDAL<'a> {
                     .set((
                         cron_schedules::timezone.eq(tz),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(diesel::dsl::now),
                     ))
                     .execute(conn)
             } else {
@@ -266,7 +276,7 @@ impl<'a> CronScheduleDAL<'a> {
                 query
                     .set((
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(diesel::dsl::now),
                     ))
                     .execute(conn)
             }
@@ -291,14 +301,13 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
 
         conn.interact(move |conn| {
             diesel::update(cron_schedules::table.find(uuid_id))
                 .set((
-                    cron_schedules::enabled.eq(UniversalBool::new(true)),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::enabled.eq(true),
+                    cron_schedules::updated_at.eq(diesel::dsl::now),
                 ))
                 .execute(conn)
         })
@@ -322,14 +331,13 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
 
         conn.interact(move |conn| {
             diesel::update(cron_schedules::table.find(uuid_id))
                 .set((
-                    cron_schedules::enabled.eq(UniversalBool::new(false)),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::enabled.eq(false),
+                    cron_schedules::updated_at.eq(diesel::dsl::now),
                 ))
                 .execute(conn)
         })
@@ -353,7 +361,7 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
+        let uuid_id: Uuid = id.0;
 
         conn.interact(move |conn| {
             diesel::delete(cron_schedules::table.find(uuid_id)).execute(conn)
@@ -385,12 +393,12 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedules = conn
+        let pg_schedules: Vec<PgCronSchedule> = conn
             .interact(move |conn| {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
+                    query = query.filter(cron_schedules::enabled.eq(true));
                 }
 
                 query
@@ -402,7 +410,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(schedules)
+        Ok(pg_schedules.into_iter().map(Into::into).collect())
     }
 
     /// Finds cron schedules by workflow name.
@@ -424,7 +432,7 @@ impl<'a> CronScheduleDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
         let workflow_name = workflow_name.to_string();
 
-        let schedules = conn
+        let pg_schedules: Vec<PgCronSchedule> = conn
             .interact(move |conn| {
                 cron_schedules::table
                     .filter(cron_schedules::workflow_name.eq(workflow_name))
@@ -434,7 +442,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(schedules)
+        Ok(pg_schedules.into_iter().map(Into::into).collect())
     }
 
     /// Updates the next run time for a cron schedule.
@@ -458,15 +466,14 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let next_run_ts = UniversalTimestamp(next_run);
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
+        let next_run_ts = next_run.naive_utc();
 
         conn.interact(move |conn| {
             diesel::update(cron_schedules::table.find(uuid_id))
                 .set((
                     cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::updated_at.eq(diesel::dsl::now),
                 ))
                 .execute(conn)
         })
@@ -516,11 +523,10 @@ impl<'a> CronScheduleDAL<'a> {
             .get_connection_with_schema()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-        let uuid_id: Uuid = id.into();
-        let current_ts = UniversalTimestamp(current_time);
-        let last_run_ts = UniversalTimestamp(last_run);
-        let next_run_ts = UniversalTimestamp(next_run);
-        let now_ts = UniversalTimestamp::now();
+        let uuid_id: Uuid = id.0;
+        let current_ts = current_time.naive_utc();
+        let last_run_ts = last_run.naive_utc();
+        let next_run_ts = next_run.naive_utc();
 
         // Atomic update: only update if schedule is still due and enabled
         let updated_rows = conn
@@ -530,11 +536,11 @@ impl<'a> CronScheduleDAL<'a> {
 
                 let updated_rows = diesel::update(cron_schedules::table.find(uuid_id))
                     .filter(cron_schedules::next_run_at.le(current_ts))
-                    .filter(cron_schedules::enabled.eq(UniversalBool::new(true)))
+                    .filter(cron_schedules::enabled.eq(true))
                     .set((
                         cron_schedules::last_run_at.eq(Some(last_run_ts)),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(diesel::dsl::now),
                     ))
                     .execute(conn)?;
 
@@ -567,7 +573,7 @@ impl<'a> CronScheduleDAL<'a> {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(UniversalBool::new(true)));
+                    query = query.filter(cron_schedules::enabled.eq(true));
                 }
 
                 query.count().first(conn)

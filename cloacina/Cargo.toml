@@ -13,7 +13,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["macros"]
+default = ["macros", "postgres", "sqlite"]
 postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres"]
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]

@@ -16,7 +16,6 @@
 
 // Schema selection based on backend feature flags
 
-#[cfg(feature = "postgres")]
 mod postgres_schema {
     // PostgreSQL schema using native types
     diesel::table! {
@@ -186,14 +185,9 @@ mod postgres_schema {
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_tokens -> auth_tokens (created_by_token_id));
-
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_audit_log -> auth_tokens (token_id));
-
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_audit_log -> auth_tokens (actor_token_id));
+    // Auth table relationships - using allow_tables_to_appear_in_same_query instead
+    // of joinable! to avoid conflicts with multiple foreign keys to same table.
+    // Manual join syntax should be used in queries when joining auth tables.
 
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
@@ -224,7 +218,6 @@ mod postgres_schema {
     );
 }
 
-#[cfg(feature = "sqlite")]
 mod sqlite_schema {
     // SQLite schema with appropriate type mappings
     diesel::table! {
@@ -374,20 +367,12 @@ mod sqlite_schema {
 
 // Re-export the appropriate schema based on feature flags
 
-// Always export backend-specific modules when the feature is enabled
-#[cfg(feature = "postgres")]
+// Always export backend-specific modules under namespaces
+// Use schema::postgres::* or schema::sqlite::* to access tables
 pub mod postgres {
     pub use super::postgres_schema::*;
 }
 
-#[cfg(feature = "sqlite")]
 pub mod sqlite {
     pub use super::sqlite_schema::*;
 }
-
-// For single-backend builds, also re-export at root level for convenience/backward compat
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-pub use postgres_schema::*;
-
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub use sqlite_schema::*;

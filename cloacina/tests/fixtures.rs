@@ -24,8 +24,14 @@
 //!
 //! It includes basic functionality to set up test contexts for testing,
 //! similar to brokkr's ergonomic testing framework.
+//!
+//! # Dual-Backend Support
+//!
+//! When both PostgreSQL and SQLite features are enabled, the test fixture
+//! defaults to PostgreSQL. Set the environment variable `TEST_DATABASE_BACKEND=sqlite`
+//! to use SQLite instead.
 
-use cloacina::database::connection::{Database, DbConnection};
+use cloacina::database::connection::Database;
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
@@ -34,9 +40,7 @@ use std::sync::{Arc, Mutex, Once};
 use tracing::info;
 use uuid;
 
-#[cfg(feature = "postgres")]
 use diesel::pg::PgConnection;
-#[cfg(feature = "sqlite")]
 use diesel::sqlite::SqliteConnection;
 
 static INIT: Once = Once::new();
@@ -47,65 +51,83 @@ static FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 /// This function ensures only one test fixture exists across all tests,
 /// initializing it if necessary.
 ///
+/// # Backend Selection
+///
+/// - In single-backend builds, uses the enabled backend
+/// - In dual-backend builds, defaults to PostgreSQL unless `TEST_DATABASE_BACKEND=sqlite`
+///
 /// # Returns
 /// An Arc<Mutex<TestFixture>> pointing to the shared test fixture instance
 pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
     FIXTURE
         .get_or_init(|| {
-            #[cfg(feature = "postgres")]
-            {
-                let db =
-                    Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-                let conn =
-                    PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
-                        .expect("Failed to connect to PostgreSQL database");
-                Arc::new(Mutex::new(TestFixture::new(db, conn)))
-            }
-            #[cfg(feature = "sqlite")]
-            {
-                // Use file:memdb1?mode=memory&cache=shared for shared in-memory database
-                // This ensures all connections share the same database
+            // Check environment variable for backend selection
+            let backend = std::env::var("TEST_DATABASE_BACKEND")
+                .unwrap_or_else(|_| "postgres".to_string());
+
+            if backend == "sqlite" {
                 let db_url = "file:memdb1?mode=memory&cache=shared";
                 let db = Database::new(db_url, "", 5);
                 let conn = SqliteConnection::establish(db_url)
                     .expect("Failed to connect to SQLite database");
-                Arc::new(Mutex::new(TestFixture::new(db, conn)))
+                Arc::new(Mutex::new(TestFixture::new_sqlite(db, conn)))
+            } else {
+                let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+                let conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
+                    .expect("Failed to connect to PostgreSQL database");
+                Arc::new(Mutex::new(TestFixture::new_postgres(db, conn)))
             }
         })
         .clone()
 }
 
 /// Represents a test fixture for the Cloacina project.
+///
+/// The fixture supports both PostgreSQL and SQLite backends. In dual-backend builds,
+/// it stores the connection in a backend-specific variant.
 #[allow(dead_code)]
 pub struct TestFixture {
     /// Flag indicating if the fixture has been initialized
     initialized: bool,
     /// Database connection pool
     db: Database,
-    /// Direct database connection for migrations
-    conn: DbConnection,
+    /// PostgreSQL connection (when using PostgreSQL backend)
+    pg_conn: Option<PgConnection>,
+    /// SQLite connection (when using SQLite backend)
+    sqlite_conn: Option<SqliteConnection>,
 }
 
 impl TestFixture {
-    /// Creates a new TestFixture instance.
-    pub fn new(db: Database, conn: DbConnection) -> Self {
+    /// Creates a new TestFixture instance for PostgreSQL
+    pub fn new_postgres(db: Database, conn: PgConnection) -> Self {
         INIT.call_once(|| {
-            // Initialize logging
             cloacina::init_logging(None);
         });
 
-        info!("Test fixture created");
+        info!("Test fixture created (PostgreSQL)");
 
         TestFixture {
             initialized: false,
             db,
-            conn,
+            pg_conn: Some(conn),
+            sqlite_conn: None,
         }
     }
 
-    /// Get a mutable reference to the database connection
-    pub fn get_connection(&mut self) -> &mut DbConnection {
-        &mut self.conn
+    /// Creates a new TestFixture instance for SQLite
+    pub fn new_sqlite(db: Database, conn: SqliteConnection) -> Self {
+        INIT.call_once(|| {
+            cloacina::init_logging(None);
+        });
+
+        info!("Test fixture created (SQLite)");
+
+        TestFixture {
+            initialized: false,
+            db,
+            pg_conn: None,
+            sqlite_conn: Some(conn),
+        }
     }
 
     /// Get a DAL instance using the database
@@ -120,50 +142,47 @@ impl TestFixture {
 
     /// Get the database URL for this fixture
     pub fn get_database_url(&self) -> String {
-        #[cfg(feature = "postgres")]
-        {
-            "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string()
-        }
-        #[cfg(feature = "sqlite")]
-        {
-            "file:memdb1?mode=memory&cache=shared".to_string()
+        match self.db.backend() {
+            cloacina::database::BackendType::Postgres => {
+                "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string()
+            }
+            cloacina::database::BackendType::Sqlite => {
+                "file:memdb1?mode=memory&cache=shared".to_string()
+            }
         }
     }
 
     /// Get the name of the current backend (postgres or sqlite)
     pub fn get_current_backend(&self) -> &'static str {
-        #[cfg(feature = "postgres")]
-        {
-            "postgres"
-        }
-        #[cfg(feature = "sqlite")]
-        {
-            "sqlite"
+        match self.db.backend() {
+            cloacina::database::BackendType::Postgres => "postgres",
+            cloacina::database::BackendType::Sqlite => "sqlite",
         }
     }
 
-    /// Create a storage backend using this fixture's database
-    /// Returns the appropriate backend based on active feature flags
-    #[cfg(feature = "postgres")]
+    /// Create a PostgreSQL storage backend using this fixture's database (primary storage method)
     pub fn create_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
         cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
     }
 
-    /// Create a storage backend using this fixture's database
-    /// Returns the appropriate backend based on active feature flags
-    #[cfg(feature = "sqlite")]
-    pub fn create_storage(&self) -> cloacina::dal::SqliteRegistryStorage {
-        cloacina::dal::SqliteRegistryStorage::new(self.db.clone())
+    /// Create storage backend matching the current database backend
+    pub fn create_backend_storage(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage> {
+        match self.db.backend() {
+            cloacina::database::BackendType::Postgres => {
+                Box::new(cloacina::dal::PostgresRegistryStorage::new(self.db.clone()))
+            }
+            cloacina::database::BackendType::Sqlite => {
+                Box::new(cloacina::dal::SqliteRegistryStorage::new(self.db.clone()))
+            }
+        }
     }
 
     /// Create a PostgreSQL storage backend using this fixture's database
-    #[cfg(feature = "postgres")]
     pub fn create_postgres_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
         cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
     }
 
     /// Create a SQLite storage backend using this fixture's database
-    #[cfg(feature = "sqlite")]
     pub fn create_sqlite_storage(&self) -> cloacina::dal::SqliteRegistryStorage {
         cloacina::dal::SqliteRegistryStorage::new(self.db.clone())
     }
@@ -178,16 +197,25 @@ impl TestFixture {
 
     /// Initialize the fixture with additional setup
     pub async fn initialize(&mut self) {
-        // Initialize the database schema
-        cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
-        self.initialized = true;
+        // Initialize the database schema based on the backend
+        if let Some(ref mut conn) = self.pg_conn {
+            cloacina::database::run_migrations_postgres(conn)
+                .expect("Failed to run PostgreSQL migrations");
+            self.initialized = true;
+            return;
+        }
+
+        if let Some(ref mut conn) = self.sqlite_conn {
+            cloacina::database::run_migrations_sqlite(conn)
+                .expect("Failed to run SQLite migrations");
+            self.initialized = true;
+            return;
+        }
     }
 
     /// Reset the database by dropping and recreating it
     pub async fn reset_database(&mut self) {
-        // For PostgreSQL, we need to properly handle connection termination
-        #[cfg(feature = "postgres")]
-        {
+        if self.pg_conn.is_some() {
             use diesel::Connection;
 
             // Connect to the 'postgres' database to perform admin operations
@@ -218,15 +246,16 @@ impl TestFixture {
                     .expect("Failed to connect to PostgreSQL database");
 
             // Run migrations
-            cloacina::database::run_migrations(&mut conn).expect("Failed to run migrations");
+            cloacina::database::run_migrations_postgres(&mut conn)
+                .expect("Failed to run migrations");
 
             // Update the fixture's connections
             self.db = db;
-            self.conn = conn;
+            self.pg_conn = Some(conn);
+            return;
         }
 
-        #[cfg(feature = "sqlite")]
-        {
+        if let Some(ref mut conn) = self.sqlite_conn {
             // For SQLite, clear all tables first, then run migrations
             use diesel::sql_query;
 
@@ -241,18 +270,19 @@ impl TestFixture {
             let tables_result: Result<Vec<TableName>, _> = sql_query(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'"
             )
-            .load::<TableName>(&mut self.conn);
+            .load::<TableName>(conn);
 
             if let Ok(table_rows) = tables_result {
                 // Clear all user tables
                 for table_row in table_rows {
                     let _ = sql_query(&format!("DELETE FROM {}", table_row.name))
-                        .execute(&mut self.conn);
+                        .execute(conn);
                 }
             }
 
             // Run migrations to ensure schema is up to date
-            cloacina::database::run_migrations(&mut self.conn).expect("Failed to run migrations");
+            cloacina::database::run_migrations_sqlite(conn)
+                .expect("Failed to run migrations");
         }
     }
 }
@@ -266,7 +296,7 @@ impl Drop for TestFixture {
 
 #[derive(QueryableByName)]
 struct TableCount {
-    #[diesel(sql_type = diesel::sql_types::Bigint)]
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
     count: i64,
 }
 
@@ -277,14 +307,13 @@ pub mod fixtures {
 
     #[tokio::test]
     #[serial]
-    #[cfg(feature = "postgres")]
     async fn test_migration_function_postgres() {
         let mut conn =
             PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
                 .expect("Failed to connect to database");
 
         // Test that our migration function works
-        let result = cloacina::database::run_migrations(&mut conn);
+        let result = cloacina::database::run_migrations_postgres(&mut conn);
         assert!(
             result.is_ok(),
             "Migration function should succeed: {:?}",
@@ -309,13 +338,12 @@ pub mod fixtures {
 
     #[tokio::test]
     #[serial]
-    #[cfg(feature = "sqlite")]
     async fn test_migration_function_sqlite() {
         let mut conn = SqliteConnection::establish("file:test_memdb?mode=memory&cache=shared")
             .expect("Failed to connect to database");
 
         // Test that our migration function works
-        let result = cloacina::database::run_migrations(&mut conn);
+        let result = cloacina::database::run_migrations_sqlite(&mut conn);
         assert!(
             result.is_ok(),
             "Migration function should succeed: {:?}",

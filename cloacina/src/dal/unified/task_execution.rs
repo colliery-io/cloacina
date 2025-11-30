@@ -14,11 +14,54 @@
  *  limitations under the License.
  */
 
-//! Task execution DAL for unified backend support
+//! Task Execution Data Access Layer for Unified Backend Support
+//!
+//! This module provides the data access layer for managing task executions in the pipeline system
+//! with runtime backend selection between PostgreSQL and SQLite.
+//!
+//! Key features:
+//! - Task state management (Ready, Running, Completed, Failed, Skipped)
+//! - Retry mechanism with configurable backoff
+//! - Recovery system for handling orphaned tasks
+//! - Atomic task claiming for distributed execution
+//! - Pipeline completion and failure detection
 
 use super::DAL;
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::BackendType;
+use crate::error::ValidationError;
+use crate::models::task_execution::{NewTaskExecution, TaskExecution};
+use diesel::prelude::*;
 
-/// Data access layer for task execution operations.
+use uuid::Uuid;
+
+/// Statistics about retry behavior for a pipeline execution.
+#[derive(Debug, Default)]
+pub struct RetryStats {
+    /// Number of tasks that required at least one retry.
+    pub tasks_with_retries: i32,
+    /// Total number of retry attempts across all tasks.
+    pub total_retries: i32,
+    /// Maximum number of attempts used by any single task.
+    pub max_attempts_used: i32,
+    /// Number of tasks that exhausted all retry attempts and failed.
+    pub tasks_exhausted_retries: i32,
+}
+
+/// Result structure for atomic task claiming operations.
+#[derive(Debug)]
+pub struct ClaimResult {
+    /// Unique identifier of the claimed task
+    pub id: UniversalUuid,
+    /// ID of the pipeline execution this task belongs to
+    pub pipeline_execution_id: UniversalUuid,
+    /// Name of the task that was claimed
+    pub task_name: String,
+    /// Current attempt number for this task
+    pub attempt: i32,
+}
+
+/// Data access layer for task execution operations with runtime backend selection.
 #[derive(Clone)]
 pub struct TaskExecutionDAL<'a> {
     dal: &'a DAL,
@@ -30,5 +73,1716 @@ impl<'a> TaskExecutionDAL<'a> {
         Self { dal }
     }
 
-    // TODO: Implement task execution operations with backend dispatch
+    /// Creates a new task execution record in the database.
+    pub async fn create(
+        &self,
+        new_task: NewTaskExecution,
+    ) -> Result<TaskExecution, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.create_postgres(new_task).await,
+            BackendType::Sqlite => self.create_sqlite(new_task).await,
+        }
+    }
+
+    async fn create_postgres(
+        &self,
+        new_task: NewTaskExecution,
+    ) -> Result<TaskExecution, ValidationError> {
+        use crate::dal::postgres_dal::models::{NewPgTaskExecution, PgTaskExecution};
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let new_pg_task = NewPgTaskExecution {
+            pipeline_execution_id: new_task.pipeline_execution_id.0,
+            task_name: new_task.task_name,
+            status: new_task.status,
+            attempt: new_task.attempt,
+            max_attempts: new_task.max_attempts,
+            trigger_rules: new_task.trigger_rules,
+            task_configuration: new_task.task_configuration,
+        };
+
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                diesel::insert_into(task_executions::table)
+                    .values(&new_pg_task)
+                    .get_result::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        Ok(task)
+    }
+
+    async fn create_sqlite(
+        &self,
+        new_task: NewTaskExecution,
+    ) -> Result<TaskExecution, ValidationError> {
+        use crate::dal::sqlite_dal::models::{
+            current_timestamp_string, uuid_to_blob, NewSqliteTaskExecution, SqliteTaskExecution,
+        };
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id = UniversalUuid::new_v4();
+        let now = current_timestamp_string();
+        let id_blob = uuid_to_blob(&id.0);
+        let pipeline_id_blob = uuid_to_blob(&new_task.pipeline_execution_id.0);
+
+        let sqlite_new = NewSqliteTaskExecution {
+            id: id_blob.clone(),
+            pipeline_execution_id: pipeline_id_blob,
+            task_name: new_task.task_name,
+            status: new_task.status,
+            attempt: new_task.attempt,
+            max_attempts: new_task.max_attempts,
+            trigger_rules: new_task.trigger_rules,
+            task_configuration: new_task.task_configuration,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        conn.interact(move |conn| {
+            diesel::insert_into(task_executions::table)
+                .values(&sqlite_new)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let sqlite_task: SqliteTaskExecution = conn
+            .interact(move |conn| task_executions::table.find(id_blob).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(sqlite_task.into())
+    }
+
+    /// Retrieves a specific task execution by its ID.
+    pub async fn get_by_id(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<TaskExecution, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.get_by_id_postgres(task_id).await,
+            BackendType::Sqlite => self.get_by_id_sqlite(task_id).await,
+        }
+    }
+
+    async fn get_by_id_postgres(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<TaskExecution, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(task_id.0)
+                    .first::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        Ok(task)
+    }
+
+    async fn get_by_id_sqlite(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<TaskExecution, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let task: SqliteTaskExecution = conn
+            .interact(move |conn| task_executions::table.find(id_blob).first(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(task.into())
+    }
+
+    /// Retrieves all pending (NotStarted) tasks for a specific pipeline execution.
+    pub async fn get_pending_tasks(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.get_pending_tasks_postgres(pipeline_execution_id).await,
+            BackendType::Sqlite => self.get_pending_tasks_sqlite(pipeline_execution_id).await,
+        }
+    }
+
+    async fn get_pending_tasks_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let tasks: Vec<TaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(task_executions::status.eq("NotStarted"))
+                    .load::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
+
+        Ok(tasks)
+    }
+
+    async fn get_pending_tasks_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .filter(task_executions::status.eq("NotStarted"))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// Gets all pending tasks for multiple pipelines in a single query.
+    pub async fn get_pending_tasks_batch(
+        &self,
+        pipeline_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.get_pending_tasks_batch_postgres(pipeline_execution_ids)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.get_pending_tasks_batch_sqlite(pipeline_execution_ids)
+                    .await
+            }
+        }
+    }
+
+    async fn get_pending_tasks_batch_postgres(
+        &self,
+        pipeline_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        if pipeline_execution_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_ids: Vec<Uuid> = pipeline_execution_ids
+            .into_iter()
+            .map(|id| id.into())
+            .collect();
+
+        let tasks: Vec<TaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_ids))
+                    .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
+                    .load::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
+
+        Ok(tasks)
+    }
+
+    async fn get_pending_tasks_batch_sqlite(
+        &self,
+        pipeline_execution_ids: Vec<UniversalUuid>,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        if pipeline_execution_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blobs: Vec<Vec<u8>> = pipeline_execution_ids
+            .into_iter()
+            .map(|id| uuid_to_blob(&id.0))
+            .collect();
+
+        let tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq_any(&pipeline_id_blobs))
+                    .filter(task_executions::status.eq_any(vec!["NotStarted", "Pending"]))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// Checks if all tasks in a pipeline have reached a terminal state.
+    pub async fn check_pipeline_completion(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.check_pipeline_completion_postgres(pipeline_execution_id)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.check_pipeline_completion_sqlite(pipeline_execution_id)
+                    .await
+            }
+        }
+    }
+
+    async fn check_pipeline_completion_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let incomplete_count: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(incomplete_count == 0)
+    }
+
+    async fn check_pipeline_completion_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        use crate::dal::sqlite_dal::models::uuid_to_blob;
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let incomplete_count: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .filter(task_executions::status.ne_all(vec!["Completed", "Failed", "Skipped"]))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(incomplete_count == 0)
+    }
+
+    /// Retrieves all tasks associated with a pipeline execution.
+    pub async fn get_all_tasks_for_pipeline(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.get_all_tasks_for_pipeline_postgres(pipeline_execution_id)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.get_all_tasks_for_pipeline_sqlite(pipeline_execution_id)
+                    .await
+            }
+        }
+    }
+
+    async fn get_all_tasks_for_pipeline_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let tasks: Vec<TaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .load::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
+
+        Ok(tasks)
+    }
+
+    async fn get_all_tasks_for_pipeline_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// Marks a task execution as completed.
+    pub async fn mark_completed(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.mark_completed_postgres(task_id).await,
+            BackendType::Sqlite => self.mark_completed_sqlite(task_id).await,
+        }
+    }
+
+    async fn mark_completed_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::status.eq("Completed"),
+                    task_executions::completed_at.eq(diesel::dsl::now),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn mark_completed_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob))
+                .set((
+                    task_executions::status.eq("Completed"),
+                    task_executions::completed_at.eq(Some(now.clone())),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Marks a task execution as failed with an error message.
+    pub async fn mark_failed(
+        &self,
+        task_id: UniversalUuid,
+        error_message: &str,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.mark_failed_postgres(task_id, error_message).await,
+            BackendType::Sqlite => self.mark_failed_sqlite(task_id, error_message).await,
+        }
+    }
+
+    async fn mark_failed_postgres(
+        &self,
+        task_id: UniversalUuid,
+        error_message: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let error_message_owned = error_message.to_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::status.eq("Failed"),
+                    task_executions::completed_at.eq(diesel::dsl::now),
+                    task_executions::last_error.eq(&error_message_owned),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn mark_failed_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        error_message: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let error_message_owned = error_message.to_string();
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob))
+                .set((
+                    task_executions::status.eq("Failed"),
+                    task_executions::completed_at.eq(Some(now.clone())),
+                    task_executions::last_error.eq(&error_message_owned),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Updates a task's retry schedule with a new attempt count and retry time.
+    pub async fn schedule_retry(
+        &self,
+        task_id: UniversalUuid,
+        retry_at: UniversalTimestamp,
+        new_attempt: i32,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.schedule_retry_postgres(task_id, retry_at, new_attempt)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.schedule_retry_sqlite(task_id, retry_at, new_attempt)
+                    .await
+            }
+        }
+    }
+
+    async fn schedule_retry_postgres(
+        &self,
+        task_id: UniversalUuid,
+        retry_at: UniversalTimestamp,
+        new_attempt: i32,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+        use chrono::NaiveDateTime;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let retry_time = retry_at.as_datetime().naive_utc();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::attempt.eq(new_attempt),
+                    task_executions::retry_at.eq(Some(retry_time)),
+                    task_executions::started_at.eq(None::<NaiveDateTime>),
+                    task_executions::completed_at.eq(None::<NaiveDateTime>),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn schedule_retry_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        retry_at: UniversalTimestamp,
+        new_attempt: i32,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let retry_time = retry_at.as_datetime().to_rfc3339();
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::attempt.eq(new_attempt),
+                    task_executions::retry_at.eq(Some(retry_time)),
+                    task_executions::started_at.eq(None::<String>),
+                    task_executions::completed_at.eq(None::<String>),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Atomically claims up to `limit` ready tasks for execution.
+    pub async fn claim_ready_task(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.claim_ready_task_postgres(limit).await,
+            BackendType::Sqlite => self.claim_ready_task_sqlite(limit).await,
+        }
+    }
+
+    async fn claim_ready_task_postgres(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let limit = limit as i64;
+
+        #[derive(Debug, QueryableByName)]
+        #[diesel(table_name = task_executions)]
+        #[diesel(check_for_backend(diesel::pg::Pg))]
+        struct PgClaimResult {
+            #[diesel(sql_type = diesel::sql_types::Uuid)]
+            id: Uuid,
+            #[diesel(sql_type = diesel::sql_types::Uuid)]
+            pipeline_execution_id: Uuid,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            task_name: String,
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            attempt: i32,
+        }
+
+        let pg_results: Vec<PgClaimResult> = conn
+            .interact(move |conn| {
+                diesel::sql_query(format!(
+                    r#"
+                WITH ready_tasks AS (
+                    SELECT id, pipeline_execution_id, task_name, attempt
+                    FROM task_executions
+                    WHERE status = 'Ready'
+                    AND (retry_at IS NULL OR retry_at <= NOW())
+                    ORDER BY id ASC
+                    LIMIT {}
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE task_executions
+                SET status = 'Running', started_at = NOW()
+                FROM ready_tasks
+                WHERE task_executions.id = ready_tasks.id
+                RETURNING task_executions.id, task_executions.pipeline_execution_id, task_executions.task_name, task_executions.attempt
+                "#,
+                    limit
+                ))
+                .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(pg_results
+            .into_iter()
+            .map(|pg| ClaimResult {
+                id: UniversalUuid(pg.id),
+                pipeline_execution_id: UniversalUuid(pg.pipeline_execution_id),
+                task_name: pg.task_name,
+                attempt: pg.attempt,
+            })
+            .collect())
+    }
+
+    async fn claim_ready_task_sqlite(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ClaimResult>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{
+            blob_to_uuid, current_timestamp_string, SqliteTaskExecution,
+        };
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let limit = limit as i64;
+        let now = current_timestamp_string();
+
+        // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a simpler approach
+        // This is less concurrent-safe but sufficient for single-node SQLite usage
+        let tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| -> Result<Vec<SqliteTaskExecution>, diesel::result::Error> {
+                // First, select ready tasks
+                let ready_tasks: Vec<SqliteTaskExecution> = task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(
+                        task_executions::retry_at
+                            .is_null()
+                            .or(task_executions::retry_at.le(&now)),
+                    )
+                    .limit(limit)
+                    .load(conn)?;
+
+                // Update them to Running
+                for task in &ready_tasks {
+                    diesel::update(task_executions::table.find(&task.id))
+                        .set((
+                            task_executions::status.eq("Running"),
+                            task_executions::started_at.eq(Some(now.clone())),
+                        ))
+                        .execute(conn)?;
+                }
+
+                Ok(ready_tasks)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(tasks
+            .into_iter()
+            .map(|task| ClaimResult {
+                id: UniversalUuid(blob_to_uuid(&task.id).expect("Invalid UUID in database")),
+                pipeline_execution_id: UniversalUuid(
+                    blob_to_uuid(&task.pipeline_execution_id).expect("Invalid UUID in database"),
+                ),
+                task_name: task.task_name,
+                attempt: task.attempt,
+            })
+            .collect())
+    }
+
+    /// Marks a task as ready for execution.
+    pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.mark_ready_postgres(task_id).await,
+            BackendType::Sqlite => self.mark_ready_sqlite(task_id).await,
+        }
+    }
+
+    async fn mark_ready_postgres(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        // Get task info for logging before updating
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(task_id.0)
+                    .first::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        let task_id_clone = task_id;
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id_clone.0))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        tracing::debug!(
+            "Task state change: {} -> Ready (task: {}, pipeline: {})",
+            task.status,
+            task.task_name,
+            task.pipeline_execution_id
+        );
+        Ok(())
+    }
+
+    async fn mark_ready_sqlite(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+
+        // Get task info for logging before updating
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(id_blob)
+                    .first::<SqliteTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        let id_blob_clone = uuid_to_blob(&task_id.0);
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob_clone))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        tracing::debug!(
+            "Task state change: {} -> Ready (task: {}, pipeline: {})",
+            task.status,
+            task.task_name,
+            task.pipeline_execution_id
+        );
+        Ok(())
+    }
+
+    /// Marks a task as skipped with a provided reason.
+    pub async fn mark_skipped(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.mark_skipped_postgres(task_id, reason).await,
+            BackendType::Sqlite => self.mark_skipped_sqlite(task_id, reason).await,
+        }
+    }
+
+    async fn mark_skipped_postgres(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        // Get task info for logging before updating
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(task_id.0)
+                    .first::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        let task_id_clone = task_id;
+        let reason_owned = reason.to_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id_clone.0))
+                .set((
+                    task_executions::status.eq("Skipped"),
+                    task_executions::error_details.eq(&reason_owned),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        tracing::info!(
+            "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
+            task.status,
+            task.task_name,
+            task.pipeline_execution_id,
+            reason
+        );
+        Ok(())
+    }
+
+    async fn mark_skipped_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+
+        // Get task info for logging before updating
+        let task: TaskExecution = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(id_blob)
+                    .first::<SqliteTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into();
+
+        let id_blob_clone = uuid_to_blob(&task_id.0);
+        let reason_owned = reason.to_string();
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob_clone))
+                .set((
+                    task_executions::status.eq("Skipped"),
+                    task_executions::error_details.eq(&reason_owned),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        tracing::info!(
+            "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
+            task.status,
+            task.task_name,
+            task.pipeline_execution_id,
+            reason
+        );
+        Ok(())
+    }
+
+    /// Gets the current status of a specific task in a pipeline.
+    pub async fn get_task_status(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_name: &str,
+    ) -> Result<String, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.get_task_status_postgres(pipeline_execution_id, task_name)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.get_task_status_sqlite(pipeline_execution_id, task_name)
+                    .await
+            }
+        }
+    }
+
+    async fn get_task_status_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_name: &str,
+    ) -> Result<String, ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let task_name_owned = task_name.to_string();
+        let status: String = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(task_executions::task_name.eq(&task_name_owned))
+                    .select(task_executions::status)
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(status)
+    }
+
+    async fn get_task_status_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_name: &str,
+    ) -> Result<String, ValidationError> {
+        use crate::dal::sqlite_dal::models::uuid_to_blob;
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let task_name_owned = task_name.to_string();
+        let status: String = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .filter(task_executions::task_name.eq(&task_name_owned))
+                    .select(task_executions::status)
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(status)
+    }
+
+    /// Gets the status of multiple tasks in a single database query.
+    pub async fn get_task_statuses_batch(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_names: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.get_task_statuses_batch_postgres(pipeline_execution_id, task_names)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.get_task_statuses_batch_sqlite(pipeline_execution_id, task_names)
+                    .await
+            }
+        }
+    }
+
+    async fn get_task_statuses_batch_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_names: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+        use std::collections::HashMap;
+
+        if task_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let results: Vec<(String, String)> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(task_executions::task_name.eq_any(&task_names))
+                    .select((task_executions::task_name, task_executions::status))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().collect())
+    }
+
+    async fn get_task_statuses_batch_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+        task_names: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, String>, ValidationError> {
+        use crate::dal::sqlite_dal::models::uuid_to_blob;
+        use crate::database::schema::sqlite::task_executions;
+        use std::collections::HashMap;
+
+        if task_names.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let results: Vec<(String, String)> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .filter(task_executions::task_name.eq_any(&task_names))
+                    .select((task_executions::task_name, task_executions::status))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().collect())
+    }
+
+    /// Retrieves tasks that are stuck in "Running" state (orphaned tasks).
+    pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.get_orphaned_tasks_postgres().await,
+            BackendType::Sqlite => self.get_orphaned_tasks_sqlite().await,
+        }
+    }
+
+    async fn get_orphaned_tasks_postgres(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let orphaned_tasks: Vec<TaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Running"))
+                    .load::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
+
+        Ok(orphaned_tasks)
+    }
+
+    async fn get_orphaned_tasks_sqlite(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::sqlite_dal::models::SqliteTaskExecution;
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let orphaned_tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Running"))
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(orphaned_tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// Resets a task from "Running" to "Ready" state for recovery.
+    pub async fn reset_task_for_recovery(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.reset_task_for_recovery_postgres(task_id).await,
+            BackendType::Sqlite => self.reset_task_for_recovery_sqlite(task_id).await,
+        }
+    }
+
+    async fn reset_task_for_recovery_postgres(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+        use chrono::NaiveDateTime;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::started_at.eq(None::<NaiveDateTime>),
+                    task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
+                    task_executions::last_recovery_at.eq(diesel::dsl::now),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn reset_task_for_recovery_sqlite(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let now = current_timestamp_string();
+
+        // First get current recovery_attempts value
+        let current_recovery: i32 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .find(&id_blob)
+                    .select(task_executions::recovery_attempts)
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let id_blob_clone = uuid_to_blob(&task_id.0);
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob_clone))
+                .set((
+                    task_executions::status.eq("Ready"),
+                    task_executions::started_at.eq(None::<String>),
+                    task_executions::recovery_attempts.eq(current_recovery + 1),
+                    task_executions::last_recovery_at.eq(Some(now.clone())),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Marks a task as permanently abandoned after too many recovery attempts.
+    pub async fn mark_abandoned(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.mark_abandoned_postgres(task_id, reason).await,
+            BackendType::Sqlite => self.mark_abandoned_sqlite(task_id, reason).await,
+        }
+    }
+
+    async fn mark_abandoned_postgres(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let reason_owned = reason.to_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::status.eq("Failed"),
+                    task_executions::completed_at.eq(diesel::dsl::now),
+                    task_executions::error_details.eq(format!("ABANDONED: {}", reason_owned)),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn mark_abandoned_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        reason: &str,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let reason_owned = reason.to_string();
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob))
+                .set((
+                    task_executions::status.eq("Failed"),
+                    task_executions::completed_at.eq(Some(now.clone())),
+                    task_executions::error_details.eq(format!("ABANDONED: {}", reason_owned)),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Checks if a pipeline should be marked as failed due to abandoned tasks.
+    pub async fn check_pipeline_failure(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.check_pipeline_failure_postgres(pipeline_execution_id)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.check_pipeline_failure_sqlite(pipeline_execution_id)
+                    .await
+            }
+        }
+    }
+
+    async fn check_pipeline_failure_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let failed_count: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_execution_id.0))
+                    .filter(task_executions::status.eq("Failed"))
+                    .filter(task_executions::error_details.like("ABANDONED:%"))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(failed_count > 0)
+    }
+
+    async fn check_pipeline_failure_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<bool, ValidationError> {
+        use crate::dal::sqlite_dal::models::uuid_to_blob;
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let pipeline_id_blob = uuid_to_blob(&pipeline_execution_id.0);
+        let failed_count: i64 = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::pipeline_execution_id.eq(pipeline_id_blob))
+                    .filter(task_executions::status.eq("Failed"))
+                    .filter(task_executions::error_details.like("ABANDONED:%"))
+                    .count()
+                    .get_result(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(failed_count > 0)
+    }
+
+    /// Retrieves tasks that are ready for retry (retry_at time has passed).
+    pub async fn get_ready_for_retry(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.get_ready_for_retry_postgres().await,
+            BackendType::Sqlite => self.get_ready_for_retry_sqlite().await,
+        }
+    }
+
+    async fn get_ready_for_retry_postgres(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::postgres_dal::models::PgTaskExecution;
+        use crate::database::schema::postgres::task_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let ready_tasks: Vec<TaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(
+                        task_executions::retry_at
+                            .is_null()
+                            .or(task_executions::retry_at.le(diesel::dsl::now)),
+                    )
+                    .load::<PgTaskExecution>(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??
+            .into_iter()
+            .map(|pg| pg.into())
+            .collect();
+
+        Ok(ready_tasks)
+    }
+
+    async fn get_ready_for_retry_sqlite(&self) -> Result<Vec<TaskExecution>, ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, SqliteTaskExecution};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = current_timestamp_string();
+        let ready_tasks: Vec<SqliteTaskExecution> = conn
+            .interact(move |conn| {
+                task_executions::table
+                    .filter(task_executions::status.eq("Ready"))
+                    .filter(
+                        task_executions::retry_at
+                            .is_null()
+                            .or(task_executions::retry_at.le(&now)),
+                    )
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(ready_tasks.into_iter().map(Into::into).collect())
+    }
+
+    /// Calculates retry statistics for a specific pipeline execution.
+    pub async fn get_retry_stats(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<RetryStats, ValidationError> {
+        // This method is backend-agnostic since it processes data in memory
+        let tasks = self.get_all_tasks_for_pipeline(pipeline_execution_id).await?;
+
+        let mut stats = RetryStats::default();
+
+        for task in tasks {
+            if task.attempt > 1 {
+                stats.tasks_with_retries += 1;
+                stats.total_retries += task.attempt - 1;
+            }
+
+            if task.attempt > stats.max_attempts_used {
+                stats.max_attempts_used = task.attempt;
+            }
+
+            if task.status == "Failed" && task.attempt >= task.max_attempts {
+                stats.tasks_exhausted_retries += 1;
+            }
+        }
+
+        Ok(stats)
+    }
+
+    /// Retrieves tasks that have exceeded their retry limit.
+    pub async fn get_exhausted_retry_tasks(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<Vec<TaskExecution>, ValidationError> {
+        // This method is backend-agnostic since it filters in memory
+        let tasks = self.get_all_tasks_for_pipeline(pipeline_execution_id).await?;
+
+        let exhausted_tasks: Vec<TaskExecution> = tasks
+            .into_iter()
+            .filter(|task| task.status == "Failed" && task.attempt >= task.max_attempts)
+            .collect();
+
+        Ok(exhausted_tasks)
+    }
+
+    /// Resets the retry state for a task to its initial state.
+    pub async fn reset_retry_state(&self, task_id: UniversalUuid) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => self.reset_retry_state_postgres(task_id).await,
+            BackendType::Sqlite => self.reset_retry_state_sqlite(task_id).await,
+        }
+    }
+
+    async fn reset_retry_state_postgres(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        use crate::database::schema::postgres::task_executions;
+        use chrono::NaiveDateTime;
+
+        let conn = self
+            .dal
+            .database
+            .get_connection_with_schema()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id.0))
+                .set((
+                    task_executions::attempt.eq(1),
+                    task_executions::retry_at.eq(None::<NaiveDateTime>),
+                    task_executions::started_at.eq(None::<NaiveDateTime>),
+                    task_executions::completed_at.eq(None::<NaiveDateTime>),
+                    task_executions::last_error.eq(None::<String>),
+                    task_executions::status.eq("Ready"),
+                    task_executions::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn reset_retry_state_sqlite(
+        &self,
+        task_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
+        use crate::database::schema::sqlite::task_executions;
+
+        let conn = self
+            .dal
+            .pool()
+            .expect_sqlite()
+            .get()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let id_blob = uuid_to_blob(&task_id.0);
+        let now = current_timestamp_string();
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(id_blob))
+                .set((
+                    task_executions::attempt.eq(1),
+                    task_executions::retry_at.eq(None::<String>),
+                    task_executions::started_at.eq(None::<String>),
+                    task_executions::completed_at.eq(None::<String>),
+                    task_executions::last_error.eq(None::<String>),
+                    task_executions::status.eq("Ready"),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
 }
