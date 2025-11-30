@@ -80,7 +80,7 @@ async fn test_default_runner_cron_integration() {
     // Create a runner with cron enabled
     let mut config = DefaultRunnerConfig::default();
     config.enable_cron_scheduling = true;
-    let runner = DefaultRunner::with_config(database_url, config)
+    let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
 
@@ -120,7 +120,7 @@ async fn test_cron_scheduler_startup_shutdown() {
     // Create and start a runner with cron enabled
     let mut config = DefaultRunnerConfig::default();
     config.enable_cron_scheduling = true;
-    let runner = DefaultRunner::with_config(database_url, config)
+    let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
 

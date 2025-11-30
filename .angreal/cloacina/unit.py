@@ -3,8 +3,6 @@ import sys
 import angreal  # type: ignore
 
 from .cloacina_utils import (
-    validate_backend,
-    get_backends_to_test,
     print_section_header,
     print_final_success
 )
@@ -25,36 +23,21 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     required=False,
     help="filter tests by name pattern"
 )
-@angreal.argument(
-    name="backend",
-    long="backend",
-    help="test specific backend: postgres, sqlite, or both (default)",
-    required=False
-)
-def unit(filter=None, backend=None):
-    """Run unit tests (tests embedded in src/ modules only) for PostgreSQL and/or SQLite."""
+def unit(filter=None):
+    """Run unit tests (tests embedded in src/ modules only).
 
-    # Validate backend selection
-    if not validate_backend(backend):
-        raise RuntimeError("Invalid backend specified")
+    Tests are compiled once with both PostgreSQL and SQLite backends enabled.
+    """
 
-    # Get backend configurations
-    backends = get_backends_to_test(backend)
-    if backends is None:
-        raise RuntimeError("Failed to get backend configurations")
+    print_section_header("Running unit tests")
 
-    for backend_name, cmd_base in backends:
-        print_section_header(f"Running unit tests for {backend_name}")
+    cmd = ["cargo", "test", "-p", "cloacina", "--lib", "--features", "postgres,sqlite,macros"]
+    if filter:
+        cmd.append(filter)
 
-        cmd = cmd_base.copy()
-        if filter:
-            cmd.append(filter)
-
-        try:
-            subprocess.run(cmd, check=True)
-            print(f"{backend_name} unit tests passed")
-        except subprocess.CalledProcessError as e:
-            print(f"{backend_name} unit tests failed with error: {e}", file=sys.stderr)
-            raise RuntimeError(f"{backend_name} unit tests failed with return code {e.returncode}")
-
-    print_final_success("All unit tests passed for both backends!")
+    try:
+        subprocess.run(cmd, check=True)
+        print_final_success("All unit tests passed!")
+    except subprocess.CalledProcessError as e:
+        print(f"Unit tests failed with error: {e}", file=sys.stderr)
+        raise RuntimeError(f"Unit tests failed with return code {e.returncode}")

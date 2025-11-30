@@ -25,13 +25,11 @@
 //! It includes basic functionality to set up test contexts for testing,
 //! similar to brokkr's ergonomic testing framework.
 //!
-//! # Dual-Backend Support
-//!
-//! When both PostgreSQL and SQLite features are enabled, the test fixture
-//! defaults to PostgreSQL. Set the environment variable `TEST_DATABASE_BACKEND=sqlite`
-//! to use SQLite instead.
+//! Uses PostgreSQL at localhost by default. Docker should be running
+//! for integration tests.
 
 use cloacina::database::connection::Database;
+use cloacina::database::BackendType;
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
@@ -44,53 +42,70 @@ use diesel::pg::PgConnection;
 use diesel::sqlite::SqliteConnection;
 
 static INIT: Once = Once::new();
-static FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
+static POSTGRES_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
+static SQLITE_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 
-/// Gets or initializes a test fixture singleton
+/// Default PostgreSQL connection URL
+const DEFAULT_POSTGRES_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+
+/// Default SQLite connection URL (in-memory with shared cache for testing)
+const DEFAULT_SQLITE_URL: &str = "file:cloacina_test?mode=memory&cache=shared";
+
+/// Gets or initializes the PostgreSQL test fixture singleton
 ///
-/// This function ensures only one test fixture exists across all tests,
-/// initializing it if necessary.
-///
-/// # Backend Selection
-///
-/// - In single-backend builds, uses the enabled backend
-/// - In dual-backend builds, defaults to PostgreSQL unless `TEST_DATABASE_BACKEND=sqlite`
+/// This function ensures only one PostgreSQL test fixture exists across all tests,
+/// initializing it if necessary. Uses PostgreSQL at localhost.
 ///
 /// # Returns
-/// An Arc<Mutex<TestFixture>> pointing to the shared test fixture instance
-pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
-    FIXTURE
+/// An Arc<Mutex<TestFixture>> pointing to the shared PostgreSQL test fixture instance
+pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
+    POSTGRES_FIXTURE
         .get_or_init(|| {
-            // Check environment variable for backend selection
-            let backend = std::env::var("TEST_DATABASE_BACKEND")
-                .unwrap_or_else(|_| "postgres".to_string());
-
-            if backend == "sqlite" {
-                let db_url = "file:memdb1?mode=memory&cache=shared";
-                let db = Database::new(db_url, "", 5);
-                let conn = SqliteConnection::establish(db_url)
-                    .expect("Failed to connect to SQLite database");
-                Arc::new(Mutex::new(TestFixture::new_sqlite(db, conn)))
-            } else {
-                let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-                let conn = PgConnection::establish("postgres://cloacina:cloacina@localhost:5432/cloacina")
-                    .expect("Failed to connect to PostgreSQL database");
-                Arc::new(Mutex::new(TestFixture::new_postgres(db, conn)))
-            }
+            let db_url = DEFAULT_POSTGRES_URL.to_string();
+            let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
+            let conn = PgConnection::establish(&db_url)
+                .expect("Failed to connect to PostgreSQL database");
+            Arc::new(Mutex::new(TestFixture::new_postgres(db, conn, db_url)))
         })
         .clone()
 }
 
+/// Gets or initializes the SQLite test fixture singleton
+///
+/// This function ensures only one SQLite test fixture exists across all tests,
+/// initializing it if necessary. Uses an in-memory SQLite database.
+///
+/// # Returns
+/// An Arc<Mutex<TestFixture>> pointing to the shared SQLite test fixture instance
+pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
+    SQLITE_FIXTURE
+        .get_or_init(|| {
+            let db_url = DEFAULT_SQLITE_URL.to_string();
+            let db = Database::new(&db_url, "", 5);
+            let conn = SqliteConnection::establish(&db_url)
+                .expect("Failed to connect to SQLite database");
+            Arc::new(Mutex::new(TestFixture::new_sqlite(db, conn, db_url)))
+        })
+        .clone()
+}
+
+/// Legacy alias for get_or_init_postgres_fixture (for backward compatibility)
+pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
+    get_or_init_postgres_fixture().await
+}
+
 /// Represents a test fixture for the Cloacina project.
 ///
-/// The fixture supports both PostgreSQL and SQLite backends. In dual-backend builds,
-/// it stores the connection in a backend-specific variant.
+/// The fixture supports both PostgreSQL and SQLite backends, determined
+/// automatically from the DATABASE_URL.
 #[allow(dead_code)]
 pub struct TestFixture {
     /// Flag indicating if the fixture has been initialized
     initialized: bool,
     /// Database connection pool
     db: Database,
+    /// The database URL used to create this fixture
+    db_url: String,
     /// PostgreSQL connection (when using PostgreSQL backend)
     pg_conn: Option<PgConnection>,
     /// SQLite connection (when using SQLite backend)
@@ -99,32 +114,34 @@ pub struct TestFixture {
 
 impl TestFixture {
     /// Creates a new TestFixture instance for PostgreSQL
-    pub fn new_postgres(db: Database, conn: PgConnection) -> Self {
+    pub fn new_postgres(db: Database, conn: PgConnection, db_url: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
         });
 
-        info!("Test fixture created (PostgreSQL)");
+        info!("Test fixture created (PostgreSQL) with URL: {}", db_url);
 
         TestFixture {
             initialized: false,
             db,
+            db_url,
             pg_conn: Some(conn),
             sqlite_conn: None,
         }
     }
 
     /// Creates a new TestFixture instance for SQLite
-    pub fn new_sqlite(db: Database, conn: SqliteConnection) -> Self {
+    pub fn new_sqlite(db: Database, conn: SqliteConnection, db_url: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
         });
 
-        info!("Test fixture created (SQLite)");
+        info!("Test fixture created (SQLite) with URL: {}", db_url);
 
         TestFixture {
             initialized: false,
             db,
+            db_url,
             pg_conn: None,
             sqlite_conn: Some(conn),
         }
@@ -142,21 +159,14 @@ impl TestFixture {
 
     /// Get the database URL for this fixture
     pub fn get_database_url(&self) -> String {
-        match self.db.backend() {
-            cloacina::database::BackendType::Postgres => {
-                "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string()
-            }
-            cloacina::database::BackendType::Sqlite => {
-                "file:memdb1?mode=memory&cache=shared".to_string()
-            }
-        }
+        self.db_url.clone()
     }
 
     /// Get the name of the current backend (postgres or sqlite)
     pub fn get_current_backend(&self) -> &'static str {
         match self.db.backend() {
-            cloacina::database::BackendType::Postgres => "postgres",
-            cloacina::database::BackendType::Sqlite => "sqlite",
+            BackendType::Postgres => "postgres",
+            BackendType::Sqlite => "sqlite",
         }
     }
 
