@@ -142,7 +142,7 @@ impl WorkflowRegistryDAL {
 
         let (registry_id, package_id) = conn
             .interact(move |conn| {
-                use crate::database::schema::{workflow_packages, workflow_registry};
+                use crate::database::schema::sqlite::{workflow_packages, workflow_registry};
                 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
                 use crate::models::workflow_packages::NewWorkflowPackage;
                 use crate::models::workflow_registry::NewWorkflowRegistryEntry;
@@ -238,7 +238,7 @@ impl WorkflowRegistryDAL {
 
         // 2. Get binary data directly from workflow_registry table
         let binary_data = {
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
 
             let conn =
@@ -307,7 +307,7 @@ impl WorkflowRegistryDAL {
 
         // 2. Get binary data directly from workflow_registry table
         let binary_data = {
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
 
             let conn =
@@ -396,7 +396,7 @@ impl WorkflowRegistryDAL {
                 })?;
 
             // 3. Delete workflow_registry entry
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
             use uuid::Uuid;
 
@@ -467,7 +467,7 @@ impl WorkflowRegistryDAL {
                 })?;
 
             // 3. Delete workflow_registry entry
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::sqlite::workflow_registry;
             use diesel::prelude::*;
             use uuid::Uuid;
 

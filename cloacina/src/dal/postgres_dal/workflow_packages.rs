@@ -23,7 +23,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::dal::postgres_dal::DAL;
-use crate::database::schema::workflow_packages;
+use crate::database::schema::postgres::workflow_packages;
 use crate::models::workflow_packages::{NewWorkflowPackage, WorkflowPackage};
 use crate::registry::error::RegistryError;
 

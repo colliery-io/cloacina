@@ -28,7 +28,7 @@
 //! - Duplicate prevention through unique constraints
 
 use super::DAL;
-use crate::database::schema::cron_executions;
+use crate::database::schema::postgres::cron_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::cron_execution::{CronExecution, NewCronExecution};
@@ -199,11 +199,11 @@ impl<'a> CronExecutionDAL<'a> {
             .interact(move |conn| {
                 cron_executions::table
                     .left_join(
-                        crate::database::schema::pipeline_executions::table
+                        crate::database::schema::postgres::pipeline_executions::table
                             .on(cron_executions::pipeline_execution_id
-                                .eq(crate::database::schema::pipeline_executions::id.nullable())),
+                                .eq(crate::database::schema::postgres::pipeline_executions::id.nullable())),
                     )
-                    .filter(crate::database::schema::pipeline_executions::id.is_null())
+                    .filter(crate::database::schema::postgres::pipeline_executions::id.is_null())
                     .filter(cron_executions::claimed_at.lt(cutoff_time))
                     .select(cron_executions::all_columns)
                     .load(conn)
@@ -529,7 +529,7 @@ impl<'a> CronExecutionDAL<'a> {
 
                 // Get successful executions (those with pipeline executions)
                 let successful_executions = cron_executions::table
-                    .inner_join(crate::database::schema::pipeline_executions::table)
+                    .inner_join(crate::database::schema::postgres::pipeline_executions::table)
                     .filter(cron_executions::claimed_at.ge(since_ts))
                     .count()
                     .first(conn)?;
@@ -537,11 +537,11 @@ impl<'a> CronExecutionDAL<'a> {
                 // Get lost executions (no pipeline execution after 10 minutes)
                 let lost_executions = cron_executions::table
                     .left_join(
-                        crate::database::schema::pipeline_executions::table
+                        crate::database::schema::postgres::pipeline_executions::table
                             .on(cron_executions::pipeline_execution_id
-                                .eq(crate::database::schema::pipeline_executions::id.nullable())),
+                                .eq(crate::database::schema::postgres::pipeline_executions::id.nullable())),
                     )
-                    .filter(crate::database::schema::pipeline_executions::id.is_null())
+                    .filter(crate::database::schema::postgres::pipeline_executions::id.is_null())
                     .filter(cron_executions::claimed_at.ge(since_ts))
                     .filter(cron_executions::claimed_at.lt(lost_cutoff))
                     .count()

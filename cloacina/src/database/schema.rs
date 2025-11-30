@@ -373,6 +373,19 @@ mod sqlite_schema {
 }
 
 // Re-export the appropriate schema based on feature flags
+
+// Always export backend-specific modules when the feature is enabled
+#[cfg(feature = "postgres")]
+pub mod postgres {
+    pub use super::postgres_schema::*;
+}
+
+#[cfg(feature = "sqlite")]
+pub mod sqlite {
+    pub use super::sqlite_schema::*;
+}
+
+// For single-backend builds, also re-export at root level for convenience/backward compat
 #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub use postgres_schema::*;
 

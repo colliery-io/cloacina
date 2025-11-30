@@ -43,7 +43,7 @@
 
 use super::DAL;
 use crate::context::Context;
-use crate::database::schema::contexts;
+use crate::database::schema::sqlite::contexts;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ContextError;
 use crate::models::context::{DbContext, NewDbContext};

@@ -163,15 +163,10 @@ pub enum StorageError {
     #[error("Storage backend error: {0}")]
     Backend(String),
 
-    /// Database-specific error (for PostgreSQL storage).
-    #[cfg(feature = "postgres")]
-    #[error("PostgreSQL error: {0}")]
-    Postgres(#[from] diesel::result::Error),
-
-    /// Database-specific error (for SQLite storage).
-    #[cfg(feature = "sqlite")]
-    #[error("SQLite error: {0}")]
-    Sqlite(#[from] diesel::result::Error),
+    /// Database error from Diesel operations.
+    #[cfg(any(feature = "postgres", feature = "sqlite"))]
+    #[error("Database error: {0}")]
+    Database(#[from] diesel::result::Error),
 }
 
 impl From<String> for RegistryError {

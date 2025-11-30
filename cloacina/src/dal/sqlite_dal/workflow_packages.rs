@@ -23,7 +23,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use crate::dal::sqlite_dal::DAL;
-use crate::database::schema::workflow_packages;
+use crate::database::schema::sqlite::workflow_packages;
 use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::models::workflow_packages::{
     NewWorkflowPackage as ModelNewWorkflowPackage, WorkflowPackage,

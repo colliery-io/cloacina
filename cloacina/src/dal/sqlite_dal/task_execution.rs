@@ -30,7 +30,7 @@
 //! patterns for concurrent task execution.
 
 use super::DAL;
-use crate::database::schema::task_executions;
+use crate::database::schema::sqlite::task_executions;
 use crate::database::universal_types::{current_timestamp, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};

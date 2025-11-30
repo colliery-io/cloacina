@@ -30,7 +30,7 @@
 //! for schedule timing information.
 
 use super::DAL;
-use crate::database::schema::cron_schedules;
+use crate::database::schema::sqlite::cron_schedules;
 use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};

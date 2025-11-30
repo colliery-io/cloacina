@@ -23,7 +23,7 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use uuid::Uuid;
 
-use crate::database::schema::workflow_registry;
+use crate::database::schema::sqlite::workflow_registry;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::database::Database;
 use crate::models::workflow_registry::{NewWorkflowRegistryEntryWithId, WorkflowRegistryEntry};

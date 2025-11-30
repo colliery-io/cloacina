@@ -15,7 +15,7 @@
  */
 
 use crate::dal::DAL;
-use crate::database::schema::recovery_events;
+use crate::database::schema::postgres::recovery_events;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};

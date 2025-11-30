@@ -122,18 +122,14 @@ impl ToSql<diesel::sql_types::Uuid, Pg> for UniversalUuid {
 }
 
 /// Universal timestamp wrapper that works with both PostgreSQL and SQLite
-#[cfg(feature = "sqlite")]
-#[derive(
-    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
-)]
-#[diesel(sql_type = Text)]
-pub struct UniversalTimestamp(pub DateTime<Utc>);
-
-#[cfg(feature = "postgres")]
-#[derive(
-    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
-)]
-#[diesel(sql_type = diesel::sql_types::Timestamp)]
+///
+/// For PostgreSQL, maps to native Timestamp type.
+/// For SQLite, stores as RFC3339 text string.
+#[derive(Debug, Clone, Copy, FromSqlRow, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlite", derive(AsExpression))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = Text))]
+#[cfg_attr(feature = "postgres", derive(AsExpression))]
+#[cfg_attr(feature = "postgres", diesel(sql_type = diesel::sql_types::Timestamp))]
 pub struct UniversalTimestamp(pub DateTime<Utc>);
 
 #[cfg(feature = "postgres")]
@@ -220,21 +216,15 @@ pub fn current_timestamp() -> UniversalTimestamp {
     UniversalTimestamp::now()
 }
 
-// Universal Boolean Type
-// Handles bool for PostgreSQL and i32 (0/1) for SQLite
-
-#[cfg(feature = "postgres")]
-#[derive(
-    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
-)]
-#[diesel(sql_type = diesel::sql_types::Bool)]
-pub struct UniversalBool(pub bool);
-
-#[cfg(feature = "sqlite")]
-#[derive(
-    Debug, Clone, Copy, FromSqlRow, AsExpression, Hash, Eq, PartialEq, Serialize, Deserialize,
-)]
-#[diesel(sql_type = diesel::sql_types::Integer)]
+/// Universal boolean wrapper that works with both PostgreSQL and SQLite
+///
+/// For PostgreSQL, maps to native Bool type.
+/// For SQLite, stores as Integer (0/1).
+#[derive(Debug, Clone, Copy, FromSqlRow, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(AsExpression))]
+#[cfg_attr(feature = "postgres", diesel(sql_type = diesel::sql_types::Bool))]
+#[cfg_attr(feature = "sqlite", derive(AsExpression))]
+#[cfg_attr(feature = "sqlite", diesel(sql_type = diesel::sql_types::Integer))]
 pub struct UniversalBool(pub bool);
 
 impl UniversalBool {

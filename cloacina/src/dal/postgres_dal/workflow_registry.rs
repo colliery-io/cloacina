@@ -150,7 +150,7 @@ impl WorkflowRegistryDAL {
 
         let (registry_id, package_id) = conn
             .interact(move |conn| {
-                use crate::database::schema::{workflow_packages, workflow_registry};
+                use crate::database::schema::postgres::{workflow_packages, workflow_registry};
                 use crate::models::workflow_packages::NewWorkflowPackage;
                 use crate::models::workflow_registry::NewWorkflowRegistryEntry;
                 use diesel::prelude::*;
@@ -227,7 +227,7 @@ impl WorkflowRegistryDAL {
             Some((registry_id, metadata)) => {
                 // Get binary data directly from workflow_registry table
                 let binary_data = {
-                    use crate::database::schema::workflow_registry;
+                    use crate::database::schema::postgres::workflow_registry;
                     use diesel::prelude::*;
 
                     let conn = self
@@ -317,7 +317,7 @@ impl WorkflowRegistryDAL {
             Some((registry_id, metadata)) => {
                 // Get binary data directly from workflow_registry table
                 let binary_data = {
-                    use crate::database::schema::workflow_registry;
+                    use crate::database::schema::postgres::workflow_registry;
                     use diesel::prelude::*;
 
                     let conn = self
@@ -412,7 +412,7 @@ impl WorkflowRegistryDAL {
                 .await?;
 
             // Delete workflow_registry entry
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::postgres::workflow_registry;
             use diesel::prelude::*;
             use uuid::Uuid;
 
@@ -476,7 +476,7 @@ impl WorkflowRegistryDAL {
                 .await?;
 
             // Delete workflow_registry entry
-            use crate::database::schema::workflow_registry;
+            use crate::database::schema::postgres::workflow_registry;
             use diesel::prelude::*;
             use uuid::Uuid;
 

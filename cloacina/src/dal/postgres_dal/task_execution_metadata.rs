@@ -28,7 +28,7 @@
 //! - Creation and update timestamps
 
 use super::DAL;
-use crate::database::schema::task_execution_metadata;
+use crate::database::schema::postgres::task_execution_metadata;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
@@ -268,7 +268,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         dependency_task_namespaces: &[crate::task::TaskNamespace],
     ) -> Result<Vec<(TaskExecutionMetadata, Option<String>)>, ValidationError> {
-        use crate::database::schema::contexts;
+        use crate::database::schema::postgres::contexts;
 
         if dependency_task_namespaces.is_empty() {
             return Ok(Vec::new());

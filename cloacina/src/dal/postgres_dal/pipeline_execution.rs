@@ -15,7 +15,7 @@
  */
 
 use super::DAL;
-use crate::database::schema::pipeline_executions;
+use crate::database::schema::postgres::pipeline_executions;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};

@@ -15,7 +15,7 @@
  */
 
 use super::DAL;
-use crate::database::schema::recovery_events;
+use crate::database::schema::sqlite::recovery_events;
 use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
