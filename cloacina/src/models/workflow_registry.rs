@@ -16,67 +16,36 @@
 
 //! Database models for workflow registry storage.
 //!
-//! This module defines the Diesel models for the workflow_registry table,
-//! providing serialization and deserialization for binary workflow data.
-
-use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
+//! This module defines domain structures for workflow registry storage.
+//! These are API-level types; backend-specific models handle database storage.
 
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use serde::{Deserialize, Serialize};
 
-/// Database model for a workflow registry entry.
-///
-/// This represents a stored binary workflow package with its metadata.
-#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
-#[diesel(table_name = crate::database::schema::workflow_registry)]
+/// Domain model for a workflow registry entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowRegistryEntry {
-    /// Unique identifier for this registry entry
     pub id: UniversalUuid,
-
-    /// When this entry was created
     pub created_at: UniversalTimestamp,
-
-    /// Binary data of the workflow package
     pub data: Vec<u8>,
 }
 
-/// Model for creating new workflow registry entries.
-///
-/// This is used when inserting new binary workflow data into the registry.
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = crate::database::schema::workflow_registry)]
+/// Model for creating new workflow registry entries (domain type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowRegistryEntry {
-    /// Binary data of the workflow package
     pub data: Vec<u8>,
 }
 
 impl NewWorkflowRegistryEntry {
-    /// Create a new workflow registry entry model.
-    ///
-    /// # Arguments
-    ///
-    /// * `data` - Binary data of the workflow package
-    ///
-    /// # Returns
-    ///
-    /// A new `NewWorkflowRegistryEntry` ready for insertion
     pub fn new(data: Vec<u8>) -> Self {
         Self { data }
     }
 }
 
 /// Model for creating new workflow registry entries with explicit ID and timestamp.
-///
-/// This is used for databases like SQLite that don't support auto-generating UUIDs.
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = crate::database::schema::workflow_registry)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowRegistryEntryWithId {
-    /// Unique identifier for this registry entry
     pub id: UniversalUuid,
-
-    /// When this entry was created
     pub created_at: UniversalTimestamp,
-
-    /// Binary data of the workflow package
     pub data: Vec<u8>,
 }

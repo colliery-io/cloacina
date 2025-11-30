@@ -197,11 +197,11 @@ mod postgres_impl {
                                 message: format!("Failed to set search_path: {}", e),
                             })?;
 
-                        crate::database::run_migrations(conn).map_err(|e| {
-                            AdminError::SqlExecution {
+                        use diesel_migrations::MigrationHarness;
+                        conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                            .map_err(|e| AdminError::SqlExecution {
                                 message: format!("Failed to run migrations: {}", e),
-                            }
-                        })?;
+                            })?;
 
                         Ok(())
                     })

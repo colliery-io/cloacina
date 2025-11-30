@@ -60,6 +60,21 @@ pub mod legacy_sqlite {
     pub use super::sqlite_dal::*;
 }
 
+// When both features are enabled, export unified DAL as the primary DAL
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub use unified::DAL;
+
+// Export CronExecutionStats from the unified module
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub use unified::cron_execution::CronExecutionStats;
+
+// Re-export registry storage types for dual-backend builds
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub use postgres_dal::PostgresRegistryStorage;
+
+#[cfg(all(feature = "postgres", feature = "sqlite"))]
+pub use sqlite_dal::SqliteRegistryStorage;
+
 // Always re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;
 

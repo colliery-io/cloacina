@@ -16,63 +16,34 @@
 
 //! Pipeline Execution Models
 //!
-//! This module defines the data structures for tracking pipeline executions in the system.
-//! Pipeline executions represent individual runs of data processing pipelines, including
-//! their status, timing information, and any error details.
+//! This module defines domain structures for tracking pipeline executions.
+//! These are API-level types; backend-specific models handle database storage.
 
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// Represents a completed or in-progress pipeline execution in the system.
-///
-/// This struct maps to the `pipeline_executions` table in the database and includes
-/// all fields for tracking the lifecycle of a pipeline run, including timing information,
-/// status updates, and error handling.
-#[derive(Debug, Queryable, Selectable, Serialize, Deserialize)]
-#[diesel(table_name = crate::database::schema::pipeline_executions)]
-#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
-#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+/// Represents a pipeline execution (domain type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineExecution {
-    /// Unique identifier for the pipeline execution
     pub id: UniversalUuid,
-    /// Name of the pipeline that was executed
     pub pipeline_name: String,
-    /// Version of the pipeline that was executed
     pub pipeline_version: String,
-    /// Current status of the pipeline execution (e.g., "running", "completed", "failed")
     pub status: String,
-    /// Optional context identifier for grouping related pipeline executions
     pub context_id: Option<UniversalUuid>,
-    /// Timestamp when the pipeline execution started
     pub started_at: UniversalTimestamp,
-    /// Timestamp when the pipeline execution completed (if applicable)
     pub completed_at: Option<UniversalTimestamp>,
-    /// Detailed error information if the pipeline execution failed
     pub error_details: Option<String>,
-    /// Number of recovery attempts made for this pipeline execution
     pub recovery_attempts: i32,
-    /// Timestamp of the last recovery attempt (if any)
     pub last_recovery_at: Option<UniversalTimestamp>,
-    /// Timestamp when this record was created
     pub created_at: UniversalTimestamp,
-    /// Timestamp when this record was last updated
     pub updated_at: UniversalTimestamp,
 }
 
-/// Represents a new pipeline execution to be inserted into the database.
-///
-/// This struct contains only the fields required to create a new pipeline execution.
-/// Additional fields like timestamps and IDs are managed by the database.
-#[derive(Debug, Insertable)]
-#[diesel(table_name = crate::database::schema::pipeline_executions)]
+/// Structure for creating new pipeline executions (domain type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewPipelineExecution {
-    /// Name of the pipeline to be executed
     pub pipeline_name: String,
-    /// Version of the pipeline to be executed
     pub pipeline_version: String,
-    /// Initial status of the pipeline execution
     pub status: String,
-    /// Optional context identifier for grouping related pipeline executions
     pub context_id: Option<UniversalUuid>,
 }

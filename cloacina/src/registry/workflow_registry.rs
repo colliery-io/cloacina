@@ -27,7 +27,10 @@ use std::io::Read;
 use tar::Archive;
 use uuid::Uuid;
 
-use crate::database::schema::workflow_packages;
+#[cfg(feature = "postgres")]
+use crate::database::schema::postgres::workflow_packages;
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+use crate::database::schema::sqlite::workflow_packages;
 use crate::database::universal_types::{current_timestamp, UniversalUuid};
 use crate::database::Database;
 use crate::models::workflow_packages::{

@@ -334,22 +334,10 @@ impl DefaultRunnerBuilder {
                 })?;
         } else {
             // Run migrations in public schema
-            let conn =
-                database
-                    .pool()
-                    .get()
-                    .await
-                    .map_err(|e| PipelineError::DatabaseConnection {
-                        message: e.to_string(),
-                    })?;
-            conn.interact(|conn| crate::database::run_migrations(conn))
+            database
+                .run_migrations()
                 .await
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?;
+                .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
         }
 
         // Create scheduler with global workflow registry (always dynamic)
@@ -480,24 +468,10 @@ impl DefaultRunner {
         let database = Database::new(database_url, "cloacina", config.db_pool_size);
 
         // Run migrations
-        {
-            let conn =
-                database
-                    .pool()
-                    .get()
-                    .await
-                    .map_err(|e| PipelineError::DatabaseConnection {
-                        message: e.to_string(),
-                    })?;
-            conn.interact(|conn| crate::database::run_migrations(conn))
-                .await
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?;
-        }
+        database
+            .run_migrations()
+            .await
+            .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
 
         // Create scheduler with global workflow registry (always dynamic)
         let scheduler =

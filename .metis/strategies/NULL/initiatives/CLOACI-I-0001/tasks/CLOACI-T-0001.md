@@ -4,14 +4,14 @@ level: task
 title: "Create AnyConnection MultiConnection enum"
 short_code: "CLOACI-T-0001"
 created_at: 2025-11-30T02:05:39.093013+00:00
-updated_at: 2025-11-30T02:16:05.903237+00:00
+updated_at: 2025-11-30T02:23:52.718661+00:00
 parent: CLOACI-I-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Create a Diesel `MultiConnection` enum that wraps both `PgConnection` and `SqliteConnection`, enabling runtime database backend selection based on connection string URL scheme.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

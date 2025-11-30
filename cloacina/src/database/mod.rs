@@ -148,6 +148,10 @@ pub const MIGRATIONS: EmbeddedMigrations = SQLITE_MIGRATIONS;
 /// This function applies any pending migrations to bring the database
 /// schema up to date with the current version.
 ///
+/// Note: This function is only available when exactly one database backend
+/// is enabled (either postgres or sqlite, but not both). For dual-backend
+/// builds, use the Database struct's run_migrations method instead.
+///
 /// # Arguments
 ///
 /// * `conn` - Mutable reference to a database connection (PostgreSQL or SQLite)
@@ -167,6 +171,10 @@ pub const MIGRATIONS: EmbeddedMigrations = SQLITE_MIGRATIONS;
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "sqlite", not(feature = "postgres"))
+))]
 pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
     conn.run_pending_migrations(MIGRATIONS)
         .expect("Failed to run migrations");

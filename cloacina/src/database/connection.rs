@@ -404,6 +404,37 @@ impl Database {
         }
     }
 
+    /// Runs pending database migrations for the appropriate backend.
+    ///
+    /// This method detects the backend type and runs the corresponding migrations.
+    pub async fn run_migrations(&self) -> Result<(), String> {
+        use diesel_migrations::MigrationHarness;
+
+        match &self.pool {
+            #[cfg(feature = "postgres")]
+            AnyPool::Postgres(pool) => {
+                let conn = pool.get().await.map_err(|e| e.to_string())?;
+                conn.interact(|conn| {
+                    conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                        .expect("Failed to run PostgreSQL migrations");
+                })
+                .await
+                .map_err(|e| format!("Failed to run migrations: {}", e))?;
+            }
+            #[cfg(feature = "sqlite")]
+            AnyPool::Sqlite(pool) => {
+                let conn = pool.get().await.map_err(|e| e.to_string())?;
+                conn.interact(|conn| {
+                    conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
+                        .expect("Failed to run SQLite migrations");
+                })
+                .await
+                .map_err(|e| format!("Failed to run migrations: {}", e))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Sets up the PostgreSQL schema for multi-tenant isolation.
     ///
     /// Creates the schema if it doesn't exist and runs migrations within it.

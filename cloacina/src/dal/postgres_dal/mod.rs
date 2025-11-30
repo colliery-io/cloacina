@@ -95,6 +95,7 @@ use diesel::pg::PgConnection;
 // #[cfg(feature = "auth")]
 // pub mod auth_tokens;
 pub mod context;
+pub mod models;
 pub mod cron_execution;
 pub mod cron_schedule;
 pub mod pipeline_execution;

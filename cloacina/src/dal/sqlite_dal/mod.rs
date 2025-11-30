@@ -25,6 +25,7 @@ use diesel::sqlite::SqliteConnection;
 
 pub mod context;
 pub mod cron_execution;
+pub mod models;
 pub mod cron_schedule;
 pub mod pipeline_execution;
 pub mod recovery_event;
