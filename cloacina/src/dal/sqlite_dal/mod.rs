@@ -59,8 +59,12 @@ pub struct DAL {
 
 impl DAL {
     /// Creates a new DAL instance with the provided database.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the database is not configured for SQLite backend.
     pub fn new(database: Database) -> Self {
-        let pool = database.pool();
+        let pool = database.pool().expect_sqlite().clone();
         DAL { pool, database }
     }
 

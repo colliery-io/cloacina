@@ -131,7 +131,7 @@ mod postgres_impl {
             let username_result = username.clone();
 
             let pool = self.database.pool();
-            let conn = pool.get().await?;
+            let conn = pool.expect_postgres().get().await?;
 
             // Execute all tenant setup SQL in a transaction
             let _ = conn
@@ -231,7 +231,7 @@ mod postgres_impl {
             username: &str,
         ) -> Result<(), AdminError> {
             let pool = self.database.pool();
-            let conn = pool.get().await?;
+            let conn = pool.expect_postgres().get().await?;
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 

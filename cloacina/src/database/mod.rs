@@ -103,7 +103,7 @@ pub mod universal_types;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 // Re-export connection types from the connection module
-pub use connection::{AnyConnection, BackendType, Database};
+pub use connection::{AnyConnection, AnyPool, BackendType, Database};
 
 // Legacy type aliases - only available when exactly one backend is enabled
 #[cfg(any(
