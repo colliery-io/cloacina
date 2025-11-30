@@ -8,13 +8,8 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[features]
-default = ["postgres"]
-postgres = ["cloacina/postgres", "cloacina/macros"]
-sqlite = ["cloacina/sqlite", "cloacina/macros"]
-
 [dependencies]
-cloacina = { path = "../../cloacina", default-features = false }
+cloacina = { path = "../../cloacina" }
 serde_json = "1.0"
 async-trait = "0.1"
 chrono = "0.4"

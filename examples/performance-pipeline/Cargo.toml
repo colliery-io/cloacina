@@ -6,7 +6,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-cloacina = { path = "../../cloacina", default-features = false, features = ["macros", "sqlite"] }
+cloacina = { path = "../../cloacina" }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
