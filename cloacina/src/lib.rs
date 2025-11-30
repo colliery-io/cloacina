@@ -427,12 +427,6 @@
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
 
-// Enforce exactly one database backend is selected
-#[cfg(all(feature = "postgres", feature = "sqlite"))]
-compile_error!("Cannot enable both 'postgres' and 'sqlite' features simultaneously");
-
-#[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-compile_error!("Must enable exactly one database backend: either 'postgres' or 'sqlite'");
 
 // #[cfg(feature = "auth")]
 // pub mod auth;

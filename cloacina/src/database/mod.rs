@@ -103,7 +103,14 @@ pub mod universal_types;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 // Re-export connection types from the connection module
-pub use connection::{Database, DbConnection, DbConnectionManager, DbPool};
+pub use connection::{AnyConnection, BackendType, Database};
+
+// Legacy type aliases - only available when exactly one backend is enabled
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "sqlite", not(feature = "postgres"))
+))]
+pub use connection::{DbConnection, DbConnectionManager, DbPool};
 
 // Re-export admin types for tenant management
 pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
@@ -116,14 +123,25 @@ pub type Result<T> = std::result::Result<T, diesel::result::Error>;
 // Re-export universal types for convenience
 pub use universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 
+/// Embedded migrations for PostgreSQL.
+#[cfg(feature = "postgres")]
+pub const POSTGRES_MIGRATIONS: EmbeddedMigrations =
+    embed_migrations!("src/database/migrations/postgres");
+
+/// Embedded migrations for SQLite.
+#[cfg(feature = "sqlite")]
+pub const SQLITE_MIGRATIONS: EmbeddedMigrations =
+    embed_migrations!("src/database/migrations/sqlite");
+
 /// Embedded migrations for automatic schema management.
 ///
 /// Contains all SQL migration files for setting up the database schema.
-#[cfg(feature = "postgres")]
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/postgres");
+/// When only one backend is enabled, this aliases to that backend's migrations.
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+pub const MIGRATIONS: EmbeddedMigrations = POSTGRES_MIGRATIONS;
 
-#[cfg(feature = "sqlite")]
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/sqlite");
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub const MIGRATIONS: EmbeddedMigrations = SQLITE_MIGRATIONS;
 
 /// Runs pending database migrations.
 ///

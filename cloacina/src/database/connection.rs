@@ -53,37 +53,119 @@
 use tracing::info;
 
 #[cfg(feature = "postgres")]
-use deadpool_diesel::postgres::{Manager, Pool, Runtime};
+use deadpool_diesel::postgres::{
+    Manager as PgManager, Pool as PgPool, Runtime as PgRuntime,
+};
 #[cfg(feature = "postgres")]
 use diesel::PgConnection;
 #[cfg(feature = "postgres")]
 use url::Url;
 
 #[cfg(feature = "sqlite")]
-use deadpool_diesel::sqlite::{Manager, Pool, Runtime};
+use deadpool_diesel::sqlite::{
+    Manager as SqliteManager, Pool as SqlitePool, Runtime as SqliteRuntime,
+};
 #[cfg(feature = "sqlite")]
 use diesel::SqliteConnection;
 
+// =============================================================================
+// Runtime Database Backend Selection
+// =============================================================================
+
+/// Represents the database backend type, detected at runtime from the connection URL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendType {
+    /// PostgreSQL backend
+    #[cfg(feature = "postgres")]
+    Postgres,
+    /// SQLite backend
+    #[cfg(feature = "sqlite")]
+    Sqlite,
+}
+
+impl BackendType {
+    /// Detect the backend type from a connection URL.
+    ///
+    /// # Arguments
+    /// * `url` - The database connection URL
+    ///
+    /// # Returns
+    /// The detected `BackendType`
+    ///
+    /// # Panics
+    /// Panics if the URL scheme doesn't match any enabled backend.
+    pub fn from_url(url: &str) -> Self {
+        #[cfg(feature = "postgres")]
+        if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+            return BackendType::Postgres;
+        }
+
+        #[cfg(feature = "sqlite")]
+        {
+            // SQLite URLs can be:
+            // - sqlite:// prefix
+            // - file paths (relative or absolute)
+            // - :memory: for in-memory databases
+            if url.starts_with("sqlite://")
+                || url.starts_with("/")
+                || url.starts_with("./")
+                || url.starts_with("../")
+                || url == ":memory:"
+                || url.ends_with(".db")
+                || url.ends_with(".sqlite")
+                || url.ends_with(".sqlite3")
+            {
+                return BackendType::Sqlite;
+            }
+        }
+
+        panic!(
+            "Unable to detect database backend from URL '{}'. \
+             Expected postgres://, postgresql://, sqlite://, or a file path.",
+            url
+        );
+    }
+}
+
+/// Multi-connection enum that wraps both PostgreSQL and SQLite connections.
+///
+/// This enum enables runtime database backend selection using Diesel's
+/// `MultiConnection` derive macro. The actual connection type is determined
+/// at runtime based on the connection URL.
+#[derive(diesel::MultiConnection)]
+pub enum AnyConnection {
+    /// PostgreSQL connection variant
+    #[cfg(feature = "postgres")]
+    Postgres(PgConnection),
+    /// SQLite connection variant
+    #[cfg(feature = "sqlite")]
+    Sqlite(SqliteConnection),
+}
+
+// =============================================================================
+// Legacy Type Aliases (for backward compatibility during migration)
+// =============================================================================
+
 /// Type alias for the connection type based on the selected backend
-#[cfg(feature = "postgres")]
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub type DbConnection = PgConnection;
 
-#[cfg(feature = "sqlite")]
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub type DbConnection = SqliteConnection;
 
 /// Type alias for the connection manager based on the selected backend
-#[cfg(feature = "postgres")]
-pub type DbConnectionManager = Manager;
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+pub type DbConnectionManager = PgManager;
 
-#[cfg(feature = "sqlite")]
-pub type DbConnectionManager = Manager;
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub type DbConnectionManager = SqliteManager;
 
 /// Type alias for the connection pool
-#[cfg(feature = "postgres")]
-pub type DbPool = Pool;
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+pub type DbPool = PgPool;
 
-#[cfg(feature = "sqlite")]
-pub type DbPool = Pool;
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub type DbPool = SqlitePool;
 
 /// Represents a pool of database connections.
 ///
@@ -145,11 +227,11 @@ impl Database {
         {
             return Self::new_with_schema(connection_string, database_name, max_size, None);
         }
-        #[cfg(feature = "sqlite")]
+        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
         {
             let connection_url = Self::build_connection_url(connection_string, database_name);
-            let manager = Manager::new(connection_url, Runtime::Tokio1);
-            let pool = Pool::builder(manager)
+            let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
+            let pool = SqlitePool::builder(manager)
                 .max_size(max_size as usize)
                 .build()
                 .expect("Failed to create connection pool");
@@ -180,10 +262,10 @@ impl Database {
         schema: Option<&str>,
     ) -> Self {
         let connection_url = Self::build_connection_url(connection_string, database_name);
-        let manager = Manager::new(connection_url, Runtime::Tokio1);
+        let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
 
         // Build the connection pool
-        let pool = Pool::builder(manager)
+        let pool = PgPool::builder(manager)
             .max_size(max_size as usize)
             .build()
             .expect("Failed to create connection pool");
@@ -304,7 +386,7 @@ impl Database {
     pub async fn get_connection_with_schema(
         &self,
     ) -> Result<
-        deadpool::managed::Object<Manager>,
+        deadpool::managed::Object<PgManager>,
         deadpool::managed::PoolError<deadpool_diesel::Error>,
     > {
         use diesel::prelude::*;
