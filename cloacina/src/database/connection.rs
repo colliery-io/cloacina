@@ -350,6 +350,18 @@ impl Database {
             AnyPool::Sqlite(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
+                    use diesel::prelude::*;
+
+                    // Set SQLite pragmas for better concurrency before running migrations
+                    // WAL mode allows concurrent reads during writes
+                    diesel::sql_query("PRAGMA journal_mode=WAL;")
+                        .execute(conn)
+                        .expect("Failed to set WAL mode");
+                    // busy_timeout makes SQLite wait 30s instead of immediately failing on locks
+                    diesel::sql_query("PRAGMA busy_timeout=30000;")
+                        .execute(conn)
+                        .expect("Failed to set busy_timeout");
+
                     conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
                         .expect("Failed to run SQLite migrations");
                 })
