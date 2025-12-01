@@ -357,6 +357,76 @@ impl ToSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
     }
 }
 
+/// Universal binary wrapper for cross-database compatibility
+///
+/// This is a domain type that wraps Vec<u8> with Diesel support for
+/// both PostgreSQL (BYTEA) and SQLite (BLOB) backends.
+#[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[diesel(sql_type = DbBinary)]
+pub struct UniversalBinary(pub Vec<u8>);
+
+impl UniversalBinary {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self(data)
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl From<Vec<u8>> for UniversalBinary {
+    fn from(data: Vec<u8>) -> Self {
+        Self(data)
+    }
+}
+
+impl From<UniversalBinary> for Vec<u8> {
+    fn from(wrapper: UniversalBinary) -> Self {
+        wrapper.0
+    }
+}
+
+impl From<&[u8]> for UniversalBinary {
+    fn from(data: &[u8]) -> Self {
+        Self(data.to_vec())
+    }
+}
+
+// PostgreSQL FromSql/ToSql for UniversalBinary
+impl FromSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
+    fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
+        let data = <Vec<u8> as FromSql<diesel::sql_types::Binary, diesel::pg::Pg>>::from_sql(bytes)?;
+        Ok(UniversalBinary(data))
+    }
+}
+
+impl ToSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
+        out.write_all(&self.0)?;
+        Ok(diesel::serialize::IsNull::No)
+    }
+}
+
+// SQLite FromSql/ToSql for UniversalBinary
+impl FromSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
+    fn from_sql(bytes: diesel::sqlite::SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
+        let data = <Vec<u8> as FromSql<Binary, diesel::sqlite::Sqlite>>::from_sql(bytes)?;
+        Ok(UniversalBinary(data))
+    }
+}
+
+impl ToSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> diesel::serialize::Result {
+        out.set_value(self.0.clone());
+        Ok(diesel::serialize::IsNull::No)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,7 @@ use crate::database::{AnyConnection, AnyPool, BackendType, Database};
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
+pub mod models;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;

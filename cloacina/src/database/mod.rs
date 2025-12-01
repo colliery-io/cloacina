@@ -122,7 +122,8 @@ pub type Result<T> = std::result::Result<T, diesel::result::Error>;
 
 // Re-export universal types for convenience
 pub use universal_types::{
-    DbBinary, DbBool, DbTimestamp, DbUuid, UniversalBool, UniversalTimestamp, UniversalUuid,
+    DbBinary, DbBool, DbTimestamp, DbUuid, UniversalBinary, UniversalBool, UniversalTimestamp,
+    UniversalUuid,
 };
 
 /// Embedded migrations for PostgreSQL.
