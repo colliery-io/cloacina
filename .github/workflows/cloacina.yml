@@ -36,7 +36,7 @@ jobs:
           pip install angreal
 
       - name: Install PostgreSQL (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@14
           echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
@@ -44,7 +44,7 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Install PostgreSQL dev libraries (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
