@@ -67,14 +67,14 @@ jobs:
       - name: Run unit tests (${{ matrix.backend }})
         run: angreal cloacina unit --backend ${{ matrix.backend }}
 
-  # Integration tests - need database services, fail-fast disabled to catch multi-backend issues
+  # Integration tests - need PostgreSQL database services
+  # Note: Integration tests always use PostgreSQL fixture internally
   integration-tests:
-    name: Integration Tests (${{ matrix.backend }}, ${{ matrix.os }})
+    name: Integration Tests (${{ matrix.os }})
     needs: unit-tests
     strategy:
       fail-fast: false
       matrix:
-        backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
@@ -97,6 +97,12 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install PostgreSQL dev libraries (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
       - name: Cache Rust build
         uses: actions/cache@v4
         with:
@@ -104,20 +110,20 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-integration-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
+            ${{ runner.os }}-cloacina-integration-
             ${{ runner.os }}-cloacina-
 
       - name: Docker Compose Cache
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/cache@v4
         with:
           path: ~/.docker
           key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
       - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
@@ -125,14 +131,13 @@ jobs:
       - name: Install PostgreSQL dev libs (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          # Always install libpq on macOS - workspace examples need it even for SQLite tests
           brew install postgresql@14
           echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
           echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Start PostgreSQL services (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           brew services start postgresql@14
           sleep 5
@@ -140,12 +145,12 @@ jobs:
           createuser -s cloacina || true
           createdb -O cloacina cloacina || true
 
-      - name: Run integration tests (${{ matrix.backend }})
+      - name: Run integration tests
         run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
-            angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            angreal cloacina integration --skip-docker
           else
-            angreal cloacina integration --backend ${{ matrix.backend }}
+            angreal cloacina integration
           fi
 
   # Macro tests - only need to run once per backend (ubuntu only)
