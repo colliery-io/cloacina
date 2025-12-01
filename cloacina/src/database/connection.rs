@@ -278,12 +278,20 @@ impl Database {
             BackendType::Sqlite => {
                 let connection_url = Self::build_sqlite_url(connection_string);
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
+                // SQLite has limited concurrent write support even with WAL mode.
+                // Using a single connection avoids "database is locked" errors.
+                // For read-heavy workloads, consider increasing this with proper
+                // busy_timeout configuration on each connection.
+                let sqlite_pool_size = 1.min(max_size as usize);
                 let pool = SqlitePool::builder(manager)
-                    .max_size(max_size as usize)
+                    .max_size(sqlite_pool_size)
                     .build()
                     .expect("Failed to create SQLite connection pool");
 
-                info!("SQLite connection pool initialized");
+                info!(
+                    "SQLite connection pool initialized (size: {})",
+                    sqlite_pool_size
+                );
 
                 Self {
                     pool: AnyPool::Sqlite(pool),
