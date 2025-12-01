@@ -13,11 +13,13 @@ jobs:
   cloaca-bindings:
     name: Python Bindings (${{ matrix.backend }}, ${{ matrix.os }})
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4

@@ -18,6 +18,8 @@ jobs:
         backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +79,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -162,6 +166,8 @@ jobs:
       matrix:
         backend: [postgres, sqlite]
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4

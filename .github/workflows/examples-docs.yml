@@ -16,6 +16,8 @@ jobs:
       matrix:
         tutorial: ["01", "02", "03", "04", "05", "06"]
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +57,8 @@ jobs:
       matrix:
         example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution-demo"]
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -129,6 +133,8 @@ jobs:
           - tutorial: "06"
             backend: postgres
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
