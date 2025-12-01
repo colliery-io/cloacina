@@ -80,52 +80,59 @@ impl<'a> ContextDAL<'a> {
     }
 
     async fn create_postgres(&self, value: String) -> Result<Option<UniversalUuid>, ContextError> {
-        use crate::dal::postgres_dal::models::{NewPgDbContext, PgDbContext};
-        use crate::database::schema::postgres::contexts;
+        use super::models::NewUnifiedDbContext;
+        use crate::database::schema::unified::contexts;
+        use crate::database::universal_types::UniversalTimestamp;
 
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let new_context = NewPgDbContext { value };
+        // Generate ID and timestamps - PostgreSQL will use these values
+        let id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
 
-        let db_context: PgDbContext = conn
-            .interact(move |conn| {
-                diesel::insert_into(contexts::table)
-                    .values(&new_context)
-                    .get_result(conn)
-            })
-            .await
-            .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
+        let new_context = NewUnifiedDbContext {
+            id,
+            value,
+            created_at: now,
+            updated_at: now,
+        };
 
-        Ok(Some(UniversalUuid(db_context.id)))
+        conn.interact(move |conn| {
+            diesel::insert_into(contexts::table)
+                .values(&new_context)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
+
+        Ok(Some(id))
     }
 
     async fn create_sqlite(&self, value: String) -> Result<Option<UniversalUuid>, ContextError> {
-        use crate::dal::sqlite_dal::models::{
-            current_timestamp_string, uuid_to_blob, NewSqliteDbContext,
-        };
-        use crate::database::schema::sqlite::contexts;
+        use super::models::NewUnifiedDbContext;
+        use crate::database::schema::unified::contexts;
+        use crate::database::universal_types::UniversalTimestamp;
 
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        // For SQLite, generate UUID and timestamps client-side
+        // Generate ID and timestamps client-side
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp_string();
+        let now = UniversalTimestamp::now();
 
-        let new_context = NewSqliteDbContext {
-            id: uuid_to_blob(&id.0),
+        let new_context = NewUnifiedDbContext {
+            id,
             value,
-            created_at: now.clone(),
+            created_at: now,
             updated_at: now,
         };
 
@@ -157,20 +164,18 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        use crate::dal::postgres_dal::models::PgDbContext;
-        use crate::database::schema::postgres::contexts;
-        use uuid::Uuid;
+        use super::models::UnifiedDbContext;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id: Uuid = id.into();
-        let db_context: PgDbContext = conn
-            .interact(move |conn| contexts::table.find(uuid_id).first(conn))
+        let db_context: UnifiedDbContext = conn
+            .interact(move |conn| contexts::table.find(id).first(conn))
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
@@ -181,20 +186,18 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteDbContext};
-        use crate::database::schema::sqlite::contexts;
+        use super::models::UnifiedDbContext;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let db_context: SqliteDbContext = conn
-            .interact(move |conn| contexts::table.find(id_blob).first(conn))
+        let db_context: UnifiedDbContext = conn
+            .interact(move |conn| contexts::table.find(id).first(conn))
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
@@ -219,20 +222,20 @@ impl<'a> ContextDAL<'a> {
     }
 
     async fn update_postgres(&self, id: UniversalUuid, value: String) -> Result<(), ContextError> {
-        use crate::database::schema::postgres::contexts;
-        use uuid::Uuid;
+        use crate::database::schema::unified::contexts;
+        use crate::database::universal_types::UniversalTimestamp;
 
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id: Uuid = id.into();
+        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(contexts::table.find(uuid_id))
-                .set(contexts::value.eq(value))
+            diesel::update(contexts::table.find(id))
+                .set((contexts::value.eq(value), contexts::updated_at.eq(now)))
                 .execute(conn)
         })
         .await
@@ -242,21 +245,19 @@ impl<'a> ContextDAL<'a> {
     }
 
     async fn update_sqlite(&self, id: UniversalUuid, value: String) -> Result<(), ContextError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::contexts;
+        use crate::database::schema::unified::contexts;
+        use crate::database::universal_types::UniversalTimestamp;
 
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let now = current_timestamp_string();
+        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(contexts::table.find(id_blob))
+            diesel::update(contexts::table.find(id))
                 .set((contexts::value.eq(value), contexts::updated_at.eq(now)))
                 .execute(conn)
         })
@@ -275,18 +276,16 @@ impl<'a> ContextDAL<'a> {
     }
 
     async fn delete_postgres(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        use crate::database::schema::postgres::contexts;
-        use uuid::Uuid;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id: Uuid = id.into();
-        conn.interact(move |conn| diesel::delete(contexts::table.find(uuid_id)).execute(conn))
+        conn.interact(move |conn| diesel::delete(contexts::table.find(id)).execute(conn))
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
@@ -294,19 +293,16 @@ impl<'a> ContextDAL<'a> {
     }
 
     async fn delete_sqlite(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        use crate::dal::sqlite_dal::models::uuid_to_blob;
-        use crate::database::schema::sqlite::contexts;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        conn.interact(move |conn| diesel::delete(contexts::table.find(id_blob)).execute(conn))
+        conn.interact(move |conn| diesel::delete(contexts::table.find(id)).execute(conn))
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
@@ -335,17 +331,17 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        use crate::dal::postgres_dal::models::PgDbContext;
-        use crate::database::schema::postgres::contexts;
+        use super::models::UnifiedDbContext;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let db_contexts: Vec<PgDbContext> = conn
+        let db_contexts: Vec<UnifiedDbContext> = conn
             .interact(move |conn| {
                 contexts::table
                     .limit(limit)
@@ -356,31 +352,30 @@ impl<'a> ContextDAL<'a> {
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
-        let mut contexts = Vec::new();
+        let mut results = Vec::new();
         for db_context in db_contexts {
             let context = Context::<T>::from_json(db_context.value)?;
-            contexts.push(context);
+            results.push(context);
         }
 
-        Ok(contexts)
+        Ok(results)
     }
 
     async fn list_sqlite<T>(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        use crate::dal::sqlite_dal::models::SqliteDbContext;
-        use crate::database::schema::sqlite::contexts;
+        use super::models::UnifiedDbContext;
+        use crate::database::schema::unified::contexts;
 
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))?;
 
-        let db_contexts: Vec<SqliteDbContext> = conn
+        let db_contexts: Vec<UnifiedDbContext> = conn
             .interact(move |conn| {
                 contexts::table
                     .limit(limit)
@@ -391,12 +386,12 @@ impl<'a> ContextDAL<'a> {
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
-        let mut contexts = Vec::new();
+        let mut results = Vec::new();
         for db_context in db_contexts {
             let context = Context::<T>::from_json(db_context.value)?;
-            contexts.push(context);
+            results.push(context);
         }
 
-        Ok(contexts)
+        Ok(results)
     }
 }
