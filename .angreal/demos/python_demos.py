@@ -7,9 +7,7 @@ import shutil
 import subprocess
 import time
 
-from cloaca.cloaca_utils import _build_and_install_cloaca_backend
-from cloaca.generate import generate
-from cloaca.scrub import scrub
+from cloaca.cloaca_utils import _build_and_install_cloaca_unified
 from utils import docker_up, docker_down, check_postgres_container_health, smart_postgres_reset
 
 from .demos_utils import (
@@ -33,19 +31,13 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
         return 1
 
     # Create tutorial-specific environment
-    venv_name = f"tutorial-{tutorial_num}-{backend}"
+    venv_name = f"tutorial-{tutorial_num}-unified"
     venv_path = project_root / venv_name
 
     try:
-        # Step 1: Generate files for the backend
-        print(f"Step 1: Generating files for {backend} backend...")
-        result = generate(backend)
-        if result != 0:
-            raise Exception(f"Failed to generate files for {backend}")
-
-        # Step 2: Setup Docker for postgres backend
+        # Step 1: Setup Docker for postgres backend
         if backend == "postgres":
-            print("Step 2: Setting up PostgreSQL container...")
+            print("Step 1: Setting up PostgreSQL container...")
             exit_code = docker_up()
             if exit_code != 0:
                 raise Exception("Failed to start PostgreSQL container")
@@ -57,12 +49,12 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
                 raise Exception("PostgreSQL container is not healthy")
             print("PostgreSQL ready")
 
-        # Step 3: Build and install cloaca backend
-        print("Step 3: Setting up tutorial environment...")
-        venv, python_exe, pip_exe = _build_and_install_cloaca_backend(backend, venv_name)
+        # Step 2: Build and install unified cloaca wheel
+        print("Step 2: Setting up tutorial environment...")
+        venv, python_exe, pip_exe = _build_and_install_cloaca_unified(venv_name)
 
-        # Step 4: Run the tutorial
-        print(f"Step 4: Executing tutorial {tutorial_num}...")
+        # Step 3: Run the tutorial
+        print(f"Step 3: Executing tutorial {tutorial_num}...")
 
         # Clean any existing database files for this tutorial
         if backend == "sqlite":
@@ -128,10 +120,6 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
         if venv_path.exists():
             print(f"  Removing virtual environment: {venv_name}")
             shutil.rmtree(venv_path)
-
-        # Clean up generated files
-        print("  Cleaning generated files...")
-        scrub()
 
 
 def create_python_tutorial_command(tutorial_file):

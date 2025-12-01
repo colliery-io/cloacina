@@ -22,7 +22,6 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-#[cfg(feature = "postgres")]
 use cloacina::{AdminError, Database, DatabaseAdmin, TenantConfig, TenantCredentials};
 
 /// Python wrapper for TenantConfig
@@ -103,10 +102,17 @@ impl PyTenantCredentials {
     }
 }
 
+/// Helper to check if a URL is a PostgreSQL connection string
+fn is_postgres_url(url: &str) -> bool {
+    url.starts_with("postgres://") || url.starts_with("postgresql://")
+}
+
 /// Python wrapper for DatabaseAdmin
+///
+/// Note: This class is only functional with PostgreSQL databases.
+/// SQLite does not support database schemas or user management.
 #[pyclass(name = "DatabaseAdmin")]
 pub struct PyDatabaseAdmin {
-    #[cfg(feature = "postgres")]
     pub inner: DatabaseAdmin,
 }
 
@@ -114,100 +120,79 @@ pub struct PyDatabaseAdmin {
 impl PyDatabaseAdmin {
     #[new]
     pub fn new(database_url: String) -> PyResult<Self> {
-        #[cfg(feature = "postgres")]
-        {
-            // Parse the database URL to extract components
-            let url = url::Url::parse(&database_url)
-                .map_err(|e| PyRuntimeError::new_err(format!("Invalid database URL: {}", e)))?;
-
-            let database_name = url.path().trim_start_matches('/');
-            if database_name.is_empty() {
-                return Err(PyRuntimeError::new_err(
-                    "Database name is required in URL path",
-                ));
-            }
-
-            // Build connection string with all components
-            let username = url.username();
-            let password = url.password().unwrap_or("");
-            let host = url.host_str().unwrap_or("localhost");
-            let port = url.port().unwrap_or(5432);
-
-            let connection_string = if password.is_empty() {
-                format!("{}://{}@{}:{}", url.scheme(), username, host, port)
-            } else {
-                format!(
-                    "{}://{}:{}@{}:{}",
-                    url.scheme(),
-                    username,
-                    password,
-                    host,
-                    port
-                )
-            };
-
-            let database = Database::new(&connection_string, database_name, 10);
-            let admin = DatabaseAdmin::new(database);
-            Ok(Self { inner: admin })
+        // Runtime check for PostgreSQL
+        if !is_postgres_url(&database_url) {
+            return Err(PyRuntimeError::new_err(
+                "DatabaseAdmin requires a PostgreSQL connection. \
+                 SQLite does not support database schemas or user management. \
+                 Use a PostgreSQL URL like 'postgres://user:pass@host/db'",
+            ));
         }
 
-        #[cfg(not(feature = "postgres"))]
-        {
-            Err(PyRuntimeError::new_err(
-                "Admin functionality is only available with PostgreSQL backend",
-            ))
+        // Parse the database URL to extract components
+        let url = url::Url::parse(&database_url)
+            .map_err(|e| PyRuntimeError::new_err(format!("Invalid database URL: {}", e)))?;
+
+        let database_name = url.path().trim_start_matches('/');
+        if database_name.is_empty() {
+            return Err(PyRuntimeError::new_err(
+                "Database name is required in URL path",
+            ));
         }
+
+        // Build connection string with all components
+        let username = url.username();
+        let password = url.password().unwrap_or("");
+        let host = url.host_str().unwrap_or("localhost");
+        let port = url.port().unwrap_or(5432);
+
+        let connection_string = if password.is_empty() {
+            format!("{}://{}@{}:{}", url.scheme(), username, host, port)
+        } else {
+            format!(
+                "{}://{}:{}@{}:{}",
+                url.scheme(),
+                username,
+                password,
+                host,
+                port
+            )
+        };
+
+        let database = Database::new(&connection_string, database_name, 10);
+        let admin = DatabaseAdmin::new(database);
+        Ok(Self { inner: admin })
     }
 
     pub fn create_tenant(&self, config: &PyTenantConfig) -> PyResult<PyTenantCredentials> {
-        #[cfg(feature = "postgres")]
-        {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
 
-            let tenant_config = TenantConfig {
-                schema_name: config.inner.schema_name.clone(),
-                username: config.inner.username.clone(),
-                password: config.inner.password.clone(),
-            };
+        let tenant_config = TenantConfig {
+            schema_name: config.inner.schema_name.clone(),
+            username: config.inner.username.clone(),
+            password: config.inner.password.clone(),
+        };
 
-            let credentials = rt
-                .block_on(async { self.inner.create_tenant(tenant_config).await })
-                .map_err(|e: AdminError| {
-                    PyRuntimeError::new_err(format!("Failed to create tenant: {}", e))
-                })?;
+        let credentials = rt
+            .block_on(async { self.inner.create_tenant(tenant_config).await })
+            .map_err(|e: AdminError| {
+                PyRuntimeError::new_err(format!("Failed to create tenant: {}", e))
+            })?;
 
-            Ok(PyTenantCredentials { inner: credentials })
-        }
-
-        #[cfg(not(feature = "postgres"))]
-        {
-            Err(PyRuntimeError::new_err(
-                "Admin functionality is only available with PostgreSQL backend",
-            ))
-        }
+        Ok(PyTenantCredentials { inner: credentials })
     }
 
     pub fn remove_tenant(&self, schema_name: String, username: String) -> PyResult<()> {
-        #[cfg(feature = "postgres")]
-        {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
 
-            rt.block_on(async { self.inner.remove_tenant(&schema_name, &username).await })
-                .map_err(|e: AdminError| {
-                    PyRuntimeError::new_err(format!("Failed to remove tenant: {}", e))
-                })?;
+        rt.block_on(async { self.inner.remove_tenant(&schema_name, &username).await })
+            .map_err(|e: AdminError| {
+                PyRuntimeError::new_err(format!("Failed to remove tenant: {}", e))
+            })?;
 
-            Ok(())
-        }
-
-        #[cfg(not(feature = "postgres"))]
-        {
-            Err(PyRuntimeError::new_err(
-                "Admin functionality is only available with PostgreSQL backend",
-            ))
-        }
+        Ok(())
     }
 
     pub fn __repr__(&self) -> String {

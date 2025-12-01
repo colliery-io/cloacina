@@ -740,6 +740,9 @@ impl PyDefaultRunner {
     /// for complete data isolation between tenants. Each tenant gets their own
     /// schema with independent tables, migrations, and data.
     ///
+    /// Note: This method requires a PostgreSQL database. SQLite does not support
+    /// database schemas.
+    ///
     /// # Arguments
     /// * `database_url` - PostgreSQL connection string
     /// * `schema` - Schema name for tenant isolation (alphanumeric + underscores only)
@@ -760,8 +763,16 @@ impl PyDefaultRunner {
     /// )
     /// ```
     #[staticmethod]
-    #[cfg(feature = "postgres")]
     pub fn with_schema(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner> {
+        // Runtime check for PostgreSQL - schema-based multi-tenancy requires PostgreSQL
+        if !database_url.starts_with("postgres://") && !database_url.starts_with("postgresql://") {
+            return Err(PyValueError::new_err(
+                "Schema-based multi-tenancy requires PostgreSQL. \
+                 SQLite does not support database schemas. \
+                 Use a PostgreSQL URL like 'postgres://user:pass@host/db'",
+            ));
+        }
+
         info!("Creating DefaultRunner with PostgreSQL schema: {}", schema);
 
         // Validate schema name format

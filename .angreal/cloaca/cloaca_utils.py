@@ -137,11 +137,10 @@ def get_workspace_version() -> str:
     raise ValueError("Could not find version in workspace Cargo.toml")
 
 
-def _build_and_install_cloaca_backend(backend_name, venv_name):
-    """Build cloaca backend wheel and install it in a test environment with dispatcher.
+def _build_and_install_cloaca_unified(venv_name):
+    """Build unified cloaca wheel and install it in a test environment.
 
-    Assumes files are already generated and docker is set up if needed.
-    Only handles virtual environment creation and building.
+    The unified wheel supports both PostgreSQL and SQLite at runtime.
     Returns the VirtualEnv object and paths to executables.
     """
     project_root = Path(angreal.get_root()).parent
@@ -159,19 +158,11 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
 
     # Base dependencies for all backends
-    deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout"]
-    # Only install psycopg2 for postgres backend (requires libpq)
-    if backend_name == "postgres":
-        deps.append("psycopg2")
-
+    deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout", "psycopg2-binary"]
     subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
 
-    # Install dispatcher package
-    print("Installing dispatcher package...")
-    subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca")], check=True, capture_output=True)
-
-    # Build and install backend wheel
-    print(f"Building and installing {backend_name} wheel...")
+    # Build and install unified wheel
+    print("Building and installing unified cloaca wheel...")
     backend_dir = project_root / "cloaca-backend"
 
     # Clean existing extensions
@@ -179,12 +170,10 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
         for artifact in backend_dir.rglob(pattern):
             artifact.unlink()
 
-    # Build wheel
+    # Build wheel (no feature flags needed - unified supports both backends)
     maturin_exe = venv.path / "bin" / "maturin"
     maturin_cmd = [
         str(maturin_exe), "build",
-        "--no-default-features",
-        "--features", backend_name,
         "--release"
     ]
 
@@ -197,7 +186,7 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
     )
 
     # Find and install the wheel
-    wheel_pattern = f"cloaca_{backend_name}-*.whl"
+    wheel_pattern = "cloaca-*.whl"
     wheel_dir = backend_dir / "target" / "wheels"
     wheel_files = list(wheel_dir.glob(wheel_pattern))
 
