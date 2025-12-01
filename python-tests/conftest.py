@@ -27,12 +27,9 @@ _runner_lock = threading.Lock()
 
 
 def get_test_db_url():
-    """Get appropriate database URL based on compiled backend."""
-    try:
-        import cloaca
-        backend = cloaca.get_backend()
-    except ImportError:
-        raise SystemError("cloaca not available")
+    """Get appropriate database URL based on CLOACA_BACKEND env var."""
+    # Use CLOACA_BACKEND env var to determine database, default to sqlite
+    backend = os.environ.get("CLOACA_BACKEND", "sqlite").lower()
 
     if backend == "postgres":
         return "postgresql://cloacina:cloacina@localhost:5432/cloacina"
@@ -42,7 +39,7 @@ def get_test_db_url():
             db_path = tmp.name
         return f"sqlite://{db_path}?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
     else:
-        raise ValueError(f"Unsupported backend: {backend}")
+        raise ValueError(f"Unsupported backend: {backend}. Set CLOACA_BACKEND to 'sqlite' or 'postgres'.")
 
 
 

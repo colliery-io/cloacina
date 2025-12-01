@@ -9,7 +9,6 @@ Backend selection happens at runtime based on the connection URL.
 from cloaca.cloaca import (
     # Test functions
     hello_world,
-    get_backend,
     HelloClass,
     # Core classes
     Context,
@@ -33,14 +32,11 @@ from cloaca.cloaca import (
     DatabaseAdmin,
     TenantConfig,
     TenantCredentials,
-    # Module metadata
-    __backend__,
 )
 
 __all__ = [
     # Test functions
     "hello_world",
-    "get_backend",
     "HelloClass",
     # Core classes
     "Context",
@@ -64,6 +60,4 @@ __all__ = [
     "DatabaseAdmin",
     "TenantConfig",
     "TenantCredentials",
-    # Module metadata
-    "__backend__",
 ]

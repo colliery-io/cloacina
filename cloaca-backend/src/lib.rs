@@ -64,19 +64,11 @@ fn hello_world() -> String {
     "Hello from Cloaca backend!".to_string()
 }
 
-/// Get the backend type - unified supports both PostgreSQL and SQLite
-#[pyfunction]
-#[allow(dead_code)] // Used by PyO3 module exports
-fn get_backend() -> &'static str {
-    "unified"
-}
-
 /// A unified Python module supporting both PostgreSQL and SQLite backends.
 #[pymodule]
 fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Simple test functions
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
-    m.add_function(wrap_pyfunction!(get_backend, m)?)?;
 
     // Test class
     m.add_class::<HelloClass>()?;
@@ -111,9 +103,6 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDatabaseAdmin>()?;
     m.add_class::<PyTenantConfig>()?;
     m.add_class::<PyTenantCredentials>()?;
-
-    // Module metadata
-    m.add("__backend__", "unified")?;
 
     Ok(())
 }
