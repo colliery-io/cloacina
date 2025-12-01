@@ -107,8 +107,8 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                 file_results = []
                 pytest_exe = venv.path / "bin" / "pytest"
                 env = os.environ.copy()
-                # Set backend hint for tests
-                env["CLOACA_TEST_BACKEND"] = backend_name
+                # Set backend for tests to determine which database URL to use
+                env["CLOACA_BACKEND"] = backend_name
 
                 for test_file in test_files:
                     print(f"\n--- Running {test_file.name} ---")
