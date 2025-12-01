@@ -81,6 +81,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: full
+      # Schema isolation prevents test interference between parallel jobs
+      CLOACINA_TEST_SCHEMA: integration_${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +170,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
+      # Schema isolation prevents test interference between parallel jobs
+      CLOACINA_TEST_SCHEMA: macro_${{ matrix.backend }}
 
     steps:
       - uses: actions/checkout@v4
