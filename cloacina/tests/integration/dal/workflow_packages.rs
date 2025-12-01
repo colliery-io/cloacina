@@ -15,6 +15,7 @@
  */
 
 use crate::fixtures::get_or_init_fixture;
+use cloacina::models::workflow_packages::StorageType;
 use cloacina::registry::loader::package_loader::PackageMetadata;
 use cloacina::registry::traits::RegistryStorage;
 
@@ -51,8 +52,9 @@ async fn test_store_and_get_package_metadata() {
         .expect("Failed to store binary in registry");
 
     // Store the package metadata
+    let storage_type = workflow_registry_storage.storage_type();
     let package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await
         .expect("Failed to store package metadata");
 
@@ -106,14 +108,15 @@ async fn test_store_duplicate_package_metadata() {
         .expect("Failed to store binary in registry");
 
     // Store the package metadata first time - should succeed
+    let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await
         .expect("Failed to store package metadata first time");
 
     // Try to store the same package metadata again - should fail with PackageExists error
     let result = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await;
 
     assert!(result.is_err());
@@ -172,8 +175,9 @@ async fn test_list_all_packages() {
 
         package_names.push(test_metadata.package_name.clone());
 
+        let storage_type = workflow_registry_storage.storage_type();
         workflow_packages_dal
-            .store_package_metadata(&registry_id, &test_metadata)
+            .store_package_metadata(&registry_id, &test_metadata, storage_type)
             .await
             .expect("Failed to store test package");
     }
@@ -226,8 +230,9 @@ async fn test_delete_package_metadata() {
         .expect("Failed to store binary in registry");
 
     // Store the package
+    let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await
         .expect("Failed to store package metadata");
 
@@ -350,8 +355,9 @@ async fn test_store_package_with_complex_metadata() {
         .expect("Failed to store binary in registry");
 
     // Store the complex package
+    let storage_type = workflow_registry_storage.storage_type();
     let _package_id = workflow_packages_dal
-        .store_package_metadata(&registry_id, &test_metadata)
+        .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await
         .expect("Failed to store complex package metadata");
 
@@ -412,7 +418,7 @@ async fn test_store_package_with_invalid_uuid() {
 
     // Try to store with invalid UUID
     let result = workflow_packages_dal
-        .store_package_metadata("not-a-valid-uuid", &test_metadata)
+        .store_package_metadata("not-a-valid-uuid", &test_metadata, StorageType::Database)
         .await;
 
     assert!(result.is_err());
@@ -458,8 +464,9 @@ async fn test_package_versioning() {
             symbols: vec![],
         };
 
+        let storage_type = workflow_registry_storage.storage_type();
         workflow_packages_dal
-            .store_package_metadata(&registry_id, &test_metadata)
+            .store_package_metadata(&registry_id, &test_metadata, storage_type)
             .await
             .expect(&format!("Failed to store version {}", version));
     }

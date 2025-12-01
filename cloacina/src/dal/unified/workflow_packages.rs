@@ -46,14 +46,15 @@ impl<'a> WorkflowPackagesDAL<'a> {
         &self,
         registry_id: &str,
         package_metadata: &PackageMetadata,
+        storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
         match self.dal.backend() {
             BackendType::Postgres => {
-                self.store_package_metadata_postgres(registry_id, package_metadata)
+                self.store_package_metadata_postgres(registry_id, package_metadata, storage_type)
                     .await
             }
             BackendType::Sqlite => {
-                self.store_package_metadata_sqlite(registry_id, package_metadata)
+                self.store_package_metadata_sqlite(registry_id, package_metadata, storage_type)
                     .await
             }
         }
@@ -63,6 +64,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         &self,
         registry_id: &str,
         package_metadata: &PackageMetadata,
+        storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
         use crate::dal::postgres_dal::models::{NewPgWorkflowPackage, PgWorkflowPackage};
         use crate::database::schema::postgres::workflow_packages;
@@ -84,6 +86,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             description: package_metadata.description.clone(),
             author: package_metadata.author.clone(),
             metadata,
+            storage_type: storage_type.as_str().to_string(),
         };
 
         let package_name_clone = package_metadata.package_name.clone();
@@ -115,6 +118,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         &self,
         registry_id: &str,
         package_metadata: &PackageMetadata,
+        storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
         use crate::dal::sqlite_dal::models::{
             current_timestamp_string, uuid_to_blob, NewSqliteWorkflowPackage, SqliteWorkflowPackage,
@@ -145,6 +149,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             description: package_metadata.description.clone(),
             author: package_metadata.author.clone(),
             metadata,
+            storage_type: storage_type.as_str().to_string(),
             created_at: now.clone(),
             updated_at: now,
         };

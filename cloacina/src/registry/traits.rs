@@ -21,6 +21,7 @@
 
 use async_trait::async_trait;
 
+use crate::models::workflow_packages::StorageType;
 use crate::registry::error::{RegistryError, StorageError};
 use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 
@@ -238,4 +239,15 @@ pub trait RegistryStorage: Send + Sync {
     /// Implementations should be idempotent - deleting non-existent
     /// data should succeed silently.
     async fn delete_binary(&mut self, id: &str) -> Result<(), StorageError>;
+
+    /// Returns the storage type for this backend.
+    ///
+    /// This is used to record where the binary data is stored
+    /// in the workflow_packages metadata table.
+    ///
+    /// # Returns
+    ///
+    /// * `StorageType::Database` - For database-backed storage (PostgreSQL, SQLite)
+    /// * `StorageType::Filesystem` - For filesystem-backed storage
+    fn storage_type(&self) -> StorageType;
 }

@@ -95,7 +95,7 @@ async fn test_dal_register_then_reconciler_load() {
 
     let our_package = packages
         .iter()
-        .find(|p| p.package_name == "simple-packaged-demo");
+        .find(|p| p.package_name == "simple_demo");
     assert!(our_package.is_some(), "Should find our registered package");
     let our_package = our_package.unwrap();
 
@@ -115,7 +115,7 @@ async fn test_dal_register_then_reconciler_load() {
         "Should be able to retrieve package by ID"
     );
     let (metadata, binary_data) = retrieved_by_id.unwrap();
-    assert_eq!(metadata.package_name, "simple-packaged-demo");
+    assert_eq!(metadata.package_name, "simple_demo");
     assert_eq!(binary_data, package_data);
 
     println!("✅ Package retrieved by ID successfully");

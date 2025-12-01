@@ -26,6 +26,7 @@ use uuid::Uuid;
 use super::models::{NewSqliteWorkflowRegistryEntry, SqliteWorkflowRegistryEntry, uuid_to_blob, current_timestamp_string};
 use crate::database::schema::sqlite::workflow_registry;
 use crate::database::Database;
+use crate::models::workflow_packages::StorageType;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
@@ -145,5 +146,9 @@ impl RegistryStorage for SqliteRegistryStorage {
 
         // Idempotent - success even if no rows deleted
         Ok(())
+    }
+
+    fn storage_type(&self) -> StorageType {
+        StorageType::Database
     }
 }

@@ -22,6 +22,37 @@
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use serde::{Deserialize, Serialize};
 
+/// Storage type for workflow binary data.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StorageType {
+    /// Binary stored in workflow_registry database table
+    Database,
+    /// Binary stored on filesystem at {storage_dir}/{registry_id}.so
+    Filesystem,
+}
+
+impl StorageType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StorageType::Database => "database",
+            StorageType::Filesystem => "filesystem",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "filesystem" => StorageType::Filesystem,
+            _ => StorageType::Database, // Default to database for backward compatibility
+        }
+    }
+}
+
+impl std::fmt::Display for StorageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// Domain model for workflow package metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowPackage {
@@ -32,6 +63,7 @@ pub struct WorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: StorageType,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -45,6 +77,7 @@ pub struct NewWorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: StorageType,
 }
 
 impl NewWorkflowPackage {
@@ -55,6 +88,7 @@ impl NewWorkflowPackage {
         description: Option<String>,
         author: Option<String>,
         metadata: String,
+        storage_type: StorageType,
     ) -> Self {
         Self {
             registry_id,
@@ -63,6 +97,7 @@ impl NewWorkflowPackage {
             description,
             author,
             metadata,
+            storage_type,
         }
     }
 }

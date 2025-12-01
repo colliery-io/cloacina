@@ -263,6 +263,7 @@ pub struct PgWorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -276,6 +277,7 @@ pub struct NewPgWorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: String,
 }
 
 // ============================================================================
@@ -440,6 +442,7 @@ impl From<PgWorkflowRegistryEntry> for WorkflowRegistryEntry {
 
 impl From<PgWorkflowPackage> for WorkflowPackage {
     fn from(pg: PgWorkflowPackage) -> Self {
+        use crate::models::workflow_packages::StorageType;
         WorkflowPackage {
             id: UniversalUuid(pg.id),
             registry_id: UniversalUuid(pg.registry_id),
@@ -448,6 +451,7 @@ impl From<PgWorkflowPackage> for WorkflowPackage {
             description: pg.description,
             author: pg.author,
             metadata: pg.metadata,
+            storage_type: StorageType::from_str(&pg.storage_type),
             created_at: UniversalTimestamp(Utc.from_utc_datetime(&pg.created_at)),
             updated_at: UniversalTimestamp(Utc.from_utc_datetime(&pg.updated_at)),
         }

@@ -178,6 +178,7 @@ impl WorkflowRegistryDAL {
                         description: metadata_clone.description.clone(),
                         author: metadata_clone.author.clone(),
                         metadata: metadata_json,
+                        storage_type: "database".to_string(), // This DAL always stores binary in database
                     };
 
                     let package_entry: PgWorkflowPackage =

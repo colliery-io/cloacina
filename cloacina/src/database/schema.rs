@@ -108,6 +108,7 @@ mod postgres_schema {
             description -> Nullable<Text>,
             author -> Nullable<Varchar>,
             metadata -> Text,
+            storage_type -> Varchar,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }
@@ -310,6 +311,7 @@ mod sqlite_schema {
             description -> Nullable<Text>,
             author -> Nullable<Text>,
             metadata -> Text,
+            storage_type -> Text,
             created_at -> Text,
             updated_at -> Text,
         }

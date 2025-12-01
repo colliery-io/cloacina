@@ -167,14 +167,15 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let registry_uuid = Uuid::parse_str(registry_id).map_err(RegistryError::InvalidUuid)?;
         let metadata =
             serde_json::to_string(package_metadata).map_err(RegistryError::Serialization)?;
+        let storage_type = self.storage.storage_type();
 
         match self.database.backend() {
                         crate::database::BackendType::Postgres => {
-                self.store_package_metadata_postgres(registry_uuid, package_metadata, metadata)
+                self.store_package_metadata_postgres(registry_uuid, package_metadata, metadata, storage_type)
                     .await
             }
                         crate::database::BackendType::Sqlite => {
-                self.store_package_metadata_sqlite(registry_uuid, package_metadata, metadata)
+                self.store_package_metadata_sqlite(registry_uuid, package_metadata, metadata, storage_type)
                     .await
             }
         }
@@ -185,6 +186,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         registry_uuid: Uuid,
         package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
         metadata: String,
+        storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
                 use crate::dal::legacy_postgres::models::{NewPgWorkflowPackage, PgWorkflowPackage};
         use crate::database::schema::postgres::workflow_packages;
@@ -202,6 +204,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             description: package_metadata.description.clone(),
             author: package_metadata.author.clone(),
             metadata,
+            storage_type: storage_type.as_str().to_string(),
         };
 
         let package_name_for_error = package_metadata.package_name.clone();
@@ -234,6 +237,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         registry_uuid: Uuid,
         package_metadata: &crate::registry::loader::package_loader::PackageMetadata,
         metadata: String,
+        storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
                 use crate::dal::legacy_sqlite::models::{
             current_timestamp_string, uuid_to_blob, NewSqliteWorkflowPackage,
@@ -261,6 +265,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             description: package_metadata.description.clone(),
             author: package_metadata.author.clone(),
             metadata,
+            storage_type: storage_type.as_str().to_string(),
             created_at: now.clone(),
             updated_at: now,
         };

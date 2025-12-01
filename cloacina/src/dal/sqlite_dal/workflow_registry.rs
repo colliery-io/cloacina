@@ -182,6 +182,7 @@ impl WorkflowRegistryDAL {
                         description: package_metadata_clone.description.clone(),
                         author: package_metadata_clone.author.clone(),
                         metadata: metadata_json,
+                        storage_type: "database".to_string(), // This DAL always stores binary in database
                         created_at: now.clone(),
                         updated_at: now,
                     };

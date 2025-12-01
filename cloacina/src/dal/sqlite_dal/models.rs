@@ -289,6 +289,7 @@ pub struct SqliteWorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -303,6 +304,7 @@ pub struct NewSqliteWorkflowPackage {
     pub description: Option<String>,
     pub author: Option<String>,
     pub metadata: String,
+    pub storage_type: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -558,6 +560,7 @@ impl From<SqliteWorkflowRegistryEntry> for WorkflowRegistryEntry {
 
 impl From<SqliteWorkflowPackage> for WorkflowPackage {
     fn from(s: SqliteWorkflowPackage) -> Self {
+        use crate::models::workflow_packages::StorageType;
         WorkflowPackage {
             id: UniversalUuid(blob_to_uuid(&s.id).expect("Invalid UUID in database")),
             registry_id: UniversalUuid(
@@ -568,6 +571,7 @@ impl From<SqliteWorkflowPackage> for WorkflowPackage {
             description: s.description,
             author: s.author,
             metadata: s.metadata,
+            storage_type: StorageType::from_str(&s.storage_type),
             created_at: UniversalTimestamp(
                 string_to_datetime(&s.created_at).expect("Invalid timestamp in database"),
             ),

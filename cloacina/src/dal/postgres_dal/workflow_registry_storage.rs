@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::database::schema::postgres::workflow_registry;
 use crate::database::Database;
+use crate::models::workflow_packages::StorageType;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 use super::models::{NewPgWorkflowRegistryEntry, PgWorkflowRegistryEntry};
@@ -121,5 +122,9 @@ impl RegistryStorage for PostgresRegistryStorage {
         .map_err(|e| StorageError::Backend(format!("Database error: {}", e)))?;
 
         Ok(())
+    }
+
+    fn storage_type(&self) -> StorageType {
+        StorageType::Database
     }
 }
