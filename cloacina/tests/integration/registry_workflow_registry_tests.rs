@@ -127,7 +127,9 @@ fn create_mock_elf_data() -> Vec<u8> {
 }
 
 /// Helper to create a test storage backend appropriate for the current database
-fn create_test_storage(database: cloacina::Database) -> impl cloacina::registry::traits::RegistryStorage {
+fn create_test_storage(
+    database: cloacina::Database,
+) -> impl cloacina::registry::traits::RegistryStorage {
     // Use unified storage which works with both PostgreSQL and SQLite
     UnifiedRegistryStorage::new(database)
 }

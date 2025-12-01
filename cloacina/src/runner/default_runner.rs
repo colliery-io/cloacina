@@ -400,7 +400,7 @@ impl DefaultRunner {
     ///     .build()
     ///     .await?;
     /// ```
-        pub fn builder() -> DefaultRunnerBuilder {
+    pub fn builder() -> DefaultRunnerBuilder {
         DefaultRunnerBuilder::new()
     }
 
@@ -420,7 +420,7 @@ impl DefaultRunner {
     ///     "tenant_123"
     /// ).await?;
     /// ```
-        pub async fn with_schema(database_url: &str, schema: &str) -> Result<Self, PipelineError> {
+    pub async fn with_schema(database_url: &str, schema: &str) -> Result<Self, PipelineError> {
         Self::builder()
             .database_url(database_url)
             .schema(schema)

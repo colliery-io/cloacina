@@ -91,7 +91,7 @@ Connection String (runtime)
 ### Key Components
 
 1. **AnyConnection enum**: Diesel `#[derive(MultiConnection)]` wrapping both connection types
-2. **Unified DAL**: Single set of DAL files using `AnyConnection` 
+2. **Unified DAL**: Single set of DAL files using `AnyConnection`
 3. **Backend matchers**: Isolated `match` blocks for backend-specific queries (e.g., UUID handling)
 4. **Optional feature flags**: Compile-time flags to exclude backends for smaller binaries
 

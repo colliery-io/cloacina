@@ -891,8 +891,13 @@ impl<'a> CronScheduleDAL<'a> {
     ) -> Result<(), ValidationError> {
         match self.dal.backend() {
             BackendType::Postgres => {
-                self.update_expression_and_timezone_postgres(id, cron_expression, timezone, next_run)
-                    .await
+                self.update_expression_and_timezone_postgres(
+                    id,
+                    cron_expression,
+                    timezone,
+                    next_run,
+                )
+                .await
             }
             BackendType::Sqlite => {
                 self.update_expression_and_timezone_sqlite(id, cron_expression, timezone, next_run)

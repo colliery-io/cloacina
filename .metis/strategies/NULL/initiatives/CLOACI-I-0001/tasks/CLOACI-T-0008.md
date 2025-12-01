@@ -71,7 +71,7 @@ Refactor Cargo.toml feature flags from "select exactly one backend" to "include 
    // REMOVE THESE:
    #[cfg(all(feature = "postgres", feature = "sqlite"))]
    compile_error!("Cannot enable both...");
-   
+
    #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
    compile_error!("Must enable exactly one...");
    ```
@@ -83,7 +83,7 @@ Refactor Cargo.toml feature flags from "select exactly one backend" to "include 
    #[cfg(feature = "postgres")]
    // postgres-specific code
    ```
-   
+
    To:
    ```rust
    // Now using unified implementation via AnyConnection

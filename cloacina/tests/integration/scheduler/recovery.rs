@@ -347,7 +347,9 @@ mod postgres_tests {
         .unwrap()
         .unwrap();
 
-        info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
+        info!(
+            "Creating scheduler with recovery (empty workflow registry) - should abandon all tasks"
+        );
 
         let _scheduler = TaskScheduler::new(database).await.unwrap();
 
@@ -930,7 +932,9 @@ mod sqlite_tests {
         .unwrap()
         .unwrap();
 
-        info!("Creating scheduler with recovery (empty workflow registry) - should abandon all tasks");
+        info!(
+            "Creating scheduler with recovery (empty workflow registry) - should abandon all tasks"
+        );
 
         let _scheduler = TaskScheduler::new(database).await.unwrap();
 

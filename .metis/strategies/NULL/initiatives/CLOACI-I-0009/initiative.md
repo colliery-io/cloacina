@@ -5,7 +5,7 @@ title: "Replace Runtime Regex Compilation with Static Compilation"
 short_code: "CLOACI-I-0009"
 created_at: 2025-11-29T02:40:15.067907+00:00
 updated_at: 2025-11-29T02:40:15.067907+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -29,7 +29,7 @@ initiative_id: replace-runtime-regex-compilation
 In `cloacina/src/packaging/manifest.rs` (line 306), a regex is compiled at runtime with `.expect()`:
 
 ```rust
-let packaged_workflow_regex = 
+let packaged_workflow_regex =
     Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
         .expect("Failed to compile regex");  // Line 306
 ```

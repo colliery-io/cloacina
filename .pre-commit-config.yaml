@@ -29,16 +29,9 @@ repos:
 
   - repo: local
     hooks:
-      - id: cargo-check-postgres
-        name: Cargo check with PostgreSQL backend
-        entry: cargo check --no-default-features --features "postgres,macros"
-        language: system
-        types: [rust]
-        pass_filenames: false
-
-      - id: cargo-check-sqlite
-        name: Cargo check with SQLite backend
-        entry: cargo check --no-default-features --features "sqlite,macros"
+      - id: cargo-check
+        name: Cargo check with both backends
+        entry: cargo check --features "postgres,sqlite,macros"
         language: system
         types: [rust]
         pass_filenames: false
@@ -48,7 +41,6 @@ repos:
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
-        exclude: cloaca-backend/python/cloaca_\{\{backend\}\}/__init__\.py
   - repo: https://github.com/adrienverge/yamllint
     rev: v1.29.0
     hooks:

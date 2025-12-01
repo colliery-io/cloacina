@@ -48,7 +48,7 @@ Update the migration runner to detect the database backend at runtime and execut
 1. **Current State Analysis**
 
    Current migration runner location: `cloacina/src/database/mod.rs`
-   
+
    Migrations are embedded via `diesel_migrations::embed_migrations!` with separate directories:
    - `cloacina/src/database/migrations/postgres/`
    - `cloacina/src/database/migrations/sqlite/`
@@ -76,7 +76,7 @@ Update the migration runner to detect the database backend at runtime and execut
    mod postgres_migrations {
        diesel_migrations::embed_migrations!("src/database/migrations/postgres");
    }
-   
+
    #[cfg(feature = "sqlite")]
    mod sqlite_migrations {
        diesel_migrations::embed_migrations!("src/database/migrations/sqlite");

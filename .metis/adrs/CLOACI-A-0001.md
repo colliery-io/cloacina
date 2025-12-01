@@ -6,9 +6,9 @@ number: 1
 short_code: "CLOACI-A-0001"
 created_at: 2025-11-28T15:27:26.028725+00:00
 updated_at: 2025-11-28T15:27:26.028725+00:00
-decision_date: 
-decision_maker: 
-parent: 
+decision_date:
+decision_maker:
+parent:
 archived: false
 
 tags:
@@ -23,8 +23,8 @@ initiative_id: NULL
 
 # ADR-1: Runtime Database Backend Selection via Diesel MultiConnection
 
-**Status:** Draft  
-**Supersedes:** Compile-time database backend selection (undocumented)  
+**Status:** Draft
+**Supersedes:** Compile-time database backend selection (undocumented)
 **Related Initiative:** CLOACI-I-0001
 
 ## Context

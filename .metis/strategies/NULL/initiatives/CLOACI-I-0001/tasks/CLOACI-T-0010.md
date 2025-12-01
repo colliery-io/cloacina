@@ -61,14 +61,14 @@ Update GitHub Actions CI workflows to build and test a single unified binary aga
        runs-on: ubuntu-latest
        steps:
          - uses: actions/checkout@v4
-         
+
          - name: Install Rust
            uses: dtolnay/rust-action@stable
-           
+
          - name: Build (dual backend)
            run: cargo build --release
            # Default features now include both backends
-           
+
          - name: Run unit tests
            run: cargo test --lib
    ```
@@ -79,7 +79,7 @@ Update GitHub Actions CI workflows to build and test a single unified binary aga
      integration-tests:
        runs-on: ubuntu-latest
        needs: build
-       
+
        services:
          postgres:
            image: postgres:15
@@ -93,15 +93,15 @@ Update GitHub Actions CI workflows to build and test a single unified binary aga
              --health-interval 10s
              --health-timeout 5s
              --health-retries 5
-             
+
        steps:
          - uses: actions/checkout@v4
-         
+
          - name: Run PostgreSQL integration tests
            env:
              DATABASE_URL: postgres://postgres:postgres@localhost:5432/cloacina_test
            run: cargo test --test '*' -- --test-threads=1
-           
+
          - name: Run SQLite integration tests
            env:
              DATABASE_URL: sqlite://./test.db

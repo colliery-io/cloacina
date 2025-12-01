@@ -5,7 +5,7 @@ title: "Replace Scattered expect/unwrap with Proper Error Handling"
 short_code: "CLOACI-I-0010"
 created_at: 2025-11-29T02:40:15.160144+00:00
 updated_at: 2025-11-29T02:40:15.160144+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -66,9 +66,9 @@ pub fn create_pool(url: &str) -> Pool {
 pub fn create_pool(url: &str) -> Result<Pool, DatabaseError> {
     Pool::builder()
         .build(url)
-        .map_err(|e| DatabaseError::PoolCreation { 
-            url: url.to_string(), 
-            source: e 
+        .map_err(|e| DatabaseError::PoolCreation {
+            url: url.to_string(),
+            source: e
         })
 }
 ```

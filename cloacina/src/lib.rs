@@ -427,7 +427,6 @@
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
 
-
 // #[cfg(feature = "auth")]
 // pub mod auth;
 pub mod context;

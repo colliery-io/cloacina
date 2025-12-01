@@ -169,13 +169,23 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         let storage_type = self.storage.storage_type();
 
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => {
-                self.store_package_metadata_postgres(registry_uuid, package_metadata, metadata, storage_type)
-                    .await
+            crate::database::BackendType::Postgres => {
+                self.store_package_metadata_postgres(
+                    registry_uuid,
+                    package_metadata,
+                    metadata,
+                    storage_type,
+                )
+                .await
             }
-                        crate::database::BackendType::Sqlite => {
-                self.store_package_metadata_sqlite(registry_uuid, package_metadata, metadata, storage_type)
-                    .await
+            crate::database::BackendType::Sqlite => {
+                self.store_package_metadata_sqlite(
+                    registry_uuid,
+                    package_metadata,
+                    metadata,
+                    storage_type,
+                )
+                .await
             }
         }
     }
@@ -303,11 +313,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         RegistryError,
     > {
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => {
+            crate::database::BackendType::Postgres => {
                 self.get_package_metadata_postgres(package_name, version)
                     .await
             }
-                        crate::database::BackendType::Sqlite => {
+            crate::database::BackendType::Sqlite => {
                 self.get_package_metadata_sqlite(package_name, version)
                     .await
             }
@@ -405,8 +415,8 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// List all packages in the registry.
     async fn list_all_packages(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => self.list_all_packages_postgres().await,
-                        crate::database::BackendType::Sqlite => self.list_all_packages_sqlite().await,
+            crate::database::BackendType::Postgres => self.list_all_packages_postgres().await,
+            crate::database::BackendType::Sqlite => self.list_all_packages_sqlite().await,
         }
     }
 
@@ -501,11 +511,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         version: &str,
     ) -> Result<(), RegistryError> {
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => {
+            crate::database::BackendType::Postgres => {
                 self.delete_package_metadata_postgres(package_name, version)
                     .await
             }
-                        crate::database::BackendType::Sqlite => {
+            crate::database::BackendType::Sqlite => {
                 self.delete_package_metadata_sqlite(package_name, version)
                     .await
             }
@@ -518,10 +528,10 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         package_id: Uuid,
     ) -> Result<Option<(String, WorkflowMetadata)>, RegistryError> {
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => {
+            crate::database::BackendType::Postgres => {
                 self.get_package_metadata_by_id_postgres(package_id).await
             }
-                        crate::database::BackendType::Sqlite => {
+            crate::database::BackendType::Sqlite => {
                 self.get_package_metadata_by_id_sqlite(package_id).await
             }
         }
@@ -637,11 +647,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// Delete package metadata by ID.
     async fn delete_package_metadata_by_id(&self, package_id: Uuid) -> Result<(), RegistryError> {
         match self.database.backend() {
-                        crate::database::BackendType::Postgres => {
+            crate::database::BackendType::Postgres => {
                 self.delete_package_metadata_by_id_postgres(package_id)
                     .await
             }
-                        crate::database::BackendType::Sqlite => {
+            crate::database::BackendType::Sqlite => {
                 self.delete_package_metadata_by_id_sqlite(package_id).await
             }
         }
@@ -813,7 +823,11 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         version: &str,
     ) -> Result<(), RegistryError> {
         // Check if package exists first
-        if self.get_package_metadata(package_name, version).await?.is_none() {
+        if self
+            .get_package_metadata(package_name, version)
+            .await?
+            .is_none()
+        {
             return Ok(()); // Idempotent - already doesn't exist
         }
 

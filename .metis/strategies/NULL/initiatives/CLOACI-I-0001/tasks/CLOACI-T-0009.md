@@ -49,7 +49,7 @@ Remove the deprecated duplicate `postgres_dal/` and `sqlite_dal/` directories an
 1. **Verify unified DAL is complete**
 
    Before deletion, ensure all functionality from legacy DALs is present in unified:
-   
+
    ```bash
    # Compare exported items
    diff <(grep "pub fn\|pub async fn\|pub struct" postgres_dal/*.rs | sort) \
@@ -62,16 +62,16 @@ Remove the deprecated duplicate `postgres_dal/` and `sqlite_dal/` directories an
    ```rust
    #[cfg(feature = "postgres")]
    mod postgres_dal;
-   
+
    #[cfg(feature = "sqlite")]
    mod sqlite_dal;
-   
+
    mod unified;  // Added during migration
    mod filesystem_dal;
-   
+
    #[cfg(feature = "postgres")]
    pub use postgres_dal::*;
-   
+
    #[cfg(feature = "sqlite")]
    pub use sqlite_dal::*;
    ```
@@ -80,7 +80,7 @@ Remove the deprecated duplicate `postgres_dal/` and `sqlite_dal/` directories an
    ```rust
    mod unified;
    mod filesystem_dal;
-   
+
    pub use unified::*;
    pub use filesystem_dal::FilesystemRegistryStorage;
    ```

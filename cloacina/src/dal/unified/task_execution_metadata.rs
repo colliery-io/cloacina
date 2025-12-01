@@ -209,9 +209,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
         match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_by_task_execution_postgres(task_execution_id).await
-            }
+            BackendType::Postgres => self.get_by_task_execution_postgres(task_execution_id).await,
             BackendType::Sqlite => self.get_by_task_execution_sqlite(task_execution_id).await,
         }
     }
@@ -625,10 +623,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(results
-            .into_iter()
-            .map(|(m, c)| (m.into(), c))
-            .collect())
+        Ok(results.into_iter().map(|(m, c)| (m.into(), c)).collect())
     }
 
     async fn get_dependency_metadata_with_contexts_sqlite(
@@ -666,9 +661,6 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(results
-            .into_iter()
-            .map(|(m, c)| (m.into(), c))
-            .collect())
+        Ok(results.into_iter().map(|(m, c)| (m.into(), c)).collect())
     }
 }

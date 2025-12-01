@@ -462,9 +462,15 @@ impl<'a> WorkflowPackagesDAL<'a> {
     }
 
     /// Delete package metadata by UUID from the database.
-    pub async fn delete_package_metadata_by_id(&self, package_id: Uuid) -> Result<(), RegistryError> {
+    pub async fn delete_package_metadata_by_id(
+        &self,
+        package_id: Uuid,
+    ) -> Result<(), RegistryError> {
         match self.dal.backend() {
-            BackendType::Postgres => self.delete_package_metadata_by_id_postgres(package_id).await,
+            BackendType::Postgres => {
+                self.delete_package_metadata_by_id_postgres(package_id)
+                    .await
+            }
             BackendType::Sqlite => self.delete_package_metadata_by_id_sqlite(package_id).await,
         }
     }

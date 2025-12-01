@@ -5,7 +5,7 @@ title: "Implement execution_order Field in Package Manifest"
 short_code: "CLOACI-I-0011"
 created_at: 2025-11-29T02:40:15.272951+00:00
 updated_at: 2025-11-29T02:40:15.272951+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -58,13 +58,13 @@ use petgraph::graph::DiGraph;
 fn compute_execution_order(tasks: &[TaskMetadata]) -> Result<Vec<String>, ManifestError> {
     let mut graph = DiGraph::<&str, ()>::new();
     let mut node_indices = HashMap::new();
-    
+
     // Add all tasks as nodes
     for task in tasks {
         let idx = graph.add_node(&task.id);
         node_indices.insert(&task.id, idx);
     }
-    
+
     // Add dependency edges
     for task in tasks {
         let task_idx = node_indices[&task.id];
@@ -79,7 +79,7 @@ fn compute_execution_order(tasks: &[TaskMetadata]) -> Result<Vec<String>, Manife
             }
         }
     }
-    
+
     // Compute topological order
     toposort(&graph, None)
         .map(|order| order.into_iter().map(|idx| graph[idx].to_string()).collect())
@@ -95,7 +95,7 @@ fn compute_execution_order(tasks: &[TaskMetadata]) -> Result<Vec<String>, Manife
 pub fn extract_manifest(path: &Path) -> Result<PackageManifest, ManifestError> {
     let tasks = extract_tasks(path)?;
     let execution_order = compute_execution_order(&tasks)?;
-    
+
     Ok(PackageManifest {
         tasks,
         execution_order,

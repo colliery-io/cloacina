@@ -50,9 +50,7 @@
 
 use tracing::info;
 
-use deadpool_diesel::postgres::{
-    Manager as PgManager, Pool as PgPool, Runtime as PgRuntime,
-};
+use deadpool_diesel::postgres::{Manager as PgManager, Pool as PgPool, Runtime as PgRuntime};
 use diesel::PgConnection;
 use url::Url;
 
@@ -151,37 +149,36 @@ impl std::fmt::Debug for AnyPool {
 
 impl AnyPool {
     /// Returns a reference to the PostgreSQL pool if this is a PostgreSQL backend.
-pub fn as_postgres(&self) -> Option<&PgPool> {
+    pub fn as_postgres(&self) -> Option<&PgPool> {
         match self {
             AnyPool::Postgres(pool) => Some(pool),
-                _ => None,
+            _ => None,
         }
     }
 
     /// Returns a reference to the SQLite pool if this is a SQLite backend.
-pub fn as_sqlite(&self) -> Option<&SqlitePool> {
+    pub fn as_sqlite(&self) -> Option<&SqlitePool> {
         match self {
             AnyPool::Sqlite(pool) => Some(pool),
-                _ => None,
+            _ => None,
         }
     }
 
     /// Returns the PostgreSQL pool, panicking if this is not a PostgreSQL backend.
-pub fn expect_postgres(&self) -> &PgPool {
+    pub fn expect_postgres(&self) -> &PgPool {
         match self {
             AnyPool::Postgres(pool) => pool,
-                _ => panic!("Expected PostgreSQL pool but got SQLite"),
+            _ => panic!("Expected PostgreSQL pool but got SQLite"),
         }
     }
 
     /// Returns the SQLite pool, panicking if this is not a SQLite backend.
-pub fn expect_sqlite(&self) -> &SqlitePool {
+    pub fn expect_sqlite(&self) -> &SqlitePool {
         match self {
             AnyPool::Sqlite(pool) => pool,
-                _ => panic!("Expected SQLite pool but got PostgreSQL"),
+            _ => panic!("Expected SQLite pool but got PostgreSQL"),
         }
     }
-
 }
 
 // =============================================================================
@@ -259,7 +256,7 @@ impl Database {
         let backend = BackendType::from_url(connection_string);
 
         match backend {
-                BackendType::Postgres => {
+            BackendType::Postgres => {
                 let connection_url = Self::build_postgres_url(connection_string, _database_name);
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
@@ -278,7 +275,7 @@ impl Database {
                     schema: schema.map(String::from),
                 }
             }
-                BackendType::Sqlite => {
+            BackendType::Sqlite => {
                 let connection_url = Self::build_sqlite_url(connection_string);
                 let manager = SqliteManager::new(connection_url, SqliteRuntime::Tokio1);
                 let pool = SqlitePool::builder(manager)
@@ -318,14 +315,14 @@ impl Database {
     }
 
     /// Builds a PostgreSQL connection URL.
-fn build_postgres_url(base_url: &str, database_name: &str) -> String {
+    fn build_postgres_url(base_url: &str, database_name: &str) -> String {
         let mut url = Url::parse(base_url).expect("Invalid PostgreSQL URL");
         url.set_path(database_name);
         url.to_string()
     }
 
     /// Builds a SQLite connection URL.
-fn build_sqlite_url(connection_string: &str) -> String {
+    fn build_sqlite_url(connection_string: &str) -> String {
         // Strip sqlite:// prefix if present
         if let Some(path) = connection_string.strip_prefix("sqlite://") {
             path.to_string()
@@ -341,7 +338,7 @@ fn build_sqlite_url(connection_string: &str) -> String {
         use diesel_migrations::MigrationHarness;
 
         match &self.pool {
-                AnyPool::Postgres(pool) => {
+            AnyPool::Postgres(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
                     conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
@@ -350,7 +347,7 @@ fn build_sqlite_url(connection_string: &str) -> String {
                 .await
                 .map_err(|e| format!("Failed to run migrations: {}", e))?;
             }
-                AnyPool::Sqlite(pool) => {
+            AnyPool::Sqlite(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
                     conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
@@ -367,12 +364,12 @@ fn build_sqlite_url(connection_string: &str) -> String {
     ///
     /// Creates the schema if it doesn't exist and runs migrations within it.
     /// Returns an error if called on a SQLite backend.
-pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
+    pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
         use diesel::prelude::*;
 
         let pool = match &self.pool {
             AnyPool::Postgres(pool) => pool,
-                AnyPool::Sqlite(_) => {
+            AnyPool::Sqlite(_) => {
                 return Err("Schema setup is not supported for SQLite".to_string());
             }
         };
@@ -484,7 +481,7 @@ mod tests {
     use super::*;
 
     #[test]
-fn test_postgres_url_parsing_scenarios() {
+    fn test_postgres_url_parsing_scenarios() {
         // Test complete URL with credentials and port
         let mut url = Url::parse("postgres://postgres:postgres@localhost:5432").unwrap();
         url.set_path("test_db");
@@ -511,7 +508,7 @@ fn test_postgres_url_parsing_scenarios() {
     }
 
     #[test]
-fn test_sqlite_connection_strings() {
+    fn test_sqlite_connection_strings() {
         // Test file path
         let url = Database::build_sqlite_url("/path/to/database.db");
         assert_eq!(url, "/path/to/database.db");
@@ -532,17 +529,38 @@ fn test_sqlite_connection_strings() {
     #[test]
     fn test_backend_type_detection() {
         {
-            assert_eq!(BackendType::from_url("postgres://localhost/db"), BackendType::Postgres);
-            assert_eq!(BackendType::from_url("postgresql://localhost/db"), BackendType::Postgres);
+            assert_eq!(
+                BackendType::from_url("postgres://localhost/db"),
+                BackendType::Postgres
+            );
+            assert_eq!(
+                BackendType::from_url("postgresql://localhost/db"),
+                BackendType::Postgres
+            );
         }
 
         {
-            assert_eq!(BackendType::from_url("sqlite:///path/to/db"), BackendType::Sqlite);
-            assert_eq!(BackendType::from_url("/absolute/path.db"), BackendType::Sqlite);
-            assert_eq!(BackendType::from_url("./relative/path.db"), BackendType::Sqlite);
+            assert_eq!(
+                BackendType::from_url("sqlite:///path/to/db"),
+                BackendType::Sqlite
+            );
+            assert_eq!(
+                BackendType::from_url("/absolute/path.db"),
+                BackendType::Sqlite
+            );
+            assert_eq!(
+                BackendType::from_url("./relative/path.db"),
+                BackendType::Sqlite
+            );
             assert_eq!(BackendType::from_url(":memory:"), BackendType::Sqlite);
-            assert_eq!(BackendType::from_url("database.sqlite"), BackendType::Sqlite);
-            assert_eq!(BackendType::from_url("database.sqlite3"), BackendType::Sqlite);
+            assert_eq!(
+                BackendType::from_url("database.sqlite"),
+                BackendType::Sqlite
+            );
+            assert_eq!(
+                BackendType::from_url("database.sqlite3"),
+                BackendType::Sqlite
+            );
             // SQLite URI format with mode and cache options
             assert_eq!(
                 BackendType::from_url("file:test?mode=memory&cache=shared"),

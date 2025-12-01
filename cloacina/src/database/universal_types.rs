@@ -83,7 +83,9 @@ pub struct DbBinary;
 ///
 /// This is a domain type that wraps uuid::Uuid with Diesel support for
 /// both PostgreSQL (native UUID) and SQLite (BLOB) backends.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(
+    Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow,
+)]
 #[diesel(sql_type = DbUuid)]
 pub struct UniversalUuid(pub Uuid);
 
@@ -134,7 +136,8 @@ impl From<&UniversalUuid> for Uuid {
 // PostgreSQL FromSql/ToSql for UniversalUuid
 impl FromSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
-        let uuid = <uuid::Uuid as FromSql<diesel::sql_types::Uuid, diesel::pg::Pg>>::from_sql(bytes)?;
+        let uuid =
+            <uuid::Uuid as FromSql<diesel::sql_types::Uuid, diesel::pg::Pg>>::from_sql(bytes)?;
         Ok(UniversalUuid(uuid))
     }
 }
@@ -147,16 +150,20 @@ impl ToSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
 
 // SQLite FromSql/ToSql for UniversalUuid
 impl FromSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
-    fn from_sql(bytes: diesel::sqlite::SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(
+        bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
+    ) -> diesel::deserialize::Result<Self> {
         let blob = <Vec<u8> as FromSql<Binary, diesel::sqlite::Sqlite>>::from_sql(bytes)?;
-        let uuid = Uuid::from_slice(&blob)
-            .map_err(|e| format!("Invalid UUID bytes: {}", e))?;
+        let uuid = Uuid::from_slice(&blob).map_err(|e| format!("Invalid UUID bytes: {}", e))?;
         Ok(UniversalUuid(uuid))
     }
 }
 
 impl ToSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> diesel::serialize::Result {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
         out.set_value(self.0.as_bytes().to_vec());
         Ok(diesel::serialize::IsNull::No)
     }
@@ -166,7 +173,9 @@ impl ToSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
 ///
 /// This is a domain type that wraps DateTime<Utc> with Diesel support for
 /// both PostgreSQL (native TIMESTAMP) and SQLite (TEXT as RFC3339) backends.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(
+    Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow,
+)]
 #[diesel(sql_type = DbTimestamp)]
 pub struct UniversalTimestamp(pub DateTime<Utc>);
 
@@ -190,8 +199,7 @@ impl UniversalTimestamp {
 
     /// Create from RFC3339 string (SQLite TEXT)
     pub fn from_rfc3339(s: &str) -> Result<Self, chrono::ParseError> {
-        DateTime::parse_from_rfc3339(s)
-            .map(|dt| UniversalTimestamp(dt.with_timezone(&Utc)))
+        DateTime::parse_from_rfc3339(s).map(|dt| UniversalTimestamp(dt.with_timezone(&Utc)))
     }
 
     /// Convert to NaiveDateTime for PostgreSQL TIMESTAMP storage
@@ -242,9 +250,7 @@ impl ToSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
         // Write NaiveDateTime directly - Diesel's PG impl writes timestamp as i64 microseconds
         let naive = self.to_naive();
-        let micros = naive
-            .and_utc()
-            .timestamp_micros()
+        let micros = naive.and_utc().timestamp_micros()
             - chrono::NaiveDate::from_ymd_opt(2000, 1, 1)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -258,7 +264,9 @@ impl ToSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
 
 // SQLite FromSql/ToSql for UniversalTimestamp
 impl FromSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
-    fn from_sql(bytes: diesel::sqlite::SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(
+        bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
+    ) -> diesel::deserialize::Result<Self> {
         let text = <String as FromSql<Text, diesel::sqlite::Sqlite>>::from_sql(bytes)?;
         UniversalTimestamp::from_rfc3339(&text)
             .map_err(|e| format!("Invalid timestamp: {}", e).into())
@@ -266,7 +274,10 @@ impl FromSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
 }
 
 impl ToSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> diesel::serialize::Result {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
         out.set_value(self.to_rfc3339());
         Ok(diesel::serialize::IsNull::No)
     }
@@ -281,7 +292,9 @@ pub fn current_timestamp() -> UniversalTimestamp {
 ///
 /// This is a domain type that wraps bool with Diesel support for
 /// both PostgreSQL (native BOOL) and SQLite (INTEGER 0/1) backends.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(
+    Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow,
+)]
 #[diesel(sql_type = DbBool)]
 pub struct UniversalBool(pub bool);
 
@@ -300,7 +313,11 @@ impl UniversalBool {
 
     /// Convert to i32 for SQLite INTEGER storage
     pub fn to_i32(&self) -> i32 {
-        if self.0 { 1 } else { 0 }
+        if self.0 {
+            1
+        } else {
+            0
+        }
     }
 
     /// Create from i32 (SQLite INTEGER)
@@ -343,14 +360,19 @@ impl ToSql<DbBool, diesel::pg::Pg> for UniversalBool {
 
 // SQLite FromSql/ToSql for UniversalBool
 impl FromSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
-    fn from_sql(bytes: diesel::sqlite::SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(
+        bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
+    ) -> diesel::deserialize::Result<Self> {
         let value = <i32 as FromSql<Integer, diesel::sqlite::Sqlite>>::from_sql(bytes)?;
         Ok(UniversalBool(value != 0))
     }
 }
 
 impl ToSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> diesel::serialize::Result {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
         let value: i32 = if self.0 { 1 } else { 0 };
         out.set_value(value);
         Ok(diesel::serialize::IsNull::No)
@@ -400,7 +422,8 @@ impl From<&[u8]> for UniversalBinary {
 // PostgreSQL FromSql/ToSql for UniversalBinary
 impl FromSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
-        let data = <Vec<u8> as FromSql<diesel::sql_types::Binary, diesel::pg::Pg>>::from_sql(bytes)?;
+        let data =
+            <Vec<u8> as FromSql<diesel::sql_types::Binary, diesel::pg::Pg>>::from_sql(bytes)?;
         Ok(UniversalBinary(data))
     }
 }
@@ -414,14 +437,19 @@ impl ToSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
 
 // SQLite FromSql/ToSql for UniversalBinary
 impl FromSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
-    fn from_sql(bytes: diesel::sqlite::SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
+    fn from_sql(
+        bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
+    ) -> diesel::deserialize::Result<Self> {
         let data = <Vec<u8> as FromSql<Binary, diesel::sqlite::Sqlite>>::from_sql(bytes)?;
         Ok(UniversalBinary(data))
     }
 }
 
 impl ToSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> diesel::serialize::Result {
+    fn to_sql<'b>(
+        &'b self,
+        out: &mut Output<'b, '_, diesel::sqlite::Sqlite>,
+    ) -> diesel::serialize::Result {
         out.set_value(self.0.clone());
         Ok(diesel::serialize::IsNull::No)
     }

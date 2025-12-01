@@ -5,7 +5,7 @@ title: "Fix FFI Safety - Unchecked Null Pointers in Package Loading"
 short_code: "CLOACI-I-0004"
 created_at: 2025-11-29T02:40:07.034926+00:00
 updated_at: 2025-11-29T02:40:07.034926+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -85,9 +85,9 @@ let dependencies: Vec<String> = serde_json::from_str(dependencies_json).unwrap_o
 
 // After
 let dependencies: Vec<String> = serde_json::from_str(dependencies_json)
-    .map_err(|e| ManifestError::InvalidDependencies { 
-        task_id: task_id.to_string(), 
-        source: e 
+    .map_err(|e| ManifestError::InvalidDependencies {
+        task_id: task_id.to_string(),
+        source: e
     })?;
 ```
 

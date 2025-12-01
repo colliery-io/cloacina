@@ -67,10 +67,10 @@ Introduce a 3-tier architecture with the Dispatcher as a routing shim:
 │   Scheduler   │ ── TaskReady ───> │   Dispatcher   │ ── event ──> │  Executor(s)  │
 │  (DB-bound)   │      Event         │   (the shim)   │              │ (any paradigm)│
 └───────────────┘                    └────────────────┘              └───────────────┘
-       │                                                                      
-       │ still writes to DB for                                              
-       │ state, locking, audit                                               
-       v                                                                      
+       │
+       │ still writes to DB for
+       │ state, locking, audit
+       v
 ┌───────────────┐
 │   Database    │
 └───────────────┘
@@ -153,10 +153,10 @@ pub struct RoutingRule {
 pub trait Dispatcher: Send + Sync {
     /// Dispatch a ready task to the appropriate executor
     async fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
-    
+
     /// Register an executor backend
     fn register_executor(&mut self, key: &str, executor: Arc<dyn Executor>);
-    
+
     /// Check if dispatcher has capacity for more work
     fn has_capacity(&self) -> bool;
 }
@@ -171,16 +171,16 @@ pub trait Dispatcher: Send + Sync {
 #[async_trait]
 pub trait Executor: Send + Sync {
     /// Execute a task from a ready event
-    /// 
+    ///
     /// The executor is responsible for:
     /// - Running the task according to its paradigm
     /// - Reporting completion/failure back to the DAL
     /// - Managing its own concurrency limits
     async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, ExecutorError>;
-    
+
     /// Check if this executor can accept more work
     fn has_capacity(&self) -> bool;
-    
+
     /// Get executor metrics for monitoring
     fn metrics(&self) -> ExecutorMetrics;
 }
@@ -215,7 +215,7 @@ impl DefaultDispatcher {
             dal,
         }
     }
-    
+
     fn resolve_executor(&self, task_name: &str) -> &str {
         for rule in &self.routing.rules {
             if glob_match(&rule.task_pattern, task_name) {
@@ -232,13 +232,13 @@ impl Dispatcher for DefaultDispatcher {
         let executor_key = self.resolve_executor(&event.task_name);
         let executor = self.executors.get(executor_key)
             .ok_or(DispatchError::ExecutorNotFound(executor_key.to_string()))?;
-        
+
         // Mark task as running before dispatch
         self.dal.task_execution().mark_running(event.task_execution_id).await?;
-        
+
         // Dispatch to executor (fire-and-forget or await based on config)
         let result = executor.execute(event).await?;
-        
+
         // Update task state based on result
         match result.status {
             TaskState::Completed => {
@@ -249,20 +249,20 @@ impl Dispatcher for DefaultDispatcher {
             }
             TaskState::Failed => {
                 self.dal.task_execution().mark_failed(
-                    result.task_execution_id, 
+                    result.task_execution_id,
                     result.error.as_deref().unwrap_or("Unknown error")
                 ).await?;
             }
             _ => {}
         }
-        
+
         Ok(())
     }
-    
+
     fn register_executor(&mut self, key: &str, executor: Arc<dyn Executor>) {
         self.executors.insert(key.to_string(), executor);
     }
-    
+
     fn has_capacity(&self) -> bool {
         self.executors.values().any(|e| e.has_capacity())
     }
@@ -279,14 +279,14 @@ The scheduler will be modified to accept an optional Dispatcher. When present, i
 impl TaskScheduler {
     // New field
     dispatcher: Option<Arc<dyn Dispatcher>>,
-    
+
     // Modified method
     async fn update_pipeline_task_readiness(...) -> Result<(), ValidationError> {
         for task_execution in pending_tasks {
             if dependencies_satisfied && trigger_rules_satisfied {
                 // Always mark ready in DB (for state tracking/audit)
                 self.dal.task_execution().mark_ready(task_execution.id).await?;
-                
+
                 // If dispatcher present, dispatch immediately
                 if let Some(dispatcher) = &self.dispatcher {
                     let context = self.build_task_context(task_execution).await?;
@@ -338,7 +338,7 @@ The existing `ThreadTaskExecutor` with DB polling remains available:
 - Define `Dispatcher` and updated `Executor` traits
 - Implement `DefaultDispatcher` with single-executor routing
 
-### Phase 2: ThreadExecutor Adaptation  
+### Phase 2: ThreadExecutor Adaptation
 - Adapt `ThreadTaskExecutor` to implement new `Executor` trait
 - Add `execute(TaskReadyEvent)` method alongside existing `run()` loop
 - Ensure backward compatibility with polling mode

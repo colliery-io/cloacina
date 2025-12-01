@@ -63,8 +63,8 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
         .get_or_init(|| {
             let db_url = DEFAULT_POSTGRES_URL.to_string();
             let db = Database::new("postgres://cloacina:cloacina@localhost:5432", "cloacina", 5);
-            let conn = PgConnection::establish(&db_url)
-                .expect("Failed to connect to PostgreSQL database");
+            let conn =
+                PgConnection::establish(&db_url).expect("Failed to connect to PostgreSQL database");
             Arc::new(Mutex::new(TestFixture::new_postgres(db, conn, db_url)))
         })
         .clone()
@@ -82,8 +82,8 @@ pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
         .get_or_init(|| {
             let db_url = DEFAULT_SQLITE_URL.to_string();
             let db = Database::new(&db_url, "", 5);
-            let conn = SqliteConnection::establish(&db_url)
-                .expect("Failed to connect to SQLite database");
+            let conn =
+                SqliteConnection::establish(&db_url).expect("Failed to connect to SQLite database");
             Arc::new(Mutex::new(TestFixture::new_sqlite(db, conn, db_url)))
         })
         .clone()
@@ -273,14 +273,12 @@ impl TestFixture {
             if let Ok(table_rows) = tables_result {
                 // Clear all user tables
                 for table_row in table_rows {
-                    let _ = sql_query(&format!("DELETE FROM {}", table_row.name))
-                        .execute(conn);
+                    let _ = sql_query(&format!("DELETE FROM {}", table_row.name)).execute(conn);
                 }
             }
 
             // Run migrations to ensure schema is up to date
-            cloacina::database::run_migrations_sqlite(conn)
-                .expect("Failed to run migrations");
+            cloacina::database::run_migrations_sqlite(conn).expect("Failed to run migrations");
         }
     }
 }

@@ -93,9 +93,7 @@ async fn test_dal_register_then_reconciler_load() {
         .expect("Failed to list packages");
     assert!(!packages.is_empty(), "Should have at least one package");
 
-    let our_package = packages
-        .iter()
-        .find(|p| p.package_name == "simple_demo");
+    let our_package = packages.iter().find(|p| p.package_name == "simple_demo");
     assert!(our_package.is_some(), "Should find our registered package");
     let our_package = our_package.unwrap();
 

@@ -5,7 +5,7 @@ title: "Fix SQL Injection Risk in Schema Setup"
 short_code: "CLOACI-I-0005"
 created_at: 2025-11-29T02:40:07.115570+00:00
 updated_at: 2025-11-29T02:40:07.115570+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -63,28 +63,28 @@ const MAX_SCHEMA_NAME_LENGTH: usize = 63;  // PostgreSQL limit
 fn validate_schema_name(name: &str) -> Result<&str, SchemaError> {
     // Check length
     if name.is_empty() || name.len() > MAX_SCHEMA_NAME_LENGTH {
-        return Err(SchemaError::InvalidLength { 
-            name: name.to_string(), 
-            max: MAX_SCHEMA_NAME_LENGTH 
+        return Err(SchemaError::InvalidLength {
+            name: name.to_string(),
+            max: MAX_SCHEMA_NAME_LENGTH
         });
     }
-    
+
     // Must start with letter or underscore
     if !name.chars().next().map(|c| c.is_ascii_alphabetic() || c == '_').unwrap_or(false) {
         return Err(SchemaError::InvalidStart(name.to_string()));
     }
-    
+
     // Only allow alphanumeric and underscore
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(SchemaError::InvalidCharacters(name.to_string()));
     }
-    
+
     // Reject SQL keywords
     const RESERVED: &[&str] = &["public", "pg_catalog", "information_schema", "pg_temp"];
     if RESERVED.contains(&name.to_lowercase().as_str()) {
         return Err(SchemaError::ReservedName(name.to_string()));
     }
-    
+
     Ok(name)
 }
 ```
@@ -96,14 +96,14 @@ Update `setup_schema()` to validate before use:
 ```rust
 pub fn setup_schema(conn: &mut PgConnection, schema_name: &str) -> Result<(), DatabaseError> {
     let validated_name = validate_schema_name(schema_name)?;
-    
+
     // Now safe to use in format! since we've validated the input
     let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", validated_name);
     diesel::sql_query(&create_schema_sql).execute(conn)?;
-    
+
     let set_search_path_sql = format!("SET search_path TO {}, public", validated_name);
     diesel::sql_query(&set_search_path_sql).execute(conn)?;
-    
+
     Ok(())
 }
 ```

@@ -5,7 +5,7 @@ title: "Eliminate N+1 Query Pattern in Task Execution DAL"
 short_code: "CLOACI-I-0006"
 created_at: 2025-11-29T02:40:07.223787+00:00
 updated_at: 2025-11-29T02:40:07.223787+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -33,13 +33,13 @@ pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<(), ValidationE
     let task = conn.interact(move |conn| {  // QUERY 1: SELECT
         task_executions::table.find(task_id.0).first::<TaskExecution>(conn)
     }).await??;
-    
+
     conn.interact(move |conn| {  // QUERY 2: UPDATE
         diesel::update(task_executions::table.find(task_id_clone.0))
             .set((task_executions::status.eq("Ready"), ...))
             .execute(conn)
     }).await??;
-    
+
     tracing::debug!("Task state change: {} -> Ready ...", task.status);
 }
 ```
@@ -68,7 +68,7 @@ Replace SELECT + UPDATE pattern with UPDATE ... RETURNING:
 ```rust
 pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
     let conn = self.pool.get().await?;
-    
+
     conn.interact(move |conn| {
         diesel::update(task_executions::table.find(task_id.0))
             .set((
@@ -90,7 +90,7 @@ For scheduler tick processing multiple tasks:
 pub async fn mark_tasks_ready(&self, task_ids: &[UniversalUuid]) -> Result<Vec<TaskExecution>, ValidationError> {
     let conn = self.pool.get().await?;
     let ids: Vec<Uuid> = task_ids.iter().map(|t| t.0).collect();
-    
+
     conn.interact(move |conn| {
         diesel::update(task_executions::table)
             .filter(task_executions::id.eq_any(&ids))
@@ -113,15 +113,15 @@ use std::time::Instant;
 pub async fn mark_ready(&self, task_id: UniversalUuid) -> Result<TaskExecution, ValidationError> {
     let start = Instant::now();
     let result = /* ... */;
-    
+
     tracing::debug!(
         task_id = %task_id,
         duration_ms = start.elapsed().as_millis(),
         "Task state transition to Ready"
     );
-    
+
     metrics::histogram!("dal.task_execution.mark_ready.duration_ms", start.elapsed().as_millis() as f64);
-    
+
     result
 }
 ```

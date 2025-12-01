@@ -192,7 +192,9 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(executions.into_iter().map(Into::into).collect())
     }
 
-    async fn get_active_executions_sqlite(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
+    async fn get_active_executions_sqlite(
+        &self,
+    ) -> Result<Vec<PipelineExecution>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -600,10 +602,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                 self.update_final_context_postgres(id, final_context_id)
                     .await
             }
-            BackendType::Sqlite => {
-                self.update_final_context_sqlite(id, final_context_id)
-                    .await
-            }
+            BackendType::Sqlite => self.update_final_context_sqlite(id, final_context_id).await,
         }
     }
 

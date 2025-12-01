@@ -164,7 +164,7 @@ pub enum StorageError {
     Backend(String),
 
     /// Database error from Diesel operations.
-#[error("Database error: {0}")]
+    #[error("Database error: {0}")]
     Database(#[from] diesel::result::Error),
 }
 

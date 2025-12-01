@@ -29,7 +29,7 @@ Cloacina exists to provide developers with an embedded, resilient workflow orche
 
 **Key Benefits**:
 
-- Zero external dependencies (unless you choose to use postgres resilience) 
+- Zero external dependencies (unless you choose to use postgres resilience)
 - Compile-time type safety for workflow definitions (Rust)
 - Guaranteed execution with two-phase commit and automatic recovery
 - Multi-tenant isolation through database schema separation

@@ -842,8 +842,7 @@ impl<'a> CronExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let since_ts = UniversalTimestamp::from(since);
-        let lost_cutoff =
-            UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
+        let lost_cutoff = UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
 
         let (total_executions, successful_executions, lost_executions) = conn
             .interact(move |conn| {
@@ -926,8 +925,7 @@ impl<'a> CronExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         let since_ts = UniversalTimestamp::from(since);
-        let lost_cutoff =
-            UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
+        let lost_cutoff = UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
         let lost_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table

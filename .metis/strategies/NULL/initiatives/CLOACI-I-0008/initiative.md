@@ -5,7 +5,7 @@ title: "Implement Package Signing and Verification for Dynamic Libraries"
 short_code: "CLOACI-I-0008"
 created_at: 2025-11-29T02:40:14.993840+00:00
 updated_at: 2025-11-29T02:40:14.993840+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -97,21 +97,21 @@ cloacina-sign verify my_workflow.so --pubkey trusted_keys/
 pub fn load_package(path: &Path, config: &PackageConfig) -> Result<Package, PackageError> {
     // 1. Compute hash of package file
     let package_hash = sha256_file(path)?;
-    
+
     // 2. Load and verify signature
     let sig_path = path.with_extension("so.sig");
     let signature = load_signature(&sig_path)?;
-    
+
     // 3. Verify against trusted keys
     verify_signature(&package_hash, &signature, &config.trusted_keys)?;
-    
+
     // 4. Log successful verification
     tracing::info!(
         package = %path.display(),
         signer = %signature.signer_id,
         "Package signature verified"
     );
-    
+
     // 5. Load the dynamic library
     unsafe { libloading::Library::new(path) }
 }

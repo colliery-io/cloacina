@@ -42,5 +42,5 @@ pub use unified::cron_execution::CronExecutionStats;
 pub use filesystem_dal::FilesystemRegistryStorage;
 
 // Re-export unified DAL types for convenience
-pub use unified::DAL as UnifiedDAL;
 pub use unified::UnifiedRegistryStorage;
+pub use unified::DAL as UnifiedDAL;

@@ -332,10 +332,7 @@ impl<'a> RecoveryEventDAL<'a> {
         }
     }
 
-    async fn get_recent_postgres(
-        &self,
-        limit: i64,
-    ) -> Result<Vec<RecoveryEvent>, ValidationError> {
+    async fn get_recent_postgres(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self
             .dal
             .database

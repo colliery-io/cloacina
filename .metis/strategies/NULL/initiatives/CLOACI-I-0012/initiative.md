@@ -5,7 +5,7 @@ title: "Fix Async Runtime Shutdown Error Handling in Python Bindings"
 short_code: "CLOACI-I-0012"
 created_at: 2025-11-29T02:40:20.488270+00:00
 updated_at: 2025-11-29T02:40:20.488270+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 
@@ -75,18 +75,18 @@ impl AsyncRuntimeHandle {
             tracing::error!("Failed to send shutdown signal: {:?}", e);
             // Continue with join attempt anyway
         }
-        
+
         if let Some(handle) = self.thread_handle.take() {
             // Use a timeout for joining
             let start = std::time::Instant::now();
-            
+
             // Spawn a watchdog thread
             let (done_tx, done_rx) = std::sync::mpsc::channel();
             let join_handle = std::thread::spawn(move || {
                 let result = handle.join();
                 let _ = done_tx.send(result);
             });
-            
+
             match done_rx.recv_timeout(SHUTDOWN_TIMEOUT) {
                 Ok(Ok(())) => {
                     tracing::debug!(
@@ -121,10 +121,10 @@ impl AsyncRuntimeHandle {
 pub enum ShutdownError {
     #[error("Runtime thread panicked during shutdown")]
     ThreadPanic,
-    
+
     #[error("Shutdown timed out after {0} seconds")]
     Timeout(u64),
-    
+
     #[error("Failed to send shutdown signal")]
     ChannelClosed,
 }

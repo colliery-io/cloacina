@@ -5,7 +5,7 @@ title: "Optimize Memory Allocation - Reduce Unnecessary Cloning in Hot Paths"
 short_code: "CLOACI-I-0013"
 created_at: 2025-11-29T02:40:20.554866+00:00
 updated_at: 2025-11-29T02:40:20.554866+00:00
-parent: 
+parent:
 blocked_by: []
 archived: false
 

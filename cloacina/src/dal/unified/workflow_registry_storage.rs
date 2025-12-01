@@ -85,13 +85,9 @@ impl RegistryStorage for UnifiedRegistryStorage {
 
 impl UnifiedRegistryStorage {
     async fn store_binary_postgres(&self, data: Vec<u8>) -> Result<String, StorageError> {
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| {
-                StorageError::Backend(format!("Failed to get database connection: {}", e))
-            })?;
+        let conn = self.database.get_postgres_connection().await.map_err(|e| {
+            StorageError::Backend(format!("Failed to get database connection: {}", e))
+        })?;
 
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
@@ -146,13 +142,9 @@ impl UnifiedRegistryStorage {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| {
-                StorageError::Backend(format!("Failed to get database connection: {}", e))
-            })?;
+        let conn = self.database.get_postgres_connection().await.map_err(|e| {
+            StorageError::Backend(format!("Failed to get database connection: {}", e))
+        })?;
 
         let registry_id = UniversalUuid(registry_uuid);
         let entry: Option<UnifiedWorkflowRegistryEntry> = conn
@@ -201,13 +193,9 @@ impl UnifiedRegistryStorage {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
 
-        let conn = self
-            .database
-            .get_postgres_connection()
-            .await
-            .map_err(|e| {
-                StorageError::Backend(format!("Failed to get database connection: {}", e))
-            })?;
+        let conn = self.database.get_postgres_connection().await.map_err(|e| {
+            StorageError::Backend(format!("Failed to get database connection: {}", e))
+        })?;
 
         let registry_id = UniversalUuid(registry_uuid);
         conn.interact(move |conn| {

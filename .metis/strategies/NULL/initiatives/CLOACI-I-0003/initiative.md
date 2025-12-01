@@ -113,17 +113,17 @@ Tier 1: Quick Gate (< 2 min)
 ├── cargo clippy --all-targets
 └── cargo check (both backends)
     ↓ GATE: Only proceed if passes
-    
+
 Tier 2: Core Tests (< 10 min)
 ├── Rust unit tests (sqlite only - faster)
 └── Python smoke test (single backend)
     ↓ GATE: Only proceed if passes
-    
+
 Tier 3: Full Matrix (< 20 min, conditional)
 ├── Rust integration tests (both backends)
 ├── Python full tests (both backends)
 └── if: rust or python paths changed
-    
+
 Tier 4: Extended (main branch or labeled PRs only)
 ├── Examples and tutorials
 ├── Performance tests
@@ -166,7 +166,7 @@ Tier 2 (Core Tests): Ubuntu + macOS
 ├── Python bindings tests (both platforms, both backends)
 └── Catches platform-specific issues early
 
-Tier 3 (Integration): Ubuntu + macOS  
+Tier 3 (Integration): Ubuntu + macOS
 ├── Full integration tests
 └── OS-level interaction coverage
 ```

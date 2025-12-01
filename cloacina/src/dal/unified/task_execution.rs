@@ -786,30 +786,32 @@ impl<'a> TaskExecutionDAL<'a> {
         // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a simpler approach
         // This is less concurrent-safe but sufficient for single-node SQLite usage
         let tasks: Vec<UnifiedTaskExecution> = conn
-            .interact(move |conn| -> Result<Vec<UnifiedTaskExecution>, diesel::result::Error> {
-                // First, select ready tasks
-                let ready_tasks: Vec<UnifiedTaskExecution> = task_executions::table
-                    .filter(task_executions::status.eq("Ready"))
-                    .filter(
-                        task_executions::retry_at
-                            .is_null()
-                            .or(task_executions::retry_at.le(now)),
-                    )
-                    .limit(limit)
-                    .load(conn)?;
+            .interact(
+                move |conn| -> Result<Vec<UnifiedTaskExecution>, diesel::result::Error> {
+                    // First, select ready tasks
+                    let ready_tasks: Vec<UnifiedTaskExecution> = task_executions::table
+                        .filter(task_executions::status.eq("Ready"))
+                        .filter(
+                            task_executions::retry_at
+                                .is_null()
+                                .or(task_executions::retry_at.le(now)),
+                        )
+                        .limit(limit)
+                        .load(conn)?;
 
-                // Update them to Running
-                for task in &ready_tasks {
-                    diesel::update(task_executions::table.find(task.id))
-                        .set((
-                            task_executions::status.eq("Running"),
-                            task_executions::started_at.eq(Some(now)),
-                        ))
-                        .execute(conn)?;
-                }
+                    // Update them to Running
+                    for task in &ready_tasks {
+                        diesel::update(task_executions::table.find(task.id))
+                            .set((
+                                task_executions::status.eq("Running"),
+                                task_executions::started_at.eq(Some(now)),
+                            ))
+                            .execute(conn)?;
+                    }
 
-                Ok(ready_tasks)
-            })
+                    Ok(ready_tasks)
+                },
+            )
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -1506,7 +1508,9 @@ impl<'a> TaskExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
     ) -> Result<RetryStats, ValidationError> {
         // This method is backend-agnostic since it processes data in memory
-        let tasks = self.get_all_tasks_for_pipeline(pipeline_execution_id).await?;
+        let tasks = self
+            .get_all_tasks_for_pipeline(pipeline_execution_id)
+            .await?;
 
         let mut stats = RetryStats::default();
 
@@ -1534,7 +1538,9 @@ impl<'a> TaskExecutionDAL<'a> {
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
         // This method is backend-agnostic since it filters in memory
-        let tasks = self.get_all_tasks_for_pipeline(pipeline_execution_id).await?;
+        let tasks = self
+            .get_all_tasks_for_pipeline(pipeline_execution_id)
+            .await?;
 
         let exhausted_tasks: Vec<TaskExecution> = tasks
             .into_iter()
