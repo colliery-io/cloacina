@@ -197,7 +197,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         metadata: String,
         storage_type: crate::models::workflow_packages::StorageType,
     ) -> Result<Uuid, RegistryError> {
-        use crate::dal::unified::models::{NewUnifiedWorkflowPackage, UnifiedWorkflowPackage};
+        use crate::dal::unified::models::NewUnifiedWorkflowPackage;
         use crate::database::schema::unified::workflow_packages;
         use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 
@@ -945,9 +945,10 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         };
 
         // 4. Check if package already exists
-        if let Some(_) = self
+        if self
             .get_package_metadata(&package_metadata.package_name, &package_metadata.version)
             .await?
+            .is_some()
         {
             return Err(RegistryError::PackageExists {
                 package_name: package_metadata.package_name,
@@ -1068,14 +1069,13 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::registry::storage::FilesystemRegistryStorage;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_registry_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let storage = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
+        let _storage = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
 
         // Note: This test would need a proper database setup
         // For now, we'll just test the storage creation part
@@ -1085,7 +1085,7 @@ mod tests {
     #[test]
     fn test_registry_metrics() {
         let temp_dir = TempDir::new().unwrap();
-        let storage = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
+        let _storage = FilesystemRegistryStorage::new(temp_dir.path()).unwrap();
 
         // This would need a database for full testing
         // For now just test that we can create the storage

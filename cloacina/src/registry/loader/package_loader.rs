@@ -130,8 +130,6 @@ impl PackageLoader {
         &self,
         tasks: &[TaskMetadata],
     ) -> Result<serde_json::Value, LoaderError> {
-        use tracing::debug;
-
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
 
@@ -227,14 +225,11 @@ impl PackageLoader {
         &self,
         archive_data: &[u8],
     ) -> Result<std::path::PathBuf, LoaderError> {
-        // Determine library extension for the current platform
-        let library_extension = get_library_extension();
-
         // Extract library file synchronously to avoid Send issues
         let (file_data, _filename) = tokio::task::spawn_blocking({
             let archive_data = archive_data.to_vec();
-            let library_extension = library_extension;
             move || -> Result<(Vec<u8>, String), LoaderError> {
+                let library_extension = get_library_extension();
                 // Create a cursor from the archive data
                 let cursor = std::io::Cursor::new(archive_data);
                 let gz_decoder = GzDecoder::new(cursor);
@@ -294,6 +289,7 @@ impl PackageLoader {
         })??;
 
         // Write extracted library file to temp directory
+        let library_extension = get_library_extension();
         let extract_path = self
             .temp_dir
             .path()
@@ -850,7 +846,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_temp_directory_cleanup() {
-        let temp_path = {
+        let _temp_path = {
             let loader = PackageLoader::new().unwrap();
             let path = loader.temp_dir().to_path_buf();
 

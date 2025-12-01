@@ -752,7 +752,6 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 /// # Attributes
 ///
 /// See `TaskAttributes` for available configuration options.
-
 pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
     let input = TokenStream2::from(input);

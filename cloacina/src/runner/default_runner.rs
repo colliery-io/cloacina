@@ -29,7 +29,7 @@ use crate::executor::pipeline_executor::*;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
-use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
+use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::task::TaskState;
 use crate::UniversalUuid;

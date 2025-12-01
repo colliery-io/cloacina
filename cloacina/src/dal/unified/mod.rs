@@ -40,7 +40,7 @@
 //! let contexts = dal.context().list().await?;
 //! ```
 
-use crate::database::{AnyConnection, AnyPool, BackendType, Database};
+use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
 pub mod context;
@@ -164,42 +164,42 @@ impl DAL {
     }
 
     /// Returns a context DAL for context operations.
-    pub fn context(&self) -> ContextDAL {
+    pub fn context(&self) -> ContextDAL<'_> {
         ContextDAL::new(self)
     }
 
     /// Returns a pipeline execution DAL for pipeline operations.
-    pub fn pipeline_execution(&self) -> PipelineExecutionDAL {
+    pub fn pipeline_execution(&self) -> PipelineExecutionDAL<'_> {
         PipelineExecutionDAL::new(self)
     }
 
     /// Returns a task execution DAL for task operations.
-    pub fn task_execution(&self) -> TaskExecutionDAL {
+    pub fn task_execution(&self) -> TaskExecutionDAL<'_> {
         TaskExecutionDAL::new(self)
     }
 
     /// Returns a task execution metadata DAL for metadata operations.
-    pub fn task_execution_metadata(&self) -> TaskExecutionMetadataDAL {
+    pub fn task_execution_metadata(&self) -> TaskExecutionMetadataDAL<'_> {
         TaskExecutionMetadataDAL::new(self)
     }
 
     /// Returns a recovery event DAL for recovery operations.
-    pub fn recovery_event(&self) -> RecoveryEventDAL {
+    pub fn recovery_event(&self) -> RecoveryEventDAL<'_> {
         RecoveryEventDAL::new(self)
     }
 
     /// Returns a cron schedule DAL for schedule operations.
-    pub fn cron_schedule(&self) -> CronScheduleDAL {
+    pub fn cron_schedule(&self) -> CronScheduleDAL<'_> {
         CronScheduleDAL::new(self)
     }
 
     /// Returns a cron execution DAL for cron execution operations.
-    pub fn cron_execution(&self) -> CronExecutionDAL {
+    pub fn cron_execution(&self) -> CronExecutionDAL<'_> {
         CronExecutionDAL::new(self)
     }
 
     /// Returns a workflow packages DAL for package operations.
-    pub fn workflow_packages(&self) -> WorkflowPackagesDAL {
+    pub fn workflow_packages(&self) -> WorkflowPackagesDAL<'_> {
         WorkflowPackagesDAL::new(self)
     }
 

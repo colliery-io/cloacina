@@ -188,14 +188,14 @@ impl DependencyGraph {
     /// Add a node (task) to the graph
     pub fn add_node(&mut self, node_id: TaskNamespace) {
         self.nodes.insert(node_id.clone());
-        self.edges.entry(node_id).or_insert_with(Vec::new);
+        self.edges.entry(node_id).or_default();
     }
 
     /// Add an edge (dependency) to the graph
     pub fn add_edge(&mut self, from: TaskNamespace, to: TaskNamespace) {
         self.nodes.insert(from.clone());
         self.nodes.insert(to.clone());
-        self.edges.entry(from).or_insert_with(Vec::new).push(to);
+        self.edges.entry(from).or_default().push(to);
     }
 
     /// Remove a node (task) from the graph
