@@ -14,39 +14,23 @@
  *  limitations under the License.
  */
 
-//! Data Access Layer with conditional backend support
+//! Data Access Layer with runtime backend selection
 //!
 //! This module provides storage-specific DAL implementations:
 //! - unified: Runtime backend selection (PostgreSQL or SQLite)
-//! - postgres_dal: Legacy PostgreSQL backend (being migrated)
-//! - sqlite_dal: Legacy SQLite backend (being migrated)
 //! - filesystem_dal: For filesystem-based storage operations
 //!
-//! # Migration Status
+//! # Architecture
 //!
-//! The codebase is transitioning from compile-time backend selection
-//! (postgres_dal/sqlite_dal) to runtime backend selection (unified).
-//! During the transition, both approaches are available.
+//! The unified DAL uses custom Diesel SQL types (DbUuid, DbTimestamp, DbBool,
+//! DbBinary) that work with both PostgreSQL and SQLite backends. Backend
+//! selection happens at runtime based on the database connection URL.
 
-// Unified DAL with runtime backend selection (new approach)
+// Unified DAL with runtime backend selection
 pub mod unified;
-
-// Legacy DAL implementations (being migrated to unified)
-mod postgres_dal;
-
-mod sqlite_dal;
 
 // Filesystem DAL is always available
 mod filesystem_dal;
-
-// Re-export the appropriate legacy DAL implementation for backward compatibility
-pub mod legacy_postgres {
-    pub use super::postgres_dal::*;
-}
-
-pub mod legacy_sqlite {
-    pub use super::sqlite_dal::*;
-}
 
 // Export unified DAL as the primary DAL
 pub use unified::DAL;
@@ -54,13 +38,9 @@ pub use unified::DAL;
 // Export CronExecutionStats from the unified module
 pub use unified::cron_execution::CronExecutionStats;
 
-// Re-export registry storage types for dual-backend builds
-pub use postgres_dal::PostgresRegistryStorage;
-
-pub use sqlite_dal::SqliteRegistryStorage;
-
-// Always re-export filesystem DAL
+// Re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;
 
 // Re-export unified DAL types for convenience
 pub use unified::DAL as UnifiedDAL;
+pub use unified::UnifiedRegistryStorage;

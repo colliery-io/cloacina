@@ -22,8 +22,7 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::dal::FilesystemRegistryStorage;
-use crate::dal::PostgresRegistryStorage;
-use crate::dal::SqliteRegistryStorage;
+use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
 
 use crate::executor::pipeline_executor::*;
@@ -728,20 +727,14 @@ impl DefaultRunner {
                         Err(e) => Err(format!("Failed to create filesystem storage: {}", e))
                     }
                 }
-                "sqlite" => {
+                "sqlite" | "postgres" | "database" => {
                     let dal = crate::dal::DAL::new(self.database.clone());
-                    let storage = SqliteRegistryStorage::new(self.database.clone());
-                    let registry_dal = dal.workflow_registry(storage);
-                    Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
-                }
-                "postgres" => {
-                    let dal = crate::dal::DAL::new(self.database.clone());
-                    let storage = PostgresRegistryStorage::new(self.database.clone());
+                    let storage = UnifiedRegistryStorage::new(self.database.clone());
                     let registry_dal = dal.workflow_registry(storage);
                     Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
                 }
                 backend => {
-                    Err(format!("Unknown registry storage backend: {}. Valid options: filesystem, sqlite, postgres", backend))
+                    Err(format!("Unknown registry storage backend: {}. Valid options: filesystem, sqlite, postgres, database", backend))
                 }
             };
 

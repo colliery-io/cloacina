@@ -217,13 +217,13 @@ mod filesystem_tests {
 // Database backend tests (PostgreSQL/SQLite)
 mod database_tests {
     use super::*;
-    use cloacina::dal::PostgresRegistryStorage;
+    use cloacina::dal::UnifiedRegistryStorage;
 
-    async fn create_database_storage() -> PostgresRegistryStorage {
+    async fn create_database_storage() -> UnifiedRegistryStorage {
         let fixture = get_or_init_fixture().await;
         let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
         fixture.initialize().await;
-        fixture.create_postgres_storage()
+        fixture.create_unified_storage()
     }
 
     #[tokio::test]

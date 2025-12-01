@@ -170,31 +170,19 @@ impl TestFixture {
         }
     }
 
-    /// Create a PostgreSQL storage backend using this fixture's database (primary storage method)
-    pub fn create_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
-        cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
+    /// Create a unified storage backend using this fixture's database (primary storage method)
+    pub fn create_storage(&self) -> cloacina::dal::UnifiedRegistryStorage {
+        cloacina::dal::UnifiedRegistryStorage::new(self.db.clone())
     }
 
     /// Create storage backend matching the current database backend
     pub fn create_backend_storage(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage> {
-        match self.db.backend() {
-            cloacina::database::BackendType::Postgres => {
-                Box::new(cloacina::dal::PostgresRegistryStorage::new(self.db.clone()))
-            }
-            cloacina::database::BackendType::Sqlite => {
-                Box::new(cloacina::dal::SqliteRegistryStorage::new(self.db.clone()))
-            }
-        }
+        Box::new(cloacina::dal::UnifiedRegistryStorage::new(self.db.clone()))
     }
 
-    /// Create a PostgreSQL storage backend using this fixture's database
-    pub fn create_postgres_storage(&self) -> cloacina::dal::PostgresRegistryStorage {
-        cloacina::dal::PostgresRegistryStorage::new(self.db.clone())
-    }
-
-    /// Create a SQLite storage backend using this fixture's database
-    pub fn create_sqlite_storage(&self) -> cloacina::dal::SqliteRegistryStorage {
-        cloacina::dal::SqliteRegistryStorage::new(self.db.clone())
+    /// Create a unified storage backend using this fixture's database
+    pub fn create_unified_storage(&self) -> cloacina::dal::UnifiedRegistryStorage {
+        cloacina::dal::UnifiedRegistryStorage::new(self.db.clone())
     }
 
     /// Create a filesystem storage backend for testing
