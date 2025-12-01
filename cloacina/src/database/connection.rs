@@ -417,7 +417,7 @@ pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
     ///
     /// For PostgreSQL, this sets the search path to the configured schema.
     /// For SQLite, this is a no-op and returns an error.
-pub async fn get_connection_with_schema(
+    pub async fn get_connection_with_schema(
         &self,
     ) -> Result<
         deadpool::managed::Object<PgManager>,
@@ -427,7 +427,7 @@ pub async fn get_connection_with_schema(
 
         let pool = match &self.pool {
             AnyPool::Postgres(pool) => pool,
-                AnyPool::Sqlite(_) => {
+            AnyPool::Sqlite(_) => {
                 panic!("get_connection_with_schema called on SQLite backend");
             }
         };
@@ -445,6 +445,37 @@ pub async fn get_connection_with_schema(
         }
 
         Ok(conn)
+    }
+
+    /// Gets a PostgreSQL connection.
+    ///
+    /// Returns an error if this is a SQLite backend.
+    pub async fn get_postgres_connection(
+        &self,
+    ) -> Result<
+        deadpool::managed::Object<PgManager>,
+        deadpool::managed::PoolError<deadpool_diesel::Error>,
+    > {
+        self.get_connection_with_schema().await
+    }
+
+    /// Gets a SQLite connection.
+    ///
+    /// Returns an error if this is a PostgreSQL backend.
+    pub async fn get_sqlite_connection(
+        &self,
+    ) -> Result<
+        deadpool::managed::Object<SqliteManager>,
+        deadpool::managed::PoolError<deadpool_diesel::Error>,
+    > {
+        let pool = match &self.pool {
+            AnyPool::Sqlite(pool) => pool,
+            AnyPool::Postgres(_) => {
+                panic!("get_sqlite_connection called on PostgreSQL backend");
+            }
+        };
+
+        pool.get().await
     }
 }
 
