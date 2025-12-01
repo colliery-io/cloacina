@@ -20,8 +20,10 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 
+use super::models::{NewUnifiedCronExecution, UnifiedCronExecution};
 use super::DAL;
-use crate::database::universal_types::UniversalUuid;
+use crate::database::schema::unified::{cron_executions, pipeline_executions};
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::cron_execution::{CronExecution, NewCronExecution};
@@ -68,83 +70,80 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
-        use crate::dal::postgres_dal::models::{NewPgCronExecution, PgCronExecution};
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pg_new = NewPgCronExecution {
-            schedule_id: new_execution.schedule_id.0,
-            pipeline_execution_id: new_execution.pipeline_execution_id.map(|u| u.0),
-            scheduled_time: new_execution.scheduled_time.0.naive_utc(),
-            claimed_at: chrono::Utc::now().naive_utc(),
+        let id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+
+        let new_unified = NewUnifiedCronExecution {
+            id,
+            schedule_id: new_execution.schedule_id,
+            pipeline_execution_id: new_execution.pipeline_execution_id,
+            scheduled_time: new_execution.scheduled_time,
+            claimed_at: now,
+            created_at: now,
+            updated_at: now,
         };
 
-        let pg_execution: PgCronExecution = conn
-            .interact(move |conn| {
-                diesel::insert_into(cron_executions::table)
-                    .values(&pg_new)
-                    .get_result(conn)
-            })
+        conn.interact(move |conn| {
+            diesel::insert_into(cron_executions::table)
+                .values(&new_unified)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let result: UnifiedCronExecution = conn
+            .interact(move |conn| cron_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_execution.into())
+        Ok(result.into())
     }
 
     async fn create_sqlite(
         &self,
         new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
-        use crate::dal::sqlite_dal::models::{
-            current_timestamp_string, uuid_to_blob, NewSqliteCronExecution, SqliteCronExecution,
-        };
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let id = UniversalUuid::new_v4();
-        let now = current_timestamp_string();
-        let id_blob = uuid_to_blob(&id.0);
+        let now = UniversalTimestamp::now();
 
-        let sqlite_new = NewSqliteCronExecution {
-            id: id_blob.clone(),
-            schedule_id: uuid_to_blob(&new_execution.schedule_id.0),
-            pipeline_execution_id: new_execution
-                .pipeline_execution_id
-                .map(|u| uuid_to_blob(&u.0)),
-            scheduled_time: new_execution.scheduled_time.0.to_rfc3339(),
-            claimed_at: now.clone(),
-            created_at: now.clone(),
+        let new_unified = NewUnifiedCronExecution {
+            id,
+            schedule_id: new_execution.schedule_id,
+            pipeline_execution_id: new_execution.pipeline_execution_id,
+            scheduled_time: new_execution.scheduled_time,
+            claimed_at: now,
+            created_at: now,
             updated_at: now,
         };
 
         conn.interact(move |conn| {
             diesel::insert_into(cron_executions::table)
-                .values(&sqlite_new)
+                .values(&new_unified)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        // Retrieve the inserted record
-        let sqlite_execution: SqliteCronExecution = conn
-            .interact(move |conn| cron_executions::table.find(id_blob).first(conn))
+        let result: UnifiedCronExecution = conn
+            .interact(move |conn| cron_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_execution.into())
+        Ok(result.into())
     }
 
     /// Updates the pipeline execution ID for an existing cron execution record.
@@ -170,23 +169,20 @@ impl<'a> CronExecutionDAL<'a> {
         cron_execution_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = cron_execution_id.0;
-        let pipeline_uuid = pipeline_execution_id.0;
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            diesel::update(cron_executions::table.find(uuid_id))
+            diesel::update(cron_executions::table.find(cron_execution_id))
                 .set((
-                    cron_executions::pipeline_execution_id.eq(pipeline_uuid),
-                    cron_executions::updated_at.eq(diesel::dsl::now),
+                    cron_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)),
+                    cron_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -201,25 +197,19 @@ impl<'a> CronExecutionDAL<'a> {
         cron_execution_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&cron_execution_id.0);
-        let pipeline_blob = uuid_to_blob(&pipeline_execution_id.0);
-        let now = current_timestamp_string();
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            diesel::update(cron_executions::table.find(id_blob))
+            diesel::update(cron_executions::table.find(cron_execution_id))
                 .set((
-                    cron_executions::pipeline_execution_id.eq(pipeline_blob),
+                    cron_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)),
                     cron_executions::updated_at.eq(now),
                 ))
                 .execute(conn)
@@ -245,57 +235,18 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than_minutes: i32,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::{cron_executions, pipeline_executions};
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let cutoff_time =
-            (Utc::now() - chrono::Duration::minutes(older_than_minutes as i64)).naive_utc();
+        let cutoff_time = UniversalTimestamp::from(
+            Utc::now() - chrono::Duration::minutes(older_than_minutes as i64),
+        );
 
-        let pg_executions: Vec<PgCronExecution> = conn
-            .interact(move |conn| {
-                cron_executions::table
-                    .left_join(
-                        pipeline_executions::table
-                            .on(cron_executions::pipeline_execution_id
-                                .eq(pipeline_executions::id.nullable())),
-                    )
-                    .filter(pipeline_executions::id.is_null())
-                    .filter(cron_executions::claimed_at.lt(cutoff_time))
-                    .select(cron_executions::all_columns)
-                    .load(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(pg_executions.into_iter().map(Into::into).collect())
-    }
-
-    async fn find_lost_executions_sqlite(
-        &self,
-        older_than_minutes: i32,
-    ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::sqlite_dal::models::SqliteCronExecution;
-        use crate::database::schema::sqlite::{cron_executions, pipeline_executions};
-
-        let conn = self
-            .dal
-            .pool()
-            .expect_sqlite()
-            .get()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let cutoff_time =
-            (Utc::now() - chrono::Duration::minutes(older_than_minutes as i64)).to_rfc3339();
-
-        let sqlite_executions: Vec<SqliteCronExecution> = conn
+        let results: Vec<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
                     .left_join(
@@ -310,7 +261,40 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_executions.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    async fn find_lost_executions_sqlite(
+        &self,
+        older_than_minutes: i32,
+    ) -> Result<Vec<CronExecution>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let cutoff_time = UniversalTimestamp::from(
+            Utc::now() - chrono::Duration::minutes(older_than_minutes as i64),
+        );
+
+        let results: Vec<UnifiedCronExecution> = conn
+            .interact(move |conn| {
+                cron_executions::table
+                    .left_join(
+                        pipeline_executions::table.on(cron_executions::pipeline_execution_id
+                            .eq(pipeline_executions::id.nullable())),
+                    )
+                    .filter(pipeline_executions::id.is_null())
+                    .filter(cron_executions::claimed_at.lt(cutoff_time))
+                    .select(cron_executions::all_columns)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Retrieves a cron execution record by its ID.
@@ -325,44 +309,35 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         id: UniversalUuid,
     ) -> Result<CronExecution, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let pg_execution: PgCronExecution = conn
-            .interact(move |conn| cron_executions::table.find(uuid_id).first(conn))
+        let result: UnifiedCronExecution = conn
+            .interact(move |conn| cron_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_execution.into())
+        Ok(result.into())
     }
 
     async fn get_by_id_sqlite(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteCronExecution};
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let sqlite_execution: SqliteCronExecution = conn
-            .interact(move |conn| cron_executions::table.find(id_blob).first(conn))
+        let result: UnifiedCronExecution = conn
+            .interact(move |conn| cron_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_execution.into())
+        Ok(result.into())
     }
 
     /// Retrieves all cron execution records for a specific schedule.
@@ -390,21 +365,17 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = schedule_id.0;
-        let pg_executions: Vec<PgCronExecution> = conn
+        let results: Vec<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .order(cron_executions::scheduled_time.desc())
                     .limit(limit)
                     .offset(offset)
@@ -413,7 +384,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_executions.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     async fn get_by_schedule_id_sqlite(
@@ -422,22 +393,17 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteCronExecution};
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedule_blob = uuid_to_blob(&schedule_id.0);
-        let sqlite_executions: Vec<SqliteCronExecution> = conn
+        let results: Vec<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_blob))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .order(cron_executions::scheduled_time.desc())
                     .limit(limit)
                     .offset(offset)
@@ -446,7 +412,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_executions.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Retrieves the cron execution record for a specific pipeline execution.
@@ -470,57 +436,48 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = pipeline_execution_id.0;
-        let pg_execution: Option<PgCronExecution> = conn
+        let result: Option<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::pipeline_execution_id.eq(uuid_id))
+                    .filter(cron_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)))
                     .first(conn)
                     .optional()
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_execution.map(Into::into))
+        Ok(result.map(Into::into))
     }
 
     async fn get_by_pipeline_execution_id_sqlite(
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteCronExecution};
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pipeline_blob = uuid_to_blob(&pipeline_execution_id.0);
-        let sqlite_execution: Option<SqliteCronExecution> = conn
+        let result: Option<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::pipeline_execution_id.eq(pipeline_blob))
+                    .filter(cron_executions::pipeline_execution_id.eq(Some(pipeline_execution_id)))
                     .first(conn)
                     .optional()
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_execution.map(Into::into))
+        Ok(result.map(Into::into))
     }
 
     /// Retrieves cron execution records within a time range.
@@ -550,20 +507,17 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let start_ts = start_time.naive_utc();
-        let end_ts = end_time.naive_utc();
+        let start_ts = UniversalTimestamp::from(start_time);
+        let end_ts = UniversalTimestamp::from(end_time);
 
-        let pg_executions: Vec<PgCronExecution> = conn
+        let results: Vec<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
                     .filter(cron_executions::scheduled_time.ge(start_ts))
@@ -576,7 +530,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_executions.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     async fn get_by_time_range_sqlite(
@@ -586,21 +540,17 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        use crate::dal::sqlite_dal::models::SqliteCronExecution;
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let start_ts = start_time.to_rfc3339();
-        let end_ts = end_time.to_rfc3339();
+        let start_ts = UniversalTimestamp::from(start_time);
+        let end_ts = UniversalTimestamp::from(end_time);
 
-        let sqlite_executions: Vec<SqliteCronExecution> = conn
+        let results: Vec<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
                     .filter(cron_executions::scheduled_time.ge(start_ts))
@@ -613,7 +563,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_executions.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Counts the total number of executions for a specific schedule.
@@ -631,21 +581,17 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
-        use crate::database::schema::postgres::cron_executions;
-        use uuid::Uuid;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id: Uuid = schedule_id.into();
         let count = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .count()
                     .first(conn)
             })
@@ -659,22 +605,17 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
-        use crate::dal::sqlite_dal::models::uuid_to_blob;
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedule_blob = uuid_to_blob(&schedule_id.0);
         let count: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_blob))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .count()
                     .first(conn)
             })
@@ -707,22 +648,19 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = schedule_id.0;
-        let scheduled_ts = scheduled_time.naive_utc();
+        let scheduled_ts = UniversalTimestamp::from(scheduled_time);
 
         let count: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .filter(cron_executions::scheduled_time.eq(scheduled_ts))
                     .count()
                     .first(conn)
@@ -738,24 +676,19 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        use crate::dal::sqlite_dal::models::uuid_to_blob;
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedule_blob = uuid_to_blob(&schedule_id.0);
-        let scheduled_ts = scheduled_time.to_rfc3339();
+        let scheduled_ts = UniversalTimestamp::from(scheduled_time);
 
         let count: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_blob))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .filter(cron_executions::scheduled_time.eq(scheduled_ts))
                     .count()
                     .first(conn)
@@ -781,21 +714,17 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronExecution;
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = schedule_id.0;
-        let pg_execution: Option<PgCronExecution> = conn
+        let result: Option<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(uuid_id))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .order(cron_executions::scheduled_time.desc())
                     .first(conn)
                     .optional()
@@ -803,29 +732,24 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_execution.map(Into::into))
+        Ok(result.map(Into::into))
     }
 
     async fn get_latest_by_schedule_sqlite(
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteCronExecution};
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let schedule_blob = uuid_to_blob(&schedule_id.0);
-        let sqlite_execution: Option<SqliteCronExecution> = conn
+        let result: Option<UnifiedCronExecution> = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::schedule_id.eq(schedule_blob))
+                    .filter(cron_executions::schedule_id.eq(schedule_id))
                     .order(cron_executions::scheduled_time.desc())
                     .first(conn)
                     .optional()
@@ -833,7 +757,7 @@ impl<'a> CronExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_execution.map(Into::into))
+        Ok(result.map(Into::into))
     }
 
     /// Deletes old execution records beyond a certain age.
@@ -851,16 +775,14 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<usize, ValidationError> {
-        use crate::database::schema::postgres::cron_executions;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let cutoff_ts = older_than.naive_utc();
+        let cutoff_ts = UniversalTimestamp::from(older_than);
         let deleted_count = conn
             .interact(move |conn| {
                 diesel::delete(cron_executions::table)
@@ -877,17 +799,14 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<usize, ValidationError> {
-        use crate::database::schema::sqlite::cron_executions;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let cutoff_ts = older_than.to_rfc3339();
+        let cutoff_ts = UniversalTimestamp::from(older_than);
         let deleted_count = conn
             .interact(move |conn| {
                 diesel::delete(cron_executions::table)
@@ -915,17 +834,16 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
-        use crate::database::schema::postgres::{cron_executions, pipeline_executions};
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let since_ts = since.naive_utc();
-        let lost_cutoff = (Utc::now() - chrono::Duration::minutes(10)).naive_utc();
+        let since_ts = UniversalTimestamp::from(since);
+        let lost_cutoff =
+            UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
 
         let (total_executions, successful_executions, lost_executions) = conn
             .interact(move |conn| {
@@ -935,8 +853,8 @@ impl<'a> CronExecutionDAL<'a> {
                     .first(conn)?;
 
                 let successful_executions = cron_executions::table
-                    .inner_join(pipeline_executions::table)
                     .filter(cron_executions::claimed_at.ge(since_ts))
+                    .filter(cron_executions::pipeline_execution_id.is_not_null())
                     .count()
                     .first(conn)?;
 
@@ -976,42 +894,40 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
-        use crate::database::schema::sqlite::{cron_executions, pipeline_executions};
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let since_ts = since.to_rfc3339();
+        let since_ts = UniversalTimestamp::from(since);
 
-        let since_ts_clone = since_ts.clone();
         let total_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .filter(cron_executions::claimed_at.ge(since_ts_clone))
+                    .filter(cron_executions::claimed_at.ge(since_ts))
                     .count()
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        let since_ts_clone = since_ts.clone();
+        let since_ts = UniversalTimestamp::from(since);
         let successful_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table
-                    .inner_join(pipeline_executions::table)
-                    .filter(cron_executions::claimed_at.ge(since_ts_clone))
+                    .filter(cron_executions::claimed_at.ge(since_ts))
+                    .filter(cron_executions::pipeline_execution_id.is_not_null())
                     .count()
                     .first(conn)
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        let lost_cutoff = (Utc::now() - chrono::Duration::minutes(10)).to_rfc3339();
+        let since_ts = UniversalTimestamp::from(since);
+        let lost_cutoff =
+            UniversalTimestamp::from(Utc::now() - chrono::Duration::minutes(10));
         let lost_executions: i64 = conn
             .interact(move |conn| {
                 cron_executions::table

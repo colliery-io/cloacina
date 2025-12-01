@@ -20,8 +20,10 @@
 //! both PostgreSQL and SQLite backends, selecting the appropriate implementation
 //! at runtime based on the database connection type.
 
+use super::models::{NewUnifiedCronSchedule, UnifiedCronSchedule};
 use super::DAL;
-use crate::database::universal_types::UniversalUuid;
+use crate::database::schema::unified::cron_schedules;
+use crate::database::universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
 use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
@@ -55,96 +57,92 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         new_schedule: NewCronSchedule,
     ) -> Result<CronSchedule, ValidationError> {
-        use crate::dal::postgres_dal::models::{NewPgCronSchedule, PgCronSchedule};
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pg_new = NewPgCronSchedule {
+        let id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+
+        let new_unified = NewUnifiedCronSchedule {
+            id,
             workflow_name: new_schedule.workflow_name,
             cron_expression: new_schedule.cron_expression,
             timezone: new_schedule.timezone.unwrap_or_else(|| "UTC".to_string()),
-            enabled: new_schedule.enabled.map(|b| b.into()).unwrap_or(true),
+            enabled: UniversalBool::from(new_schedule.enabled.map(|b| b.into()).unwrap_or(true)),
             catchup_policy: new_schedule
                 .catchup_policy
                 .unwrap_or_else(|| "skip".to_string()),
-            start_date: new_schedule.start_date.map(|t| t.0.naive_utc()),
-            end_date: new_schedule.end_date.map(|t| t.0.naive_utc()),
-            next_run_at: new_schedule.next_run_at.0.naive_utc(),
+            start_date: new_schedule.start_date,
+            end_date: new_schedule.end_date,
+            next_run_at: new_schedule.next_run_at,
+            created_at: now,
+            updated_at: now,
         };
 
-        let pg_schedule: PgCronSchedule = conn
-            .interact(move |conn| {
-                diesel::insert_into(cron_schedules::table)
-                    .values(&pg_new)
-                    .get_result(conn)
-            })
+        conn.interact(move |conn| {
+            diesel::insert_into(cron_schedules::table)
+                .values(&new_unified)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let result: UnifiedCronSchedule = conn
+            .interact(move |conn| cron_schedules::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_schedule.into())
+        Ok(result.into())
     }
 
     async fn create_sqlite(
         &self,
         new_schedule: NewCronSchedule,
     ) -> Result<CronSchedule, ValidationError> {
-        use crate::dal::sqlite_dal::models::{
-            current_timestamp_string, uuid_to_blob, NewSqliteCronSchedule, SqliteCronSchedule,
-        };
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let id = UniversalUuid::new_v4();
-        let id_blob = uuid_to_blob(&id.0);
-        let now = current_timestamp_string();
+        let now = UniversalTimestamp::now();
 
-        let sqlite_new = NewSqliteCronSchedule {
-            id: id_blob.clone(),
+        let new_unified = NewUnifiedCronSchedule {
+            id,
             workflow_name: new_schedule.workflow_name,
             cron_expression: new_schedule.cron_expression,
             timezone: new_schedule.timezone.unwrap_or_else(|| "UTC".to_string()),
-            enabled: if new_schedule.enabled.map(|b| b.into()).unwrap_or(true) {
-                1
-            } else {
-                0
-            },
+            enabled: UniversalBool::from(new_schedule.enabled.map(|b| b.into()).unwrap_or(true)),
             catchup_policy: new_schedule
                 .catchup_policy
                 .unwrap_or_else(|| "skip".to_string()),
-            start_date: new_schedule.start_date.map(|t| t.0.to_rfc3339()),
-            end_date: new_schedule.end_date.map(|t| t.0.to_rfc3339()),
-            next_run_at: new_schedule.next_run_at.0.to_rfc3339(),
-            created_at: now.clone(),
+            start_date: new_schedule.start_date,
+            end_date: new_schedule.end_date,
+            next_run_at: new_schedule.next_run_at,
+            created_at: now,
             updated_at: now,
         };
 
         conn.interact(move |conn| {
             diesel::insert_into(cron_schedules::table)
-                .values(&sqlite_new)
+                .values(&new_unified)
                 .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        let sqlite_schedule: SqliteCronSchedule = conn
-            .interact(move |conn| cron_schedules::table.find(id_blob).first(conn))
+        let result: UnifiedCronSchedule = conn
+            .interact(move |conn| cron_schedules::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_schedule.into())
+        Ok(result.into())
     }
 
     /// Retrieves a cron schedule by its ID.
@@ -156,44 +154,35 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn get_by_id_postgres(&self, id: UniversalUuid) -> Result<CronSchedule, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronSchedule;
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let pg_schedule: PgCronSchedule = conn
-            .interact(move |conn| cron_schedules::table.find(uuid_id).first(conn))
+        let result: UnifiedCronSchedule = conn
+            .interact(move |conn| cron_schedules::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_schedule.into())
+        Ok(result.into())
     }
 
     async fn get_by_id_sqlite(&self, id: UniversalUuid) -> Result<CronSchedule, ValidationError> {
-        use crate::dal::sqlite_dal::models::{uuid_to_blob, SqliteCronSchedule};
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let sqlite_schedule: SqliteCronSchedule = conn
-            .interact(move |conn| cron_schedules::table.find(id_blob).first(conn))
+        let result: UnifiedCronSchedule = conn
+            .interact(move |conn| cron_schedules::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_schedule.into())
+        Ok(result.into())
     }
 
     /// Retrieves all enabled cron schedules that are due for execution.
@@ -211,23 +200,21 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronSchedule;
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now_ts = now.naive_utc();
-        let pg_schedules: Vec<PgCronSchedule> = conn
+        let now_ts = UniversalTimestamp::from(now);
+        let enabled_true = UniversalBool::from(true);
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 diesel::sql_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(conn)?;
 
                 let schedules = cron_schedules::table
-                    .filter(cron_schedules::enabled.eq(true))
+                    .filter(cron_schedules::enabled.eq(enabled_true))
                     .filter(cron_schedules::next_run_at.le(now_ts))
                     .filter(
                         cron_schedules::start_date
@@ -247,34 +234,31 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     async fn get_due_schedules_sqlite(
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::sqlite_dal::models::SqliteCronSchedule;
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now_ts = now.to_rfc3339();
-        let sqlite_schedules: Vec<SqliteCronSchedule> = conn
+        let now_ts = UniversalTimestamp::from(now);
+        let enabled_true = UniversalBool::from(true);
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 cron_schedules::table
-                    .filter(cron_schedules::enabled.eq(1))
-                    .filter(cron_schedules::next_run_at.le(now_ts.clone()))
+                    .filter(cron_schedules::enabled.eq(enabled_true))
+                    .filter(cron_schedules::next_run_at.le(now_ts))
                     .filter(
                         cron_schedules::start_date
                             .is_null()
-                            .or(cron_schedules::start_date.le(now_ts.clone())),
+                            .or(cron_schedules::start_date.le(now_ts)),
                     )
                     .filter(
                         cron_schedules::end_date
@@ -287,7 +271,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Updates the last run and next run times for a cron schedule.
@@ -315,25 +299,23 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let last_run_ts = last_run.naive_utc();
-        let next_run_ts = next_run.naive_utc();
+        let last_run_ts = UniversalTimestamp::from(last_run);
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(uuid_id))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
                     cron_schedules::last_run_at.eq(Some(last_run_ts)),
                     cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(diesel::dsl::now),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -349,181 +331,25 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
-        let conn = self
-            .dal
-            .pool()
-            .expect_sqlite()
-            .get()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let id_blob = uuid_to_blob(&id.0);
-        let last_run_ts = last_run.to_rfc3339();
-        let next_run_ts = next_run.to_rfc3339();
-        let now_ts = current_timestamp_string();
-
-        conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(id_blob))
-                .set((
-                    cron_schedules::last_run_at.eq(Some(last_run_ts)),
-                    cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(now_ts),
-                ))
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    /// Updates the cron expression, timezone, and next run time for a schedule.
-    pub async fn update_expression_and_timezone(
-        &self,
-        id: UniversalUuid,
-        cron_expression: Option<&str>,
-        timezone: Option<&str>,
-        next_run: DateTime<Utc>,
-    ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_expression_and_timezone_postgres(id, cron_expression, timezone, next_run)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.update_expression_and_timezone_sqlite(id, cron_expression, timezone, next_run)
-                    .await
-            }
-        }
-    }
-
-    async fn update_expression_and_timezone_postgres(
-        &self,
-        id: UniversalUuid,
-        cron_expression: Option<&str>,
-        timezone: Option<&str>,
-        next_run: DateTime<Utc>,
-    ) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let next_run_ts = next_run.naive_utc();
-        let cron_expr_owned = cron_expression.map(|s| s.to_string());
-        let timezone_owned = timezone.map(|s| s.to_string());
+        let last_run_ts = UniversalTimestamp::from(last_run);
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            let query = diesel::update(cron_schedules::table.find(uuid_id));
-
-            if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
-                query
-                    .set((
-                        cron_schedules::cron_expression.eq(expr),
-                        cron_schedules::timezone.eq(tz),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(diesel::dsl::now),
-                    ))
-                    .execute(conn)
-            } else if let Some(ref expr) = &cron_expr_owned {
-                query
-                    .set((
-                        cron_schedules::cron_expression.eq(expr),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(diesel::dsl::now),
-                    ))
-                    .execute(conn)
-            } else if let Some(ref tz) = &timezone_owned {
-                query
-                    .set((
-                        cron_schedules::timezone.eq(tz),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(diesel::dsl::now),
-                    ))
-                    .execute(conn)
-            } else {
-                query
-                    .set((
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(diesel::dsl::now),
-                    ))
-                    .execute(conn)
-            }
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        Ok(())
-    }
-
-    async fn update_expression_and_timezone_sqlite(
-        &self,
-        id: UniversalUuid,
-        cron_expression: Option<&str>,
-        timezone: Option<&str>,
-        next_run: DateTime<Utc>,
-    ) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
-        let conn = self
-            .dal
-            .pool()
-            .expect_sqlite()
-            .get()
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
-
-        let id_blob = uuid_to_blob(&id.0);
-        let next_run_ts = next_run.to_rfc3339();
-        let now_ts = current_timestamp_string();
-        let cron_expr_owned = cron_expression.map(|s| s.to_string());
-        let timezone_owned = timezone.map(|s| s.to_string());
-
-        conn.interact(move |conn| {
-            let query = diesel::update(cron_schedules::table.find(id_blob));
-
-            if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
-                query
-                    .set((
-                        cron_schedules::cron_expression.eq(expr),
-                        cron_schedules::timezone.eq(tz),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
-                    ))
-                    .execute(conn)
-            } else if let Some(ref expr) = &cron_expr_owned {
-                query
-                    .set((
-                        cron_schedules::cron_expression.eq(expr),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
-                    ))
-                    .execute(conn)
-            } else if let Some(ref tz) = &timezone_owned {
-                query
-                    .set((
-                        cron_schedules::timezone.eq(tz),
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
-                    ))
-                    .execute(conn)
-            } else {
-                query
-                    .set((
-                        cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
-                    ))
-                    .execute(conn)
-            }
+            diesel::update(cron_schedules::table.find(id))
+                .set((
+                    cron_schedules::last_run_at.eq(Some(last_run_ts)),
+                    cron_schedules::next_run_at.eq(next_run_ts),
+                    cron_schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -540,22 +366,21 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn enable_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(uuid_id))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
-                    cron_schedules::enabled.eq(true),
-                    cron_schedules::updated_at.eq(diesel::dsl::now),
+                    cron_schedules::enabled.eq(enabled_true),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -566,25 +391,21 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn enable_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let now_ts = current_timestamp_string();
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(id_blob))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
-                    cron_schedules::enabled.eq(1),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::enabled.eq(enabled_true),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -603,22 +424,21 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn disable_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
+        let now = UniversalTimestamp::now();
+        let enabled_false = UniversalBool::from(false);
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(uuid_id))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
-                    cron_schedules::enabled.eq(false),
-                    cron_schedules::updated_at.eq(diesel::dsl::now),
+                    cron_schedules::enabled.eq(enabled_false),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -629,25 +449,21 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn disable_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let now_ts = current_timestamp_string();
+        let now = UniversalTimestamp::now();
+        let enabled_false = UniversalBool::from(false);
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(id_blob))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
-                    cron_schedules::enabled.eq(0),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::enabled.eq(enabled_false),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -666,39 +482,29 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn delete_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        conn.interact(move |conn| {
-            diesel::delete(cron_schedules::table.find(uuid_id)).execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+        conn.interact(move |conn| diesel::delete(cron_schedules::table.find(id)).execute(conn))
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(())
     }
 
     async fn delete_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::uuid_to_blob;
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        conn.interact(move |conn| diesel::delete(cron_schedules::table.find(id_blob)).execute(conn))
+        conn.interact(move |conn| diesel::delete(cron_schedules::table.find(id)).execute(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -724,22 +530,20 @@ impl<'a> CronScheduleDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronSchedule;
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let pg_schedules: Vec<PgCronSchedule> = conn
+        let enabled_true = UniversalBool::from(true);
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(true));
+                    query = query.filter(cron_schedules::enabled.eq(enabled_true));
                 }
 
                 query
@@ -751,7 +555,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     async fn list_sqlite(
@@ -760,23 +564,20 @@ impl<'a> CronScheduleDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::sqlite_dal::models::SqliteCronSchedule;
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let sqlite_schedules: Vec<SqliteCronSchedule> = conn
+        let enabled_true = UniversalBool::from(true);
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(1));
+                    query = query.filter(cron_schedules::enabled.eq(enabled_true));
                 }
 
                 query
@@ -788,7 +589,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Finds cron schedules by workflow name.
@@ -806,18 +607,15 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         workflow_name: &str,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::postgres_dal::models::PgCronSchedule;
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let workflow_name = workflow_name.to_string();
-        let pg_schedules: Vec<PgCronSchedule> = conn
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 cron_schedules::table
                     .filter(cron_schedules::workflow_name.eq(workflow_name))
@@ -827,26 +625,22 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(pg_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     async fn find_by_workflow_sqlite(
         &self,
         workflow_name: &str,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        use crate::dal::sqlite_dal::models::SqliteCronSchedule;
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let workflow_name = workflow_name.to_string();
-        let sqlite_schedules: Vec<SqliteCronSchedule> = conn
+        let results: Vec<UnifiedCronSchedule> = conn
             .interact(move |conn| {
                 cron_schedules::table
                     .filter(cron_schedules::workflow_name.eq(workflow_name))
@@ -856,7 +650,7 @@ impl<'a> CronScheduleDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        Ok(sqlite_schedules.into_iter().map(Into::into).collect())
+        Ok(results.into_iter().map(Into::into).collect())
     }
 
     /// Updates the next run time for a cron schedule.
@@ -876,23 +670,21 @@ impl<'a> CronScheduleDAL<'a> {
         id: UniversalUuid,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let next_run_ts = next_run.naive_utc();
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(uuid_id))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
                     cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(diesel::dsl::now),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -907,26 +699,21 @@ impl<'a> CronScheduleDAL<'a> {
         id: UniversalUuid,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let next_run_ts = next_run.to_rfc3339();
-        let now_ts = current_timestamp_string();
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
 
         conn.interact(move |conn| {
-            diesel::update(cron_schedules::table.find(id_blob))
+            diesel::update(cron_schedules::table.find(id))
                 .set((
                     cron_schedules::next_run_at.eq(next_run_ts),
-                    cron_schedules::updated_at.eq(now_ts),
+                    cron_schedules::updated_at.eq(now),
                 ))
                 .execute(conn)
         })
@@ -963,31 +750,30 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let uuid_id = id.0;
-        let current_ts = current_time.naive_utc();
-        let last_run_ts = last_run.naive_utc();
-        let next_run_ts = next_run.naive_utc();
+        let current_ts = UniversalTimestamp::from(current_time);
+        let last_run_ts = UniversalTimestamp::from(last_run);
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
 
         let updated_rows = conn
             .interact(move |conn| {
                 diesel::sql_query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(conn)?;
 
-                let updated_rows = diesel::update(cron_schedules::table.find(uuid_id))
+                let updated_rows = diesel::update(cron_schedules::table.find(id))
                     .filter(cron_schedules::next_run_at.le(current_ts))
-                    .filter(cron_schedules::enabled.eq(true))
+                    .filter(cron_schedules::enabled.eq(enabled_true))
                     .set((
                         cron_schedules::last_run_at.eq(Some(last_run_ts)),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(diesel::dsl::now),
+                        cron_schedules::updated_at.eq(now),
                     ))
                     .execute(conn)?;
 
@@ -1006,32 +792,28 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        use crate::dal::sqlite_dal::models::{current_timestamp_string, uuid_to_blob};
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id_blob = uuid_to_blob(&id.0);
-        let current_ts = current_time.to_rfc3339();
-        let last_run_ts = last_run.to_rfc3339();
-        let next_run_ts = next_run.to_rfc3339();
-        let now_ts = current_timestamp_string();
+        let current_ts = UniversalTimestamp::from(current_time);
+        let last_run_ts = UniversalTimestamp::from(last_run);
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+        let enabled_true = UniversalBool::from(true);
 
         let updated_rows = conn
             .interact(move |conn| {
-                diesel::update(cron_schedules::table.find(id_blob))
+                diesel::update(cron_schedules::table.find(id))
                     .filter(cron_schedules::next_run_at.le(current_ts))
-                    .filter(cron_schedules::enabled.eq(1))
+                    .filter(cron_schedules::enabled.eq(enabled_true))
                     .set((
                         cron_schedules::last_run_at.eq(Some(last_run_ts)),
                         cron_schedules::next_run_at.eq(next_run_ts),
-                        cron_schedules::updated_at.eq(now_ts),
+                        cron_schedules::updated_at.eq(now),
                     ))
                     .execute(conn)
             })
@@ -1050,21 +832,20 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn count_postgres(&self, enabled_only: bool) -> Result<i64, ValidationError> {
-        use crate::database::schema::postgres::cron_schedules;
-
         let conn = self
             .dal
             .database
-            .get_connection_with_schema()
+            .get_postgres_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let enabled_true = UniversalBool::from(true);
         let count = conn
             .interact(move |conn| {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(true));
+                    query = query.filter(cron_schedules::enabled.eq(enabled_true));
                 }
 
                 query.count().first(conn)
@@ -1076,22 +857,20 @@ impl<'a> CronScheduleDAL<'a> {
     }
 
     async fn count_sqlite(&self, enabled_only: bool) -> Result<i64, ValidationError> {
-        use crate::database::schema::sqlite::cron_schedules;
-
         let conn = self
             .dal
-            .pool()
-            .expect_sqlite()
-            .get()
+            .database
+            .get_sqlite_connection()
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
+        let enabled_true = UniversalBool::from(true);
         let count = conn
             .interact(move |conn| {
                 let mut query = cron_schedules::table.into_boxed();
 
                 if enabled_only {
-                    query = query.filter(cron_schedules::enabled.eq(1));
+                    query = query.filter(cron_schedules::enabled.eq(enabled_true));
                 }
 
                 query.count().first(conn)
@@ -1100,5 +879,149 @@ impl<'a> CronScheduleDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(count)
+    }
+
+    /// Updates the cron expression, timezone, and next run time for a schedule.
+    pub async fn update_expression_and_timezone(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                self.update_expression_and_timezone_postgres(id, cron_expression, timezone, next_run)
+                    .await
+            }
+            BackendType::Sqlite => {
+                self.update_expression_and_timezone_sqlite(id, cron_expression, timezone, next_run)
+                    .await
+            }
+        }
+    }
+
+    async fn update_expression_and_timezone_postgres(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+        let cron_expr_owned = cron_expression.map(|s| s.to_string());
+        let timezone_owned = timezone.map(|s| s.to_string());
+
+        conn.interact(move |conn| {
+            let query = diesel::update(cron_schedules::table.find(id));
+
+            if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref expr) = &cron_expr_owned {
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref tz) = &timezone_owned {
+                query
+                    .set((
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else {
+                query
+                    .set((
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            }
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    async fn update_expression_and_timezone_sqlite(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+        let cron_expr_owned = cron_expression.map(|s| s.to_string());
+        let timezone_owned = timezone.map(|s| s.to_string());
+
+        conn.interact(move |conn| {
+            let query = diesel::update(cron_schedules::table.find(id));
+
+            if let (Some(ref expr), Some(ref tz)) = (&cron_expr_owned, &timezone_owned) {
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref expr) = &cron_expr_owned {
+                query
+                    .set((
+                        cron_schedules::cron_expression.eq(expr),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else if let Some(ref tz) = &timezone_owned {
+                query
+                    .set((
+                        cron_schedules::timezone.eq(tz),
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            } else {
+                query
+                    .set((
+                        cron_schedules::next_run_at.eq(next_run_ts),
+                        cron_schedules::updated_at.eq(now),
+                    ))
+                    .execute(conn)
+            }
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
     }
 }
