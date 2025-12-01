@@ -189,15 +189,13 @@ pub fn detect_package_cycles(
 
     for task_id in task_dependencies.keys() {
         if !visited.contains(task_id) {
-            if let Err(cycle_error) = dfs_package_cycle_detection(
+            dfs_package_cycle_detection(
                 task_id,
                 task_dependencies,
                 &mut visited,
                 &mut rec_stack,
                 &mut path,
-            ) {
-                return Err(cycle_error);
-            }
+            )?;
         }
     }
 
@@ -269,6 +267,9 @@ fn dfs_package_cycle_detection(
 ///
 /// # Returns
 /// The minimum number of single-character edits required to change one string into the other
+// Allow direct indexing in this classic DP algorithm - indices have mathematical meaning
+// and enumerate() would obscure the algorithm's intent
+#[allow(clippy::needless_range_loop)]
 pub fn calculate_levenshtein_distance(a: &str, b: &str) -> usize {
     let a_len = a.len();
     let b_len = b.len();
@@ -350,7 +351,7 @@ pub fn build_package_graph_data(
 ) -> String {
     // Create nodes for each task
     let mut nodes = Vec::new();
-    for (task_id, _fn_name) in detected_tasks {
+    for task_id in detected_tasks.keys() {
         nodes.push(serde_json::json!({
             "id": task_id,
             "data": {
@@ -717,15 +718,15 @@ pub fn generate_packaged_workflow_impl(
 
     // Build the workflow graph for this package
     let graph_data_json =
-        build_package_graph_data(&detected_tasks, &task_dependencies, &package_name);
+        build_package_graph_data(&detected_tasks, &task_dependencies, package_name);
 
     // Generate task metadata structures for FFI export
     let task_metadata_items = if !detected_tasks.is_empty() {
         let mut task_metadata_entries = Vec::new();
         let mut task_execution_cases = Vec::new();
-        let mut task_index = 0u32;
 
-        for (task_id, fn_name) in &detected_tasks {
+        for (task_index, (task_id, fn_name)) in detected_tasks.iter().enumerate() {
+            let task_index = task_index as u32;
             let dependencies = task_dependencies.get(task_id).cloned().unwrap_or_default();
 
             // Generate fully qualified namespace: tenant::package::workflow::task
@@ -764,8 +765,6 @@ pub fn generate_packaged_workflow_impl(
                     }
                 }
             });
-
-            task_index += 1;
         }
 
         let task_count = detected_tasks.len();

@@ -248,7 +248,7 @@ impl WorkflowGraph {
             groups.entry(depth).or_default().push(task_id);
         }
 
-        let mut result: Vec<Vec<String>> = groups.into_iter().map(|(_, tasks)| tasks).collect();
+        let mut result: Vec<Vec<String>> = groups.into_values().collect();
         result.sort_by_key(|group| group.len());
         result
     }
@@ -314,6 +314,12 @@ impl WorkflowGraph {
         }
 
         Ok(graph)
+    }
+}
+
+impl Default for WorkflowGraph {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

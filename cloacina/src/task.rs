@@ -974,10 +974,15 @@ impl Default for TaskRegistry {
     }
 }
 
+/// Type alias for the task constructor function stored in the global registry
+type TaskConstructor = Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>;
+
+/// Type alias for the global task registry containing task constructors
+type GlobalTaskRegistry = Arc<RwLock<HashMap<TaskNamespace, TaskConstructor>>>;
+
 /// Global registry for automatically registering tasks created with the `#[task]` macro
-static GLOBAL_TASK_REGISTRY: Lazy<
-    Arc<RwLock<HashMap<TaskNamespace, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>>,
-> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+static GLOBAL_TASK_REGISTRY: Lazy<GlobalTaskRegistry> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 /// Register a task constructor function globally with namespace
 ///
@@ -1005,8 +1010,7 @@ where
 ///
 /// This provides access to the global task registry used by the macro system.
 /// Most users won't need to call this directly.
-pub fn global_task_registry(
-) -> Arc<RwLock<HashMap<TaskNamespace, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>>>> {
+pub fn global_task_registry() -> GlobalTaskRegistry {
     GLOBAL_TASK_REGISTRY.clone()
 }
 

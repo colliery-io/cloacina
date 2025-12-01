@@ -284,6 +284,7 @@ impl TaskScheduler {
     /// - Context storage
     /// - Pipeline execution creation
     /// - Task execution initialization
+    ///
     /// All operations are performed in a single transaction for consistency.
     pub async fn schedule_workflow_execution(
         &self,
@@ -986,7 +987,7 @@ impl TaskScheduler {
             } => {
                 let context = self.load_context_for_task(task_execution).await?;
                 let actual_value = context.get(key);
-                let result = self.evaluate_context_condition(&context, key, operator, value)?;
+                let result = Self::evaluate_context_condition(&context, key, operator, value)?;
                 debug!(
                     "    ContextValue('{}', {:?}, {}) -> {} (actual: {:?})",
                     key, operator, value, result, actual_value
@@ -1158,7 +1159,6 @@ impl TaskScheduler {
 
     /// Evaluates a context-based condition using the provided operator.
     fn evaluate_context_condition(
-        &self,
         context: &Context<serde_json::Value>,
         key: &str,
         operator: &ValueOperator,
@@ -1190,7 +1190,7 @@ impl TaskScheduler {
                 (Some(a), b) if a.is_array() => Ok(a.as_array().unwrap_or(&vec![]).contains(b)),
                 _ => Ok(false),
             },
-            ValueOperator::NotContains => Ok(!self.evaluate_context_condition(
+            ValueOperator::NotContains => Ok(!Self::evaluate_context_condition(
                 context,
                 key,
                 &ValueOperator::Contains,

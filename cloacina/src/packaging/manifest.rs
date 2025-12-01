@@ -50,7 +50,7 @@ pub fn generate_manifest(
         .to_string();
 
     let (tasks, graph_data, package_metadata) =
-        extract_task_info_and_graph_from_library(&so_path, project_path)?;
+        extract_task_info_and_graph_from_library(so_path, project_path)?;
 
     let manifest = PackageManifest {
         package: PackageInfo {

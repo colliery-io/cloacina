@@ -359,7 +359,7 @@ impl ThreadTaskExecutor {
                                 if let Some(existing_value) = context.get(key) {
                                     // Key exists - perform smart merging
                                     let merged_value =
-                                        self.merge_context_values(existing_value, value);
+                                        Self::merge_context_values(existing_value, value);
                                     let _ = context.update(key, merged_value);
                                 } else {
                                     // Key doesn't exist - insert new value
@@ -401,7 +401,6 @@ impl ThreadTaskExecutor {
     /// # Returns
     /// The merged value
     fn merge_context_values(
-        &self,
         existing: &serde_json::Value,
         new: &serde_json::Value,
     ) -> serde_json::Value {
@@ -425,7 +424,7 @@ impl ThreadTaskExecutor {
                     if let Some(existing_value) = merged.get(key) {
                         merged.insert(
                             key.clone(),
-                            self.merge_context_values(existing_value, value),
+                            Self::merge_context_values(existing_value, value),
                         );
                     } else {
                         merged.insert(key.clone(), value.clone());

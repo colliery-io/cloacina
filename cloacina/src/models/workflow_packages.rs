@@ -38,12 +38,16 @@ impl StorageType {
             StorageType::Filesystem => "filesystem",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
+impl std::str::FromStr for StorageType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
             "filesystem" => StorageType::Filesystem,
             _ => StorageType::Database, // Default to database for backward compatibility
-        }
+        })
     }
 }
 

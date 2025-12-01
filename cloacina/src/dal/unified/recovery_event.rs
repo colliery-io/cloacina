@@ -320,7 +320,7 @@ impl<'a> RecoveryEventDAL<'a> {
     pub async fn get_workflow_unavailable_events(
         &self,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        self.get_by_type(&RecoveryType::WorkflowUnavailable.as_str())
+        self.get_by_type(RecoveryType::WorkflowUnavailable.as_str())
             .await
     }
 

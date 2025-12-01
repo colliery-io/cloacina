@@ -188,9 +188,7 @@ impl PackageValidator {
         self.assess_security(&temp_path, &mut result).await;
 
         // Final validation decision
-        if !result.errors.is_empty() {
-            result.is_valid = false;
-        } else if self.strict_mode && !result.warnings.is_empty() {
+        if !result.errors.is_empty() || (self.strict_mode && !result.warnings.is_empty()) {
             result.is_valid = false;
         }
 

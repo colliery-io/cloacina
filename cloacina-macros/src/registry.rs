@@ -413,6 +413,7 @@ fn find_similar_task_names(target: &str, available: &[String]) -> Vec<String> {
 ///
 /// # Returns
 /// The minimum number of single-character edits required to change one string into the other
+#[allow(clippy::needless_range_loop)] // Classic algorithm - direct indexing is clearer than iterators
 fn levenshtein_distance(a: &str, b: &str) -> usize {
     let a_len = a.len();
     let b_len = b.len();

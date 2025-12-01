@@ -314,7 +314,7 @@ use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
-use crate::models::workflow_packages::{StorageType, WorkflowPackage};
+use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
 
 impl From<UnifiedDbContext> for DbContext {
@@ -453,7 +453,7 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             description: u.description,
             author: u.author,
             metadata: u.metadata,
-            storage_type: StorageType::from_str(&u.storage_type),
+            storage_type: u.storage_type.parse().unwrap(),
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

@@ -731,6 +731,15 @@ where
     }
 }
 
+impl<T> Default for Context<T>
+where
+    T: Serialize + for<'de> Deserialize<'de> + Debug,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
