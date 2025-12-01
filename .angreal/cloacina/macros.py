@@ -18,8 +18,17 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     when_to_use=["validating workflow macros", "testing compile-time checks", "ensuring macro safety"],
     when_not_to_use=["runtime testing", "integration testing", "performance testing"]
 )
-def macros():
-    """Run tests for macro validation system with both backends enabled."""
+@angreal.argument(
+    name="backend",
+    long="backend",
+    required=False,
+    help="(ignored) backend parameter for CI compatibility - tests run with both backends"
+)
+def macros(backend=None):
+    """Run tests for macro validation system with both backends enabled.
+
+    The --backend parameter is accepted for CI compatibility but ignored.
+    """
 
     # Test that invalid examples fail to compile as expected
     failure_examples = [

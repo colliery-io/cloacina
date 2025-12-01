@@ -33,11 +33,18 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     takes_value=False,
     is_flag=True
 )
-def integration(filter=None, skip_docker=False):
+@angreal.argument(
+    name="backend",
+    long="backend",
+    required=False,
+    help="(ignored) backend parameter for CI compatibility - tests run with both backends"
+)
+def integration(filter=None, skip_docker=False, backend=None):
     """Run integration tests against both PostgreSQL and SQLite databases.
 
     Tests are compiled once with both backends enabled. The test fixture
-    handles database selection internally.
+    handles database selection internally. The --backend parameter is accepted
+    for CI compatibility but ignored.
     """
 
     if not skip_docker:

@@ -23,10 +23,17 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     required=False,
     help="filter tests by name pattern"
 )
-def unit(filter=None):
+@angreal.argument(
+    name="backend",
+    long="backend",
+    required=False,
+    help="(ignored) backend parameter for CI compatibility - tests run with both backends"
+)
+def unit(filter=None, backend=None):
     """Run unit tests (tests embedded in src/ modules only).
 
     Tests are compiled once with both PostgreSQL and SQLite backends enabled.
+    The --backend parameter is accepted for CI compatibility but ignored.
     """
 
     print_section_header("Running unit tests")
