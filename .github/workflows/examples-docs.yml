@@ -11,6 +11,7 @@ concurrency:
 jobs:
   rust-tutorials:
     name: Rust Tutorial Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +53,7 @@ jobs:
 
   rust-examples:
     name: Rust Example Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +106,7 @@ jobs:
 
   python-tutorials:
     name: Python Tutorial Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -186,6 +189,7 @@ jobs:
 
   documentation:
     name: Build Documentation
+    timeout-minutes: 30
     runs-on: ubuntu-latest
 
     steps:
