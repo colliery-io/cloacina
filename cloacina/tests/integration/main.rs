@@ -14,8 +14,18 @@
  *  limitations under the License.
  */
 
-// This file is intentionally left empty.
-// It serves as the entry point for integration tests in this directory.
+// This file serves as the entry point for integration tests in this directory.
+
+use ctor::ctor;
+
+// Initialize OpenSSL before any tests run to prevent SIGSEGV on Linux.
+// This fixes a known issue with diesel + postgres + connection pooling where
+// OpenSSL's atexit handler causes thread-safety issues during cleanup.
+// See: https://github.com/diesel-rs/diesel/issues/3441
+#[ctor]
+fn init_openssl() {
+    openssl::init();
+}
 
 pub mod context;
 pub mod dal;

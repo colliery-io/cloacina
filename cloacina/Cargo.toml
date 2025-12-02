@@ -71,3 +71,6 @@ tempfile = "3.2"
 once_cell = "1.19.0"
 serial_test = "3.2.0"
 aquamarine = "0.6.0"
+# OpenSSL is needed to fix SIGSEGV on Linux CI - see diesel-rs/diesel#3441
+# Calling openssl::init() early disables unsafe atexit handler
+openssl = { version = "0.10", features = ["vendored"] }
