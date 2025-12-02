@@ -111,10 +111,13 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install PostgreSQL dev libraries
+      - name: Install PostgreSQL dev libraries and debug tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpq-dev
+          sudo apt-get install -y libpq-dev gdb
+          # Enable core dumps for debugging SIGSEGV
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern=core.%p
 
       - name: Cache Rust build
         uses: actions/cache@v4
@@ -129,12 +132,26 @@ jobs:
             ${{ runner.os }}-cloacina-integration-
             ${{ runner.os }}-cloacina-
 
-      - name: Run integration tests (postgres) - direct cargo test
+      - name: Build integration tests
+        run: cargo test -p cloacina --test integration --features postgres,sqlite,macros --no-run
+
+      - name: Run integration tests under GDB (postgres)
         run: |
-          # Run cargo test directly, bypassing angreal
-          cargo test -p cloacina --test integration \
-            --features postgres,sqlite,macros -- \
-            --test-threads=1 --nocapture --skip sqlite
+          # Find the test binary
+          TEST_BIN=$(find target/debug/deps -name 'integration-*' -type f -executable | head -1)
+          echo "Test binary: $TEST_BIN"
+
+          # Run under GDB to catch SIGSEGV with full backtrace
+          gdb -batch \
+            -ex "set pagination off" \
+            -ex "set backtrace limit 50" \
+            -ex "handle SIGSEGV stop print" \
+            -ex "run --test-threads=1 --nocapture --skip sqlite" \
+            -ex "bt full" \
+            -ex "info registers" \
+            -ex "thread apply all bt full" \
+            -ex "quit" \
+            "$TEST_BIN"
 
   # Integration tests - other combinations (sqlite on both, postgres on macOS)
   integration-tests:
