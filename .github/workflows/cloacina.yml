@@ -132,30 +132,26 @@ jobs:
             ${{ runner.os }}-cloacina-integration-
             ${{ runner.os }}-cloacina-
 
-      - name: Run integration tests (postgres)
-        id: run_tests
-        continue-on-error: true
-        run: |
-          # Use catchsegv to get backtrace on SIGSEGV
-          export SEGFAULT_SIGNALS="segv"
-          catchsegv cargo test -p cloacina --test integration \
-            --features postgres,sqlite,macros -- \
-            --test-threads=1 --nocapture --skip sqlite
+      - name: Build integration tests
+        run: cargo test -p cloacina --test integration --features postgres,sqlite,macros --no-run
 
-      - name: Analyze crash if tests failed
-        if: steps.run_tests.outcome == 'failure'
+      - name: Run integration tests under GDB (postgres)
         run: |
-          echo "=== Test run failed, checking for crash info ==="
-          # Check for core dumps
-          if ls core.* 1>/dev/null 2>&1; then
-            echo "=== Found core dump, analyzing with GDB ==="
-            for core in core.*; do
-              gdb -batch -ex "bt full" -ex "info registers" \
-                target/debug/deps/integration-* "$core" 2>/dev/null || true
-            done
-          fi
-          # Fail the job
-          exit 1
+          # Find the test binary
+          TEST_BIN=$(find target/debug/deps -name 'integration-*' -type f -executable | head -1)
+          echo "Test binary: $TEST_BIN"
+
+          # Run under GDB to catch SIGSEGV with full backtrace
+          gdb -batch \
+            -ex "set pagination off" \
+            -ex "set backtrace limit 50" \
+            -ex "handle SIGSEGV stop print" \
+            -ex "run --test-threads=1 --nocapture --skip sqlite" \
+            -ex "bt full" \
+            -ex "info registers" \
+            -ex "thread apply all bt full" \
+            -ex "quit" \
+            "$TEST_BIN"
 
   # Integration tests - other combinations (sqlite on both, postgres on macOS)
   integration-tests:
