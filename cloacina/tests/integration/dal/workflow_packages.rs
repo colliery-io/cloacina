@@ -26,6 +26,7 @@ async fn test_store_and_get_package_metadata() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -82,6 +83,7 @@ async fn test_store_duplicate_package_metadata() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -139,6 +141,7 @@ async fn test_list_all_packages() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -204,6 +207,7 @@ async fn test_delete_package_metadata() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -264,6 +268,7 @@ async fn test_delete_nonexistent_package() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -286,6 +291,7 @@ async fn test_get_nonexistent_package() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -306,6 +312,7 @@ async fn test_store_package_with_complex_metadata() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -401,6 +408,7 @@ async fn test_store_package_with_invalid_uuid() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
@@ -437,6 +445,7 @@ async fn test_package_versioning() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.initialize().await;
+    fixture.reset_database().await;
 
     let dal = fixture.get_dal();
     let workflow_packages_dal = dal.workflow_packages();
