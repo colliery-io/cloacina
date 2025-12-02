@@ -38,8 +38,6 @@ use std::sync::{Arc, Mutex, Once};
 use tracing::info;
 use uuid;
 
-use diesel::pg::PgConnection;
-
 static INIT: Once = Once::new();
 static POSTGRES_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 static SQLITE_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
@@ -69,6 +67,9 @@ const DEFAULT_SQLITE_URL: &str = "file:cloacina_test?mode=memory&cache=shared";
 /// Schema is determined by CLOACINA_TEST_SCHEMA env var, or a unique UUID-based schema.
 /// This ensures CI jobs running in parallel don't interfere with each other.
 ///
+/// IMPORTANT: Uses only connection pool (no raw PgConnection) to avoid SIGSEGV
+/// crashes on Ubuntu CI caused by interaction between raw connections and pool.
+///
 /// # Returns
 /// An Arc<Mutex<TestFixture>> pointing to the shared PostgreSQL test fixture instance
 pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
@@ -85,17 +86,12 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
                 Some(&schema),
             );
 
-            let conn =
-                PgConnection::establish(&db_url).expect("Failed to connect to PostgreSQL database");
-
             info!(
                 "PostgreSQL test fixture initialized with schema: {}",
                 schema
             );
 
-            Arc::new(Mutex::new(TestFixture::new_postgres(
-                db, conn, db_url, schema,
-            )))
+            Arc::new(Mutex::new(TestFixture::new_postgres(db, db_url, schema)))
         })
         .clone()
 }
@@ -133,8 +129,8 @@ pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
 /// The fixture supports both PostgreSQL and SQLite backends, determined
 /// automatically from the DATABASE_URL.
 ///
-/// Note: SQLite fixtures only use the connection pool (no raw connection) because
-/// SQLite's pool is limited to 1 connection to avoid lock contention.
+/// All database operations use the connection pool to avoid interaction issues
+/// between raw connections and pool connections (which caused SIGSEGV on Ubuntu CI).
 #[allow(dead_code)]
 pub struct TestFixture {
     /// Flag indicating if the fixture has been initialized
@@ -143,15 +139,16 @@ pub struct TestFixture {
     db: Database,
     /// The database URL used to create this fixture
     db_url: String,
-    /// PostgreSQL connection (when using PostgreSQL backend)
-    pg_conn: Option<PgConnection>,
     /// Schema name for PostgreSQL isolation
     schema: String,
 }
 
 impl TestFixture {
     /// Creates a new TestFixture instance for PostgreSQL
-    pub fn new_postgres(db: Database, conn: PgConnection, db_url: String, schema: String) -> Self {
+    ///
+    /// Uses only the connection pool (no raw connection) to avoid interaction
+    /// issues that caused SIGSEGV on Ubuntu CI.
+    pub fn new_postgres(db: Database, db_url: String, schema: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
         });
@@ -165,17 +162,13 @@ impl TestFixture {
             initialized: false,
             db,
             db_url,
-            pg_conn: Some(conn),
             schema,
         }
     }
 
     /// Creates a new TestFixture instance for SQLite
     ///
-    /// Note: Unlike PostgreSQL, SQLite fixtures do NOT hold a raw connection.
-    /// This is because SQLite's pool is limited to 1 connection to avoid lock
-    /// contention. Holding a separate connection would cause deadlocks when
-    /// operations try to acquire the pool's connection.
+    /// SQLite fixtures use a single-connection pool to avoid lock contention.
     pub fn new_sqlite(db: Database, db_url: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
@@ -187,7 +180,6 @@ impl TestFixture {
             initialized: false,
             db,
             db_url,
-            pg_conn: None,
             schema: "main".to_string(), // SQLite uses "main" as default schema
         }
     }
@@ -241,7 +233,7 @@ impl TestFixture {
     /// Initialize the fixture with additional setup
     pub async fn initialize(&mut self) {
         // Initialize the database schema based on the backend
-        if self.pg_conn.is_some() {
+        if self.db.backend() == BackendType::Postgres {
             // Use setup_schema which creates schema, sets search_path, and runs migrations
             self.db
                 .setup_schema(&self.schema)
@@ -270,34 +262,47 @@ impl TestFixture {
 
     /// Reset the database by truncating all tables in the test schema
     pub async fn reset_database(&mut self) {
-        if let Some(ref mut conn) = self.pg_conn {
-            // Truncate all user tables in the test schema
-            // This preserves connections and schema structure
+        // Use the pool for PostgreSQL reset operations to avoid interaction issues
+        // between raw connections and pool connections (fixes SIGSEGV on Ubuntu CI)
+        if self.db.backend() == BackendType::Postgres {
+            let schema = self.schema.clone();
+            let conn = self
+                .db
+                .get_postgres_connection()
+                .await
+                .expect("Failed to get PostgreSQL connection from pool");
 
-            // Define a struct for the query result
-            #[derive(QueryableByName)]
-            struct TableName {
-                #[diesel(sql_type = Text)]
-                tablename: String,
-            }
+            conn.interact(move |conn| {
+                use diesel::sql_query;
+                use diesel::RunQueryDsl;
 
-            // Get list of all user tables in the test schema (excluding migrations table)
-            let tables_result: Result<Vec<TableName>, _> = diesel::sql_query(&format!(
-                "SELECT tablename FROM pg_tables WHERE schemaname = '{}' AND tablename != '__diesel_schema_migrations'",
-                self.schema
-            ))
-            .load::<TableName>(conn);
-
-            if let Ok(table_rows) = tables_result {
-                // Truncate all user tables with CASCADE to handle foreign keys
-                for table_row in &table_rows {
-                    let _ = diesel::sql_query(&format!(
-                        "TRUNCATE TABLE \"{}\".\"{}\" CASCADE",
-                        self.schema, table_row.tablename
-                    ))
-                    .execute(conn);
+                // Define a struct for the query result
+                #[derive(QueryableByName)]
+                struct TableName {
+                    #[diesel(sql_type = Text)]
+                    tablename: String,
                 }
-            }
+
+                // Get list of all user tables in the test schema (excluding migrations table)
+                let tables_result: Result<Vec<TableName>, _> = sql_query(&format!(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = '{}' AND tablename != '__diesel_schema_migrations'",
+                    schema
+                ))
+                .load::<TableName>(conn);
+
+                if let Ok(table_rows) = tables_result {
+                    // Truncate all user tables with CASCADE to handle foreign keys
+                    for table_row in &table_rows {
+                        let _ = sql_query(&format!(
+                            "TRUNCATE TABLE \"{}\".\"{}\" CASCADE",
+                            schema, table_row.tablename
+                        ))
+                        .execute(conn);
+                    }
+                }
+            })
+            .await
+            .expect("Failed to reset PostgreSQL database");
 
             return;
         }

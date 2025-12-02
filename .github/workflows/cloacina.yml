@@ -83,7 +83,8 @@ jobs:
     env:
       RUST_BACKTRACE: full
       # Schema isolation prevents test interference between parallel jobs
-      CLOACINA_TEST_SCHEMA: integration_${{ matrix.backend }}_${{ matrix.os }}
+      # Replace dashes with underscores for valid PostgreSQL schema names
+      CLOACINA_TEST_SCHEMA: integration_${{ matrix.backend }}_${{ matrix.os == 'ubuntu-latest' && 'ubuntu' || 'macos' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -154,12 +155,8 @@ jobs:
           createdb -O cloacina cloacina || true
 
       - name: Run integration tests (${{ matrix.backend }})
-        run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
-          else
-            angreal cloacina integration --backend ${{ matrix.backend }}
-          fi
+        # Docker is managed by CI (compose-action for Ubuntu postgres, brew for macOS)
+        run: angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
 
   # Macro tests - only need to run once per backend (ubuntu only)
   macro-tests:
