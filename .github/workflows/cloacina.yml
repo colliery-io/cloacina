@@ -69,21 +69,86 @@ jobs:
       - name: Run unit tests (${{ matrix.backend }})
         run: angreal cloacina unit --backend ${{ matrix.backend }}
 
-  # Integration tests - split by backend for better parallelism
-  # PostgreSQL tests need database services, SQLite tests don't
+  # Integration tests - Ubuntu postgres uses GitHub services, macOS uses brew
+  integration-tests-ubuntu-postgres:
+    name: Integration Tests (postgres, ubuntu-latest)
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
+      CLOACINA_TEST_SCHEMA: integration_postgres_ubuntu
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cloacina-integration-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cloacina-integration-postgres-
+            ${{ runner.os }}-cloacina-integration-
+            ${{ runner.os }}-cloacina-
+
+      - name: Run integration tests (postgres)
+        run: angreal cloacina integration --backend postgres --skip-docker
+
+  # Integration tests - other combinations (sqlite on both, postgres on macOS)
   integration-tests:
     name: Integration Tests (${{ matrix.backend }}, ${{ matrix.os }})
     needs: unit-tests
     strategy:
       fail-fast: false
       matrix:
-        backend: [postgres, sqlite]
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - backend: sqlite
+            os: ubuntu-latest
+          - backend: sqlite
+            os: macos-latest
+          - backend: postgres
+            os: macos-latest
     runs-on: ${{ matrix.os }}
     env:
       RUST_BACKTRACE: full
-      # Schema isolation prevents test interference between parallel jobs
-      # Replace dashes with underscores for valid PostgreSQL schema names
       CLOACINA_TEST_SCHEMA: integration_${{ matrix.backend }}_${{ matrix.os == 'ubuntu-latest' && 'ubuntu' || 'macos' }}
 
     steps:
@@ -124,19 +189,6 @@ jobs:
             ${{ runner.os }}-cloacina-integration-
             ${{ runner.os }}-cloacina-
 
-      - name: Docker Compose Cache
-        if: matrix.os == 'ubuntu-latest' && matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.os == 'ubuntu-latest' && matrix.backend == 'postgres'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
       - name: Install PostgreSQL dev libs (macOS)
         if: matrix.os == 'macos-latest'
         run: |
@@ -155,22 +207,77 @@ jobs:
           createdb -O cloacina cloacina || true
 
       - name: Run integration tests (${{ matrix.backend }})
-        # Docker is managed by CI (compose-action for Ubuntu postgres, brew for macOS)
         run: angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
 
-  # Macro tests - only need to run once per backend (ubuntu only)
-  macro-tests:
-    name: Macro Tests (${{ matrix.backend }})
+  # Macro tests - Ubuntu postgres uses GitHub services
+  macro-tests-postgres:
+    name: Macro Tests (postgres)
     needs: unit-tests
-    strategy:
-      fail-fast: true
-      matrix:
-        backend: [postgres, sqlite]
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
-      # Schema isolation prevents test interference between parallel jobs
-      CLOACINA_TEST_SCHEMA: macro_${{ matrix.backend }}
+      CLOACINA_TEST_SCHEMA: macro_postgres
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cloacina-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cloacina-postgres-
+            ${{ runner.os }}-cloacina-
+
+      - name: Run macro tests (postgres)
+        run: angreal cloacina macros --backend postgres
+
+  # Macro tests - SQLite (no services needed)
+  macro-tests-sqlite:
+    name: Macro Tests (sqlite)
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -198,23 +305,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-sqlite-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
+            ${{ runner.os }}-cloacina-sqlite-
             ${{ runner.os }}-cloacina-
 
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services
-        if: matrix.backend == 'postgres'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
-      - name: Run macro tests (${{ matrix.backend }})
-        run: angreal cloacina macros --backend ${{ matrix.backend }}
+      - name: Run macro tests (sqlite)
+        run: angreal cloacina macros --backend sqlite
