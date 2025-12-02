@@ -39,7 +39,6 @@ use tracing::info;
 use uuid;
 
 use diesel::pg::PgConnection;
-use diesel::sqlite::SqliteConnection;
 
 static INIT: Once = Once::new();
 static POSTGRES_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
@@ -106,6 +105,9 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
 /// This function ensures only one SQLite test fixture exists across all tests,
 /// initializing it if necessary. Uses an in-memory SQLite database.
 ///
+/// IMPORTANT: SQLite uses a single-connection pool to avoid lock contention.
+/// Do NOT create additional raw SqliteConnections - use the pool for all operations.
+///
 /// # Returns
 /// An Arc<Mutex<TestFixture>> pointing to the shared SQLite test fixture instance
 pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
@@ -113,9 +115,10 @@ pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
         .get_or_init(|| {
             let db_url = DEFAULT_SQLITE_URL.to_string();
             let db = Database::new(&db_url, "", 5);
-            let conn =
-                SqliteConnection::establish(&db_url).expect("Failed to connect to SQLite database");
-            Arc::new(Mutex::new(TestFixture::new_sqlite(db, conn, db_url)))
+            // Note: SQLite fixture does NOT hold a raw connection.
+            // The pool is limited to 1 connection to avoid lock contention,
+            // so holding a separate connection would cause deadlocks.
+            Arc::new(Mutex::new(TestFixture::new_sqlite(db, db_url)))
         })
         .clone()
 }
@@ -129,6 +132,9 @@ pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
 ///
 /// The fixture supports both PostgreSQL and SQLite backends, determined
 /// automatically from the DATABASE_URL.
+///
+/// Note: SQLite fixtures only use the connection pool (no raw connection) because
+/// SQLite's pool is limited to 1 connection to avoid lock contention.
 #[allow(dead_code)]
 pub struct TestFixture {
     /// Flag indicating if the fixture has been initialized
@@ -139,8 +145,6 @@ pub struct TestFixture {
     db_url: String,
     /// PostgreSQL connection (when using PostgreSQL backend)
     pg_conn: Option<PgConnection>,
-    /// SQLite connection (when using SQLite backend)
-    sqlite_conn: Option<SqliteConnection>,
     /// Schema name for PostgreSQL isolation
     schema: String,
 }
@@ -162,13 +166,17 @@ impl TestFixture {
             db,
             db_url,
             pg_conn: Some(conn),
-            sqlite_conn: None,
             schema,
         }
     }
 
     /// Creates a new TestFixture instance for SQLite
-    pub fn new_sqlite(db: Database, conn: SqliteConnection, db_url: String) -> Self {
+    ///
+    /// Note: Unlike PostgreSQL, SQLite fixtures do NOT hold a raw connection.
+    /// This is because SQLite's pool is limited to 1 connection to avoid lock
+    /// contention. Holding a separate connection would cause deadlocks when
+    /// operations try to acquire the pool's connection.
+    pub fn new_sqlite(db: Database, db_url: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
         });
@@ -180,7 +188,6 @@ impl TestFixture {
             db,
             db_url,
             pg_conn: None,
-            sqlite_conn: Some(conn),
             schema: "main".to_string(), // SQLite uses "main" as default schema
         }
     }
@@ -244,11 +251,20 @@ impl TestFixture {
             return;
         }
 
-        if let Some(ref mut conn) = self.sqlite_conn {
-            cloacina::database::run_migrations_sqlite(conn)
-                .expect("Failed to run SQLite migrations");
+        // For SQLite, run migrations through the pool connection
+        if self.db.backend() == BackendType::Sqlite {
+            let conn = self
+                .db
+                .get_sqlite_connection()
+                .await
+                .expect("Failed to get SQLite connection from pool");
+            conn.interact(|conn| {
+                cloacina::database::run_migrations_sqlite(conn)
+                    .expect("Failed to run SQLite migrations");
+            })
+            .await
+            .expect("Failed to run SQLite migrations");
             self.initialized = true;
-            return;
         }
     }
 
@@ -286,32 +302,43 @@ impl TestFixture {
             return;
         }
 
-        if let Some(ref mut conn) = self.sqlite_conn {
-            // For SQLite, clear all tables first, then run migrations
-            use diesel::sql_query;
+        // For SQLite, use the pool connection
+        if self.db.backend() == BackendType::Sqlite {
+            let conn = self
+                .db
+                .get_sqlite_connection()
+                .await
+                .expect("Failed to get SQLite connection from pool");
 
-            // Define a struct for the query result
-            #[derive(QueryableByName)]
-            struct TableName {
-                #[diesel(sql_type = Text)]
-                name: String,
-            }
+            conn.interact(|conn| {
+                use diesel::sql_query;
+                use diesel::RunQueryDsl;
 
-            // Get list of all user tables (excluding sqlite system tables and migrations)
-            let tables_result: Result<Vec<TableName>, _> = sql_query(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'"
-            )
-            .load::<TableName>(conn);
-
-            if let Ok(table_rows) = tables_result {
-                // Clear all user tables
-                for table_row in table_rows {
-                    let _ = sql_query(&format!("DELETE FROM {}", table_row.name)).execute(conn);
+                // Define a struct for the query result
+                #[derive(QueryableByName)]
+                struct TableName {
+                    #[diesel(sql_type = Text)]
+                    name: String,
                 }
-            }
 
-            // Run migrations to ensure schema is up to date
-            cloacina::database::run_migrations_sqlite(conn).expect("Failed to run migrations");
+                // Get list of all user tables (excluding sqlite system tables and migrations)
+                let tables_result: Result<Vec<TableName>, _> = sql_query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations'"
+                )
+                .load::<TableName>(conn);
+
+                if let Ok(table_rows) = tables_result {
+                    // Clear all user tables
+                    for table_row in table_rows {
+                        let _ = sql_query(&format!("DELETE FROM {}", table_row.name)).execute(conn);
+                    }
+                }
+
+                // Run migrations to ensure schema is up to date
+                cloacina::database::run_migrations_sqlite(conn).expect("Failed to run migrations");
+            })
+            .await
+            .expect("Failed to reset SQLite database");
         }
     }
 }

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "cloaca"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Python bindings for Cloacina workflow orchestration engine"
 readme = "README.md"
 authors = [

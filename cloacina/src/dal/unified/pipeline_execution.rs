@@ -115,6 +115,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
+        // IMPORTANT: Drop connection before calling get_by_id_sqlite to avoid deadlock
+        // SQLite pool has size 1, so we must return this connection before acquiring another
+        drop(conn);
+
         self.get_by_id_sqlite(id).await
     }
 

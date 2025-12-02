@@ -67,9 +67,10 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
 
         # Step 2: Test each backend
         for backend_name in backends_to_test:
-            print(f"\n{'='*50}")
-            print(f"Testing {backend_name.title()} backend")
-            print(f"{'='*50}")
+            print(f"\n{'='*50}", flush=True)
+            print(f"Testing {backend_name.title()} backend", flush=True)
+            print(f"{'='*50}", flush=True)
+            print(f"[DEBUG] Starting backend loop for: {backend_name}", flush=True)
 
             try:
                 # Setup Docker for postgres backend
@@ -87,8 +88,9 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                     print("Skipping Docker setup (--skip-docker flag set)")
 
                 # Run tests
-                print("Running tests...")
+                print("[DEBUG] About to run tests...", flush=True)
                 test_dir = project_root / "python-tests"
+                print(f"[DEBUG] Test dir: {test_dir}", flush=True)
 
                 if file:
                     test_file_path = test_dir / file
@@ -110,8 +112,10 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                 # Set backend for tests to determine which database URL to use
                 env["CLOACA_BACKEND"] = backend_name
 
+                print(f"[DEBUG] Found {len(test_files)} test files", flush=True)
                 for test_file in test_files:
-                    print(f"\n--- Running {test_file.name} ---")
+                    print(f"\n--- Running {test_file.name} ---", flush=True)
+                    print(f"[DEBUG] About to run: {test_file}", flush=True)
 
                     # Clean state between test files
                     if backend_name == "postgres":
@@ -140,8 +144,10 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                     if filter:
                         cmd.extend(["-k", filter])
 
+                    print(f"[DEBUG] Running cmd: {' '.join(cmd)}", flush=True)
                     try:
                         result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                        print(f"[DEBUG] Test completed with return code: {result.returncode}", flush=True)
 
                         if result.returncode == 0:
                             print(f"PASSED: {test_file.name}")

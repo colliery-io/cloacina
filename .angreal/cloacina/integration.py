@@ -37,17 +37,20 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     name="backend",
     long="backend",
     required=False,
-    help="(ignored) backend parameter for CI compatibility - tests run with both backends"
+    help="run tests for specific backend: 'postgres', 'sqlite', or both if not specified"
 )
 def integration(filter=None, skip_docker=False, backend=None):
-    """Run integration tests against both PostgreSQL and SQLite databases.
+    """Run integration tests against PostgreSQL and/or SQLite databases.
 
-    Tests are compiled once with both backends enabled. The test fixture
-    handles database selection internally. The --backend parameter is accepted
-    for CI compatibility but ignored.
+    Tests are compiled once with both backends enabled. By default, PostgreSQL
+    tests run first, then SQLite tests run separately to avoid cross-backend
+    interference. Use --backend to run only one backend's tests.
     """
 
-    if not skip_docker:
+    run_postgres = backend is None or backend == "postgres"
+    run_sqlite = backend is None or backend == "sqlite"
+
+    if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL
         print_section_header("Starting Docker services")
         docker_down()
@@ -60,17 +63,31 @@ def integration(filter=None, skip_docker=False, backend=None):
         time.sleep(30)
 
     try:
-        print_section_header("Running integration tests")
-        cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration", "--features", "postgres,sqlite,macros", "--", "--test-threads=1", "--nocapture"]
-        if filter:
-            cmd.append(filter)
+        if run_postgres:
+            # Run PostgreSQL tests (exclude sqlite tests)
+            print_section_header("Running PostgreSQL integration tests")
+            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
+                           "--features", "postgres,sqlite,macros", "--",
+                           "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+            if filter:
+                postgres_cmd.append(filter)
+            subprocess.run(postgres_cmd, check=True)
 
-        subprocess.run(cmd, check=True)
+        if run_sqlite:
+            # Run SQLite tests
+            print_section_header("Running SQLite integration tests")
+            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
+                         "--features", "postgres,sqlite,macros", "--",
+                         "--test-threads=1", "--nocapture", "sqlite"]
+            if filter:
+                sqlite_cmd.append(filter)
+            subprocess.run(sqlite_cmd, check=True)
+
         print_final_success("All integration tests passed!")
     except subprocess.CalledProcessError as e:
         print(f"Integration tests failed with error: {e}", file=sys.stderr)
         raise RuntimeError(f"Integration tests failed with return code {e.returncode}")
     finally:
-        if not skip_docker:
+        if not skip_docker and run_postgres:
             docker_down()
             docker_clean()

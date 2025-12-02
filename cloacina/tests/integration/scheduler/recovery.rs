@@ -738,6 +738,9 @@ mod sqlite_tests {
         .await
         .unwrap()
         .unwrap();
+        // IMPORTANT: Drop connection before TaskScheduler::new to avoid deadlock
+        // SQLite pool has size 1, so we must return this connection before acquiring another
+        drop(conn);
 
         info!("Creating scheduler with recovery (empty workflow registry) - should abandon task");
 
@@ -931,6 +934,9 @@ mod sqlite_tests {
         .await
         .unwrap()
         .unwrap();
+        // IMPORTANT: Drop connection before TaskScheduler::new to avoid deadlock
+        // SQLite pool has size 1, so we must return this connection before acquiring another
+        drop(conn);
 
         info!(
             "Creating scheduler with recovery (empty workflow registry) - should abandon all tasks"

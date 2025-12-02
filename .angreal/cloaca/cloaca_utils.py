@@ -147,22 +147,26 @@ def _build_and_install_cloaca_unified(venv_name):
     venv_path = project_root / venv_name
 
     # Create test environment
-    print("Creating test environment...")
+    print("[DEBUG] Step 1: Creating test environment...", flush=True)
     venv = VirtualEnv(path=str(venv_path), now=True)
+    print(f"[DEBUG] Step 1 complete: venv at {venv.path}", flush=True)
 
     python_exe = venv.path / "bin" / "python"
     pip_exe = venv.path / "bin" / "pip3"
 
     # Install pip and dependencies
-    print("Installing dependencies...")
+    print("[DEBUG] Step 2: Installing pip via ensurepip...", flush=True)
     subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+    print("[DEBUG] Step 2 complete", flush=True)
 
     # Base dependencies for all backends
+    print("[DEBUG] Step 3: Installing dependencies...", flush=True)
     deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout", "psycopg2-binary"]
     subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
+    print("[DEBUG] Step 3 complete", flush=True)
 
     # Build and install unified wheel
-    print("Building and installing unified cloaca wheel...")
+    print("[DEBUG] Step 4: Building unified cloaca wheel...", flush=True)
     backend_dir = project_root / "cloaca-backend"
 
     # Clean existing extensions
@@ -177,15 +181,21 @@ def _build_and_install_cloaca_unified(venv_name):
         "--release"
     ]
 
-    subprocess.run(
+    print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {backend_dir}", flush=True)
+    result = subprocess.run(
         maturin_cmd,
         cwd=str(backend_dir),
         capture_output=True,
         text=True,
-        check=True
     )
+    if result.returncode != 0:
+        print(f"[DEBUG] Maturin STDERR: {result.stderr}", flush=True)
+        print(f"[DEBUG] Maturin STDOUT: {result.stdout}", flush=True)
+        raise subprocess.CalledProcessError(result.returncode, maturin_cmd)
+    print("[DEBUG] Step 4 complete: wheel built", flush=True)
 
     # Find and install the wheel
+    print("[DEBUG] Step 5: Finding and installing wheel...", flush=True)
     wheel_pattern = "cloaca-*.whl"
     wheel_dir = backend_dir / "target" / "wheels"
     wheel_files = list(wheel_dir.glob(wheel_pattern))
@@ -194,7 +204,8 @@ def _build_and_install_cloaca_unified(venv_name):
         raise FileNotFoundError(f"No wheel found matching {wheel_pattern} in {wheel_dir}")
 
     wheel_file = wheel_files[0]
-    print(f"Installing wheel: {wheel_file.name}")
+    print(f"[DEBUG] Installing wheel: {wheel_file.name}", flush=True)
     subprocess.run([str(pip_exe), "install", str(wheel_file)], check=True, capture_output=True)
+    print("[DEBUG] Step 5 complete: wheel installed", flush=True)
 
     return venv, python_exe, pip_exe

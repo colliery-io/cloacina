@@ -282,7 +282,7 @@ impl Database {
                 // Using a single connection avoids "database is locked" errors.
                 // For read-heavy workloads, consider increasing this with proper
                 // busy_timeout configuration on each connection.
-                let sqlite_pool_size = 1.min(max_size as usize);
+                let sqlite_pool_size = 1;
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
                     .build()
