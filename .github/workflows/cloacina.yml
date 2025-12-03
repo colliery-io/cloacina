@@ -11,11 +11,10 @@ concurrency:
 jobs:
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
-    name: Unit Tests (${{ matrix.backend }}, ${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     strategy:
       fail-fast: true
       matrix:
-        backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
@@ -44,7 +43,7 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Install PostgreSQL dev libraries (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
@@ -52,8 +51,17 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run unit tests (${{ matrix.backend }})
-        run: angreal cloacina unit --backend ${{ matrix.backend }}
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-${{ matrix.os }}"
+
+      - name: Run unit tests (postgres)
+        run: angreal cloacina unit --backend postgres
+
+      - name: Run unit tests (sqlite)
+        run: angreal cloacina unit --backend sqlite
 
   # Integration tests - need database services, fail-fast disabled to catch multi-backend issues
   integration-tests:
@@ -84,6 +92,12 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-${{ matrix.os }}"
 
       - name: Start PostgreSQL services (Ubuntu)
         if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest' && env.ACT != 'true'
@@ -201,6 +215,12 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-ubuntu-latest"
 
       - name: Install PostgreSQL dev libraries
         if: matrix.backend == 'postgres'
