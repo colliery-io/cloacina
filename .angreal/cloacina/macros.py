@@ -34,14 +34,15 @@ def macros(backend=None):
     failure_examples = [
         "missing_dependency",
         "circular_dependency",
-        "duplicate_task_ids"
+        "duplicate_task_ids",
+        "missing_workflow_task"
     ]
 
     print_section_header("Running macro validation tests")
     print("\nTesting macro validation failure examples...")
 
-    # Use cargo check with both backends enabled
-    cmd_base = ["cargo", "check", "--features", "postgres,sqlite,macros"]
+    # Use cargo check (no features needed - validation-failures uses path dependencies)
+    cmd_base = ["cargo", "check"]
 
     all_passed = True
     for example in failure_examples:
@@ -60,13 +61,10 @@ def macros(backend=None):
                 all_passed = False
             else:
                 print(f"SUCCESS: {example} failed to compile as expected")
-                # Show brief indication of what was detected
-                if "depends on undefined task" in result.stderr:
-                    print("   -> Missing dependency error message generated")
-                elif "Circular dependency detected" in result.stderr:
-                    print("   -> Circular dependency error message generated")
-                elif "Duplicate task ID" in result.stderr:
-                    print("   -> Duplicate task ID error message generated")
+                # Show the actual error message
+                for line in result.stderr.split('\n'):
+                    if 'error:' in line.lower() or 'depends on' in line or 'Circular' in line or 'Duplicate' in line or 'not found' in line:
+                        print(f"   -> {line.strip()}")
 
         except subprocess.CalledProcessError as e:
             print(f"Error testing {example}: {e}")
