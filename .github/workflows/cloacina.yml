@@ -11,11 +11,10 @@ concurrency:
 jobs:
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
-    name: Unit Tests (${{ matrix.backend }}, ${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     strategy:
       fail-fast: true
       matrix:
-        backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
@@ -26,16 +25,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
 
       - name: Install PostgreSQL (macOS)
         if: matrix.os == 'macos-latest'
@@ -61,21 +50,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-unit-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
+            ${{ runner.os }}-cloacina-unit-
             ${{ runner.os }}-cloacina-
 
-      - name: Run unit tests (${{ matrix.backend }})
-        run: angreal cloacina unit --backend ${{ matrix.backend }}
+      - name: Run unit tests
+        run: cargo test -p cloacina --lib
 
-  # Integration tests - Ubuntu postgres uses GitHub services, macOS uses brew
-  integration-tests-ubuntu-postgres:
+  # Integration tests - postgres on Ubuntu (uses GitHub services)
+  integration-tests-postgres-ubuntu:
     name: Integration Tests (postgres, ubuntu-latest)
     needs: unit-tests
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full
+      DATABASE_URL: postgres://cloacina:cloacina@localhost:5432/cloacina
       CLOACINA_TEST_SCHEMA: integration_postgres_ubuntu
     services:
       postgres:
@@ -98,101 +88,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install PostgreSQL dev libraries and debug tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev gdb
-          # Enable core dumps for debugging SIGSEGV
-          ulimit -c unlimited
-          sudo sysctl -w kernel.core_pattern=core.%p
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-integration-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-integration-postgres-
-            ${{ runner.os }}-cloacina-integration-
-            ${{ runner.os }}-cloacina-
-
-      - name: Build integration tests
-        run: cargo test -p cloacina --test integration --features postgres,sqlite,macros --no-run
-
-      - name: Run integration tests under GDB (postgres)
-        run: |
-          # Find the test binary
-          TEST_BIN=$(find target/debug/deps -name 'integration-*' -type f -executable | head -1)
-          echo "Test binary: $TEST_BIN"
-
-          # Run under GDB to catch SIGSEGV with full backtrace
-          gdb -batch \
-            -ex "set pagination off" \
-            -ex "set backtrace limit 50" \
-            -ex "handle SIGSEGV stop print" \
-            -ex "run --test-threads=1 --nocapture --skip sqlite" \
-            -ex "bt full" \
-            -ex "info registers" \
-            -ex "thread apply all bt full" \
-            -ex "quit" \
-            "$TEST_BIN"
-
-  # Integration tests - other combinations (sqlite on both, postgres on macOS)
-  integration-tests:
-    name: Integration Tests (${{ matrix.backend }}, ${{ matrix.os }})
-    needs: unit-tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - backend: sqlite
-            os: ubuntu-latest
-          - backend: sqlite
-            os: macos-latest
-          - backend: postgres
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
-    env:
-      RUST_BACKTRACE: full
-      CLOACINA_TEST_SCHEMA: integration_${{ matrix.backend }}_${{ matrix.os == 'ubuntu-latest' && 'ubuntu' || 'macos' }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install PostgreSQL dev libraries (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install PostgreSQL dev libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
@@ -204,54 +103,23 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-integration-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-integration-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-integration-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-integration-
+            ${{ runner.os }}-cloacina-integration-postgres-
             ${{ runner.os }}-cloacina-
 
-      - name: Install PostgreSQL dev libs (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install postgresql@14
-          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+      - name: Run integration tests (postgres)
+        run: cargo test -p cloacina --test integration -- --test-threads=1 --nocapture --skip sqlite
 
-      - name: Start PostgreSQL services (macOS)
-        if: matrix.os == 'macos-latest' && matrix.backend == 'postgres'
-        run: |
-          brew services start postgresql@14
-          sleep 5
-          # Create the cloacina user and database that tests expect
-          createuser -s cloacina || true
-          createdb -O cloacina cloacina || true
-
-      - name: Run integration tests (${{ matrix.backend }})
-        run: angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
-
-  # Macro tests - Ubuntu postgres uses GitHub services
-  macro-tests-postgres:
-    name: Macro Tests (postgres)
+  # Integration tests - postgres on macOS (uses brew)
+  integration-tests-postgres-macos:
+    name: Integration Tests (postgres, macos-latest)
     needs: unit-tests
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     env:
       RUST_BACKTRACE: full
-      CLOACINA_TEST_SCHEMA: macro_postgres
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_USER: cloacina
-          POSTGRES_PASSWORD: cloacina
-          POSTGRES_DB: cloacina
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cloacina"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      DATABASE_URL: postgres://cloacina@localhost:5432/cloacina
+      CLOACINA_TEST_SCHEMA: integration_postgres_macos
 
     steps:
       - uses: actions/checkout@v4
@@ -259,15 +127,49 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install angreal
+      - name: Install and start PostgreSQL
         run: |
-          python -m pip install --upgrade pip
-          pip install angreal
+          brew install postgresql@14
+          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+          brew services start postgresql@14
+          sleep 5
+          createuser -s cloacina || true
+          createdb -O cloacina cloacina || true
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cloacina-integration-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cloacina-integration-postgres-
+            ${{ runner.os }}-cloacina-
+
+      - name: Run integration tests (postgres)
+        run: cargo test -p cloacina --test integration -- --test-threads=1 --nocapture --skip sqlite
+
+  # Integration tests - sqlite on Ubuntu
+  integration-tests-sqlite-ubuntu:
+    name: Integration Tests (sqlite, ubuntu-latest)
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
+      CLOACINA_TEST_SCHEMA: integration_sqlite_ubuntu
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -284,17 +186,57 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-postgres-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-integration-sqlite-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-postgres-
+            ${{ runner.os }}-cloacina-integration-sqlite-
             ${{ runner.os }}-cloacina-
 
-      - name: Run macro tests (postgres)
-        run: angreal cloacina macros --backend postgres
+      - name: Run integration tests (sqlite)
+        run: cargo test -p cloacina --test integration -- --test-threads=1 --nocapture sqlite
 
-  # Macro tests - SQLite (no services needed)
-  macro-tests-sqlite:
-    name: Macro Tests (sqlite)
+  # Integration tests - sqlite on macOS
+  integration-tests-sqlite-macos:
+    name: Integration Tests (sqlite, macos-latest)
+    needs: unit-tests
+    runs-on: macos-latest
+    env:
+      RUST_BACKTRACE: full
+      CLOACINA_TEST_SCHEMA: integration_sqlite_macos
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          brew install postgresql@14
+          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cloacina-integration-sqlite-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cloacina-integration-sqlite-
+            ${{ runner.os }}-cloacina-
+
+      - name: Run integration tests (sqlite)
+        run: cargo test -p cloacina --test integration -- --test-threads=1 --nocapture sqlite
+
+  # Macro validation tests - verify compile-time checks work
+  macro-tests:
+    name: Macro Validation Tests
     needs: unit-tests
     runs-on: ubuntu-latest
     env:
@@ -306,18 +248,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install angreal
-        run: |
-          python -m pip install --upgrade pip
-          pip install angreal
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
 
       - name: Cache Rust build
         uses: actions/cache@v4
@@ -326,10 +263,33 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cloacina-sqlite-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          key: ${{ runner.os }}-cloacina-macros-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cloacina-sqlite-
+            ${{ runner.os }}-cloacina-macros-
             ${{ runner.os }}-cloacina-
 
-      - name: Run macro tests (sqlite)
-        run: angreal cloacina macros --backend sqlite
+      - name: Test macro validation failures
+        run: |
+          cd examples/validation_failures
+          echo "Testing missing_dependency (should fail to compile)..."
+          if cargo check --bin missing_dependency 2>&1; then
+            echo "ERROR: missing_dependency compiled when it should have failed!"
+            exit 1
+          fi
+          echo "SUCCESS: missing_dependency failed as expected"
+
+          echo "Testing circular_dependency (should fail to compile)..."
+          if cargo check --bin circular_dependency 2>&1; then
+            echo "ERROR: circular_dependency compiled when it should have failed!"
+            exit 1
+          fi
+          echo "SUCCESS: circular_dependency failed as expected"
+
+          echo "Testing duplicate_task_ids (should fail to compile)..."
+          if cargo check --bin duplicate_task_ids 2>&1; then
+            echo "ERROR: duplicate_task_ids compiled when it should have failed!"
+            exit 1
+          fi
+          echo "SUCCESS: duplicate_task_ids failed as expected"
+
+          echo "All macro validation tests passed!"
