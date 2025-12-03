@@ -15,7 +15,7 @@
  */
 
 use crate::fixtures::get_or_init_fixture;
-use cloacina::packaging::{package_workflow, CompileOptions};
+use cloacina::packaging::{create_package_archive, generate_manifest, CargoToml, CompileResult};
 use cloacina::registry::error::RegistryError;
 use serial_test::serial;
 use std::sync::OnceLock;
@@ -23,35 +23,29 @@ use uuid::Uuid;
 
 /// Cached mock package data.
 ///
-/// IMPORTANT: This must be initialized BEFORE any database connections are created.
-/// Building the package spawns a cargo subprocess, which can cause SIGSEGV on Linux
-/// if OpenSSL/libpq has already been initialized by the database connection pool.
-/// See: https://github.com/diesel-rs/diesel/issues/3441
+/// This is created from pre-built .so files (built by angreal before tests).
+/// No subprocess is spawned - only the .so is loaded to extract metadata.
 static MOCK_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
 
-/// Get the cached mock package, building it if necessary.
+/// Get the cached mock package, creating it from pre-built .so if necessary.
 ///
-/// This function ensures the package is built exactly once, before any database
-/// connections are established, avoiding fork-after-OpenSSL-init issues.
+/// IMPORTANT: The .so file must be pre-built before running tests.
+/// Run `angreal cloacina integration` which pre-builds the packages,
+/// or manually run `cargo build --release -p packaged-workflow-example`.
 fn get_mock_package() -> Vec<u8> {
     MOCK_PACKAGE
-        .get_or_init(|| {
-            // Build the package - this spawns cargo as a subprocess
-            build_mock_package_impl()
-        })
+        .get_or_init(|| create_package_from_prebuilt_so())
         .clone()
 }
 
-/// Internal implementation to build the mock package.
-fn build_mock_package_impl() -> Vec<u8> {
-    // Create a real package using the examples/packaged-workflow-example with unique name
-    let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
-    let unique_id = Uuid::new_v4().to_string();
-    let package_path = temp_dir
-        .path()
-        .join(format!("test_package_{}.cloacina", unique_id));
-
-    // Find the workspace root by looking for Cargo.toml
+/// Create a package from pre-built .so file without spawning cargo.
+///
+/// This function:
+/// 1. Finds the pre-built .so file in the example's target/release directory
+/// 2. Generates the manifest by loading the .so (no subprocess)
+/// 3. Creates the .cloacina archive
+fn create_package_from_prebuilt_so() -> Vec<u8> {
+    // Find workspace root
     let cargo_manifest_dir =
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let workspace_path = std::path::PathBuf::from(&cargo_manifest_dir);
@@ -64,20 +58,74 @@ fn build_mock_package_impl() -> Vec<u8> {
         panic!("Project path does not exist: {}", project_path.display());
     }
 
-    // Create compile options
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
+    // Find pre-built .so file
+    let so_path = find_prebuilt_library(&project_path).expect(
+        "Pre-built .so not found. Run `cargo build --release -p packaged-workflow-example` first.",
+    );
+
+    // Read and parse Cargo.toml
+    let cargo_toml_path = project_path.join("Cargo.toml");
+    let cargo_toml_content =
+        std::fs::read_to_string(&cargo_toml_path).expect("Failed to read Cargo.toml");
+    let cargo_toml: CargoToml =
+        toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
+
+    // Generate manifest by loading the .so (no subprocess spawned)
+    let manifest = generate_manifest(&cargo_toml, &so_path, &None, &project_path)
+        .expect("Failed to generate manifest");
+
+    // Create temp file for .so copy (archive needs the path)
+    let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
+    let temp_so_path = temp_dir.path().join(so_path.file_name().unwrap());
+    std::fs::copy(&so_path, &temp_so_path).expect("Failed to copy .so file");
+
+    let compile_result = CompileResult {
+        so_path: temp_so_path,
+        manifest,
     };
 
-    // Use the package_workflow function to create a real package
-    package_workflow(project_path, package_path.clone(), options)
-        .expect("Failed to create test package");
+    // Create package archive
+    let unique_id = Uuid::new_v4().to_string();
+    let package_path = temp_dir
+        .path()
+        .join(format!("test_package_{}.cloacina", unique_id));
+    create_package_archive(&compile_result, &package_path)
+        .expect("Failed to create package archive");
 
-    // Read the package data
+    // Read and return the package data
     std::fs::read(&package_path).expect("Failed to read package file")
+}
+
+/// Find the pre-built library in the project's target directory.
+fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let target_dir = project_path.join("target/release");
+
+    if !target_dir.exists() {
+        return None;
+    }
+
+    // Look for .so (Linux) or .dylib (macOS)
+    let extensions = if cfg!(target_os = "macos") {
+        vec!["dylib"]
+    } else {
+        vec!["so"]
+    };
+
+    for ext in extensions {
+        for entry in std::fs::read_dir(&target_dir).ok()? {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                // Skip files that look like dependency artifacts
+                let filename = path.file_name()?.to_str()?;
+                if !filename.contains("-") || filename.starts_with("lib") {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[tokio::test]
@@ -167,6 +215,10 @@ async fn test_get_workflow_package_by_name() {
 }
 
 async fn test_get_workflow_package_by_name_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    // Package building spawns cargo subprocess which must happen before OpenSSL init
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -177,9 +229,6 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = get_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -208,6 +257,10 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
 }
 
 async fn test_get_workflow_package_by_name_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    // Package building spawns cargo subprocess which must happen before OpenSSL init
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -218,9 +271,6 @@ async fn test_get_workflow_package_by_name_with_fs_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = get_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -258,6 +308,9 @@ async fn test_unregister_workflow_package_by_id() {
 }
 
 async fn test_unregister_workflow_package_by_id_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -270,7 +323,6 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -296,6 +348,9 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
 }
 
 async fn test_unregister_workflow_package_by_id_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -308,7 +363,6 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -343,6 +397,9 @@ async fn test_unregister_workflow_package_by_name() {
 }
 
 async fn test_unregister_workflow_package_by_name_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -355,7 +412,6 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -390,6 +446,9 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
 }
 
 async fn test_unregister_workflow_package_by_name_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -402,7 +461,6 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -446,6 +504,9 @@ async fn test_list_packages() {
 }
 
 async fn test_list_packages_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -465,7 +526,6 @@ async fn test_list_packages_with_db_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let package_data = get_mock_package();
     let _package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -486,6 +546,9 @@ async fn test_list_packages_with_db_storage() {
 }
 
 async fn test_list_packages_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -505,7 +568,6 @@ async fn test_list_packages_with_fs_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let package_data = get_mock_package();
     let _package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -535,6 +597,9 @@ async fn test_register_duplicate_package() {
 }
 
 async fn test_register_duplicate_package_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -545,9 +610,6 @@ async fn test_register_duplicate_package_with_db_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = get_mock_package();
 
     // Register the package first time - should succeed
     let _package_id = registry_dal
@@ -572,6 +634,9 @@ async fn test_register_duplicate_package_with_db_storage() {
 }
 
 async fn test_register_duplicate_package_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -582,9 +647,6 @@ async fn test_register_duplicate_package_with_fs_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = get_mock_package();
 
     // Register the package first time - should succeed
     let _package_id = registry_dal
@@ -610,10 +672,6 @@ async fn test_register_duplicate_package_with_fs_storage() {
 
 #[tokio::test]
 #[serial]
-#[cfg_attr(
-    target_os = "linux",
-    ignore = "Flaky on Linux CI - investigating SIGSEGV"
-)]
 async fn test_exists_operations() {
     // Test with database storage
     test_exists_operations_with_db_storage().await;
@@ -622,6 +680,9 @@ async fn test_exists_operations() {
 }
 
 async fn test_exists_operations_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -645,7 +706,6 @@ async fn test_exists_operations_with_db_storage() {
         .expect("Failed to check existence"));
 
     // Register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -670,6 +730,9 @@ async fn test_exists_operations_with_db_storage() {
 }
 
 async fn test_exists_operations_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -693,7 +756,6 @@ async fn test_exists_operations_with_fs_storage() {
         .expect("Failed to check existence"));
 
     // Register a package
-    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await

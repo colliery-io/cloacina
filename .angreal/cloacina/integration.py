@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import time
+import os
 import angreal  # type: ignore
 
 from utils import docker_up, docker_down, docker_clean
@@ -9,6 +10,37 @@ from .cloacina_utils import (
     print_section_header,
     print_final_success
 )
+
+
+def build_test_packages():
+    """Pre-build test packages before running integration tests.
+
+    This builds the example workflow packages separately from the test binary,
+    avoiding the fork-after-OpenSSL-init issue on Linux that causes SIGSEGV.
+    The packages are stored in target/test-packages/ and loaded at test runtime.
+    """
+    print_section_header("Pre-building test packages")
+
+    # Create output directory
+    os.makedirs("target/test-packages", exist_ok=True)
+
+    # Build packaged-workflow-example
+    print("Building packaged-workflow-example...")
+    subprocess.run(
+        ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
+        check=True,
+        cwd="examples/packaged-workflow-example"
+    )
+
+    # Build simple-packaged-demo
+    print("Building simple-packaged-demo...")
+    subprocess.run(
+        ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
+        check=True,
+        cwd="examples/simple-packaged-demo"
+    )
+
+    print("Test packages built successfully.")
 
 # Define command group
 cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina core engine tests")
@@ -49,6 +81,9 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     run_postgres = backend is None or backend == "postgres"
     run_sqlite = backend is None or backend == "sqlite"
+
+    # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
+    build_test_packages()
 
     if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL

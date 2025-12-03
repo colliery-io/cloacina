@@ -35,7 +35,7 @@ pub use compile::compile_workflow;
 pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
 pub use manifest::generate_manifest;
 pub use types::CompileOptions;
-pub use types::{CompileResult, PackageManifest};
+pub use types::{CargoToml, CompileResult, PackageManifest};
 
 use anyhow::Result;
 use std::path::PathBuf;

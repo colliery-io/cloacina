@@ -9,8 +9,9 @@ See: https://github.com/diesel-rs/diesel/issues/3441
 
 ### Applied Fixes
 
-1. **OpenSSL early initialization** (`cloacina/src/database/connection.rs`)
-   - Added `ensure_openssl_initialized()` call before creating PostgreSQL connection pools
+1. **OpenSSL early initialization via #[ctor]** (`cloacina/src/database/connection.rs`)
+   - Uses `#[ctor]` to call `openssl::init()` at program startup, before main()
+   - This runs before ANY other code including test setup and async runtime init
    - Uses system OpenSSL (NOT vendored) to match libpq
 
 2. **Test package caching** (`cloacina/tests/integration/dal/workflow_registry*.rs`)
@@ -24,29 +25,29 @@ See: https://github.com/diesel-rs/diesel/issues/3441
    - Use a build.rs or pre-commit hook to build packages before tests start
    - Store as static test fixtures
 
-2. **Environment variable marker**
-   - Add `OPENSSL_INIT_MARKER` env var check to prevent repeated initialization
-   - Set in parent, check in child processes
+2. **Disable ASLR in CI for debugging**
+   - Run with `setarch $(uname -m) -R cargo test ...`
+   - Makes crash reproducible if ASLR-dependent
 
-3. **Use diesel_async**
+3. **Use AddressSanitizer or ThreadSanitizer**
+   - Build with `RUSTFLAGS="-Z sanitizer=address"` or `sanitizer=thread`
+   - May reveal the actual memory issue
+
+4. **Use diesel_async**
    - Switch from sync diesel with deadpool to diesel_async
    - Different connection handling might avoid the issue
 
-4. **Investigate bundled pq-sys behavior**
+5. **Investigate bundled pq-sys behavior**
    - Check if `pq-sys/bundled` has different OpenSSL linking behavior
    - May need to match OpenSSL versions more carefully
 
-5. **Isolated subprocess spawning**
+6. **Isolated subprocess spawning**
    - Spawn package builds in completely isolated processes (not fork)
    - Use `std::process::Command` with explicit environment clearing
 
-6. **Lazy database initialization**
+7. **Lazy database initialization**
    - Delay database pool creation until after all subprocess work is done
    - Restructure tests to do all forking first
-
-7. **Thread-local OpenSSL state**
-   - Investigate if OpenSSL can be configured for thread-local state
-   - May require different OpenSSL build flags
 
 ## Debugging Tips
 
