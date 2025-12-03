@@ -14,7 +14,7 @@ categories.workspace = true
 
 [features]
 default = ["macros", "postgres", "sqlite"]
-postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "pq-sys/bundled"]
+postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "pq-sys/bundled", "openssl"]
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]
 macros = ["cloacina-macros"]
@@ -40,6 +40,10 @@ diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 libsqlite3-sys = { version = "0.35", optional = true }
 pq-sys = { version = "0.6", optional = true }
+# OpenSSL for early initialization to prevent SIGSEGV on Linux
+# See: https://github.com/diesel-rs/diesel/issues/3441
+# IMPORTANT: Do NOT use "vendored" feature - must use system OpenSSL to match libpq
+openssl = { version = "0.10", optional = true }
 dotenvy = { version = "0.15" }
 flate2 = { version = "1.0" }
 libloading = { version = "0.8" }

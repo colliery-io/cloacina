@@ -18,9 +18,32 @@ use crate::fixtures::get_or_init_fixture;
 use cloacina::packaging::{package_workflow, CompileOptions};
 use cloacina::registry::error::RegistryError;
 use serial_test::serial;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
-fn create_mock_package() -> Vec<u8> {
+/// Cached mock package data.
+///
+/// IMPORTANT: This must be initialized BEFORE any database connections are created.
+/// Building the package spawns a cargo subprocess, which can cause SIGSEGV on Linux
+/// if OpenSSL/libpq has already been initialized by the database connection pool.
+/// See: https://github.com/diesel-rs/diesel/issues/3441
+static MOCK_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Get the cached mock package, building it if necessary.
+///
+/// This function ensures the package is built exactly once, before any database
+/// connections are established, avoiding fork-after-OpenSSL-init issues.
+fn get_mock_package() -> Vec<u8> {
+    MOCK_PACKAGE
+        .get_or_init(|| {
+            // Build the package - this spawns cargo as a subprocess
+            build_mock_package_impl()
+        })
+        .clone()
+}
+
+/// Internal implementation to build the mock package.
+fn build_mock_package_impl() -> Vec<u8> {
     // Create a real package using the examples/packaged-workflow-example with unique name
     let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
     let unique_id = Uuid::new_v4().to_string();
@@ -66,6 +89,10 @@ async fn test_register_and_get_workflow_package() {
 }
 
 async fn test_register_and_get_workflow_package_with_db_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    // Package building spawns cargo subprocess which must happen before OpenSSL init
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -76,9 +103,6 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = create_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -100,6 +124,9 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
 }
 
 async fn test_register_and_get_workflow_package_with_fs_storage() {
+    // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
+    let package_data = get_mock_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -110,9 +137,6 @@ async fn test_register_and_get_workflow_package_with_fs_storage() {
     let dal = fixture.get_dal();
     let storage = fixture.create_filesystem_storage();
     let mut registry_dal = dal.workflow_registry(storage);
-
-    // Create mock package data
-    let package_data = create_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -155,7 +179,7 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -196,7 +220,7 @@ async fn test_get_workflow_package_by_name_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
 
     // Register the package
     let package_id = registry_dal
@@ -246,7 +270,7 @@ async fn test_unregister_workflow_package_by_id_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -284,7 +308,7 @@ async fn test_unregister_workflow_package_by_id_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -331,7 +355,7 @@ async fn test_unregister_workflow_package_by_name_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -378,7 +402,7 @@ async fn test_unregister_workflow_package_by_name_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create and register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -441,7 +465,7 @@ async fn test_list_packages_with_db_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let _package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -481,7 +505,7 @@ async fn test_list_packages_with_fs_storage() {
     let initial_count = initial_packages.len();
 
     // Register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let _package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -523,7 +547,7 @@ async fn test_register_duplicate_package_with_db_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
 
     // Register the package first time - should succeed
     let _package_id = registry_dal
@@ -560,7 +584,7 @@ async fn test_register_duplicate_package_with_fs_storage() {
     let mut registry_dal = dal.workflow_registry(storage);
 
     // Create mock package data
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
 
     // Register the package first time - should succeed
     let _package_id = registry_dal
@@ -621,7 +645,7 @@ async fn test_exists_operations_with_db_storage() {
         .expect("Failed to check existence"));
 
     // Register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await
@@ -669,7 +693,7 @@ async fn test_exists_operations_with_fs_storage() {
         .expect("Failed to check existence"));
 
     // Register a package
-    let package_data = create_mock_package();
+    let package_data = get_mock_package();
     let package_id = registry_dal
         .register_workflow_package(package_data)
         .await

@@ -20,11 +20,27 @@ use crate::fixtures::get_or_init_fixture;
 use cloacina::packaging::{package_workflow, CompileOptions};
 use cloacina::registry::traits::WorkflowRegistry;
 use serial_test::serial;
+use std::sync::OnceLock;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-/// Create a real .cloacina package for testing
-fn create_test_package() -> Vec<u8> {
+/// Cached test package data.
+///
+/// IMPORTANT: This must be initialized BEFORE any database connections are created.
+/// Building the package spawns a cargo subprocess, which can cause SIGSEGV on Linux
+/// if OpenSSL/libpq has already been initialized by the database connection pool.
+/// See: https://github.com/diesel-rs/diesel/issues/3441
+static TEST_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Get the cached test package, building it if necessary.
+fn get_test_package() -> Vec<u8> {
+    TEST_PACKAGE
+        .get_or_init(|| build_test_package_impl())
+        .clone()
+}
+
+/// Internal implementation to build the test package.
+fn build_test_package_impl() -> Vec<u8> {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let unique_id = Uuid::new_v4().to_string();
     let package_path = temp_dir
@@ -63,16 +79,17 @@ fn create_test_package() -> Vec<u8> {
 #[tokio::test]
 #[serial]
 async fn test_dal_register_then_reconciler_load() {
+    // IMPORTANT: Get test package BEFORE initializing database to avoid SIGSEGV
+    println!("Step 1: Create test package");
+    let package_data = get_test_package();
+    println!("Package created: {} bytes", package_data.len());
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.reset_database().await;
     fixture.initialize().await;
-
-    println!("🔧 Step 1: Create test package");
-    let package_data = create_test_package();
-    println!("✅ Package created: {} bytes", package_data.len());
 
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
@@ -156,15 +173,16 @@ async fn test_dal_register_then_reconciler_load() {
 #[tokio::test]
 #[serial]
 async fn test_dal_register_then_get_workflow_package_by_id_failure_case() {
+    // IMPORTANT: Get test package BEFORE initializing database to avoid SIGSEGV
+    println!("Step 1: Create test package");
+    let package_data = get_test_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     fixture.reset_database().await;
     fixture.initialize().await;
-
-    println!("🔧 Step 1: Create test package");
-    let package_data = create_test_package();
 
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
