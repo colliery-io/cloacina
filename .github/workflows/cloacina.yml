@@ -36,7 +36,7 @@ jobs:
           pip install angreal
 
       - name: Install PostgreSQL (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@14
           echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
@@ -201,6 +201,12 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install PostgreSQL dev libraries
+        if: matrix.backend == 'postgres'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
 
       - name: Start PostgreSQL services
         if: matrix.backend == 'postgres'
