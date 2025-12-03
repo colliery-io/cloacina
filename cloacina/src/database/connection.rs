@@ -48,7 +48,7 @@
 //! );
 //! ```
 
-use std::sync::Once;
+use ctor::ctor;
 use tracing::info;
 
 use deadpool_diesel::postgres::{Manager as PgManager, Pool as PgPool, Runtime as PgRuntime};
@@ -60,24 +60,23 @@ use deadpool_diesel::sqlite::{
 };
 use diesel::SqliteConnection;
 
-/// Once guard for OpenSSL initialization
-static OPENSSL_INIT: Once = Once::new();
-
-/// Initialize OpenSSL before any PostgreSQL connections are made.
+/// Initialize OpenSSL at program startup, before main() runs.
 ///
 /// This fixes a known issue where libpq internally initializes OpenSSL with an
 /// unsafe atexit handler that can race with connection pool worker threads during
 /// cleanup, causing SIGSEGV on Linux.
 ///
+/// Using #[ctor] ensures this runs before ANY other code, including test setup,
+/// async runtime initialization, or connection pool creation.
+///
 /// See: https://github.com/diesel-rs/diesel/issues/3441
 ///
 /// IMPORTANT: The openssl crate must NOT use the "vendored" feature, as that
 /// would create a version mismatch with the system OpenSSL that libpq uses.
-fn ensure_openssl_initialized() {
-    OPENSSL_INIT.call_once(|| {
-        openssl::init();
-        info!("OpenSSL initialized for PostgreSQL connection safety");
-    });
+#[ctor]
+fn init_openssl_early() {
+    openssl::init();
+    // Note: Cannot use tracing here as it may not be initialized yet
 }
 
 // =============================================================================
@@ -278,9 +277,6 @@ impl Database {
 
         match backend {
             BackendType::Postgres => {
-                // Initialize OpenSSL before any libpq operations to prevent SIGSEGV
-                ensure_openssl_initialized();
-
                 let connection_url = Self::build_postgres_url(connection_string, _database_name);
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
