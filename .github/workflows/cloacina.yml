@@ -52,18 +52,6 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
-
       - name: Run unit tests (${{ matrix.backend }})
         run: angreal cloacina unit --backend ${{ matrix.backend }}
 
@@ -96,25 +84,6 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
-
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
       - name: Start PostgreSQL services (Ubuntu)
         if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
@@ -176,25 +145,6 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
-
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
 
       - name: Start PostgreSQL services
         if: matrix.backend == 'postgres'
