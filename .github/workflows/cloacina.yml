@@ -59,10 +59,11 @@ jobs:
         run: cargo test -p cloacina --lib
 
   # Integration tests - postgres on Ubuntu (uses GitHub services)
+  # Using ubuntu-22.04 to avoid SIGSEGV on ubuntu-24.04 (see actions/runner-images#10636)
   integration-tests-postgres-ubuntu:
-    name: Integration Tests (postgres, ubuntu-latest)
+    name: Integration Tests (postgres, ubuntu-22.04)
     needs: unit-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       RUST_BACKTRACE: full
       DATABASE_URL: postgres://cloacina:cloacina@localhost:5432/cloacina
