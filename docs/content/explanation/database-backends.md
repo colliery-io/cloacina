@@ -10,34 +10,49 @@ Cloacina supports two database backends: PostgreSQL and SQLite. This guide expla
 
 ## Overview
 
-Cloacina uses a compile-time feature flag system to select between PostgreSQL and SQLite backends. This approach ensures:
+Cloacina uses runtime backend detection based on your connection URL. This approach provides:
 
-- Zero runtime overhead for backend selection
-- Optimal performance for each database type
+- Flexibility to switch between backends without recompilation
+- Same binary works with both PostgreSQL and SQLite
 - Type safety across different backends
 - Consistent API regardless of backend choice
 
 ## Backend Selection
 
-### PostgreSQL (Default)
+Backend selection happens automatically at runtime based on your connection URL:
 
-PostgreSQL is the default backend, designed for scalable deployments:
+### PostgreSQL
 
-```toml
-[dependencies]
-cloacina = "0.0.0-alpha.2"
-# or explicitly:
-cloacina = { version = "0.0.0-alpha.2", features = ["postgres"] }
+Use a PostgreSQL connection URL:
+
+```rust
+let runner = DefaultRunner::new("postgres://user:pass@localhost:5432/mydb").await?;
+// or
+let runner = DefaultRunner::new("postgresql://user:pass@localhost:5432/mydb").await?;
 ```
 
 ### SQLite
 
-SQLite backend is ideal for development and embedded deployments:
+Use an SQLite connection URL:
+
+```rust
+// File-based database with optimizations
+let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc").await?;
+
+// In-memory database (for testing)
+let runner = DefaultRunner::new("sqlite://:memory:").await?;
+```
+
+## Installation
+
+Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = { version = "0.0.0-alpha.2", default-features = false, features = ["sqlite", "macros"] }
+cloacina = "0.1.0"
 ```
+
+Both backends are included by default. No feature flags needed.
 
 ## Key Differences
 
@@ -51,10 +66,10 @@ let runner = DefaultRunner::new("postgres://user:pass@localhost:5432/mydb").awai
 **SQLite:**
 ```rust
 // File-based database with optimizations
-let runner = DefaultRunner::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
 
 // In-memory database (for testing)
-let runner = DefaultRunner::new(":memory:").await?;
+let runner = DefaultRunner::new("sqlite://:memory:").await?;
 ```
 
 ### Concurrency Characteristics
@@ -85,7 +100,7 @@ SQLite requires specific configuration for optimal performance. Here's the recom
 
 ```rust
 // Recommended connection string with optimizations
-let runner = DefaultRunner::new("myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
+let runner = DefaultRunner::new("sqlite://myapp.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000").await?;
 
 // Configuration details:
 // - WAL mode: Enables concurrent readers while writing
@@ -175,4 +190,4 @@ Both PostgreSQL and SQLite are first-class citizens in Cloacina. Choose based on
 - **PostgreSQL**: Systems requiring scalability and high concurrency
 - **SQLite**: Local development, testing, and embedded deployments
 
-The compile-time backend selection ensures you get optimal performance and behavior for your chosen database, while maintaining a consistent API across both backends.
+The runtime backend detection means you can use the same code and simply change your connection URL to switch between databases.

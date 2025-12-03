@@ -30,16 +30,14 @@ Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-# PostgreSQL backend (default)
-cloacina = { version = "0.1.0", features = ["postgres"] }
-
-# Or SQLite backend
-# cloacina = { version = "0.1.0", features = ["sqlite"] }
+cloacina = "0.1.0"
 
 async-trait = "0.1"    # Required for async task definitions
 ctor = "0.2"          # Required for task registration
 serde_json = "1.0"    # Required for context data serialization
 ```
+
+Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no compile-time configuration needed.
 
 ## Quick Start
 

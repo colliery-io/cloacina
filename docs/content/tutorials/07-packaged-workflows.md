@@ -81,7 +81,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../cloacina", default-features = false, features = ["macros", "sqlite"] }
+cloacina = { path = "../../cloacina" }
 cloacina-macros = { path = "../../cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
@@ -94,10 +94,9 @@ Packaged workflows have different requirements:
 
 1. **Library crate**: Use `lib.rs` instead of `main.rs`
 2. **Crate type**: Must include `"cdylib"` for shared library generation
-3. **Database features**: Include sqlite/postgres features as needed for your runtime
-4. **cloacina-macros**: Explicit dependency required for packaged workflows
+3. **cloacina-macros**: Explicit dependency required for packaged workflows
 
-This configuration allows the workflow to be compiled as both a regular library (`rlib`) and a shared library (`cdylib`) for dynamic loading.
+This configuration allows the workflow to be compiled as both a regular library (`rlib`) and a shared library (`cdylib`) for dynamic loading. The database backend (PostgreSQL or SQLite) is detected automatically at runtime based on the connection URL.
 {{< /hint >}}
 
 ## Understanding the Packaged Workflow

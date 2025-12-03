@@ -60,11 +60,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { path = "../../cloacina", features = ["postgres"] }
+cloacina = { path = "../../cloacina" }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 ```
+
+Cloacina automatically selects the database backend based on your connection URL at runtime. No feature flags are needed.
 
 ## Basic Multi-Tenant Setup
 
