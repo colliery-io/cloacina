@@ -98,7 +98,7 @@ impl PackageValidator {
         Ok(Self {
             temp_dir,
             strict_mode: false,
-            max_package_size: 150 * 1024 * 1024, // 150MB default limit
+            max_package_size: 100 * 1024 * 1024, // 100MB default limit
             required_symbols,
         })
     }
@@ -561,7 +561,7 @@ mod tests {
         let validator = PackageValidator::new().expect("Failed to create validator");
 
         assert!(!validator.is_strict_mode());
-        assert_eq!(validator.max_package_size(), 150 * 1024 * 1024);
+        assert_eq!(validator.max_package_size(), 100 * 1024 * 1024);
         assert!(validator.temp_dir().exists());
     }
 
