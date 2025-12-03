@@ -69,8 +69,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { path = "../../cloacina", default-features = false, features = ["sqlite"] }
-cloacina-ctl = { path = "../../cloacina-ctl", default-features = false }
+cloacina = { path = "../../cloacina" }
+cloacina-ctl = { path = "../../cloacina-ctl" }
 tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 tempfile = "3.8"
@@ -82,13 +82,13 @@ chrono = "0.4"
 {{< hint type=warning title="Key Dependencies" >}}
 The registry demo requires:
 
-1. **cloacina** with `sqlite` feature for database storage
+1. **cloacina** for workflow execution and database storage
 2. **cloacina-ctl** for package building functionality
 3. **tokio** for async runtime
 4. **tracing-subscriber** for detailed logging
 5. **chrono** for cron scheduling support
 
-Note that this example uses SQLite for simplicity, but PostgreSQL is also supported for production deployments.
+Cloacina automatically detects the database backend based on your connection URL. This example uses SQLite for simplicity (`sqlite://` URLs), but PostgreSQL (`postgresql://` or `postgres://` URLs) is also supported for production deployments.
 {{< /hint >}}
 
 ## Understanding the Registry Demo

@@ -6,8 +6,8 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# cloacina = { path = "../../cloacina", features = ["postgres", "macros"] }
-cloacina = { path = "../../cloacina",default-features = false, features = ["macros", "sqlite"] }
+# cloacina = { path = "../../cloacina" }
+cloacina = { path = "../../cloacina" }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

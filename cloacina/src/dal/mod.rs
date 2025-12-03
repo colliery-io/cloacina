@@ -14,29 +14,33 @@
  *  limitations under the License.
  */
 
-//! Data Access Layer with conditional backend support
+//! Data Access Layer with runtime backend selection
 //!
 //! This module provides storage-specific DAL implementations:
-//! - postgres_dal: For PostgreSQL backend using native types
-//! - sqlite_dal: For SQLite backend using universal wrapper types
+//! - unified: Runtime backend selection (PostgreSQL or SQLite)
 //! - filesystem_dal: For filesystem-based storage operations
+//!
+//! # Architecture
+//!
+//! The unified DAL uses custom Diesel SQL types (DbUuid, DbTimestamp, DbBool,
+//! DbBinary) that work with both PostgreSQL and SQLite backends. Backend
+//! selection happens at runtime based on the database connection URL.
 
-// Conditional imports based on database backend
-#[cfg(feature = "postgres")]
-mod postgres_dal;
-
-#[cfg(feature = "sqlite")]
-mod sqlite_dal;
+// Unified DAL with runtime backend selection
+pub mod unified;
 
 // Filesystem DAL is always available
 mod filesystem_dal;
 
-// Re-export the appropriate DAL implementation
-#[cfg(feature = "postgres")]
-pub use postgres_dal::*;
+// Export unified DAL as the primary DAL
+pub use unified::DAL;
 
-#[cfg(feature = "sqlite")]
-pub use sqlite_dal::*;
+// Export CronExecutionStats from the unified module
+pub use unified::cron_execution::CronExecutionStats;
 
-// Always re-export filesystem DAL (but only the specific type to avoid conflicts)
+// Re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;
+
+// Re-export unified DAL types for convenience
+pub use unified::UnifiedRegistryStorage;
+pub use unified::DAL as UnifiedDAL;

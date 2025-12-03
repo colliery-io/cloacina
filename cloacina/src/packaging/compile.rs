@@ -15,7 +15,7 @@
  */
 
 use anyhow::{bail, Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::manifest::generate_manifest;
 use super::types::{CompileOptions, CompileResult};
@@ -106,7 +106,7 @@ fn execute_cargo_build(project_path: &PathBuf, options: &CompileOptions) -> Resu
 }
 
 fn find_compiled_library(
-    project_path: &PathBuf,
+    project_path: &Path,
     target: &Option<String>,
     profile: &str,
 ) -> Result<PathBuf> {

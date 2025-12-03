@@ -137,41 +137,36 @@ def get_workspace_version() -> str:
     raise ValueError("Could not find version in workspace Cargo.toml")
 
 
-def _build_and_install_cloaca_backend(backend_name, venv_name):
-    """Build cloaca backend wheel and install it in a test environment with dispatcher.
+def _build_and_install_cloaca_unified(venv_name):
+    """Build unified cloaca wheel and install it in a test environment.
 
-    Assumes files are already generated and docker is set up if needed.
-    Only handles virtual environment creation and building.
+    The unified wheel supports both PostgreSQL and SQLite at runtime.
     Returns the VirtualEnv object and paths to executables.
     """
     project_root = Path(angreal.get_root()).parent
     venv_path = project_root / venv_name
 
     # Create test environment
-    print("Creating test environment...")
+    print("[DEBUG] Step 1: Creating test environment...", flush=True)
     venv = VirtualEnv(path=str(venv_path), now=True)
+    print(f"[DEBUG] Step 1 complete: venv at {venv.path}", flush=True)
 
     python_exe = venv.path / "bin" / "python"
     pip_exe = venv.path / "bin" / "pip3"
 
     # Install pip and dependencies
-    print("Installing dependencies...")
+    print("[DEBUG] Step 2: Installing pip via ensurepip...", flush=True)
     subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+    print("[DEBUG] Step 2 complete", flush=True)
 
     # Base dependencies for all backends
-    deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout"]
-    # Only install psycopg2 for postgres backend (requires libpq)
-    if backend_name == "postgres":
-        deps.append("psycopg2")
-
+    print("[DEBUG] Step 3: Installing dependencies...", flush=True)
+    deps = ["maturin", "pytest", "pytest-asyncio", "pytest-timeout", "psycopg2-binary"]
     subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
+    print("[DEBUG] Step 3 complete", flush=True)
 
-    # Install dispatcher package
-    print("Installing dispatcher package...")
-    subprocess.run([str(pip_exe), "install", "-e", str(project_root / "cloaca")], check=True, capture_output=True)
-
-    # Build and install backend wheel
-    print(f"Building and installing {backend_name} wheel...")
+    # Build and install unified wheel
+    print("[DEBUG] Step 4: Building unified cloaca wheel...", flush=True)
     backend_dir = project_root / "cloaca-backend"
 
     # Clean existing extensions
@@ -179,25 +174,29 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
         for artifact in backend_dir.rglob(pattern):
             artifact.unlink()
 
-    # Build wheel
+    # Build wheel (no feature flags needed - unified supports both backends)
     maturin_exe = venv.path / "bin" / "maturin"
     maturin_cmd = [
         str(maturin_exe), "build",
-        "--no-default-features",
-        "--features", backend_name,
         "--release"
     ]
 
-    subprocess.run(
+    print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {backend_dir}", flush=True)
+    result = subprocess.run(
         maturin_cmd,
         cwd=str(backend_dir),
         capture_output=True,
         text=True,
-        check=True
     )
+    if result.returncode != 0:
+        print(f"[DEBUG] Maturin STDERR: {result.stderr}", flush=True)
+        print(f"[DEBUG] Maturin STDOUT: {result.stdout}", flush=True)
+        raise subprocess.CalledProcessError(result.returncode, maturin_cmd)
+    print("[DEBUG] Step 4 complete: wheel built", flush=True)
 
     # Find and install the wheel
-    wheel_pattern = f"cloaca_{backend_name}-*.whl"
+    print("[DEBUG] Step 5: Finding and installing wheel...", flush=True)
+    wheel_pattern = "cloaca-*.whl"
     wheel_dir = backend_dir / "target" / "wheels"
     wheel_files = list(wheel_dir.glob(wheel_pattern))
 
@@ -205,7 +204,8 @@ def _build_and_install_cloaca_backend(backend_name, venv_name):
         raise FileNotFoundError(f"No wheel found matching {wheel_pattern} in {wheel_dir}")
 
     wheel_file = wheel_files[0]
-    print(f"Installing wheel: {wheel_file.name}")
+    print(f"[DEBUG] Installing wheel: {wheel_file.name}", flush=True)
     subprocess.run([str(pip_exe), "install", str(wheel_file)], check=True, capture_output=True)
+    print("[DEBUG] Step 5 complete: wheel installed", flush=True)
 
     return venv, python_exe, pip_exe

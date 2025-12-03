@@ -28,7 +28,6 @@ use uuid::Uuid;
 
 use crate::fixtures::get_or_init_fixture;
 
-#[cfg(feature = "postgres")]
 use serial_test::serial;
 
 /// Helper to create a minimal test package (.cloacina file)
@@ -239,21 +238,21 @@ mod current_backend_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_current_backend_runner_creation() {
         let runner = create_current_backend_runner().await;
         registry_tests::test_runner_creation_impl(runner).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_current_backend_workflow_registration() {
         let runner = create_current_backend_runner().await;
         registry_tests::test_workflow_registration_impl(runner).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_current_backend_registry_configuration() {
         let runner = create_current_backend_runner().await;
         let backend = get_current_backend().await;
@@ -261,14 +260,14 @@ mod current_backend_tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_current_backend_runner_shutdown() {
         let runner = create_current_backend_runner().await;
         registry_tests::test_runner_shutdown_impl(runner).await;
     }
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_current_backend_registry_uses_same_database() {
         let fixture = get_or_init_fixture().await;
         let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
@@ -372,7 +371,7 @@ mod integration_tests {
     use super::*;
 
     #[tokio::test]
-    #[cfg_attr(feature = "postgres", serial)]
+    #[serial]
     async fn test_filesystem_and_current_backend_runners() {
         // Get current backend info
         let fixture = get_or_init_fixture().await;

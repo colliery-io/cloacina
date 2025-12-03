@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 import subprocess
 
-from .generate import generate
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
@@ -14,269 +13,114 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 @cloaca()
 @angreal.command(
     name="release",
-    about="build release wheels for distribution (leaves artifacts for inspection)",
-    when_to_use=["preparing production releases", "building all backend variants", "generating distribution artifacts"],
-    when_not_to_use=["development testing", "quick iterations", "single backend development"]
+    about="build release wheel and sdist for distribution (leaves artifacts for inspection)",
+    when_to_use=["preparing production releases", "generating distribution artifacts"],
+    when_not_to_use=["development testing", "quick iterations"]
 )
-@angreal.argument(name="backend", long="backend", help="specific backend: postgres, sqlite, or both (default)", required=False)
-def release(backend=None):
-    """Build release wheels for distribution without cleanup.
+def release():
+    """Build release wheel and sdist for distribution without cleanup.
 
-    Generates files, builds wheels, but leaves all artifacts for inspection.
+    Generates unified cloaca wheel that supports both PostgreSQL and SQLite
+    backends at runtime. Leaves all artifacts for inspection.
     Use 'scrub' command to clean up afterward.
     """
 
-    # Define backend configurations
-    backends_to_build = []
-    if backend == "postgres":
-        backends_to_build = ["postgres"]
-    elif backend == "sqlite":
-        backends_to_build = ["sqlite"]
-    elif backend is None:
-        backends_to_build = ["postgres", "sqlite"]
-    else:
-        print(f"Error: Invalid backend '{backend}'. Use 'postgres' or 'sqlite'.")
-        return 1
+    project_root = Path(angreal.get_root()).parent
+    backend_dir = project_root / "cloaca-backend"
+    venv_name = "release-build-unified"
+    venv_path = project_root / venv_name
 
-    all_passed = True
-    built_wheels = []
+    built_wheel = None
     built_sdist = None
-    built_backend_sdists = []
-
-    # Build dispatcher source distribution first
-    print(f"\n{'='*50}")
-    print("Building Cloaca Dispatcher Source Distribution")
-    print(f"{'='*50}")
 
     try:
-        project_root = Path(angreal.get_root()).parent
-        cloaca_dir = project_root / "cloaca"
-
-        # Generate dispatcher files first (use any backend since version is the same)
-        print("Step 1: Generating dispatcher files...")
-        try:
-            generate("postgres")  # Just to generate dispatcher pyproject.toml
-        except Exception as e:
-            print(f"✗ Failed to generate dispatcher files: {e}")
-            all_passed = False
-        else:
-            print("Step 2: Building dispatcher sdist...")
-            # Create temporary venv for building sdist
-            sdist_venv_name = "sdist-build-env"
-            sdist_venv_path = project_root / sdist_venv_name
-
-            try:
-                # Create virtual environment for sdist building
-                sdist_venv = VirtualEnv(path=str(sdist_venv_path), now=True)
-                sdist_python_exe = sdist_venv.path / "bin" / "python"
-                sdist_pip_exe = sdist_venv.path / "bin" / "pip3"
-
-                # Install build dependencies
-                subprocess.run([str(sdist_python_exe), "-m", "ensurepip"], check=True, capture_output=True)
-                subprocess.run([str(sdist_pip_exe), "install", "build"], check=True, capture_output=True)
-
-                # Build the sdist
-                subprocess.run([
-                    str(sdist_python_exe), "-m", "build", "--sdist"
-                ], cwd=str(cloaca_dir), check=True, capture_output=True)
-
-            finally:
-                # Clean up sdist build environment
-                if sdist_venv_path.exists():
-                    shutil.rmtree(sdist_venv_path)
-
-            # Find the built sdist
-            dist_dir = cloaca_dir / "dist"
-            sdist_files = list(dist_dir.glob("*.tar.gz"))
-            if sdist_files:
-                built_sdist = sdist_files[0]
-                print(f"✓ Built dispatcher sdist: {built_sdist.name}")
-            else:
-                print("✗ No sdist found in dist directory")
-                all_passed = False
-
-    except subprocess.CalledProcessError as e:
-        print(f"✗ Dispatcher sdist build failed: {e}")
-        if hasattr(e, 'stdout') and e.stdout:
-            print("STDOUT:", e.stdout.decode())
-        if hasattr(e, 'stderr') and e.stderr:
-            print("STDERR:", e.stderr.decode())
-        all_passed = False
-    except Exception as e:
-        print(f"✗ Failed to build dispatcher sdist: {e}")
-        all_passed = False
-
-    # Build backend source distributions
-    print(f"\n{'='*50}")
-    print("Building Backend Source Distributions")
-    print(f"{'='*50}")
-
-    for backend_name in backends_to_build:
-        print(f"\nBuilding {backend_name} backend sdist...")
-        try:
-            # Generate backend files
-            print("Step 1: Generating backend files...")
-            try:
-                generate(backend_name)
-            except Exception as e:
-                print(f"✗ Failed to generate files for {backend_name}: {e}")
-                all_passed = False
-                continue
-
-            print("Step 2: Building backend sdist...")
-            backend_dir = project_root / "cloaca-backend"
-
-            # Create temporary venv for building backend sdist
-            backend_sdist_venv_name = f"backend-sdist-build-{backend_name}"
-            backend_sdist_venv_path = project_root / backend_sdist_venv_name
-
-            try:
-                # Create virtual environment for backend sdist building
-                backend_sdist_venv = VirtualEnv(path=str(backend_sdist_venv_path), now=True)
-                backend_sdist_python_exe = backend_sdist_venv.path / "bin" / "python"
-                backend_sdist_pip_exe = backend_sdist_venv.path / "bin" / "pip3"
-
-                # Install build dependencies
-                subprocess.run([str(backend_sdist_python_exe), "-m", "ensurepip"], check=True, capture_output=True)
-                subprocess.run([str(backend_sdist_pip_exe), "install", "build", "maturin"], check=True, capture_output=True)
-
-                # Build the backend sdist
-                subprocess.run([
-                    str(backend_sdist_python_exe), "-m", "build", "--sdist"
-                ], cwd=str(backend_dir), check=True, capture_output=True)
-
-                # Find the built backend sdist
-                backend_dist_dir = backend_dir / "dist"
-                backend_sdist_files = list(backend_dist_dir.glob("*.tar.gz"))
-                if backend_sdist_files:
-                    backend_sdist_file = backend_sdist_files[0]
-                    built_backend_sdists.append(backend_sdist_file)
-                    print(f"✓ Built {backend_name} backend sdist: {backend_sdist_file.name}")
-                else:
-                    print(f"✗ No backend sdist found for {backend_name}")
-                    all_passed = False
-
-            finally:
-                # Clean up backend sdist build environment
-                if backend_sdist_venv_path.exists():
-                    shutil.rmtree(backend_sdist_venv_path)
-
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Backend sdist build failed for {backend_name}: {e}")
-            if hasattr(e, 'stdout') and e.stdout:
-                print("STDOUT:", e.stdout.decode())
-            if hasattr(e, 'stderr') and e.stderr:
-                print("STDERR:", e.stderr.decode())
-            all_passed = False
-        except Exception as e:
-            print(f"✗ Failed to build {backend_name} backend sdist: {e}")
-            all_passed = False
-
-    for backend_name in backends_to_build:
         print(f"\n{'='*50}")
-        print(f"Building {backend_name.title()} release wheel")
+        print("Building Unified Cloaca Release")
         print(f"{'='*50}")
 
-        project_root = Path(angreal.get_root()).parent
-        venv_name = f"release-build-{backend_name}"
-        venv_path = project_root / venv_name
+        # Step 1: Create build environment
+        print("\nStep 1: Creating build environment...")
+        venv = VirtualEnv(path=str(venv_path), now=True)
 
-        try:
-            # Step 1: Generate files
-            print("Step 1: Generating files...")
-            try:
-                generate(backend_name)
-            except Exception as e:
-                print(f"✗ Failed to generate files for {backend_name}: {e}")
-                all_passed = False
-                continue
+        python_exe = venv.path / "bin" / "python"
+        pip_exe = venv.path / "bin" / "pip3"
 
-            # Step 2: Create build environment
-            print("Step 2: Creating build environment...")
-            venv = VirtualEnv(path=str(venv_path), now=True)
+        # Install pip and build dependencies
+        print("Installing build dependencies...")
+        subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
+        subprocess.run([str(pip_exe), "install", "maturin", "build"], check=True, capture_output=True)
 
-            python_exe = venv.path / "bin" / "python"
-            pip_exe = venv.path / "bin" / "pip3"
+        # Step 2: Clean existing extensions
+        print("\nStep 2: Cleaning existing compiled extensions...")
+        for pattern in ["*.so", "*.pyd"]:
+            for artifact in backend_dir.rglob(pattern):
+                artifact.unlink()
+                print(f"  Removed {artifact.name}")
 
-            # Install pip and maturin
-            print("Installing build dependencies...")
-            subprocess.run([str(python_exe), "-m", "ensurepip"], check=True, capture_output=True)
-            subprocess.run([str(pip_exe), "install", "maturin"], check=True, capture_output=True)
+        # Step 3: Build wheel
+        print("\nStep 3: Building unified release wheel...")
+        maturin_exe = venv.path / "bin" / "maturin"
+        maturin_cmd = [str(maturin_exe), "build", "--release"]
 
-            # Step 3: Build wheel
-            print(f"Step 3: Building {backend_name} release wheel...")
-            backend_dir = project_root / "cloaca-backend"
+        result = subprocess.run(
+            maturin_cmd,
+            cwd=str(backend_dir),
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        print("Wheel build completed")
 
-            # Clean existing extensions
-            for pattern in ["*.so", "*.pyd"]:
-                for artifact in backend_dir.rglob(pattern):
-                    artifact.unlink()
+        # Find the built wheel
+        wheel_pattern = "cloaca-*.whl"
+        wheel_dir = backend_dir / "target" / "wheels"
+        wheel_files = list(wheel_dir.glob(wheel_pattern))
 
-            # Build wheel
-            maturin_exe = venv.path / "bin" / "maturin"
-            maturin_cmd = [
-                str(maturin_exe), "build",
-                "--no-default-features",
-                "--features", backend_name,
-                "--release"
-            ]
+        if wheel_files:
+            built_wheel = wheel_files[0]
+            print(f"Built wheel: {built_wheel.name}")
+        else:
+            raise FileNotFoundError(f"No wheel found matching {wheel_pattern} in {wheel_dir}")
 
-            subprocess.run(
-                maturin_cmd,
-                cwd=str(backend_dir),
-                capture_output=True,
-                text=True,
-                check=True
-            )
+        # Step 4: Build sdist
+        print("\nStep 4: Building source distribution...")
+        subprocess.run([
+            str(python_exe), "-m", "build", "--sdist"
+        ], cwd=str(backend_dir), check=True, capture_output=True)
 
-            # Find the built wheel
-            wheel_pattern = f"cloaca_{backend_name}-*.whl"
-            wheel_dir = backend_dir / "target" / "wheels"
-            wheel_files = list(wheel_dir.glob(wheel_pattern))
+        # Find the built sdist
+        dist_dir = backend_dir / "dist"
+        sdist_files = list(dist_dir.glob("*.tar.gz"))
+        if sdist_files:
+            built_sdist = sdist_files[0]
+            print(f"Built sdist: {built_sdist.name}")
+        else:
+            print("Warning: No sdist found in dist directory")
 
-            if wheel_files:
-                wheel_file = wheel_files[0]
-                built_wheels.append(wheel_file)
-                print(f"✓ Built release wheel: {wheel_file.name}")
-            else:
-                print(f"✗ No wheel found matching {wheel_pattern} in {wheel_dir}")
-                all_passed = False
-
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Release build failed for {backend_name}: {e}")
-            if e.stdout:
-                print("STDOUT:", e.stdout)
-            if e.stderr:
-                print("STDERR:", e.stderr)
-            all_passed = False
-        except Exception as e:
-            print(f"✗ Failed to build {backend_name} release: {e}")
-            all_passed = False
-        finally:
-            # Clean up build environment (but leave generated files and wheels)
-            if venv_path.exists():
-                print(f"Cleaning up build environment: {venv_name}")
-                shutil.rmtree(venv_path)
-
-    # Summary
-    if all_passed:
+        # Summary
         print(f"\n{'='*50}")
         print("Release build completed successfully!")
         print(f"{'='*50}")
         print("Built artifacts:")
+        if built_wheel:
+            print(f"  Wheel: {built_wheel}")
         if built_sdist:
-            print(f"  Dispatcher sdist: {built_sdist}")
-        if built_backend_sdists:
-            print("  Backend sdists:")
-            for backend_sdist in built_backend_sdists:
-                print(f"    {backend_sdist}")
-        print("  Backend wheels:")
-        for wheel in built_wheels:
-            print(f"    {wheel}")
-        print("\nGenerated files and artifacts preserved for inspection.")
+            print(f"  Sdist: {built_sdist}")
+        print("\nArtifacts preserved for inspection.")
         print("Run 'angreal cloaca scrub' to clean up when ready.")
-    else:
-        print(f"\n{'='*50}")
-        print("Some release builds failed!")
-        print(f"{'='*50}")
-        raise RuntimeError("Some release builds failed")
+
+    except subprocess.CalledProcessError as e:
+        print(f"Release build failed: {e}")
+        if e.stdout:
+            print("STDOUT:", e.stdout)
+        if e.stderr:
+            print("STDERR:", e.stderr)
+        raise RuntimeError("Release build failed")
+    except Exception as e:
+        print(f"Failed to build release: {e}")
+        raise RuntimeError(f"Failed to build release: {e}")
+    finally:
+        # Clean up build environment (but leave generated files and wheels)
+        if venv_path.exists():
+            print(f"\nCleaning up build environment: {venv_name}")
+            shutil.rmtree(venv_path)

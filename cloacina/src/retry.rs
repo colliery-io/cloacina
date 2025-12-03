@@ -364,8 +364,7 @@ impl RetryPolicy {
     /// A NaiveDateTime representing when the retry should be attempted.
     pub fn calculate_retry_at(&self, attempt: i32, now: NaiveDateTime) -> NaiveDateTime {
         let delay = self.calculate_delay(attempt);
-        let retry_timestamp = now + chrono::Duration::from_std(delay).unwrap_or_default();
-        retry_timestamp
+        now + chrono::Duration::from_std(delay).unwrap_or_default()
     }
 
     /// Adds random jitter to a delay to prevent thundering herd problems.

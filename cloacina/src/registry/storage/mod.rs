@@ -16,39 +16,32 @@
 
 //! Storage backend implementations for the workflow registry.
 //!
-//! **DEPRECATED**: Storage backends have been moved to the DAL module.
+//! This module provides storage backends for persisting workflow binaries:
+//! - `UnifiedRegistryStorage` - Database storage (PostgreSQL or SQLite)
+//! - `FilesystemRegistryStorage` - Filesystem-based storage
 //!
-//! Please use the new DAL-based storage implementations:
-//! - `crate::dal::PostgresWorkflowRegistryDAL`
-//! - `crate::dal::SqliteWorkflowRegistryDAL`
-//! - `crate::dal::FilesystemWorkflowRegistryDAL`
-//!
-//! ## Migration Example
+//! ## Usage Example
 //!
 //! ```rust,no_run
-//! // Old way (deprecated):
-//! // use cloacina::registry::storage::FilesystemRegistryStorage;
-//!
-//! // New way:
-//! use cloacina::dal::FilesystemWorkflowRegistryDAL;
+//! use cloacina::dal::{UnifiedRegistryStorage, FilesystemRegistryStorage};
 //! use cloacina::registry::RegistryStorage;
+//! use cloacina::database::Database;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Use DAL instead
-//! let dal = FilesystemWorkflowRegistryDAL::new("/var/lib/cloacina/registry")?;
+//! // Database storage (unified - works with both PostgreSQL and SQLite)
+//! let database = Database::new("sqlite::memory:", "test", 10);
+//! let db_storage = UnifiedRegistryStorage::new(database);
 //!
-//! // Same RegistryStorage trait interface
+//! // Filesystem storage
+//! let fs_storage = FilesystemRegistryStorage::new("/var/lib/cloacina/registry")?;
+//!
+//! // Both implement RegistryStorage trait
 //! let data = b"compiled workflow binary data";
-//! let id = dal.store_binary(data.to_vec()).await?;
+//! // let id = db_storage.store_binary(data.to_vec()).await?;
 //! # Ok(())
 //! # }
 //! ```
 
-// Re-export DAL implementations for backward compatibility
-#[cfg(feature = "postgres")]
-pub use crate::dal::PostgresRegistryStorage;
-
-#[cfg(feature = "sqlite")]
-pub use crate::dal::SqliteRegistryStorage;
-
+// Re-export DAL implementations
 pub use crate::dal::FilesystemRegistryStorage;
+pub use crate::dal::UnifiedRegistryStorage;

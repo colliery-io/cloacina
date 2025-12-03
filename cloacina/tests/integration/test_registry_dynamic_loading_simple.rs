@@ -33,6 +33,7 @@ use cloacina::{
 };
 
 /// Test that verifies the reconciler can be created with dynamic loading enabled
+/// This test uses SQLite in-memory database
 #[tokio::test]
 async fn test_reconciler_with_dynamic_loading() {
     // Create temporary database
@@ -40,7 +41,7 @@ async fn test_reconciler_with_dynamic_loading() {
 
     // Run migrations
     let conn = database.pool().get().await.unwrap();
-    conn.interact(move |conn| cloacina::database::run_migrations(conn))
+    conn.interact(move |conn| cloacina::database::run_migrations_sqlite(conn))
         .await
         .unwrap()
         .unwrap();

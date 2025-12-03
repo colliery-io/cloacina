@@ -75,15 +75,12 @@ async fn test_default_runner_cron_integration() {
     fixture.initialize().await;
 
     // Use the same database URL as the fixture
-    #[cfg(feature = "postgres")]
-    let database_url = "postgres://cloacina:cloacina@localhost:5432/cloacina";
-    #[cfg(feature = "sqlite")]
-    let database_url = "file:memdb_cron1?mode=memory&cache=shared";
+    let database_url = fixture.get_database_url();
 
     // Create a runner with cron enabled
     let mut config = DefaultRunnerConfig::default();
     config.enable_cron_scheduling = true;
-    let runner = DefaultRunner::with_config(database_url, config)
+    let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
 
@@ -114,16 +111,16 @@ async fn test_default_runner_cron_integration() {
 #[tokio::test]
 #[serial]
 async fn test_cron_scheduler_startup_shutdown() {
-    // Use the same database URLs as the fixture
-    #[cfg(feature = "postgres")]
-    let database_url = "postgres://cloacina:cloacina@localhost:5432/cloacina";
-    #[cfg(feature = "sqlite")]
-    let database_url = "file:memdb_cron2?mode=memory&cache=shared";
+    // Get test fixture to determine database URL
+    let fixture = get_or_init_fixture().await;
+    let fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    let database_url = fixture.get_database_url();
+    drop(fixture);
 
     // Create and start a runner with cron enabled
     let mut config = DefaultRunnerConfig::default();
     config.enable_cron_scheduling = true;
-    let runner = DefaultRunner::with_config(database_url, config)
+    let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
 

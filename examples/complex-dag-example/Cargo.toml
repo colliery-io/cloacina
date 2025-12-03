@@ -18,7 +18,7 @@ description = "Complex DAG structure example for testing workflow visualization"
 crate-type = ["cdylib"]
 
 [dependencies]
-cloacina = { path = "../../cloacina", features=["sqlite"] }
+cloacina = { path = "../../cloacina" }
 cloacina-macros = { path = "../../cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }

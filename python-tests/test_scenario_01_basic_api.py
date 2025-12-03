@@ -19,9 +19,7 @@ class TestBasicImports:
 
         # Verify core functions are available
         assert hasattr(cloaca, 'hello_world')
-        assert hasattr(cloaca, 'get_backend')
         assert callable(cloaca.hello_world)
-        assert callable(cloaca.get_backend)
 
     def test_hello_world_function(self):
         """Test the hello_world function returns expected output."""
@@ -30,14 +28,6 @@ class TestBasicImports:
         result = cloaca.hello_world()
         assert isinstance(result, str)
         assert result == "Hello from Cloaca backend!"
-
-    def test_backend_detection(self):
-        """Test backend detection returns valid backend type."""
-        import cloaca
-
-        backend = cloaca.get_backend()
-        assert backend in ["sqlite", "postgres"]
-        assert backend == cloaca.__backend__
 
     def test_core_classes_available(self):
         """Test that core classes are importable."""
@@ -594,12 +584,9 @@ class TestDefaultRunnerConfig:
         assert config.enable_recovery is True
         assert config.enable_cron_scheduling is True
 
-        # Backend-specific defaults
-        backend = cloaca.get_backend()
-        if backend == "sqlite":
-            assert config.db_pool_size == 1
-        elif backend == "postgres":
-            assert config.db_pool_size == 10
+        # Default pool size in config is 10; actual pool size for SQLite
+        # is adjusted internally at connection time
+        assert config.db_pool_size == 10
 
     def test_config_creation_with_custom_values(self):
         """Test creating config with custom values."""

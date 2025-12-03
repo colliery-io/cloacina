@@ -22,17 +22,14 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::dal::FilesystemRegistryStorage;
-#[cfg(feature = "postgres")]
-use crate::dal::PostgresRegistryStorage;
-#[cfg(feature = "sqlite")]
-use crate::dal::SqliteRegistryStorage;
+use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
 
 use crate::executor::pipeline_executor::*;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
-use crate::registry::traits::{RegistryStorage, WorkflowRegistry};
+use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::task::TaskState;
 use crate::UniversalUuid;
@@ -129,16 +126,7 @@ impl Default for DefaultRunnerConfig {
             scheduler_poll_interval: Duration::from_millis(100), // 100ms for responsive scheduling
             task_timeout: Duration::from_secs(300),             // 5 minutes
             pipeline_timeout: Some(Duration::from_secs(3600)),  // 1 hour
-            db_pool_size: {
-                #[cfg(feature = "sqlite")]
-                {
-                    1
-                } // SQLite works best with single connection
-                #[cfg(feature = "postgres")]
-                {
-                    10
-                }
-            },
+            db_pool_size: 10, // Default pool size (works for both PostgreSQL and SQLite)
             enable_recovery: true,
             enable_cron_scheduling: true, // Opt-out
             cron_poll_interval: Duration::from_secs(30),
@@ -210,7 +198,6 @@ struct RuntimeHandles {
     shutdown_sender: Option<broadcast::Sender<()>>,
 }
 
-#[cfg(feature = "postgres")]
 /// Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
 ///
 /// This builder supports PostgreSQL schema-based multi-tenancy for complete tenant isolation.
@@ -243,14 +230,12 @@ pub struct DefaultRunnerBuilder {
     config: DefaultRunnerConfig,
 }
 
-#[cfg(feature = "postgres")]
 impl Default for DefaultRunnerBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "postgres")]
 impl DefaultRunnerBuilder {
     /// Creates a new builder with default configuration
     pub fn new() -> Self {
@@ -334,22 +319,10 @@ impl DefaultRunnerBuilder {
                 })?;
         } else {
             // Run migrations in public schema
-            let conn =
-                database
-                    .pool()
-                    .get()
-                    .await
-                    .map_err(|e| PipelineError::DatabaseConnection {
-                        message: e.to_string(),
-                    })?;
-            conn.interact(|conn| crate::database::run_migrations(conn))
+            database
+                .run_migrations()
                 .await
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?;
+                .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
         }
 
         // Create scheduler with global workflow registry (always dynamic)
@@ -427,7 +400,6 @@ impl DefaultRunner {
     ///     .build()
     ///     .await?;
     /// ```
-    #[cfg(feature = "postgres")]
     pub fn builder() -> DefaultRunnerBuilder {
         DefaultRunnerBuilder::new()
     }
@@ -448,7 +420,6 @@ impl DefaultRunner {
     ///     "tenant_123"
     /// ).await?;
     /// ```
-    #[cfg(feature = "postgres")]
     pub async fn with_schema(database_url: &str, schema: &str) -> Result<Self, PipelineError> {
         Self::builder()
             .database_url(database_url)
@@ -480,24 +451,10 @@ impl DefaultRunner {
         let database = Database::new(database_url, "cloacina", config.db_pool_size);
 
         // Run migrations
-        {
-            let conn =
-                database
-                    .pool()
-                    .get()
-                    .await
-                    .map_err(|e| PipelineError::DatabaseConnection {
-                        message: e.to_string(),
-                    })?;
-            conn.interact(|conn| crate::database::run_migrations(conn))
-                .await
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?
-                .map_err(|e| PipelineError::DatabaseConnection {
-                    message: e.to_string(),
-                })?;
-        }
+        database
+            .run_migrations()
+            .await
+            .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
 
         // Create scheduler with global workflow registry (always dynamic)
         let scheduler =
@@ -770,34 +727,14 @@ impl DefaultRunner {
                         Err(e) => Err(format!("Failed to create filesystem storage: {}", e))
                     }
                 }
-                "sqlite" => {
-                    #[cfg(feature = "sqlite")]
-                    {
-                        let dal = crate::dal::DAL::new(self.database.clone());
-                        let storage = Arc::new(SqliteRegistryStorage::new(self.database.clone()));
-                        let registry_dal = dal.workflow_registry(storage);
-                        Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
-                    }
-                    #[cfg(not(feature = "sqlite"))]
-                    {
-                        Err("SQLite registry storage not available. Build with --features sqlite".to_string())
-                    }
-                }
-                "postgres" => {
-                    #[cfg(feature = "postgres")]
-                    {
-                        let dal = crate::dal::DAL::new(self.database.clone());
-                        let storage = Arc::new(PostgresRegistryStorage::new(self.database.clone()));
-                        let registry_dal = dal.workflow_registry(storage);
-                        Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
-                    }
-                    #[cfg(not(feature = "postgres"))]
-                    {
-                        Err("PostgreSQL registry storage not available. Build with --features postgres".to_string())
-                    }
+                "sqlite" | "postgres" | "database" => {
+                    let dal = crate::dal::DAL::new(self.database.clone());
+                    let storage = UnifiedRegistryStorage::new(self.database.clone());
+                    let registry_dal = dal.workflow_registry(storage);
+                    Ok(Arc::new(registry_dal) as Arc<dyn WorkflowRegistry>)
                 }
                 backend => {
-                    Err(format!("Unknown registry storage backend: {}. Valid options: filesystem, sqlite, postgres", backend))
+                    Err(format!("Unknown registry storage backend: {}. Valid options: filesystem, sqlite, postgres, database", backend))
                 }
             };
 
@@ -1756,18 +1693,10 @@ mod tests {
         assert_eq!(config.cron_max_recovery_attempts, 5);
     }
 
-    #[cfg(feature = "sqlite")]
     #[test]
-    fn test_db_pool_size_sqlite() {
+    fn test_db_pool_size_default() {
         let config = DefaultRunnerConfig::default();
-        assert_eq!(config.db_pool_size, 1); // SQLite uses single connection
-    }
-
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn test_db_pool_size_postgres() {
-        let config = DefaultRunnerConfig::default();
-        assert_eq!(config.db_pool_size, 10); // PostgreSQL uses connection pool
+        assert_eq!(config.db_pool_size, 10); // Default pool size for both backends
     }
 
     #[test]

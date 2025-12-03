@@ -188,14 +188,14 @@ impl DependencyGraph {
     /// Add a node (task) to the graph
     pub fn add_node(&mut self, node_id: TaskNamespace) {
         self.nodes.insert(node_id.clone());
-        self.edges.entry(node_id).or_insert_with(Vec::new);
+        self.edges.entry(node_id).or_default();
     }
 
     /// Add an edge (dependency) to the graph
     pub fn add_edge(&mut self, from: TaskNamespace, to: TaskNamespace) {
         self.nodes.insert(from.clone());
         self.nodes.insert(to.clone());
-        self.edges.entry(from).or_insert_with(Vec::new).push(to);
+        self.edges.entry(from).or_default().push(to);
     }
 
     /// Remove a node (task) from the graph
@@ -1377,10 +1377,15 @@ impl WorkflowBuilder {
     }
 }
 
+/// Type alias for the workflow constructor function stored in the global registry
+type WorkflowConstructor = Box<dyn Fn() -> Workflow + Send + Sync>;
+
+/// Type alias for the global workflow registry containing workflow constructors
+type GlobalWorkflowRegistry = Arc<RwLock<HashMap<String, WorkflowConstructor>>>;
+
 /// Global registry for automatically registering workflows created with the `workflow!` macro
-static GLOBAL_WORKFLOW_REGISTRY: Lazy<
-    Arc<RwLock<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>>,
-> = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+static GLOBAL_WORKFLOW_REGISTRY: Lazy<GlobalWorkflowRegistry> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 /// Register a workflow constructor function globally
 ///
@@ -1405,8 +1410,7 @@ where
 ///
 /// This provides access to the global workflow registry used by the macro system.
 /// Most users won't need to call this directly.
-pub fn global_workflow_registry(
-) -> Arc<RwLock<HashMap<String, Box<dyn Fn() -> Workflow + Send + Sync>>>> {
+pub fn global_workflow_registry() -> GlobalWorkflowRegistry {
     GLOBAL_WORKFLOW_REGISTRY.clone()
 }
 

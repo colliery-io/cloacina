@@ -11,11 +11,10 @@ concurrency:
 jobs:
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
-    name: Unit Tests (${{ matrix.backend }}, ${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     strategy:
       fail-fast: true
       matrix:
-        backend: [postgres, sqlite]
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
@@ -36,7 +35,7 @@ jobs:
           pip install angreal
 
       - name: Install PostgreSQL (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@14
           echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
@@ -44,7 +43,7 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
       - name: Install PostgreSQL dev libraries (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
@@ -52,20 +51,17 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-${{ matrix.os }}"
 
-      - name: Run unit tests (${{ matrix.backend }})
-        run: angreal cloacina unit --backend ${{ matrix.backend }}
+      - name: Run unit tests (postgres)
+        run: angreal cloacina unit --backend postgres
+
+      - name: Run unit tests (sqlite)
+        run: angreal cloacina unit --backend sqlite
 
   # Integration tests - need database services, fail-fast disabled to catch multi-backend issues
   integration-tests:
@@ -97,30 +93,33 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
-
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-${{ matrix.os }}"
 
       - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest' && env.ACT != 'true'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
+
+      - name: Install debugging tools (Ubuntu)
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb libpq-dev
+
+      - name: Enable core dumps (Ubuntu)
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        run: |
+          ulimit -c unlimited
+          # Set core pattern to a predictable location
+          sudo sysctl -w kernel.core_pattern=/tmp/core.%e.%p.%t
+          # Verify settings
+          echo "Core pattern: $(cat /proc/sys/kernel/core_pattern)"
+          echo "Core limit: $(ulimit -c)"
 
       - name: Install PostgreSQL dev libs (macOS)
         if: matrix.os == 'macos-latest'
@@ -141,11 +140,51 @@ jobs:
           createdb -O cloacina cloacina || true
 
       - name: Run integration tests (${{ matrix.backend }})
+        env:
+          RUST_BACKTRACE: full
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
             angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+          elif [ "${{ env.ACT }}" = "true" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+            # Running under act - use host's PostgreSQL, skip docker
+            ulimit -c unlimited
+            setarch $(uname -m) -R angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+          elif [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+            # Disable ASLR to get consistent crash addresses for debugging
+            # Enable core dumps in this shell
+            ulimit -c unlimited
+            setarch $(uname -m) -R angreal cloacina integration --backend ${{ matrix.backend }}
           else
             angreal cloacina integration --backend ${{ matrix.backend }}
+          fi
+
+      - name: Analyze core dump on failure (Ubuntu)
+        if: failure() && matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        run: |
+          echo "=== Checking for core dumps ==="
+          ls -la /tmp/core.* 2>/dev/null || echo "No core dumps found in /tmp"
+
+          # Try to find the test binary
+          TEST_BINARY=$(find target/debug/deps -name 'integration-*' -type f -executable 2>/dev/null | head -1)
+
+          if [ -n "$TEST_BINARY" ]; then
+            echo "=== Test binary: $TEST_BINARY ==="
+
+            # Analyze any core dumps found
+            for core in /tmp/core.*; do
+              if [ -f "$core" ]; then
+                echo "=== Analyzing core dump: $core ==="
+                gdb -batch \
+                  -ex "set pagination off" \
+                  -ex "bt full" \
+                  -ex "info registers" \
+                  -ex "info threads" \
+                  -ex "thread apply all bt" \
+                  "$TEST_BINARY" "$core" 2>&1 | head -300
+              fi
+            done
+          else
+            echo "Could not find test binary for gdb analysis"
           fi
 
   # Macro tests - only need to run once per backend (ubuntu only)
@@ -177,24 +216,17 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cloacina-${{ matrix.backend }}-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cloacina-${{ matrix.backend }}-
-            ${{ runner.os }}-cloacina-
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-ubuntu-latest"
 
-      - name: Docker Compose Cache
+      - name: Install PostgreSQL dev libraries
         if: matrix.backend == 'postgres'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
 
       - name: Start PostgreSQL services
         if: matrix.backend == 'postgres'

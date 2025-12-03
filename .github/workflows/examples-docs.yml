@@ -11,11 +11,14 @@ concurrency:
 jobs:
   rust-tutorials:
     name: Rust Tutorial Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         tutorial: ["01", "02", "03", "04", "05", "06"]
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -50,11 +53,14 @@ jobs:
 
   rust-examples:
     name: Rust Example Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution-demo"]
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +106,7 @@ jobs:
 
   python-tutorials:
     name: Python Tutorial Tests
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -129,6 +136,8 @@ jobs:
           - tutorial: "06"
             backend: postgres
     runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -180,6 +189,7 @@ jobs:
 
   documentation:
     name: Build Documentation
+    timeout-minutes: 30
     runs-on: ubuntu-latest
 
     steps:

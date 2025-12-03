@@ -16,7 +16,192 @@
 
 // Schema selection based on backend feature flags
 
-#[cfg(feature = "postgres")]
+// =============================================================================
+// Unified Schema using Custom SQL Types
+// =============================================================================
+// This schema uses custom SQL types (DbUuid, DbTimestamp, DbBool) that work
+// with both PostgreSQL and SQLite backends. Use this for new code.
+
+mod unified_schema {
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        contexts (id) {
+            id -> DbUuid,
+            value -> Text,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        pipeline_executions (id) {
+            id -> DbUuid,
+            pipeline_name -> Text,
+            pipeline_version -> Text,
+            status -> Text,
+            context_id -> Nullable<DbUuid>,
+            started_at -> DbTimestamp,
+            completed_at -> Nullable<DbTimestamp>,
+            error_details -> Nullable<Text>,
+            recovery_attempts -> Integer,
+            last_recovery_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        task_executions (id) {
+            id -> DbUuid,
+            pipeline_execution_id -> DbUuid,
+            task_name -> Text,
+            status -> Text,
+            started_at -> Nullable<DbTimestamp>,
+            completed_at -> Nullable<DbTimestamp>,
+            attempt -> Integer,
+            max_attempts -> Integer,
+            error_details -> Nullable<Text>,
+            trigger_rules -> Text,
+            task_configuration -> Text,
+            retry_at -> Nullable<DbTimestamp>,
+            last_error -> Nullable<Text>,
+            recovery_attempts -> Integer,
+            last_recovery_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        recovery_events (id) {
+            id -> DbUuid,
+            pipeline_execution_id -> DbUuid,
+            task_execution_id -> Nullable<DbUuid>,
+            recovery_type -> Text,
+            recovered_at -> DbTimestamp,
+            details -> Nullable<Text>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        task_execution_metadata (id) {
+            id -> DbUuid,
+            task_execution_id -> DbUuid,
+            pipeline_execution_id -> DbUuid,
+            task_name -> Text,
+            context_id -> Nullable<DbUuid>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        workflow_registry (id) {
+            id -> DbUuid,
+            created_at -> DbTimestamp,
+            data -> DbBinary,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        workflow_packages (id) {
+            id -> DbUuid,
+            registry_id -> DbUuid,
+            package_name -> Text,
+            version -> Text,
+            description -> Nullable<Text>,
+            author -> Nullable<Text>,
+            metadata -> Text,
+            storage_type -> Text,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        cron_schedules (id) {
+            id -> DbUuid,
+            workflow_name -> Text,
+            cron_expression -> Text,
+            timezone -> Text,
+            enabled -> DbBool,
+            catchup_policy -> Text,
+            start_date -> Nullable<DbTimestamp>,
+            end_date -> Nullable<DbTimestamp>,
+            next_run_at -> DbTimestamp,
+            last_run_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        cron_executions (id) {
+            id -> DbUuid,
+            schedule_id -> DbUuid,
+            pipeline_execution_id -> Nullable<DbUuid>,
+            scheduled_time -> DbTimestamp,
+            claimed_at -> DbTimestamp,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::joinable!(pipeline_executions -> contexts (context_id));
+    diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
+    diesel::joinable!(task_execution_metadata -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(task_execution_metadata -> contexts (context_id));
+    diesel::joinable!(recovery_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(recovery_events -> task_executions (task_execution_id));
+    diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
+    diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
+
+    diesel::allow_tables_to_appear_in_same_query!(
+        contexts,
+        cron_executions,
+        cron_schedules,
+        pipeline_executions,
+        recovery_events,
+        task_executions,
+        task_execution_metadata,
+        workflow_packages,
+        workflow_registry,
+    );
+}
+
+// =============================================================================
+// Legacy Backend-Specific Schemas (to be removed after migration)
+// =============================================================================
+
 mod postgres_schema {
     // PostgreSQL schema using native types
     diesel::table! {
@@ -109,6 +294,7 @@ mod postgres_schema {
             description -> Nullable<Text>,
             author -> Nullable<Varchar>,
             metadata -> Text,
+            storage_type -> Varchar,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }
@@ -186,14 +372,9 @@ mod postgres_schema {
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_tokens -> auth_tokens (created_by_token_id));
-
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_audit_log -> auth_tokens (token_id));
-
-    #[cfg(feature = "auth")]
-    diesel::joinable!(auth_audit_log -> auth_tokens (actor_token_id));
+    // Auth table relationships - using allow_tables_to_appear_in_same_query instead
+    // of joinable! to avoid conflicts with multiple foreign keys to same table.
+    // Manual join syntax should be used in queries when joining auth tables.
 
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
@@ -224,7 +405,6 @@ mod postgres_schema {
     );
 }
 
-#[cfg(feature = "sqlite")]
 mod sqlite_schema {
     // SQLite schema with appropriate type mappings
     diesel::table! {
@@ -317,6 +497,7 @@ mod sqlite_schema {
             description -> Nullable<Text>,
             author -> Nullable<Text>,
             metadata -> Text,
+            storage_type -> Text,
             created_at -> Text,
             updated_at -> Text,
         }
@@ -373,8 +554,18 @@ mod sqlite_schema {
 }
 
 // Re-export the appropriate schema based on feature flags
-#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-pub use postgres_schema::*;
 
-#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-pub use sqlite_schema::*;
+// Unified schema - use this for new code (works with both backends)
+pub mod unified {
+    pub use super::unified_schema::*;
+}
+
+// Legacy backend-specific modules (to be removed after migration)
+// Use schema::postgres::* or schema::sqlite::* for legacy code
+pub mod postgres {
+    pub use super::postgres_schema::*;
+}
+
+pub mod sqlite {
+    pub use super::sqlite_schema::*;
+}

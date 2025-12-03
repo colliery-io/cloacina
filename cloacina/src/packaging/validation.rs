@@ -17,7 +17,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::types::CargoToml;
 
@@ -44,7 +44,7 @@ pub fn validate_rust_crate_structure(project_path: &PathBuf) -> Result<()> {
 }
 
 /// Parse and validate Cargo.toml
-pub fn validate_cargo_toml(project_path: &PathBuf) -> Result<CargoToml> {
+pub fn validate_cargo_toml(project_path: &Path) -> Result<CargoToml> {
     let cargo_toml_path = project_path.join("Cargo.toml");
     let cargo_toml_content = fs::read_to_string(&cargo_toml_path)
         .with_context(|| format!("Failed to read Cargo.toml: {:?}", cargo_toml_path))?;
@@ -92,7 +92,7 @@ pub fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()> {
 }
 
 /// Check for packaged_workflow macros in the source code
-pub fn validate_packaged_workflow_presence(project_path: &PathBuf) -> Result<()> {
+pub fn validate_packaged_workflow_presence(project_path: &Path) -> Result<()> {
     let src_dir = project_path.join("src");
     let lib_rs = src_dir.join("lib.rs");
     let main_rs = src_dir.join("main.rs");

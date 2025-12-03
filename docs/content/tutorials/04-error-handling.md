@@ -46,7 +46,7 @@ Now, add Cloacina and its dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = { path = "../../cloacina", default-features = false, features = ["macros", "sqlite"] }
+cloacina = { path = "../../cloacina" }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -57,7 +57,7 @@ chrono = "0.4"
 ```
 
 {{< hint type=warning title=Important >}}
-Normally you'd use `cloacina = "0.1.0" in Cargo.toml. For these tutorials, we're using path dependencies to vendor code locally.
+Normally you'd use `cloacina = "0.1.0"` in Cargo.toml. For these tutorials, we're using path dependencies to vendor code locally.
 
 The path must be relative to your project. Examples:
 - Next to Cloacina: `path = "../cloacina"`
@@ -65,6 +65,8 @@ The path must be relative to your project. Examples:
 
 Note: Use `version = "0.1.0"` when available on crates.io.
 {{< /hint >}}
+
+Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no feature flags needed.
 
 ## Understanding Error Handling in Cloacina
 

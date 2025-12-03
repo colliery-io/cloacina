@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 use uuid::Uuid;
 
+use crate::models::workflow_packages::StorageType;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
 
@@ -232,6 +233,10 @@ impl RegistryStorage for FilesystemRegistryStorage {
                 e
             ))),
         }
+    }
+
+    fn storage_type(&self) -> StorageType {
+        StorageType::Filesystem
     }
 }
 

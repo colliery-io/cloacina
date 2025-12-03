@@ -13,13 +13,14 @@ Note: This entire test suite is skipped for SQLite backend since multi-tenancy
 is only supported with PostgreSQL schema-based isolation.
 """
 
+import os
 import pytest
 import cloaca
 
 
 # Skip the entire test file if we're using SQLite backend
 pytestmark = pytest.mark.skipif(
-    cloaca.get_backend() == "sqlite",
+    os.environ.get("CLOACA_BACKEND", "sqlite").lower() == "sqlite",
     reason="Multi-tenancy tests require PostgreSQL backend"
 )
 

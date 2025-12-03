@@ -17,20 +17,39 @@
 //! Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
 
 use crate::fixtures::get_or_init_fixture;
-use cloacina::packaging::{package_workflow, CompileOptions};
+use cloacina::packaging::{create_package_archive, generate_manifest, CargoToml, CompileResult};
 use cloacina::registry::traits::WorkflowRegistry;
 use serial_test::serial;
-use std::sync::Arc;
+use std::sync::OnceLock;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-/// Create a real .cloacina package for testing
-fn create_test_package() -> Vec<u8> {
+/// Cached test package data.
+///
+/// This is created from pre-built .so files (built by angreal before tests).
+/// No subprocess is spawned - only the .so is loaded to extract metadata.
+static TEST_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// Get the cached test package, creating it from pre-built .so if necessary.
+///
+/// IMPORTANT: The .so file must be pre-built before running tests.
+/// Run `angreal cloacina integration` which pre-builds the packages,
+/// or manually run `cargo build --release -p simple-packaged-demo`.
+fn get_test_package() -> Vec<u8> {
+    TEST_PACKAGE
+        .get_or_init(|| create_package_from_prebuilt_so())
+        .clone()
+}
+
+/// Create a package from pre-built .so file without spawning cargo.
+///
+/// This function:
+/// 1. Finds the pre-built .so file in the example's target/release directory
+/// 2. Generates the manifest by loading the .so (no subprocess)
+/// 3. Creates the .cloacina archive
+fn create_package_from_prebuilt_so() -> Vec<u8> {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
     let unique_id = Uuid::new_v4().to_string();
-    let package_path = temp_dir
-        .path()
-        .join(format!("test_package_{}.cloacina", unique_id));
 
     // Find the workspace root
     let cargo_manifest_dir =
@@ -45,25 +64,82 @@ fn create_test_package() -> Vec<u8> {
         panic!("Project path does not exist: {}", project_path.display());
     }
 
-    // Create compile options
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
+    // Find pre-built .so file
+    let so_path = find_prebuilt_library(&project_path).expect(
+        "Pre-built .so not found. Run `cargo build --release -p simple-packaged-demo` first.",
+    );
+
+    // Read and parse Cargo.toml
+    let cargo_toml_path = project_path.join("Cargo.toml");
+    let cargo_toml_content =
+        std::fs::read_to_string(&cargo_toml_path).expect("Failed to read Cargo.toml");
+    let cargo_toml: CargoToml =
+        toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
+
+    // Generate manifest by loading the .so (no subprocess spawned)
+    let manifest = generate_manifest(&cargo_toml, &so_path, &None, &project_path)
+        .expect("Failed to generate manifest");
+
+    // Create temp file for .so copy (archive needs the path)
+    let temp_so_path = temp_dir.path().join(so_path.file_name().unwrap());
+    std::fs::copy(&so_path, &temp_so_path).expect("Failed to copy .so file");
+
+    let compile_result = CompileResult {
+        so_path: temp_so_path,
+        manifest,
     };
 
-    // Create the package
-    package_workflow(project_path, package_path.clone(), options)
-        .expect("Failed to create test package");
+    // Create package archive
+    let package_path = temp_dir
+        .path()
+        .join(format!("test_package_{}.cloacina", unique_id));
+    create_package_archive(&compile_result, &package_path)
+        .expect("Failed to create package archive");
 
-    // Read the package data
+    // Read and return the package data
     std::fs::read(&package_path).expect("Failed to read package file")
+}
+
+/// Find the pre-built library in the project's target directory.
+fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let target_dir = project_path.join("target/release");
+
+    if !target_dir.exists() {
+        return None;
+    }
+
+    // Look for .so (Linux) or .dylib (macOS)
+    let extensions = if cfg!(target_os = "macos") {
+        vec!["dylib"]
+    } else {
+        vec!["so"]
+    };
+
+    for ext in extensions {
+        for entry in std::fs::read_dir(&target_dir).ok()? {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                // Skip files that look like dependency artifacts
+                let filename = path.file_name()?.to_str()?;
+                if !filename.contains("-") || filename.starts_with("lib") {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 #[tokio::test]
 #[serial]
 async fn test_dal_register_then_reconciler_load() {
+    // IMPORTANT: Get test package BEFORE initializing database to avoid SIGSEGV
+    println!("Step 1: Create test package");
+    let package_data = get_test_package();
+    println!("Package created: {} bytes", package_data.len());
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -71,13 +147,9 @@ async fn test_dal_register_then_reconciler_load() {
     fixture.reset_database().await;
     fixture.initialize().await;
 
-    println!("🔧 Step 1: Create test package");
-    let package_data = create_test_package();
-    println!("✅ Package created: {} bytes", package_data.len());
-
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let package_id = registry_dal
@@ -94,9 +166,7 @@ async fn test_dal_register_then_reconciler_load() {
         .expect("Failed to list packages");
     assert!(!packages.is_empty(), "Should have at least one package");
 
-    let our_package = packages
-        .iter()
-        .find(|p| p.package_name == "simple-packaged-demo");
+    let our_package = packages.iter().find(|p| p.package_name == "simple_demo");
     assert!(our_package.is_some(), "Should find our registered package");
     let our_package = our_package.unwrap();
 
@@ -116,7 +186,7 @@ async fn test_dal_register_then_reconciler_load() {
         "Should be able to retrieve package by ID"
     );
     let (metadata, binary_data) = retrieved_by_id.unwrap();
-    assert_eq!(metadata.package_name, "simple-packaged-demo");
+    assert_eq!(metadata.package_name, "simple_demo");
     assert_eq!(binary_data, package_data);
 
     println!("✅ Package retrieved by ID successfully");
@@ -159,6 +229,10 @@ async fn test_dal_register_then_reconciler_load() {
 #[tokio::test]
 #[serial]
 async fn test_dal_register_then_get_workflow_package_by_id_failure_case() {
+    // IMPORTANT: Get test package BEFORE initializing database to avoid SIGSEGV
+    println!("Step 1: Create test package");
+    let package_data = get_test_package();
+
     let fixture = get_or_init_fixture().await;
     let mut fixture = fixture
         .lock()
@@ -166,12 +240,9 @@ async fn test_dal_register_then_get_workflow_package_by_id_failure_case() {
     fixture.reset_database().await;
     fixture.initialize().await;
 
-    println!("🔧 Step 1: Create test package");
-    let package_data = create_test_package();
-
     println!("🔧 Step 2: Register package using DAL system");
     let dal = fixture.get_dal();
-    let storage = Arc::new(fixture.create_storage());
+    let storage = fixture.create_storage();
     let mut registry_dal = dal.workflow_registry(storage);
 
     let package_id = registry_dal

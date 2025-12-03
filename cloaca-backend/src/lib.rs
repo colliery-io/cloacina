@@ -16,7 +16,6 @@
 
 use pyo3::prelude::*;
 
-#[cfg(feature = "postgres")]
 mod admin;
 mod context;
 mod runner;
@@ -24,7 +23,6 @@ mod task;
 mod value_objects;
 mod workflow;
 
-#[cfg(feature = "postgres")]
 use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 use context::{PyContext, PyDefaultRunnerConfig};
 use runner::{PyDefaultRunner, PyPipelineResult};
@@ -66,33 +64,11 @@ fn hello_world() -> String {
     "Hello from Cloaca backend!".to_string()
 }
 
-/// Get the backend type based on compiled features
-#[pyfunction]
-#[allow(dead_code)] // Used by PyO3 module exports
-fn get_backend() -> &'static str {
-    #[cfg(feature = "postgres")]
-    {
-        return "postgres";
-    }
-
-    #[cfg(feature = "sqlite")]
-    {
-        return "sqlite";
-    }
-
-    #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-    {
-        "unknown"
-    }
-}
-
-/// A Python module implemented in Rust.
+/// A unified Python module supporting both PostgreSQL and SQLite backends.
 #[pymodule]
-#[cfg(feature = "postgres")]
-fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Simple test functions
     m.add_function(wrap_pyfunction!(hello_world, m)?)?;
-    m.add_function(wrap_pyfunction!(get_backend, m)?)?;
 
     // Test class
     m.add_class::<HelloClass>()?;
@@ -123,58 +99,10 @@ fn cloaca_postgres(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBackoffStrategy>()?;
     m.add_class::<PyRetryCondition>()?;
 
-    // Admin classes (PostgreSQL only)
-    #[cfg(feature = "postgres")]
-    {
-        m.add_class::<PyDatabaseAdmin>()?;
-        m.add_class::<PyTenantConfig>()?;
-        m.add_class::<PyTenantCredentials>()?;
-    }
-
-    // Module metadata (version automatically added by maturin from Cargo.toml)
-    m.add("__backend__", "postgres")?;
-
-    Ok(())
-}
-
-#[pymodule]
-#[cfg(feature = "sqlite")]
-fn cloaca_sqlite(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Simple test functions
-    m.add_function(wrap_pyfunction!(hello_world, m)?)?;
-    m.add_function(wrap_pyfunction!(get_backend, m)?)?;
-
-    // Test class
-    m.add_class::<HelloClass>()?;
-
-    // Context class
-    m.add_class::<PyContext>()?;
-
-    // Configuration class
-    m.add_class::<PyDefaultRunnerConfig>()?;
-
-    // Task decorator function
-    m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
-
-    // Workflow classes and functions
-    m.add_class::<PyWorkflowBuilder>()?;
-    m.add_class::<PyWorkflow>()?;
-    m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
-
-    // Runner classes
-    m.add_class::<PyDefaultRunner>()?;
-    m.add_class::<PyPipelineResult>()?;
-
-    // Value objects
-    m.add_class::<PyTaskNamespace>()?;
-    m.add_class::<PyWorkflowContext>()?;
-    m.add_class::<PyRetryPolicy>()?;
-    m.add_class::<PyRetryPolicyBuilder>()?;
-    m.add_class::<PyBackoffStrategy>()?;
-    m.add_class::<PyRetryCondition>()?;
-
-    // Module metadata (version automatically added by maturin from Cargo.toml)
-    m.add("__backend__", "sqlite")?;
+    // Admin classes (PostgreSQL-specific, but available at runtime with helpful errors for SQLite)
+    m.add_class::<PyDatabaseAdmin>()?;
+    m.add_class::<PyTenantConfig>()?;
+    m.add_class::<PyTenantCredentials>()?;
 
     Ok(())
 }

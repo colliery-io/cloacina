@@ -752,7 +752,6 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 /// # Attributes
 ///
 /// See `TaskAttributes` for available configuration options.
-
 pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
     let input = TokenStream2::from(input);
@@ -791,12 +790,12 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
         file_path: file_path.clone(),
     };
 
-    // PHASE 2: Register task without validation (validation happens later)
-    let _registration_result = {
+    // PHASE 2: Register task and check for duplicate IDs
+    let registration_result = {
         // Try to acquire the lock with a timeout approach
         match get_registry().try_lock() {
             Ok(mut registry) => {
-                // Just register this task - validation will happen later
+                // Register this task - duplicate ID detection happens here
                 registry.register_task(task_info)
             }
             Err(_) => {
@@ -807,7 +806,10 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
-    // Note: We no longer validate immediately - validation will happen at the workflow level
+    // Emit compile error if registration failed (e.g., duplicate task ID)
+    if let Err(e) = registration_result {
+        return e.to_compile_error().into();
+    }
 
     // PHASE 3: Generate the task implementation
     generate_task_impl(attrs, input_fn).into()

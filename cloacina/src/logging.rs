@@ -53,7 +53,9 @@
 //!
 //! ### Testing
 //!
-//! ```rust
+//! In your test functions, call `init_test_logging()` at the start:
+//!
+//! ```rust,ignore
 //! use cloacina::init_test_logging;
 //!
 //! #[test]

@@ -284,6 +284,7 @@ impl TaskScheduler {
     /// - Context storage
     /// - Pipeline execution creation
     /// - Task execution initialization
+    ///
     /// All operations are performed in a single transaction for consistency.
     pub async fn schedule_workflow_execution(
         &self,
@@ -634,7 +635,7 @@ impl TaskScheduler {
         for execution in &active_executions {
             if let Some(pipeline_tasks) = tasks_by_pipeline.get(&execution.id) {
                 if let Err(e) = self
-                    .update_pipeline_task_readiness(execution.id.into(), pipeline_tasks)
+                    .update_pipeline_task_readiness(execution.id, pipeline_tasks)
                     .await
                 {
                     error!(
@@ -765,7 +766,7 @@ impl TaskScheduler {
 
         // Parse the task name string to TaskNamespace
         let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
-            .map_err(|e| ValidationError::InvalidTaskName(e))?;
+            .map_err(ValidationError::InvalidTaskName)?;
 
         let dependencies = workflow
             .get_dependencies(&task_namespace)
@@ -986,7 +987,7 @@ impl TaskScheduler {
             } => {
                 let context = self.load_context_for_task(task_execution).await?;
                 let actual_value = context.get(key);
-                let result = self.evaluate_context_condition(&context, key, operator, value)?;
+                let result = Self::evaluate_context_condition(&context, key, operator, value)?;
                 debug!(
                     "    ContextValue('{}', {:?}, {}) -> {} (actual: {:?})",
                     key, operator, value, result, actual_value
@@ -1027,7 +1028,7 @@ impl TaskScheduler {
 
         // Parse the task name string to TaskNamespace
         let task_namespace = crate::task::TaskNamespace::from_string(&task_execution.task_name)
-            .map_err(|e| ValidationError::InvalidTaskName(e))?;
+            .map_err(ValidationError::InvalidTaskName)?;
 
         let dependencies = workflow
             .get_dependencies(&task_namespace)
@@ -1158,7 +1159,6 @@ impl TaskScheduler {
 
     /// Evaluates a context-based condition using the provided operator.
     fn evaluate_context_condition(
-        &self,
         context: &Context<serde_json::Value>,
         key: &str,
         operator: &ValueOperator,
@@ -1190,7 +1190,7 @@ impl TaskScheduler {
                 (Some(a), b) if a.is_array() => Ok(a.as_array().unwrap_or(&vec![]).contains(b)),
                 _ => Ok(false),
             },
-            ValueOperator::NotContains => Ok(!self.evaluate_context_condition(
+            ValueOperator::NotContains => Ok(!Self::evaluate_context_condition(
                 context,
                 key,
                 &ValueOperator::Contains,

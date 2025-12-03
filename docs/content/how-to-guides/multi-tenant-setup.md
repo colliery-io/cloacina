@@ -10,21 +10,23 @@ This guide walks you through setting up multi-tenant workflow execution in Cloac
 
 ## Prerequisites
 
-- Cloacina with PostgreSQL or SQLite features enabled
+- Cloacina added to your project
 - Database server running (PostgreSQL) or file system access (SQLite)
 - Basic understanding of Cloacina workflows
 
 ## PostgreSQL Schema-Based Setup
 
-### Step 1: Enable PostgreSQL Features
+### Step 1: Add Cloacina to Your Project
 
-Add Cloacina with PostgreSQL support to your `Cargo.toml`:
+Add Cloacina to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cloacina = { version = "0.1.0", features = ["postgres"] }
+cloacina = "0.1.0"
 tokio = { version = "1.0", features = ["full"] }
 ```
+
+Cloacina automatically detects PostgreSQL when you use a `postgresql://` or `postgres://` connection URL.
 
 ### Step 2: Create Multi-Tenant Executors
 
@@ -252,13 +254,15 @@ For information about how recovery works in multi-tenant deployments, including 
 
 ## SQLite File-Based Setup
 
-### Step 1: Enable SQLite Features
+### Step 1: Add Cloacina to Your Project
 
 ```toml
 [dependencies]
-cloacina = { version = "0.1.0", features = ["sqlite"] }
+cloacina = "0.1.0"
 tokio = { version = "1.0", features = ["full"] }
 ```
+
+Cloacina automatically detects SQLite when you use a `sqlite://` connection URL.
 
 ### Step 2: File-Based Tenant Management
 

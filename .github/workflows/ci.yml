@@ -108,7 +108,7 @@ jobs:
       - name: Cargo check (PostgreSQL)
         run: cargo check --features postgres
 
-  # Rust tests - only if rust files changed
+  # Rust tests - only if rust files changed (runs first)
   cloacina-tests:
     name: Cloacina Tests
     needs: [quick-checks, changes]
@@ -116,20 +116,24 @@ jobs:
     uses: ./.github/workflows/cloacina.yml
 
   # Python bindings tests - only if python or rust files changed
+  # Runs after cloacina-tests to avoid resource contention
   cloaca-tests:
     name: Cloaca Tests
-    needs: [quick-checks, changes]
-    if: needs.changes.outputs.python == 'true'
+    needs: [cloacina-tests, changes]
+    if: always() && needs.changes.outputs.python == 'true'
     uses: ./.github/workflows/cloaca-matrix.yml
 
   # Examples - only on main/develop or if examples changed
+  # Runs after cloaca-tests to avoid resource contention
   examples-docs:
     name: Examples & Documentation
-    needs: [quick-checks, changes]
+    needs: [cloaca-tests, changes]
     if: |
-      needs.changes.outputs.examples == 'true' ||
-      github.ref == 'refs/heads/main' ||
-      github.ref == 'refs/heads/develop'
+      always() && (
+        needs.changes.outputs.examples == 'true' ||
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/develop'
+      )
     uses: ./.github/workflows/examples-docs.yml
 
   # Performance tests - only on main or with label

@@ -103,7 +103,14 @@ pub mod universal_types;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 // Re-export connection types from the connection module
-pub use connection::{Database, DbConnection, DbConnectionManager, DbPool};
+pub use connection::{AnyConnection, AnyPool, BackendType, Database};
+
+// Legacy type aliases - only available when exactly one backend is enabled
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "sqlite", not(feature = "postgres"))
+))]
+pub use connection::{DbConnection, DbConnectionManager, DbPool};
 
 // Re-export admin types for tenant management
 pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
@@ -114,21 +121,34 @@ pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub type Result<T> = std::result::Result<T, diesel::result::Error>;
 
 // Re-export universal types for convenience
-pub use universal_types::{UniversalBool, UniversalTimestamp, UniversalUuid};
+pub use universal_types::{
+    DbBinary, DbBool, DbTimestamp, DbUuid, UniversalBinary, UniversalBool, UniversalTimestamp,
+    UniversalUuid,
+};
+
+/// Embedded migrations for PostgreSQL.
+pub const POSTGRES_MIGRATIONS: EmbeddedMigrations =
+    embed_migrations!("src/database/migrations/postgres");
+
+/// Embedded migrations for SQLite.
+pub const SQLITE_MIGRATIONS: EmbeddedMigrations =
+    embed_migrations!("src/database/migrations/sqlite");
 
 /// Embedded migrations for automatic schema management.
 ///
 /// Contains all SQL migration files for setting up the database schema.
-#[cfg(feature = "postgres")]
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/postgres");
-
-#[cfg(feature = "sqlite")]
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations/sqlite");
+/// Note: With dual-backend support, use POSTGRES_MIGRATIONS or SQLITE_MIGRATIONS
+/// directly based on your backend. This alias defaults to PostgreSQL.
+pub const MIGRATIONS: EmbeddedMigrations = POSTGRES_MIGRATIONS;
 
 /// Runs pending database migrations.
 ///
 /// This function applies any pending migrations to bring the database
 /// schema up to date with the current version.
+///
+/// Note: This function is only available when exactly one database backend
+/// is enabled (either postgres or sqlite, but not both). For dual-backend
+/// builds, use `run_migrations_postgres` or `run_migrations_sqlite` instead.
 ///
 /// # Arguments
 ///
@@ -149,8 +169,52 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migra
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(any(
+    all(feature = "postgres", not(feature = "sqlite")),
+    all(feature = "sqlite", not(feature = "postgres"))
+))]
 pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
     conn.run_pending_migrations(MIGRATIONS)
         .expect("Failed to run migrations");
+    Ok(())
+}
+
+/// Runs pending PostgreSQL database migrations.
+///
+/// This function applies any pending migrations to bring the PostgreSQL database
+/// schema up to date with the current version. Use this function in dual-backend
+/// builds where `run_migrations` is not available.
+///
+/// # Arguments
+///
+/// * `conn` - Mutable reference to a PostgreSQL database connection
+///
+/// # Returns
+///
+/// * `Ok(())` - If migrations complete successfully
+/// * `Err(_)` - If migration fails
+pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()> {
+    conn.run_pending_migrations(POSTGRES_MIGRATIONS)
+        .expect("Failed to run PostgreSQL migrations");
+    Ok(())
+}
+
+/// Runs pending SQLite database migrations.
+///
+/// This function applies any pending migrations to bring the SQLite database
+/// schema up to date with the current version. Use this function in dual-backend
+/// builds where `run_migrations` is not available.
+///
+/// # Arguments
+///
+/// * `conn` - Mutable reference to a SQLite database connection
+///
+/// # Returns
+///
+/// * `Ok(())` - If migrations complete successfully
+/// * `Err(_)` - If migration fails
+pub fn run_migrations_sqlite(conn: &mut diesel::sqlite::SqliteConnection) -> Result<()> {
+    conn.run_pending_migrations(SQLITE_MIGRATIONS)
+        .expect("Failed to run SQLite migrations");
     Ok(())
 }

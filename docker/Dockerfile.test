@@ -1,0 +1,28 @@
+# Dockerfile for reproducing CI integration tests locally
+# Uses the same base image as GitHub Actions via act
+
+FROM catthehacker/ubuntu:full-latest
+
+USER root
+
+# Install additional dependencies needed for PostgreSQL
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gdb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install angreal
+RUN pip3 install angreal --break-system-packages
+
+# Set up Rust default toolchain
+RUN rustup default stable
+
+# Set up working directory
+WORKDIR /workspace
+
+# Default environment for tests
+ENV RUST_BACKTRACE=full
+ENV DATABASE_URL=postgres://cloacina:cloacina@host.docker.internal:5432/cloacina
+
+# Entry point for running tests
+CMD ["bash"]

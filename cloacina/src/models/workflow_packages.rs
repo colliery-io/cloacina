@@ -16,94 +16,75 @@
 
 //! Database models for workflow package metadata.
 //!
-//! This module defines the Diesel models for the workflow_packages table,
-//! providing rich metadata storage with foreign key relationships to the
-//! workflow registry binary storage.
-
-use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
+//! This module defines domain structures for workflow package metadata.
+//! These are API-level types; backend-specific models handle database storage.
 
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use serde::{Deserialize, Serialize};
 
-/// Database model for workflow package metadata.
-///
-/// This represents the rich metadata for a packaged workflow, with a foreign
-/// key relationship to the binary storage in workflow_registry.
-#[derive(Debug, Clone, Queryable, Selectable, Serialize, Deserialize)]
-#[diesel(table_name = crate::database::schema::workflow_packages)]
-#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
-#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+/// Storage type for workflow binary data.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StorageType {
+    /// Binary stored in workflow_registry database table
+    Database,
+    /// Binary stored on filesystem at {storage_dir}/{registry_id}.so
+    Filesystem,
+}
+
+impl StorageType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StorageType::Database => "database",
+            StorageType::Filesystem => "filesystem",
+        }
+    }
+}
+
+impl std::str::FromStr for StorageType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_lowercase().as_str() {
+            "filesystem" => StorageType::Filesystem,
+            _ => StorageType::Database, // Default to database for backward compatibility
+        })
+    }
+}
+
+impl std::fmt::Display for StorageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Domain model for workflow package metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowPackage {
-    /// Unique identifier for this package metadata
     pub id: UniversalUuid,
-
-    /// Foreign key to workflow_registry entry containing binary data
     pub registry_id: UniversalUuid,
-
-    /// Human-readable package name
     pub package_name: String,
-
-    /// Package version (semver recommended)
     pub version: String,
-
-    /// Optional package description
     pub description: Option<String>,
-
-    /// Optional package author
     pub author: Option<String>,
-
-    /// Package metadata as JSON string (includes tasks, schedules, etc.)
     pub metadata: String,
-
-    /// When this package was first registered
+    pub storage_type: StorageType,
     pub created_at: UniversalTimestamp,
-
-    /// When this package metadata was last updated
     pub updated_at: UniversalTimestamp,
 }
 
-/// Model for creating new workflow package metadata entries.
-///
-/// This is used when registering new workflow packages in the registry.
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = crate::database::schema::workflow_packages)]
-#[cfg_attr(feature = "postgres", diesel(check_for_backend(diesel::pg::Pg)))]
-#[cfg_attr(feature = "sqlite", diesel(check_for_backend(diesel::sqlite::Sqlite)))]
+/// Model for creating new workflow package metadata entries (domain type).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewWorkflowPackage {
-    /// Foreign key to workflow_registry entry
     pub registry_id: UniversalUuid,
-
-    /// Package name
     pub package_name: String,
-
-    /// Package version
     pub version: String,
-
-    /// Optional description
     pub description: Option<String>,
-
-    /// Optional author
     pub author: Option<String>,
-
-    /// Package metadata as JSON string (includes tasks, schedules, etc.)
     pub metadata: String,
+    pub storage_type: StorageType,
 }
 
 impl NewWorkflowPackage {
-    /// Create a new workflow package metadata model.
-    ///
-    /// # Arguments
-    ///
-    /// * `registry_id` - UUID of the corresponding workflow_registry entry
-    /// * `package_name` - Name of the package
-    /// * `version` - Version string
-    /// * `description` - Optional description
-    /// * `author` - Optional author
-    /// * `metadata` - Package metadata as JSON string
-    ///
-    /// # Returns
-    ///
-    /// A new `NewWorkflowPackage` ready for insertion
     pub fn new(
         registry_id: UniversalUuid,
         package_name: String,
@@ -111,6 +92,7 @@ impl NewWorkflowPackage {
         description: Option<String>,
         author: Option<String>,
         metadata: String,
+        storage_type: StorageType,
     ) -> Self {
         Self {
             registry_id,
@@ -119,6 +101,7 @@ impl NewWorkflowPackage {
             description,
             author,
             metadata,
+            storage_type,
         }
     }
 }

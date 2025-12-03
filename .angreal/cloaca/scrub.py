@@ -3,8 +3,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .cloaca_utils import write_file_safe
-
 
 # Define command group
 cloaca = angreal.command_group(name="cloaca", about="commands for Python binding tests")
@@ -14,9 +12,9 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 @cloaca()
 @angreal.command(
     name="scrub",
-    about="replace generated files with placeholder content and clean build artifacts",
-    when_to_use=["cleaning development environment", "resetting after testing", "preparing for commit"],
-    when_not_to_use=["active development", "debugging generated files", "before running tests"]
+    about="clean build artifacts and test environments",
+    when_to_use=["cleaning development environment", "resetting after testing", "freeing disk space"],
+    when_not_to_use=["active development", "before running tests"]
 )
 @angreal.argument(
     name="deep",
@@ -26,138 +24,95 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
     is_flag=True
 )
 def scrub(deep=False):
-    """Replace generated files with placeholder content and clean build artifacts."""
+    """Clean build artifacts and test environments."""
     try:
         project_root = Path(angreal.get_root()).parent
 
-        # Clean debug environments
-        print("Cleaning debug environments...")
-        debug_envs_cleaned = 0
-        for backend in ["postgres", "sqlite"]:
-            debug_env = project_root / f"debug-env-{backend}"
-            if debug_env.exists():
-                shutil.rmtree(debug_env)
-                debug_envs_cleaned += 1
-                print(f"  Removed debug environment: {debug_env}")
+        # Clean test/debug environments
+        print("Cleaning test environments...")
+        envs_cleaned = 0
+        for env_pattern in ["smoke-test-*", "test-env-*", "debug-env-*", "tutorial-*"]:
+            for env_dir in project_root.glob(env_pattern):
+                if env_dir.is_dir():
+                    shutil.rmtree(env_dir)
+                    envs_cleaned += 1
+                    print(f"  Removed: {env_dir.name}")
 
-        if debug_envs_cleaned > 0:
-            print(f"Cleaned {debug_envs_cleaned} debug environments")
+        if envs_cleaned > 0:
+            print(f"Cleaned {envs_cleaned} test environments")
         else:
-            print("No debug environments to clean")
+            print("No test environments to clean")
 
-        # Clean build artifacts from cloaca crates only
-        print("Cleaning cloaca build artifacts...")
+        # Clean build artifacts
+        print("Cleaning build artifacts...")
         artifacts_cleaned = 0
 
-        # Define cloaca-specific directories
-        cloaca_dirs = [
-            project_root / "cloaca-backend",
-            project_root / "cloaca"
-        ]
-
-        for cloaca_dir in cloaca_dirs:
-            if not cloaca_dir.exists():
-                continue
-
+        backend_dir = project_root / "cloaca-backend"
+        if backend_dir.exists():
             # Remove compiled extensions
             for pattern in ["*.so", "*.pyd"]:
-                for artifact in cloaca_dir.rglob(pattern):
+                for artifact in backend_dir.rglob(pattern):
                     artifact.unlink()
                     artifacts_cleaned += 1
                     print(f"  Removed {artifact}")
 
             # Remove Python cache directories
-            for cache_dir in cloaca_dir.rglob("__pycache__"):
+            for cache_dir in backend_dir.rglob("__pycache__"):
                 shutil.rmtree(cache_dir)
                 artifacts_cleaned += 1
                 print(f"  Removed {cache_dir}")
 
             # Remove target directories
-            for target_dir in cloaca_dir.rglob("target"):
-                if target_dir.is_dir():
-                    shutil.rmtree(target_dir)
-                    artifacts_cleaned += 1
-                    print(f"  Removed {target_dir}")
+            target_dir = backend_dir / "target"
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+                artifacts_cleaned += 1
+                print(f"  Removed {target_dir}")
 
             # Remove dist directories
-            for dist_dir in cloaca_dir.rglob("dist"):
-                if dist_dir.is_dir():
-                    shutil.rmtree(dist_dir)
-                    artifacts_cleaned += 1
-                    print(f"  Removed {dist_dir}")
+            dist_dir = backend_dir / "dist"
+            if dist_dir.exists():
+                shutil.rmtree(dist_dir)
+                artifacts_cleaned += 1
+                print(f"  Removed {dist_dir}")
 
         if artifacts_cleaned > 0:
             print(f"Cleaned {artifacts_cleaned} build artifacts")
         else:
             print("No build artifacts to clean")
 
-        # Replace generated files with placeholders
-        placeholder_template = """# This file is generated automatically during build
-# Template: {template_path}
-# DO NOT EDIT - Any changes will be overwritten
-# To make changes, edit the template file above
-"""
+        # Clean SQLite database files
+        print("Cleaning SQLite database files...")
+        db_files_cleaned = 0
+        for db_file in project_root.glob("*.db*"):
+            db_file.unlink()
+            db_files_cleaned += 1
+            print(f"  Removed {db_file.name}")
 
-        # Files to clean with their template paths
-        files_to_clean = {
-            project_root / "cloaca" / "pyproject.toml": ".angreal/templates/dispatcher_pyproject.toml.j2",
-            project_root / "cloaca-backend" / "Cargo.toml": ".angreal/templates/backend_cargo.toml.j2",
-            project_root / "cloaca-backend" / "pyproject.toml": ".angreal/templates/backend_pyproject.toml.j2",
-            project_root / "cloaca-backend" / "python" / "cloaca_postgres" / "__init__.py": "cloaca-backend/python/cloaca_{{backend}}/__init__.py",
-            project_root / "cloaca-backend" / "python" / "cloaca_sqlite" / "__init__.py": "cloaca-backend/python/cloaca_{{backend}}/__init__.py"
-        }
+        if db_files_cleaned > 0:
+            print(f"Cleaned {db_files_cleaned} database files")
+        else:
+            print("No database files to clean")
 
-        print(f"Cleaning {len(files_to_clean)} generated files...")
-        for file_path, template_path in files_to_clean.items():
-            if file_path.name == "__init__.py":
-                # Skip individual __init__.py files - we'll handle directories below
-                continue
-            placeholder_content = placeholder_template.format(template_path=template_path)
-            write_file_safe(file_path, placeholder_content, backup=False)
-            print(f"  {file_path}")
-
-        # Clean entire backend Python directories
-        print("Cleaning backend Python directories...")
-        python_base_dir = project_root / "cloaca-backend" / "python"
-
-        for backend in ["postgres", "sqlite"]:
-            backend_dir = python_base_dir / f"cloaca_{backend}"
-            if backend_dir.exists():
-                # Remove the entire directory
-                shutil.rmtree(backend_dir)
-                print(f"  Removed directory: {backend_dir}")
-
-                # Create directory with placeholder file
-                backend_dir.mkdir()
-                placeholder_file = backend_dir / "__init__.py"
-                placeholder_content = f"""# This entire directory is generated automatically during build
-# Template directory: cloaca-backend/python/cloaca_{{{{backend}}}}
-# DO NOT EDIT - Any changes will be overwritten
-# The entire cloaca_{backend} directory is re-rendered from the template during 'angreal cloaca generate'
-# To make changes, edit the template directory above
-"""
-                write_file_safe(placeholder_file, placeholder_content, backup=False)
-                print(f"  Created placeholder: {placeholder_file}")
-
-        # Deep clean: run cargo clean on all Cargo.toml files
+        # Deep clean: run cargo clean
         if deep:
             print("\nPerforming deep clean with cargo clean...")
             try:
-                cmd = ['find', '.', '-name', 'Cargo.toml', '-execdir', 'cargo', 'clean', ';']
-                result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
-
+                result = subprocess.run(
+                    ["cargo", "clean"],
+                    cwd=backend_dir,
+                    capture_output=True,
+                    text=True
+                )
                 if result.returncode == 0:
                     print("Deep clean completed successfully!")
                 else:
                     print(f"Deep clean warning: {result.stderr}")
-
             except Exception as e:
                 print(f"Deep clean failed: {e}")
-                # Don't fail the entire command if deep clean fails
-                pass
 
-        print("Successfully cleaned generated files and build artifacts!")
+        print("Cleanup completed!")
 
     except Exception as e:
         print(f"Clean failed: {e}")
-        raise RuntimeError(f"Failed to clean generated files and build artifacts: {e}")
+        raise RuntimeError(f"Failed to clean: {e}")

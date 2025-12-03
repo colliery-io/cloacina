@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use std::path::PathBuf;
+use std::path::Path;
 
 use super::types::{
     CargoToml, LibraryInfo, PackageInfo, PackageManifest, TaskInfo, CLOACINA_VERSION,
@@ -26,9 +26,9 @@ use super::types::{
 /// Generate a package manifest from Cargo.toml and compiled library
 pub fn generate_manifest(
     cargo_toml: &CargoToml,
-    so_path: &PathBuf,
+    so_path: &Path,
     target: &Option<String>,
-    project_path: &PathBuf,
+    project_path: &Path,
 ) -> Result<PackageManifest> {
     let package = cargo_toml
         .package
@@ -50,7 +50,7 @@ pub fn generate_manifest(
         .to_string();
 
     let (tasks, graph_data, package_metadata) =
-        extract_task_info_and_graph_from_library(&so_path, project_path)?;
+        extract_task_info_and_graph_from_library(so_path, project_path)?;
 
     let manifest = PackageManifest {
         package: PackageInfo {
@@ -86,8 +86,8 @@ pub(crate) struct PackageMetadata {
 
 /// Extract task information and graph data from a compiled library using FFI metadata functions
 fn extract_task_info_and_graph_from_library(
-    so_path: &PathBuf,
-    project_path: &PathBuf,
+    so_path: &Path,
+    project_path: &Path,
 ) -> Result<(
     Vec<TaskInfo>,
     Option<crate::WorkflowGraphData>,
@@ -296,7 +296,7 @@ fn extract_task_info_and_graph_from_library(
 }
 
 /// Extract package names from source files by looking for #[packaged_workflow] attributes
-pub(crate) fn extract_package_names_from_source(project_path: &PathBuf) -> Result<Vec<String>> {
+pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<Vec<String>> {
     let src_path = project_path.join("src");
     let mut package_names = Vec::new();
 

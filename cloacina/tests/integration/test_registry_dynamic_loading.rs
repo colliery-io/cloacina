@@ -30,6 +30,7 @@ use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 use cloacina::Database;
 
 /// Test that the reconciler can be created with dynamic loading components
+/// This test uses SQLite in-memory database
 #[tokio::test]
 async fn test_reconciler_creation_with_loaders() {
     // Create temporary database
@@ -37,7 +38,7 @@ async fn test_reconciler_creation_with_loaders() {
 
     // Run migrations
     let conn = database.pool().get().await.unwrap();
-    conn.interact(move |conn| cloacina::database::run_migrations(conn))
+    conn.interact(move |conn| cloacina::database::run_migrations_sqlite(conn))
         .await
         .unwrap()
         .unwrap();
@@ -106,12 +107,13 @@ async fn test_task_registrar_creation() {
 }
 
 /// Test reconciler status functionality
+/// This test uses SQLite in-memory database
 #[tokio::test]
 async fn test_reconciler_status() {
     // Create test components
     let database = Database::new(":memory:", "", 5);
     let conn = database.pool().get().await.unwrap();
-    conn.interact(move |conn| cloacina::database::run_migrations(conn))
+    conn.interact(move |conn| cloacina::database::run_migrations_sqlite(conn))
         .await
         .unwrap()
         .unwrap();

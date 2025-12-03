@@ -21,10 +21,8 @@
 //!
 //! Note: This module is only available when using the PostgreSQL backend.
 
-#[cfg(feature = "postgres")]
 pub use postgres_impl::*;
 
-#[cfg(feature = "postgres")]
 mod postgres_impl {
     use crate::database::connection::Database;
     use diesel::connection::Connection;
@@ -131,7 +129,7 @@ mod postgres_impl {
             let username_result = username.clone();
 
             let pool = self.database.pool();
-            let conn = pool.get().await?;
+            let conn = pool.expect_postgres().get().await?;
 
             // Execute all tenant setup SQL in a transaction
             let _ = conn
@@ -197,11 +195,11 @@ mod postgres_impl {
                                 message: format!("Failed to set search_path: {}", e),
                             })?;
 
-                        crate::database::run_migrations(conn).map_err(|e| {
-                            AdminError::SqlExecution {
+                        use diesel_migrations::MigrationHarness;
+                        conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
+                            .map_err(|e| AdminError::SqlExecution {
                                 message: format!("Failed to run migrations: {}", e),
-                            }
-                        })?;
+                            })?;
 
                         Ok(())
                     })
@@ -231,7 +229,7 @@ mod postgres_impl {
             username: &str,
         ) -> Result<(), AdminError> {
             let pool = self.database.pool();
-            let conn = pool.get().await?;
+            let conn = pool.expect_postgres().get().await?;
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 
@@ -343,21 +341,4 @@ mod postgres_impl {
             assert_eq!(config.password, "");
         }
     }
-}
-
-// For SQLite builds, provide empty stubs to prevent compilation errors
-#[cfg(not(feature = "postgres"))]
-pub struct DatabaseAdmin;
-
-#[cfg(not(feature = "postgres"))]
-pub struct TenantConfig;
-
-#[cfg(not(feature = "postgres"))]
-pub struct TenantCredentials;
-
-#[cfg(not(feature = "postgres"))]
-#[derive(Debug, thiserror::Error)]
-pub enum AdminError {
-    #[error("PostgreSQL admin features not available")]
-    Unavailable,
 }

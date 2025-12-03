@@ -50,8 +50,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { path = "../cloacina", default-features = false, features = ["macros", "sqlite"] }
-# cloacina = { path = "../cloacina", default-features = false, features = ["macros", "postgres"] }
+cloacina = { path = "../cloacina" }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -61,6 +60,8 @@ async-trait = "0.1"
 ctor = "0.2"
 rand = "0.8"
 ```
+
+Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no feature flags needed.
 
 ## Understanding Cron Scheduling
 

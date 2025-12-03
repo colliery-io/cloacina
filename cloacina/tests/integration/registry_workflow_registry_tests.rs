@@ -24,10 +24,7 @@ use serial_test::serial;
 use tempfile::TempDir;
 
 use cloacina::dal::FilesystemRegistryStorage;
-#[cfg(feature = "postgres")]
-use cloacina::dal::PostgresRegistryStorage;
-#[cfg(feature = "sqlite")]
-use cloacina::dal::SqliteRegistryStorage;
+use cloacina::dal::UnifiedRegistryStorage;
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
@@ -35,7 +32,7 @@ use super::fixtures::get_or_init_fixture;
 
 // Import cloacina packaging functions for building packages in tests
 #[cfg(test)]
-use cloacina::packaging::{package_workflow, CompileOptions};
+use cloacina::packaging::{create_package_archive, generate_manifest, CargoToml, CompileResult};
 
 /// Test fixture for managing package files
 struct PackageFixture {
@@ -44,7 +41,11 @@ struct PackageFixture {
 }
 
 impl PackageFixture {
-    /// Create a new package fixture with a guaranteed package file
+    /// Create a new package fixture from pre-built .so files.
+    ///
+    /// IMPORTANT: The .so file must be pre-built before running tests.
+    /// Run `angreal cloacina integration` which pre-builds the packages,
+    /// or manually run `cargo build --release -p packaged-workflow-example`.
     fn new() -> Self {
         // Use a temp directory in the current working directory for CI compatibility
         let temp_dir = tempfile::TempDir::new_in(".")
@@ -52,7 +53,6 @@ impl PackageFixture {
             .expect("Failed to create temp directory");
         let package_path = temp_dir.path().join("test_package.cloacina");
 
-        // Build the package using cloacina packaging functions directly
         // Find the workspace root by looking for Cargo.toml
         let cargo_manifest_dir =
             std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -66,18 +66,33 @@ impl PackageFixture {
             panic!("Project path does not exist: {}", project_path.display());
         }
 
-        // Create compile options
-        let options = CompileOptions {
-            target: None,
-            profile: "debug".to_string(),
-            cargo_flags: vec!["--features".to_string(), "postgres".to_string()],
-            jobs: None,
+        // Find pre-built .so file (no subprocess spawned)
+        let so_path = Self::find_prebuilt_library(&project_path)
+            .expect("Pre-built .so not found. Run `cargo build --release -p packaged-workflow-example` first.");
+
+        // Read and parse Cargo.toml
+        let cargo_toml_path = project_path.join("Cargo.toml");
+        let cargo_toml_content =
+            std::fs::read_to_string(&cargo_toml_path).expect("Failed to read Cargo.toml");
+        let cargo_toml: CargoToml =
+            toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
+
+        // Generate manifest by loading the .so (no subprocess spawned)
+        let manifest = generate_manifest(&cargo_toml, &so_path, &None, &project_path)
+            .expect("Failed to generate manifest");
+
+        // Create temp file for .so copy (archive needs the path)
+        let temp_so_path = temp_dir.path().join(so_path.file_name().unwrap());
+        std::fs::copy(&so_path, &temp_so_path).expect("Failed to copy .so file");
+
+        let compile_result = CompileResult {
+            so_path: temp_so_path,
+            manifest,
         };
 
-        // Use the package_workflow function directly
-        if let Err(e) = package_workflow(project_path, package_path.clone(), options) {
-            panic!("Failed to create test package: {}", e);
-        }
+        // Create package archive
+        create_package_archive(&compile_result, &package_path)
+            .expect("Failed to create package archive");
 
         assert!(
             package_path.exists(),
@@ -88,6 +103,38 @@ impl PackageFixture {
             temp_dir,
             package_path,
         }
+    }
+
+    /// Find the pre-built library in the project's target directory.
+    fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
+        let target_dir = project_path.join("target/release");
+
+        if !target_dir.exists() {
+            return None;
+        }
+
+        // Look for .so (Linux) or .dylib (macOS)
+        let extensions = if cfg!(target_os = "macos") {
+            vec!["dylib"]
+        } else {
+            vec!["so"]
+        };
+
+        for ext in extensions {
+            for entry in std::fs::read_dir(&target_dir).ok()? {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                    // Skip files that look like dependency artifacts
+                    let filename = path.file_name()?.to_str()?;
+                    if !filename.contains("-") || filename.starts_with("lib") {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Get the package data as bytes
@@ -130,14 +177,11 @@ fn create_mock_elf_data() -> Vec<u8> {
 }
 
 /// Helper to create a test storage backend appropriate for the current database
-#[cfg(feature = "postgres")]
-fn create_test_storage(database: cloacina::Database) -> PostgresRegistryStorage {
-    PostgresRegistryStorage::new(database)
-}
-
-#[cfg(feature = "sqlite")]
-fn create_test_storage(database: cloacina::Database) -> SqliteRegistryStorage {
-    SqliteRegistryStorage::new(database)
+fn create_test_storage(
+    database: cloacina::Database,
+) -> impl cloacina::registry::traits::RegistryStorage {
+    // Use unified storage which works with both PostgreSQL and SQLite
+    UnifiedRegistryStorage::new(database)
 }
 
 /// Helper to create a test filesystem storage (for tests that specifically need filesystem)
