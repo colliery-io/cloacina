@@ -234,7 +234,7 @@ jobs:
       - name: Run integration tests (sqlite)
         run: cargo test -p cloacina --test integration -- --test-threads=1 --nocapture sqlite
 
-  # Macro validation tests - verify compile-time checks work
+  # Macro validation tests - verify compile-time checks catch errors
   macro-tests:
     name: Macro Validation Tests
     needs: unit-tests
@@ -271,6 +271,7 @@ jobs:
       - name: Test macro validation failures
         run: |
           cd examples/validation_failures
+
           echo "Testing missing_dependency (should fail to compile)..."
           if cargo check --bin missing_dependency 2>&1; then
             echo "ERROR: missing_dependency compiled when it should have failed!"
