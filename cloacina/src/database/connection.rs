@@ -48,7 +48,6 @@
 //! );
 //! ```
 
-use ctor::ctor;
 use tracing::info;
 
 use deadpool_diesel::postgres::{Manager as PgManager, Pool as PgPool, Runtime as PgRuntime};
@@ -59,25 +58,6 @@ use deadpool_diesel::sqlite::{
     Manager as SqliteManager, Pool as SqlitePool, Runtime as SqliteRuntime,
 };
 use diesel::SqliteConnection;
-
-/// Initialize OpenSSL at program startup, before main() runs.
-///
-/// This fixes a known issue where libpq internally initializes OpenSSL with an
-/// unsafe atexit handler that can race with connection pool worker threads during
-/// cleanup, causing SIGSEGV on Linux.
-///
-/// Using #[ctor] ensures this runs before ANY other code, including test setup,
-/// async runtime initialization, or connection pool creation.
-///
-/// See: https://github.com/diesel-rs/diesel/issues/3441
-///
-/// IMPORTANT: The openssl crate must NOT use the "vendored" feature, as that
-/// would create a version mismatch with the system OpenSSL that libpq uses.
-#[ctor]
-fn init_openssl_early() {
-    openssl::init();
-    // Note: Cannot use tracing here as it may not be initialized yet
-}
 
 // =============================================================================
 // Runtime Database Backend Selection
