@@ -4,14 +4,14 @@ level: task
 title: "Update migration runner for runtime backend detection"
 short_code: "CLOACI-T-0007"
 created_at: 2025-11-30T02:05:40.097654+00:00
-updated_at: 2025-11-30T02:05:40.097654+00:00
+updated_at: 2025-12-03T23:36:07.888755+00:00
 parent: CLOACI-I-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,10 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Update the migration runner to detect the database backend at runtime and execute the appropriate migration set (PostgreSQL or SQLite).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

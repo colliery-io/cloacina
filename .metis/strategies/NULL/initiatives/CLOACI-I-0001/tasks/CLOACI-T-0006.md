@@ -4,14 +4,14 @@ level: task
 title: "Migrate remaining DAL modules to unified implementation"
 short_code: "CLOACI-T-0006"
 created_at: 2025-11-30T02:05:39.877962+00:00
-updated_at: 2025-11-30T03:01:37.218927+00:00
+updated_at: 2025-12-03T23:35:58.043738+00:00
 parent: CLOACI-I-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Migrate all remaining DAL modules from the separate `postgres_dal/` and `sqlite_dal/` directories to the unified implementation, using patterns established in CLOACI-T-0005.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

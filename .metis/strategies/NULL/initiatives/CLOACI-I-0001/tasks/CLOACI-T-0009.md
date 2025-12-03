@@ -4,14 +4,14 @@ level: task
 title: "Remove duplicate DAL modules and update exports"
 short_code: "CLOACI-T-0009"
 created_at: 2025-11-30T02:05:40.575567+00:00
-updated_at: 2025-11-30T02:05:40.575567+00:00
+updated_at: 2025-12-03T23:36:08.274935+00:00
 parent: CLOACI-I-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,10 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Remove the deprecated duplicate `postgres_dal/` and `sqlite_dal/` directories and update all module exports to use the unified DAL implementation.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,14 +4,14 @@ level: task
 title: "Refactor feature flags to include-backend model"
 short_code: "CLOACI-T-0008"
 created_at: 2025-11-30T02:05:40.318656+00:00
-updated_at: 2025-11-30T02:05:40.318656+00:00
+updated_at: 2025-12-03T23:36:08.090058+00:00
 parent: CLOACI-I-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,10 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Refactor Cargo.toml feature flags from "select exactly one backend" to "include backend(s)", enabling single binaries that support both backends while still allowing single-backend builds for size optimization.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
