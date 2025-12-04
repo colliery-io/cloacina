@@ -29,7 +29,7 @@ def build_test_packages():
     subprocess.run(
         ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
         check=True,
-        cwd="examples/packaged-workflow-example"
+        cwd="examples/features/packaged-workflows"
     )
 
     # Build simple-packaged-demo
@@ -37,7 +37,7 @@ def build_test_packages():
     subprocess.run(
         ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
         check=True,
-        cwd="examples/simple-packaged-demo"
+        cwd="examples/features/simple-packaged"
     )
 
     print("Test packages built successfully.")

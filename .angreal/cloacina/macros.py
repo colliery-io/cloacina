@@ -51,7 +51,7 @@ def macros(backend=None):
             cmd = cmd_base + ["--bin", example]
             result = subprocess.run(
                 cmd,
-                cwd=str(PROJECT_ROOT / "examples/validation_failures"),
+                cwd=str(PROJECT_ROOT / "examples/features/validation-failures"),
                 capture_output=True,
                 text=True
             )

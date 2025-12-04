@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution-demo"]
+        example: ["cron-scheduling", "multi-tenant", "per-tenant-credentials", "registry-execution"]
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: full

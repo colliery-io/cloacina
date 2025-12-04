@@ -47,7 +47,7 @@ def scrub(deep=False):
         print("Cleaning build artifacts...")
         artifacts_cleaned = 0
 
-        backend_dir = project_root / "cloaca-backend"
+        backend_dir = project_root / "bindings" / "cloaca-backend"
         if backend_dir.exists():
             # Remove compiled extensions
             for pattern in ["*.so", "*.pyd"]:

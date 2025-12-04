@@ -25,7 +25,7 @@ def performance_simple(iterations: int=150, concurrency: int=32):
         concurrency = 32
     print(f"Running simple performance test ({iterations} iterations, {concurrency} concurrency)")
 
-    example_dir = os.path.join("examples", "performance-simple")
+    example_dir = os.path.join("examples", "performance", "simple")
     if not os.path.exists(example_dir):
         raise RuntimeError(f"Performance simple example not found at {example_dir}")
 
@@ -60,7 +60,7 @@ def performance_pipeline(iterations: int=150, concurrency: int=32):
         concurrency = 32
     print(f"Running pipeline performance test ({iterations} iterations, {concurrency} concurrency)")
 
-    example_dir = os.path.join("examples", "performance-pipeline")
+    example_dir = os.path.join("examples", "performance", "pipeline")
     if not os.path.exists(example_dir):
         raise RuntimeError(f"Performance pipeline example not found at {example_dir}")
 
@@ -95,7 +95,7 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
         concurrency = 32
     print(f"Running parallel performance test ({iterations} iterations, {concurrency} concurrency)")
 
-    example_dir = os.path.join("examples", "performance-parallel")
+    example_dir = os.path.join("examples", "performance", "parallel")
     if not os.path.exists(example_dir):
         raise RuntimeError(f"Performance parallel example not found at {example_dir}")
 
@@ -170,14 +170,14 @@ def performance_quick():
     print("Running quick performance tests")
 
     example_configs = [
-        ("performance-simple", ["--iterations", "25", "--concurrency", "2"]),
-        ("performance-pipeline", ["--iterations", "25", "--concurrency", "2"]),
-        ("performance-parallel", ["--iterations", "20", "--concurrency", "4"]),
+        ("simple", ["--iterations", "25", "--concurrency", "2"]),
+        ("pipeline", ["--iterations", "25", "--concurrency", "2"]),
+        ("parallel", ["--iterations", "20", "--concurrency", "4"]),
     ]
 
     results = []
     for example_name, args in example_configs:
-        example_dir = os.path.join("examples", example_name)
+        example_dir = os.path.join("examples", "performance", example_name)
 
         if not os.path.exists(example_dir):
             print(f"ERROR: Example not found at {example_dir}")

@@ -23,8 +23,8 @@ demos = angreal.command_group(name="demos", about="run Cloacina demonstration pr
 def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
     """Run a single Python tutorial with the specified backend."""
     project_root = PROJECT_ROOT
-    examples_dir = project_root / "examples"
-    tutorial_path = examples_dir / tutorial_file
+    python_tutorials_dir = project_root / "examples" / "tutorials" / "python"
+    tutorial_path = python_tutorials_dir / tutorial_file
 
     if not tutorial_path.exists():
         print(f"ERROR: Tutorial file not found: {tutorial_path}")
@@ -76,7 +76,7 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
         print(f"  Running: {' '.join(cmd)}")
         result = subprocess.run(
             cmd,
-            cwd=str(examples_dir),
+            cwd=str(python_tutorials_dir),
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -124,10 +124,10 @@ def run_python_tutorial(tutorial_num, tutorial_file, backend="sqlite"):
 
 def create_python_tutorial_command(tutorial_file):
     """Create a command for a Python tutorial."""
-    # Extract tutorial number from filename
+    # Extract tutorial number from filename (e.g., 01_first_workflow.py)
     parts = tutorial_file.replace('.py', '').split('_')
-    if len(parts) >= 3 and parts[2].isdigit():
-        tutorial_num = parts[2]
+    if len(parts) >= 1 and parts[0].isdigit():
+        tutorial_num = parts[0]
         command_name = f"python-tutorial-{tutorial_num}"
     else:
         # Fallback
