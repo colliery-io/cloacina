@@ -39,7 +39,7 @@ cargo run --example end_to_end_demo
 ```
 */
 
-use cloacina::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
 
 /// Simple Data Processing Workflow
 ///

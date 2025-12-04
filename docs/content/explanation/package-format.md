@@ -162,10 +162,15 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { version = "0.3", features = ["macros"] }
-cloacina-macros = "0.3"
+cloacina-workflow = "0.2"  # Includes macros by default
+serde_json = "1.0"
+async-trait = "0.1"
 # Other dependencies...
 ```
+
+{{< hint type=info title="cloacina-workflow" >}}
+Packaged workflows use `cloacina-workflow`, which contains only the types needed for workflow compilation (`Context`, `Task`, `TaskError`, `RetryPolicy`). This enables fast compilation without database drivers or runtime dependencies.
+{{< /hint >}}
 
 **Source Structure:**
 ```

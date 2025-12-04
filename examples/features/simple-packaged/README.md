@@ -55,8 +55,21 @@ raw_data → processed_data → final_report
 
 ## 🔧 Real-World Usage
 
+### Dependencies
+
+Packaged workflows only need `cloacina-workflow`:
+
+```toml
+[dependencies]
+cloacina-workflow = "0.2"  # Includes macros by default
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+```
+
 ### Development:
 ```rust
+use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+
 #[packaged_workflow(
     name = "data_processing",
     package = "simple_demo",

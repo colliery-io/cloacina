@@ -53,12 +53,10 @@
 //!
 //! ## With the Task Macro
 //!
-//! When using the `#[task]` macro from `cloacina-macros`, the generated code
-//! will use types from this crate:
+//! The macros are included by default, so you only need one import:
 //!
 //! ```rust,ignore
-//! use cloacina_workflow::{Context, TaskError};
-//! use cloacina_macros::task;
+//! use cloacina_workflow::{task, packaged_workflow, Context, TaskError};
 //!
 //! #[task(id = "my_task", dependencies = [])]
 //! async fn my_task(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
@@ -79,3 +77,7 @@ pub use error::{CheckpointError, ContextError, TaskError};
 pub use namespace::{parse_namespace, TaskNamespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use task::{Task, TaskState};
+
+// Re-export macros when the feature is enabled
+#[cfg(feature = "macros")]
+pub use cloacina_macros::{packaged_workflow, task, workflow};
