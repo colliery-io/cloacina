@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "cloaca"
 version = "0.2.0"
@@ -11,7 +13,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
-cloacina = { path = "../cloacina" }
+cloacina = { path = "../../crates/cloacina" }
 serde_json = "1.0"
 pythonize = "0.25"
 async-trait = "0.1"
