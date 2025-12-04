@@ -93,30 +93,18 @@ async fn producer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     dependencies = ["producer_task"]
 )]
 async fn consumer_task(context: &mut Context<Value>) -> Result<(), TaskError> {
-    // Try to load dependency value using lazy loading
-    match context
-        .load_from_dependencies_and_cache("shared_data")
-        .await
-    {
-        Ok(Some(value)) => {
-            // Add a derived value to show dependency was loaded
-            context.insert(
-                "derived_from_shared_data",
-                Value::String(format!("Processed: {}", value)),
-            )?;
-        }
-        Ok(None) => {
-            return Err(TaskError::Unknown {
-                task_id: "consumer_task".to_string(),
-                message: "Dependency key 'shared_data' not found".to_string(),
-            });
-        }
-        Err(e) => {
-            return Err(TaskError::Unknown {
-                task_id: "consumer_task".to_string(),
-                message: format!("Failed to load dependency: {}", e),
-            });
-        }
+    // With pre-inject pattern, dependency data is already in context
+    if let Some(value) = context.get("shared_data") {
+        // Add a derived value to show dependency was loaded
+        context.insert(
+            "derived_from_shared_data",
+            Value::String(format!("Processed: {}", value)),
+        )?;
+    } else {
+        return Err(TaskError::Unknown {
+            task_id: "consumer_task".to_string(),
+            message: "Dependency key 'shared_data' not found".to_string(),
+        });
     }
 
     Ok(())

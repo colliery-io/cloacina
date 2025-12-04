@@ -198,20 +198,22 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     let with_jitter = attrs.retry_jitter.unwrap_or(true);
 
     // Generate backoff strategy
+    // Use absolute path ::cloacina_workflow to work with both direct dependencies
+    // and indirect dependencies through cloacina's re-export
     let backoff_strategy = match attrs.retry_backoff.as_deref() {
         Some("fixed") => quote! {
-            cloacina::retry::BackoffStrategy::Fixed
+            ::cloacina_workflow::BackoffStrategy::Fixed
         },
         Some("linear") => quote! {
-            cloacina::retry::BackoffStrategy::Linear { multiplier: 1.0 }
+            ::cloacina_workflow::BackoffStrategy::Linear { multiplier: 1.0 }
         },
         Some("exponential") | None => quote! {
-            cloacina::retry::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
+            ::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
         },
         Some(_other) => {
             // Custom backoff - for now, default to exponential
             quote! {
-                cloacina::retry::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
+                ::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
             }
         }
     };
@@ -219,19 +221,19 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     // Generate retry condition
     let retry_condition = match attrs.retry_condition.as_deref() {
         Some("never") => quote! {
-            vec![cloacina::retry::RetryCondition::Never]
+            vec![::cloacina_workflow::RetryCondition::Never]
         },
         Some("all") | None => quote! {
-            vec![cloacina::retry::RetryCondition::AllErrors]
+            vec![::cloacina_workflow::RetryCondition::AllErrors]
         },
         Some("transient") => quote! {
-            vec![cloacina::retry::RetryCondition::TransientOnly]
+            vec![::cloacina_workflow::RetryCondition::TransientOnly]
         },
         Some(patterns) => {
             // Parse comma-separated patterns
             let pattern_list: Vec<&str> = patterns.split(',').map(|s| s.trim()).collect();
             quote! {
-                vec![cloacina::retry::RetryCondition::ErrorPattern {
+                vec![::cloacina_workflow::RetryCondition::ErrorPattern {
                     patterns: vec![#(#pattern_list.to_string()),*]
                 }]
             }
@@ -239,7 +241,7 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     };
 
     quote! {
-        cloacina::retry::RetryPolicy {
+        ::cloacina_workflow::RetryPolicy {
             max_attempts: #max_attempts,
             initial_delay: std::time::Duration::from_millis(#initial_delay_ms as u64),
             max_delay: std::time::Duration::from_millis(#max_delay_ms as u64),
@@ -652,7 +654,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         // Generate the task struct
         #[derive(Debug)]
         #fn_vis struct #task_struct_name {
-            dependencies: Vec<cloacina::TaskNamespace>,
+            dependencies: Vec<::cloacina_workflow::TaskNamespace>,
         }
 
         impl #task_struct_name {
@@ -662,7 +664,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 }
             }
 
-            pub fn with_dependencies(mut self, dependencies: Vec<cloacina::TaskNamespace>) -> Self {
+            pub fn with_dependencies(mut self, dependencies: Vec<::cloacina_workflow::TaskNamespace>) -> Self {
                 self.dependencies = dependencies;
                 self
             }
@@ -677,7 +679,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
             }
 
             /// Create the retry policy based on macro attributes
-            pub fn create_retry_policy(&self) -> cloacina::retry::RetryPolicy {
+            pub fn create_retry_policy(&self) -> ::cloacina_workflow::RetryPolicy {
                 #generate_retry_policy
             }
 
@@ -689,14 +691,14 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
 
         #[async_trait::async_trait]
-        impl cloacina::Task for #task_struct_name {
-            async fn execute(&self, mut context: cloacina::Context<serde_json::Value>)
-                -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
+        impl ::cloacina_workflow::Task for #task_struct_name {
+            async fn execute(&self, mut context: ::cloacina_workflow::Context<serde_json::Value>)
+                -> Result<::cloacina_workflow::Context<serde_json::Value>, ::cloacina_workflow::TaskError> {
 
                 // Convert the result to our expected format
                 match #execute_body {
                     Ok(()) => Ok(context),
-                    Err(e) => Err(cloacina::TaskError::ExecutionFailed {
+                    Err(e) => Err(::cloacina_workflow::TaskError::ExecutionFailed {
                         message: format!("{:?}", e),
                         task_id: #task_id.to_string(),
                         timestamp: chrono::Utc::now(),
@@ -708,11 +710,11 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 #task_id
             }
 
-            fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+            fn dependencies(&self) -> &[::cloacina_workflow::TaskNamespace] {
                 &self.dependencies
             }
 
-            fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
+            fn retry_policy(&self) -> ::cloacina_workflow::RetryPolicy {
                 self.create_retry_policy()
             }
 

@@ -187,6 +187,57 @@ jobs:
             echo "Could not find test binary for gdb analysis"
           fi
 
+      - name: Report compiled workflow sizes
+        if: always()
+        run: |
+          echo "=== Compiled Workflow Library Sizes ==="
+          echo "Platform: ${{ matrix.os }}"
+          echo "Architecture: $(uname -m)"
+          echo ""
+
+          # Function to format size in human-readable format
+          format_size() {
+            local size=$1
+            if [ $size -ge 1048576 ]; then
+              echo "$(echo "scale=2; $size / 1048576" | bc) MB"
+            elif [ $size -ge 1024 ]; then
+              echo "$(echo "scale=2; $size / 1024" | bc) KB"
+            else
+              echo "$size bytes"
+            fi
+          }
+
+          echo "| Workflow | Size (bytes) | Size |"
+          echo "|----------|--------------|------|"
+
+          # Find and report packaged workflow example
+          for ext in dylib so; do
+            lib="examples/features/packaged-workflows/target/release/libpackaged_workflow_example.$ext"
+            if [ -f "$lib" ]; then
+              size=$(stat -f%z "$lib" 2>/dev/null || stat -c%s "$lib" 2>/dev/null)
+              echo "| packaged-workflow-example | $size | $(format_size $size) |"
+              break
+            fi
+          done
+
+          # Find and report simple packaged demo
+          for ext in dylib so; do
+            lib="examples/features/simple-packaged/target/release/libsimple_packaged_demo.$ext"
+            if [ -f "$lib" ]; then
+              size=$(stat -f%z "$lib" 2>/dev/null || stat -c%s "$lib" 2>/dev/null)
+              echo "| simple-packaged-demo | $size | $(format_size $size) |"
+              break
+            fi
+          done
+
+          echo ""
+          echo "=== Detailed file info ==="
+          find examples/features/*/target/release -name "*.dylib" -o -name "*.so" 2>/dev/null | while read f; do
+            if [ -f "$f" ]; then
+              ls -lh "$f"
+            fi
+          done
+
   # Macro tests - only need to run once per backend (ubuntu only)
   macro-tests:
     name: Macro Tests (${{ matrix.backend }})

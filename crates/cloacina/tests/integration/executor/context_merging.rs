@@ -97,34 +97,17 @@ async fn merger_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     let mut merged_values = std::collections::HashMap::new();
     let expected_keys = vec!["shared_key", "early_only", "late_only"];
 
-    // Try to load all expected keys from dependencies
+    // With pre-inject pattern, all dependency data is already in context
     for key in &expected_keys {
-        // Load the value from dependencies or local context
-        let value = match context.load_from_dependencies_and_cache(key).await {
-            Ok(Some(value)) => value,
-            Ok(None) => {
-                // Check if it's in local context
-                if let Some(local_value) = context.get(key) {
-                    local_value.clone()
-                } else {
-                    return Err(TaskError::Unknown {
-                        task_id: "merger_task".to_string(),
-                        message: format!(
-                            "Expected key '{}' not found in dependencies or local context",
-                            key
-                        ),
-                    });
-                }
-            }
-            Err(e) => {
-                return Err(TaskError::Unknown {
-                    task_id: "merger_task".to_string(),
-                    message: format!("Failed to load key '{}': {}", key, e),
-                });
-            }
-        };
-
-        merged_values.insert(key.to_string(), value);
+        // Get value directly from context (deps are pre-injected by executor)
+        if let Some(value) = context.get(*key) {
+            merged_values.insert(key.to_string(), value.clone());
+        } else {
+            return Err(TaskError::Unknown {
+                task_id: "merger_task".to_string(),
+                message: format!("Expected key '{}' not found in context", key),
+            });
+        }
     }
 
     // Add a summary of merged values
@@ -293,22 +276,14 @@ async fn test_context_merging_latest_wins() {
     dependencies = []
 )]
 async fn scope_inspector_task(context: &mut Context<Value>) -> Result<(), TaskError> {
-    // Check if execution scope is set
-    if let Some(scope) = context.execution_scope() {
-        let scope_info = serde_json::json!({
-            "pipeline_execution_id": scope.pipeline_execution_id.to_string(),
-            "task_execution_id": scope.task_execution_id.map(|id| id.to_string()),
-            "task_name": scope.task_name.clone()
-        });
+    // Task executed successfully - execution scope is now internal to executor
+    // and not exposed to tasks (pre-inject pattern)
+    let scope_info = serde_json::json!({
+        "task_executed": true,
+        "message": "Task executed within executor context"
+    });
 
-        context.insert("execution_scope_info", scope_info)?;
-    } else {
-        return Err(TaskError::Unknown {
-            task_id: "scope_inspector_task".to_string(),
-            message: "Execution scope not set".to_string(),
-        });
-    }
-
+    context.insert("execution_scope_info", scope_info)?;
     Ok(())
 }
 
@@ -401,44 +376,25 @@ async fn test_execution_scope_context_setup() {
             std::collections::HashMap::new()
         };
 
+    // With pre-inject pattern, execution scope is no longer exposed to tasks.
+    // The task just confirms it executed successfully within the executor context.
     assert!(
         context_data.contains_key("execution_scope_info"),
-        "Task should have captured execution scope information"
+        "Task should have captured execution info"
     );
 
     if let Some(scope_info) = context_data.get("execution_scope_info") {
         let scope_obj = scope_info.as_object().unwrap();
+        // With pre-inject pattern, we just verify the task executed
         assert!(
-            scope_obj.contains_key("pipeline_execution_id"),
-            "Scope should contain pipeline execution ID"
+            scope_obj.contains_key("task_executed"),
+            "Scope info should contain task_executed field"
         );
-        assert!(
-            scope_obj.contains_key("task_execution_id"),
-            "Scope should contain task execution ID"
+        assert_eq!(
+            scope_obj.get("task_executed"),
+            Some(&Value::Bool(true)),
+            "Task should have executed successfully"
         );
-        assert!(
-            scope_obj.contains_key("task_name"),
-            "Scope should contain task name"
-        );
-
-        if let Some(task_name) = scope_obj.get("task_name") {
-            // task_name is an Option<String> in ExecutionScope, so it gets serialized as such
-            if let Value::String(name) = task_name {
-                // Should contain the full namespace now
-                assert!(
-                    name.ends_with("::scope_inspector_task"),
-                    "Task name should end with ::scope_inspector_task, got: {}",
-                    name
-                );
-                assert!(
-                    name.contains(&workflow_name),
-                    "Task name should contain workflow name, got: {}",
-                    name
-                );
-            } else {
-                panic!("Expected task_name to be a string, got: {:?}", task_name);
-            }
-        }
     }
 
     // Cleanup

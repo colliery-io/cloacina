@@ -27,6 +27,7 @@ serde_json.workspace = true
 
 # Local dependencies
 cloacina-macros = { workspace = true, optional = true }
+cloacina-workflow = { workspace = true }
 
 # External dependencies
 aquamarine = { version = "0.6.0" }
