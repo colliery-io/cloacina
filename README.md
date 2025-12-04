@@ -112,13 +112,31 @@ Benefits:
 - **Performance** - No overhead from filtering every query
 - **Clean separation** - Each tenant can even have different schema versions
 
+## Repository Structure
+
+```
+cloacina/
+  crates/                    # Rust library crates
+    cloacina/                # Core workflow engine
+    cloacina-macros/         # Procedural macros
+  bindings/
+    cloaca-backend/          # Python bindings (PyPI: cloaca)
+  examples/
+    tutorials/               # Step-by-step learning path
+    features/                # Feature showcases
+    performance/             # Benchmarks
+  tests/python/              # Python integration tests
+  docs/                      # Documentation site
+```
+
 ## Documentation
 
 **[Complete Documentation & User Guide](https://colliery-io.github.io/cloacina/)**
 
 Additional resources:
 - [API Reference](https://docs.rs/cloacina) (Rust docs)
-- [Examples](https://github.com/colliery-io/cloacina/tree/main/examples)
+- [Tutorials](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials)
+- [Feature Examples](https://github.com/colliery-io/cloacina/tree/main/examples/features)
 
 ## Contributing
 
