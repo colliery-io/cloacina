@@ -38,6 +38,20 @@ def unit(filter=None, backend=None):
 
     print_section_header("Running unit tests")
 
+    # Run cloacina-workflow unit tests first (minimal crate, no features needed)
+    print("Running cloacina-workflow unit tests...")
+    workflow_cmd = ["cargo", "test", "-p", "cloacina-workflow", "--lib"]
+    if filter:
+        workflow_cmd.append(filter)
+
+    try:
+        subprocess.run(workflow_cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"cloacina-workflow unit tests failed with error: {e}", file=sys.stderr)
+        raise RuntimeError(f"Unit tests failed with return code {e.returncode}")
+
+    # Run cloacina unit tests
+    print("Running cloacina unit tests...")
     cmd = ["cargo", "test", "-p", "cloacina", "--lib", "--features", "postgres,sqlite,macros"]
     if filter:
         cmd.append(filter)
