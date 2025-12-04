@@ -1,0 +1,31 @@
+[package]
+name = "validation-failures"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "missing_dependency"
+path = "src/missing_dependency.rs"
+
+[[bin]]
+name = "circular_dependency"
+path = "src/circular_dependency.rs"
+
+[[bin]]
+name = "duplicate_task_ids"
+path = "src/duplicate_task_ids.rs"
+
+[[bin]]
+name = "missing_workflow_task"
+path = "src/missing_workflow_task.rs"
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina" }
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+ctor = "0.2"
+chrono = "0.4"
+async-trait = "0.1"
