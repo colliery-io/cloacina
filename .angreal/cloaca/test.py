@@ -89,7 +89,7 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
 
                 # Run tests
                 print("[DEBUG] About to run tests...", flush=True)
-                test_dir = project_root / "python-tests"
+                test_dir = project_root / "tests" / "python"
                 print(f"[DEBUG] Test dir: {test_dir}", flush=True)
 
                 if file:

@@ -167,7 +167,7 @@ def _build_and_install_cloaca_unified(venv_name):
 
     # Build and install unified wheel
     print("[DEBUG] Step 4: Building unified cloaca wheel...", flush=True)
-    backend_dir = project_root / "cloaca-backend"
+    backend_dir = project_root / "bindings" / "cloaca-backend"
 
     # Clean existing extensions
     for pattern in ["*.so", "*.pyd"]:

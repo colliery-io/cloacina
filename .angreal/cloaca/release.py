@@ -26,7 +26,7 @@ def release():
     """
 
     project_root = Path(angreal.get_root()).parent
-    backend_dir = project_root / "cloaca-backend"
+    backend_dir = project_root / "bindings" / "cloaca-backend"
     venv_name = "release-build-unified"
     venv_path = project_root / venv_name
 
@@ -62,7 +62,7 @@ def release():
         maturin_exe = venv.path / "bin" / "maturin"
         maturin_cmd = [str(maturin_exe), "build", "--release"]
 
-        result = subprocess.run(
+        subprocess.run(
             maturin_cmd,
             cwd=str(backend_dir),
             capture_output=True,

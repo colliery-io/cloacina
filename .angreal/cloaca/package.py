@@ -20,7 +20,7 @@ def package():
     """Build the unified cloaca wheel."""
     try:
         project_root = Path(angreal.get_root()).parent
-        backend_dir = project_root / "cloaca-backend"
+        backend_dir = project_root / "bindings" / "cloaca-backend"
 
         # Create temporary virtual environment for building
         venv_name = "build-env-unified"
@@ -51,7 +51,7 @@ def package():
             maturin_exe = venv.path / "bin" / "maturin"
             maturin_cmd = [str(maturin_exe), "build", "--release"]
 
-            result = subprocess.run(
+            subprocess.run(
                 maturin_cmd,
                 cwd=str(backend_dir),
                 capture_output=True,
