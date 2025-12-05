@@ -4,14 +4,14 @@ level: initiative
 title: "Fix FFI Safety - Unchecked Null Pointers in Package Loading"
 short_code: "CLOACI-I-0004"
 created_at: 2025-11-29T02:40:07.034926+00:00
-updated_at: 2025-11-29T02:40:07.034926+00:00
+updated_at: 2025-12-05T22:36:06.867513+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

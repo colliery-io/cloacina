@@ -7,7 +7,7 @@ created_at: 2025-11-30T18:31:16.252316+00:00
 updated_at: 2025-12-03T23:35:58.920649+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -48,6 +48,8 @@ Currently, tests use `#[cfg(feature = "postgres")]` and `#[cfg(feature = "sqlite
 - `cloacina/src/executor/thread_task_executor.rs` - Has cfg-gated `UniversalUuid` wrapping
 - `cloacina/src/runner/default_runner.rs` - Has cfg-gated storage creation
 - `cloacina/src/registry/workflow_registry.rs` - Has cfg-gated legacy module imports
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

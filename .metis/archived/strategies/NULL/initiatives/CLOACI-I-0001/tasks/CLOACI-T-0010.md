@@ -7,7 +7,7 @@ created_at: 2025-11-30T02:05:40.850583+00:00
 updated_at: 2025-12-03T23:36:08.495360+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Update GitHub Actions CI workflows to build and test a single unified binary against both PostgreSQL and SQLite backends, replacing the current separate build matrices.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

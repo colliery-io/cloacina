@@ -4,18 +4,18 @@ level: task
 title: "Refactor Repo Structure - Move Crates to crates/ directory"
 short_code: "CLOACI-T-0012"
 created_at: 2025-12-04T00:01:12.808096+00:00
-updated_at: 2025-12-04T00:01:12.808096+00:00
+updated_at: 2025-12-05T22:34:25.145577+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#tech-debt"
+  - "#phase/completed"
 
 
-  - "#tech-debt"
 exit_criteria_met: false
 strategy_id: NULL
 initiative_id: NULL
@@ -51,6 +51,14 @@ Reorganize the repository structure to follow Rust workspace conventions by movi
   - Easier to understand project structure at a glance
   - Better alignment with Rust ecosystem conventions
 - **Risk Assessment**: Low risk - mostly path updates in Cargo.toml files and CI
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

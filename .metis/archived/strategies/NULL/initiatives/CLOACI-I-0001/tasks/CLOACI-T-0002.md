@@ -7,7 +7,7 @@ created_at: 2025-11-30T02:05:39.227411+00:00
 updated_at: 2025-11-30T02:41:07.719123+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Refactor the `Database` struct to detect the backend type at runtime from the connection URL and use the appropriate connection pool type via `AnyConnection`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

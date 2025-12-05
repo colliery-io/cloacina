@@ -16,12 +16,179 @@
 
 use anyhow::{Context, Result};
 use regex::Regex;
+use std::ffi::CStr;
+use std::os::raw::c_char;
 use std::path::Path;
+use thiserror::Error;
 
 use super::types::{
     CargoToml, LibraryInfo, PackageInfo, PackageManifest, TaskInfo, CLOACINA_VERSION,
     EXECUTE_TASK_SYMBOL,
 };
+
+/// Maximum number of tasks allowed in a single package.
+/// This limit prevents resource exhaustion from malformed packages.
+const MAX_TASKS: usize = 10_000;
+
+/// Errors that can occur during manifest extraction from FFI.
+///
+/// These errors represent various failure modes when reading metadata
+/// from compiled workflow libraries via FFI.
+#[derive(Debug, Error)]
+pub enum ManifestError {
+    /// A required pointer was null
+    #[error("Null pointer encountered for field: {field}")]
+    NullPointer { field: &'static str },
+
+    /// A pointer had incorrect alignment for its type
+    #[error("Misaligned pointer for field: {field}")]
+    MisalignedPointer { field: &'static str },
+
+    /// A C string pointer was null when a string was expected
+    #[error("Null string pointer for field: {field}")]
+    NullString { field: String },
+
+    /// A C string contained invalid UTF-8 data
+    #[error("Invalid UTF-8 in field '{field}': {source}")]
+    InvalidUtf8 {
+        field: String,
+        #[source]
+        source: std::str::Utf8Error,
+    },
+
+    /// Failed to parse dependencies JSON for a task
+    #[error("Invalid dependencies JSON for task '{task_id}': {source}")]
+    InvalidDependencies {
+        task_id: String,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// The task slice pointer was null but count was non-zero
+    #[error("Null task slice with non-zero count ({count})")]
+    NullTaskSlice { count: usize },
+
+    /// The task count exceeded the maximum allowed limit
+    #[error("Task count {count} exceeds maximum allowed ({max})")]
+    TooManyTasks { count: usize, max: usize },
+
+    /// Failed to parse graph data JSON
+    #[error("Invalid graph data JSON: {source}")]
+    InvalidGraphData {
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// Library loading or symbol resolution failed
+    #[error("Library error: {message}")]
+    LibraryError { message: String },
+}
+
+/// Safely converts a C string pointer to a Rust String.
+///
+/// # Arguments
+/// * `ptr` - Pointer to a null-terminated C string
+/// * `field_name` - Name of the field for error reporting
+///
+/// # Returns
+/// * `Ok(String)` - The converted string
+/// * `Err(ManifestError)` - If the pointer is null or contains invalid UTF-8
+///
+/// # Safety
+/// The caller must ensure that if the pointer is non-null, it points to
+/// a valid null-terminated C string that remains valid for the duration
+/// of this call.
+pub(crate) fn safe_cstr_to_string(
+    ptr: *const c_char,
+    field_name: &str,
+) -> Result<String, ManifestError> {
+    if ptr.is_null() {
+        return Err(ManifestError::NullString {
+            field: field_name.to_string(),
+        });
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_str()
+        .map(|s| s.to_string())
+        .map_err(|e| ManifestError::InvalidUtf8 {
+            field: field_name.to_string(),
+            source: e,
+        })
+}
+
+/// Safely converts a C string pointer to an optional Rust String.
+///
+/// Returns `Ok(None)` if the pointer is null, `Ok(Some(String))` if valid,
+/// or an error if the string contains invalid UTF-8.
+///
+/// # Safety
+/// The caller must ensure that if the pointer is non-null, it points to
+/// a valid null-terminated C string that remains valid for the duration
+/// of this call.
+pub(crate) fn safe_cstr_to_option_string(
+    ptr: *const c_char,
+    field_name: &str,
+) -> Result<Option<String>, ManifestError> {
+    if ptr.is_null() {
+        return Ok(None);
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_str()
+        .map(|s| Some(s.to_string()))
+        .map_err(|e| ManifestError::InvalidUtf8 {
+            field: field_name.to_string(),
+            source: e,
+        })
+}
+
+/// Validates and dereferences a pointer to a type T.
+///
+/// # Safety
+/// The caller must ensure the pointer, if non-null, points to a valid
+/// instance of T that remains valid for the lifetime of the returned reference.
+pub(crate) unsafe fn validate_ptr<'a, T>(
+    ptr: *const T,
+    field_name: &'static str,
+) -> Result<&'a T, ManifestError> {
+    if ptr.is_null() {
+        return Err(ManifestError::NullPointer { field: field_name });
+    }
+    // Validate alignment
+    if (ptr as usize) % std::mem::align_of::<T>() != 0 {
+        return Err(ManifestError::MisalignedPointer { field: field_name });
+    }
+    Ok(&*ptr)
+}
+
+/// Validates and creates a slice from a pointer and count.
+///
+/// # Safety
+/// The caller must ensure that if `ptr` is non-null, it points to
+/// `count` consecutive valid instances of T.
+pub(crate) unsafe fn validate_slice<'a, T>(
+    ptr: *const T,
+    count: usize,
+    field_name: &'static str,
+) -> Result<&'a [T], ManifestError> {
+    if count > MAX_TASKS {
+        return Err(ManifestError::TooManyTasks {
+            count,
+            max: MAX_TASKS,
+        });
+    }
+    if ptr.is_null() && count > 0 {
+        return Err(ManifestError::NullTaskSlice { count });
+    }
+    if ptr.is_null() {
+        // count == 0, return empty slice
+        return Ok(&[]);
+    }
+    // Validate alignment
+    if (ptr as usize) % std::mem::align_of::<T>() != 0 {
+        return Err(ManifestError::MisalignedPointer { field: field_name });
+    }
+    Ok(std::slice::from_raw_parts(ptr, count))
+}
 
 /// Generate a package manifest from Cargo.toml and compiled library
 pub fn generate_manifest(

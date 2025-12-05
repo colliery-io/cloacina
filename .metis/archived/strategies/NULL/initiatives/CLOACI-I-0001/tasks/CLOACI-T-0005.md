@@ -7,7 +7,7 @@ created_at: 2025-11-30T02:05:39.703422+00:00
 updated_at: 2025-11-30T03:01:24.374999+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Migrate `ContextDAL` to the unified implementation as the first DAL module, establishing patterns for handling backend differences that will be used in subsequent DAL migrations.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

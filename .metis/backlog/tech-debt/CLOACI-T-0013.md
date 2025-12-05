@@ -4,18 +4,18 @@ level: task
 title: "Minimal Footprint Crate for Workflow Compilation and Distribution"
 short_code: "CLOACI-T-0013"
 created_at: 2025-12-04T00:01:29.041141+00:00
-updated_at: 2025-12-04T00:01:29.041141+00:00
+updated_at: 2025-12-05T22:34:24.337220+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#tech-debt"
+  - "#phase/completed"
 
 
-  - "#tech-debt"
 exit_criteria_met: false
 strategy_id: NULL
 initiative_id: NULL
@@ -54,6 +54,12 @@ Create a minimal `cloacina-workflow` crate that contains only the types and macr
   - Easier cross-compilation for workflow distribution
   - Clear separation between "authoring workflows" and "running workflows"
 - **Risk Assessment**: Medium - requires careful API design to ensure workflows compiled with minimal crate are compatible with full runtime
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
