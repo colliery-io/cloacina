@@ -68,17 +68,14 @@ jobs:
 
       - name: Start PostgreSQL via Docker Compose
         if: matrix.backend == 'postgres'
-        run: |
-          docker compose -f .angreal/docker-compose.yaml up -d
-          # Wait for postgres to be ready
-          for i in {1..30}; do
-            if docker exec cloacina-postgres pg_isready -U cloacina; then
-              echo "PostgreSQL is ready"
-              break
-            fi
-            echo "Waiting for PostgreSQL... ($i/30)"
-            sleep 2
-          done
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run all Python bindings tests
-        run: angreal cloaca test --backend ${{ matrix.backend }}
+        run: |
+          if [ "${{ matrix.backend }}" = "postgres" ]; then
+            angreal cloaca test --backend ${{ matrix.backend }} --skip-docker
+          else
+            angreal cloaca test --backend ${{ matrix.backend }}
+          fi
