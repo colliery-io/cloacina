@@ -347,7 +347,8 @@ fn extract_task_info_and_graph_from_library(
         ));
     }
 
-    let package_tasks = unsafe { &*package_tasks_ptr };
+    let package_tasks = unsafe { validate_ptr(package_tasks_ptr, "package_tasks") }
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Extract graph data JSON if available
     let graph_data = if !package_tasks.graph_data_json.is_null() {
@@ -372,11 +373,11 @@ fn extract_task_info_and_graph_from_library(
     // Convert C strings and data to Rust structures
     let mut tasks = Vec::new();
 
-    if package_tasks.task_count > 0 && !package_tasks.tasks.is_null() {
-        let tasks_slice = unsafe {
-            std::slice::from_raw_parts(package_tasks.tasks, package_tasks.task_count as usize)
-        };
+    let task_count = package_tasks.task_count as usize;
+    let tasks_slice = unsafe { validate_slice(package_tasks.tasks, task_count, "tasks") }
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    if !tasks_slice.is_empty() {
         for (index, task_metadata) in tasks_slice.iter().enumerate() {
             let local_id = unsafe {
                 std::ffi::CStr::from_ptr(task_metadata.local_id)

@@ -4,14 +4,14 @@ level: task
 title: "Replace silent defaults with proper error returns"
 short_code: "CLOACI-T-0017"
 created_at: 2025-12-05T22:35:47.281702+00:00
-updated_at: 2025-12-05T22:35:47.281702+00:00
+updated_at: 2025-12-05T22:48:25.530588+00:00
 parent: CLOACI-I-0004
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0004
 ## Objective
 
 Replace all `.unwrap_or()` and silent default patterns in FFI string/JSON handling with proper error returns using the helper functions from CLOACI-T-0015. This ensures failures are reported rather than silently masked.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
