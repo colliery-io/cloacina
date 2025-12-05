@@ -19,6 +19,7 @@ Packaged workflows extend Cloacina's core architecture by adding dynamic loading
 3. **Namespace Isolation**: Task namespaces prevent conflicts between packages and tenants
 4. **Persistent Storage**: Workflows and execution state persist across restarts
 5. **Hot-swapping**: Packaged workflows can be updated without application restarts
+6. **Minimal Compilation Dependencies**: Packaged workflows can use `cloacina-workflow` (minimal types only) instead of the full `cloacina` crate, enabling fast compilation without database drivers
 
 ## High-Level Architecture
 
@@ -328,6 +329,47 @@ Each tenant can have isolated storage for packaged workflows:
 config.registry_storage_path = Some(PathBuf::from("/storage/tenant_a"));
 ```
 
+## Crate Structure
+
+Cloacina is organized into separate crates to support both embedded and packaged workflow development:
+
+```
+cloacina/
+  cloacina-workflow/     # Minimal types for workflow compilation
+  cloacina-macros/       # Procedural macros (#[task], #[packaged_workflow])
+  cloacina/              # Full runtime (executor, scheduler, database)
+```
+
+### cloacina-workflow (Minimal Crate)
+
+Contains only the types needed to compile workflows:
+- `Context<T>` - Data container for task communication
+- `Task` trait - Interface for task implementations
+- `TaskError`, `ContextError` - Error types
+- `RetryPolicy`, `BackoffStrategy` - Retry configuration
+- `TaskNamespace` - Namespace utilities
+
+**Dependencies**: `async-trait`, `serde`, `serde_json`, `thiserror`, `chrono`
+
+**Does NOT include**: Database drivers (diesel), connection pools, executor, scheduler, libloading
+
+### cloacina (Full Crate)
+
+Re-exports everything from `cloacina-workflow` plus:
+- Database backends (PostgreSQL, SQLite)
+- `DefaultRunner` and execution engine
+- Workflow registry and package loading
+- Cron scheduling
+- Multi-tenancy support
+
+### Usage
+
+| Use Case | Crate |
+|----------|-------|
+| Packaged workflows | `cloacina-workflow` (includes macros) |
+| Embedded workflows | `cloacina` |
+| Host application | `cloacina` |
+
 ## Comparison: Embedded vs Packaged
 
 | Aspect | Embedded Workflows | Packaged Workflows |
@@ -344,6 +386,7 @@ config.registry_storage_path = Some(PathBuf::from("/storage/tenant_a"));
 | **Multi-tenancy** | Shared across tenants | Tenant-specific packages possible |
 | **Performance** | Direct function calls | FFI overhead |
 | **Development** | Integrated development cycle | Independent development cycle |
+| **Compile Time** | Full crate dependencies | Minimal dependencies with `cloacina-workflow` |
 
 ## Production Deployment Patterns
 

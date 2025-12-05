@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 cloacina = { path = "../../../crates/cloacina" }
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }

@@ -39,7 +39,7 @@ cargo build --release
 ```
 */
 
-use cloacina::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
 
 /// Analytics Pipeline - A complete data processing workflow package
 ///

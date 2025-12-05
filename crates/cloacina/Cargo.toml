@@ -27,9 +27,9 @@ serde_json.workspace = true
 
 # Local dependencies
 cloacina-macros = { workspace = true, optional = true }
+cloacina-workflow = { workspace = true }
 
 # External dependencies
-aquamarine = { version = "0.6.0" }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = { version = "0.10" }
 croner = { version = "2.1.0" }

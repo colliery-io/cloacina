@@ -34,7 +34,7 @@ use tokio::time;
 use tracing::{debug, error, info, warn};
 
 use super::traits::TaskExecutorTrait;
-use super::types::{ClaimedTask, DependencyLoader, ExecutionScope, ExecutorConfig};
+use super::types::{ClaimedTask, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ExecutorError;
@@ -284,17 +284,12 @@ impl ThreadTaskExecutor {
             task_name: Some(claimed_task.task_name.clone()),
         };
 
-        // Create dependency loader for automatic context merging
-        let dependency_loader = DependencyLoader::new(
-            self.database.clone(),
-            claimed_task.pipeline_execution_id,
-            dependencies.to_vec(),
-        );
-
-        // Create context with execution scope and dependency loader
+        // Create context for task execution
+        // Dependencies are pre-loaded below using batch loading for better performance
         let mut context = Context::new();
-        context.set_execution_scope(execution_scope);
-        context.set_dependency_loader(dependency_loader);
+
+        // Track execution scope for logging/metrics (not stored in context)
+        let _execution_scope = execution_scope;
 
         // Load initial pipeline context if task has no dependencies
         if dependencies.is_empty() {

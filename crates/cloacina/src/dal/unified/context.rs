@@ -179,7 +179,7 @@ impl<'a> ContextDAL<'a> {
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
-        Context::<T>::from_json(db_context.value)
+        Ok(Context::<T>::from_json(db_context.value)?)
     }
 
     async fn read_sqlite<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
@@ -201,7 +201,7 @@ impl<'a> ContextDAL<'a> {
             .await
             .map_err(|e| ContextError::ConnectionPool(e.to_string()))??;
 
-        Context::<T>::from_json(db_context.value)
+        Ok(Context::<T>::from_json(db_context.value)?)
     }
 
     /// Update an existing context in the database.

@@ -119,9 +119,23 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
 
                     # Clean state between test files
                     if backend_name == "postgres":
-                        if smart_postgres_reset():
+                        if skip_docker:
+                            # Use psql directly when not using Docker (e.g., macOS with homebrew postgres)
+                            try:
+                                result = subprocess.run(
+                                    ["psql", "-U", "cloacina", "-d", "cloacina",
+                                     "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"],
+                                    capture_output=True, text=True
+                                )
+                                if result.returncode == 0:
+                                    print("PostgreSQL state reset (direct psql)")
+                                else:
+                                    print(f"Warning: PostgreSQL reset failed: {result.stderr}")
+                            except Exception as e:
+                                print(f"Warning: Could not reset PostgreSQL: {e}")
+                        elif smart_postgres_reset():
                             print("PostgreSQL state reset")
-                        elif not skip_docker:
+                        else:
                             print("Fast reset failed, restarting Docker...")
                             docker_down(remove_volumes=True)
                             docker_up()
@@ -162,11 +176,6 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                             file_results.append((test_file.name, True))
                         else:
                             print(f"FAILED: {test_file.name}")
-                            if result.stdout:
-                                print("STDOUT:", result.stdout[:500])
-                            if result.stderr:
-                                print("STDERR:", result.stderr[:500])
-
                             test_result = TestResult(
                                 file_name=test_file.name,
                                 backend=backend_name,
@@ -175,6 +184,15 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
                                 stderr=result.stderr,
                                 return_code=result.returncode
                             )
+
+                            # Print full pytest output on failure for debugging
+                            print("\n--- PYTEST OUTPUT ---")
+                            print(result.stdout)
+                            if result.stderr:
+                                print("\n--- STDERR ---")
+                                print(result.stderr)
+                            print("--- END OUTPUT ---\n")
+
                             file_results.append((test_file.name, False))
                             all_passed = False
 
@@ -224,8 +242,18 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
     print(f"{'='*50}")
     print(f"Total: {summary['total']}, Passed: {summary['passed']}, Failed: {summary['failed']}")
 
+    # Print per-backend breakdown
+    if summary.get('backends'):
+        print("\nBy backend:")
+        for backend, stats in summary['backends'].items():
+            status = "OK" if stats['failed'] == 0 else "FAILED"
+            print(f"  {backend}: {stats['passed']} passed, {stats['failed']} failed [{status}]")
+
     if all_passed:
         print("\nAll tests passed!")
     else:
+        # Print detailed failure report
+        test_aggregator.print_failure_report()
+
         print(f"\n{len(failed_results)} test files failed")
         raise RuntimeError(f"{len(failed_results)} Python binding test files failed")

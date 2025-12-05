@@ -117,9 +117,12 @@
 //! error messages for debugging and logging purposes. Each error variant includes
 //! relevant context information to aid in troubleshooting and recovery.
 
-use chrono::{DateTime, Utc};
 use thiserror::Error;
 use uuid::Uuid;
+
+// Re-export TaskError and CheckpointError from cloacina_workflow
+// This ensures type compatibility with macro-generated code
+pub use cloacina_workflow::{CheckpointError, TaskError};
 
 /// Errors that can occur during context operations.
 ///
@@ -149,67 +152,15 @@ pub enum ContextError {
     InvalidScope(String),
 }
 
-/// Errors that can occur during task execution.
-///
-/// Task errors encompass execution failures, context issues, and
-/// any other problems that prevent a task from completing successfully.
-#[derive(Debug, Error)]
-pub enum TaskError {
-    #[error("Task execution failed: {message}")]
-    ExecutionFailed {
-        message: String,
-        task_id: String,
-        timestamp: DateTime<Utc>,
-    },
-
-    #[error("Task dependency not satisfied: {dependency} required by {task_id}")]
-    DependencyNotSatisfied { dependency: String, task_id: String },
-
-    #[error("Task timeout: {task_id} exceeded {timeout_seconds}s")]
-    Timeout {
-        task_id: String,
-        timeout_seconds: u64,
-    },
-
-    #[error("Context error in task {task_id}: {error}")]
-    ContextError {
-        task_id: String,
-        error: ContextError,
-    },
-
-    #[error("Task validation failed: {message}")]
-    ValidationFailed { message: String },
-
-    #[error("Unknown error in task {task_id}: {message}")]
-    Unknown { task_id: String, message: String },
-
-    #[error("Task readiness check failed: {task_id}")]
-    ReadinessCheckFailed { task_id: String },
-
-    #[error("Trigger rule evaluation failed: {task_id}")]
-    TriggerRuleFailed { task_id: String },
-}
-
-/// Errors that can occur during task checkpointing.
-///
-/// Checkpoint errors occur when tasks attempt to save intermediate state
-/// for recovery purposes.
-#[derive(Debug, Error)]
-pub enum CheckpointError {
-    #[error("Failed to save checkpoint for task {task_id}: {message}")]
-    SaveFailed { task_id: String, message: String },
-
-    #[error("Failed to load checkpoint for task {task_id}: {message}")]
-    LoadFailed { task_id: String, message: String },
-
-    #[error("Checkpoint serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-
-    #[error("Checkpoint storage error: {message}")]
-    StorageError { message: String },
-
-    #[error("Checkpoint validation failed: {message}")]
-    ValidationFailed { message: String },
+impl From<cloacina_workflow::ContextError> for ContextError {
+    fn from(err: cloacina_workflow::ContextError) -> Self {
+        match err {
+            cloacina_workflow::ContextError::Serialization(e) => ContextError::Serialization(e),
+            cloacina_workflow::ContextError::KeyNotFound(k) => ContextError::KeyNotFound(k),
+            cloacina_workflow::ContextError::TypeMismatch(k) => ContextError::TypeMismatch(k),
+            cloacina_workflow::ContextError::KeyExists(k) => ContextError::KeyExists(k),
+        }
+    }
 }
 
 /// Errors that can occur during task registration.
@@ -402,9 +353,27 @@ pub enum SubgraphError {
 // Conversion implementations
 impl From<ContextError> for TaskError {
     fn from(error: ContextError) -> Self {
+        // Convert to cloacina_workflow::ContextError first
+        let workflow_error = match error {
+            ContextError::Serialization(e) => cloacina_workflow::ContextError::Serialization(e),
+            ContextError::KeyNotFound(k) => cloacina_workflow::ContextError::KeyNotFound(k),
+            ContextError::TypeMismatch(k) => cloacina_workflow::ContextError::TypeMismatch(k),
+            ContextError::KeyExists(k) => cloacina_workflow::ContextError::KeyExists(k),
+            // Database and ConnectionPool errors don't have workflow equivalents,
+            // so convert them to a generic message
+            ContextError::Database(e) => {
+                cloacina_workflow::ContextError::KeyNotFound(format!("Database error: {}", e))
+            }
+            ContextError::ConnectionPool(msg) => cloacina_workflow::ContextError::KeyNotFound(
+                format!("Connection pool error: {}", msg),
+            ),
+            ContextError::InvalidScope(msg) => {
+                cloacina_workflow::ContextError::KeyNotFound(format!("Invalid scope: {}", msg))
+            }
+        };
         TaskError::ContextError {
             task_id: "unknown".to_string(),
-            error,
+            error: workflow_error,
         }
     }
 }

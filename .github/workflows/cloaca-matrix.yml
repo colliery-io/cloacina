@@ -60,25 +60,6 @@ jobs:
           echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
 
-      - name: Install PostgreSQL (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
-
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
       - name: Start PostgreSQL services (macOS)
         if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
         run: |
@@ -88,9 +69,21 @@ jobs:
           createuser -s cloacina || true
           createdb -O cloacina cloacina || true
 
+      - name: Install PostgreSQL dev headers (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Start PostgreSQL via Docker Compose (Ubuntu)
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
       - name: Run all Python bindings tests
         run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
+          if [ "${{ matrix.backend }}" = "postgres" ]; then
             angreal cloaca test --backend ${{ matrix.backend }} --skip-docker
           else
             angreal cloaca test --backend ${{ matrix.backend }}

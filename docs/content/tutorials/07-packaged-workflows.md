@@ -81,13 +81,21 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../cloacina" }
-cloacina-macros = { path = "../../cloacina-macros" }
+cloacina-workflow = "0.2"  # Includes macros by default
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 ```
+
+{{< hint type=info title="Why cloacina-workflow?" >}}
+Packaged workflows use **cloacina-workflow**, which contains only the types needed for workflow compilation:
+- `Context`, `Task`, `TaskError`, `RetryPolicy`
+- Fast compilation - no database drivers, no runtime dependencies
+- Smaller binary size
+
+The full `cloacina` crate is for host applications that load and execute packaged workflows.
+{{< /hint >}}
 
 {{< hint type=warning title="Important Configuration Differences" >}}
 Packaged workflows have different requirements:
@@ -116,7 +124,7 @@ This example demonstrates the complete end-to-end lifecycle of packaged workflow
 5. **Execute** - Run tasks through scheduler
 */
 
-use cloacina::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
 
 /// Simple Data Processing Workflow
 ///

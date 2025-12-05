@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacina-macros"]
+members = ["crates/cloacina", "crates/cloacina-macros", "crates/cloacina-workflow"]
 exclude = ["examples/*", "bindings/*"]
 resolver = "2"
 
@@ -20,6 +20,7 @@ ctor = { version = "0.2" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
 cloacina-macros = { version = "0.2.0-alpha.5", path = "crates/cloacina-macros" }
+cloacina-workflow = { version = "0.2.0", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }

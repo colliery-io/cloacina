@@ -427,6 +427,10 @@
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
 
+// Re-export cloacina_workflow crate for macro-generated code compatibility
+// This makes cloacina_workflow available to any crate that depends on cloacina
+pub extern crate cloacina_workflow;
+
 // #[cfg(feature = "auth")]
 // pub mod auth;
 pub mod context;
