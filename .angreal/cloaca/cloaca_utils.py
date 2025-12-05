@@ -21,6 +21,52 @@ class TestResult:
     stderr: str = ""
     return_code: Optional[int] = None
 
+    def get_failure_summary(self) -> str:
+        """Extract a concise failure summary from pytest output."""
+        if self.passed:
+            return ""
+
+        lines = []
+
+        # Look for FAILED lines in stdout
+        for line in self.stdout.split('\n'):
+            if 'FAILED' in line or 'ERROR' in line:
+                lines.append(line.strip())
+            # Capture assertion errors
+            elif 'AssertionError' in line or 'assert ' in line:
+                lines.append(line.strip())
+            # Capture exception messages
+            elif 'Error:' in line or 'Exception:' in line:
+                lines.append(line.strip())
+
+        # Also check stderr
+        for line in self.stderr.split('\n'):
+            if 'Error' in line or 'Exception' in line:
+                lines.append(line.strip())
+
+        return '\n'.join(lines[:10]) if lines else "No specific error extracted"
+
+    def get_short_failures(self) -> str:
+        """Extract the pytest short test summary from output."""
+        if self.passed:
+            return ""
+
+        # Find the short test summary section
+        in_summary = False
+        summary_lines = []
+
+        for line in self.stdout.split('\n'):
+            if '= short test summary info =' in line or '= FAILURES =' in line:
+                in_summary = True
+                continue
+            if in_summary:
+                if line.startswith('=') and '=' in line[1:]:
+                    break
+                if line.strip():
+                    summary_lines.append(line)
+
+        return '\n'.join(summary_lines[:20]) if summary_lines else ""
+
 
 class TestAggregator:
     """Aggregates test results across all backends."""
@@ -54,6 +100,41 @@ class TestAggregator:
             "failed": failed,
             "backends": backends
         }
+
+    def print_failure_report(self):
+        """Print a detailed report of all failures."""
+        failed = self.get_failed_results()
+        if not failed:
+            return
+
+        print(f"\n{'='*60}")
+        print("DETAILED FAILURE REPORT")
+        print(f"{'='*60}")
+
+        for i, result in enumerate(failed, 1):
+            print(f"\n[{i}/{len(failed)}] {result.file_name} ({result.backend})")
+            print("-" * 50)
+
+            # Print the short test summary (most useful)
+            short_failures = result.get_short_failures()
+            if short_failures:
+                print("PYTEST FAILURES:")
+                print(short_failures)
+            else:
+                # Fall back to extracted error lines
+                failure_summary = result.get_failure_summary()
+                if failure_summary:
+                    print("ERROR SUMMARY:")
+                    print(failure_summary)
+
+            # Print return code
+            print(f"\nReturn code: {result.return_code}")
+
+            # Offer to show full output
+            print(f"\nFull stdout length: {len(result.stdout)} chars")
+            print(f"Full stderr length: {len(result.stderr)} chars")
+
+        print(f"\n{'='*60}")
 
 
 def write_file_safe(path: Path, content: str, encoding: str = "utf-8", backup: bool = False):
