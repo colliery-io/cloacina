@@ -352,20 +352,14 @@ fn extract_task_info_and_graph_from_library(
 
     // Extract graph data JSON if available
     let graph_data = if !package_tasks.graph_data_json.is_null() {
-        let graph_json_str = unsafe {
-            std::ffi::CStr::from_ptr(package_tasks.graph_data_json)
-                .to_str()
-                .unwrap_or("{}")
-        };
+        let graph_json_str = safe_cstr_to_string(package_tasks.graph_data_json, "graph_data_json")
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         // Parse the JSON string into WorkflowGraphData
-        match serde_json::from_str::<crate::WorkflowGraphData>(graph_json_str) {
-            Ok(graph) => Some(graph),
-            Err(e) => {
-                eprintln!("Warning: Failed to parse graph data: {}", e);
-                None
-            }
-        }
+        let graph = serde_json::from_str::<crate::WorkflowGraphData>(&graph_json_str)
+            .map_err(|e| ManifestError::InvalidGraphData { source: e })
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Some(graph)
     } else {
         None
     };
@@ -377,82 +371,48 @@ fn extract_task_info_and_graph_from_library(
     let tasks_slice = unsafe { validate_slice(package_tasks.tasks, task_count, "tasks") }
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if !tasks_slice.is_empty() {
-        for (index, task_metadata) in tasks_slice.iter().enumerate() {
-            let local_id = unsafe {
-                std::ffi::CStr::from_ptr(task_metadata.local_id)
-                    .to_str()
-                    .unwrap_or("unknown")
-                    .to_string()
-            };
+    for (index, task_metadata) in tasks_slice.iter().enumerate() {
+        let local_id = safe_cstr_to_string(task_metadata.local_id, "local_id")
+            .map_err(|e| anyhow::anyhow!("Task {}: {}", index, e))?;
 
-            let description = unsafe {
-                std::ffi::CStr::from_ptr(task_metadata.description)
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string()
-            };
+        let description = safe_cstr_to_string(task_metadata.description, "description")
+            .map_err(|e| anyhow::anyhow!("Task {}: {}", index, e))?;
 
-            let source_location = unsafe {
-                std::ffi::CStr::from_ptr(task_metadata.source_location)
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string()
-            };
+        let source_location = safe_cstr_to_string(task_metadata.source_location, "source_location")
+            .map_err(|e| anyhow::anyhow!("Task {}: {}", index, e))?;
 
-            let dependencies_json = unsafe {
-                std::ffi::CStr::from_ptr(task_metadata.dependencies_json)
-                    .to_str()
-                    .unwrap_or("[]")
-            };
+        let dependencies_json =
+            safe_cstr_to_string(task_metadata.dependencies_json, "dependencies_json")
+                .map_err(|e| anyhow::anyhow!("Task {}: {}", index, e))?;
 
-            // Parse dependencies JSON
-            let dependencies: Vec<String> =
-                serde_json::from_str(dependencies_json).unwrap_or_else(|_| vec![]);
+        // Parse dependencies JSON
+        let dependencies: Vec<String> = serde_json::from_str(&dependencies_json)
+            .map_err(|e| ManifestError::InvalidDependencies {
+                task_id: local_id.clone(),
+                source: e,
+            })
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            tasks.push(TaskInfo {
-                index: index as u32,
-                id: local_id,
-                dependencies,
-                description,
-                source_location,
-            });
-        }
+        tasks.push(TaskInfo {
+            index: index as u32,
+            id: local_id,
+            dependencies,
+            description,
+            source_location,
+        });
     }
 
     // Extract package metadata
-    let package_description = if !package_tasks.package_description.is_null() {
-        unsafe {
-            std::ffi::CStr::from_ptr(package_tasks.package_description)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
-        }
-    } else {
-        None
-    };
+    let package_description =
+        safe_cstr_to_option_string(package_tasks.package_description, "package_description")
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let package_author = if !package_tasks.package_author.is_null() {
-        unsafe {
-            std::ffi::CStr::from_ptr(package_tasks.package_author)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
-        }
-    } else {
-        None
-    };
+    let package_author = safe_cstr_to_option_string(package_tasks.package_author, "package_author")
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let workflow_fingerprint = if !package_tasks.workflow_fingerprint.is_null() {
-        unsafe {
-            std::ffi::CStr::from_ptr(package_tasks.workflow_fingerprint)
-                .to_str()
-                .ok()
-                .map(|s| s.to_string())
-        }
-    } else {
-        None
-    };
+    let workflow_fingerprint =
+        safe_cstr_to_option_string(package_tasks.workflow_fingerprint, "workflow_fingerprint")
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let package_metadata = PackageMetadata {
         description: package_description,
