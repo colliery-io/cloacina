@@ -119,9 +119,23 @@ def test(backend=None, filter=None, file=None, skip_docker=False):
 
                     # Clean state between test files
                     if backend_name == "postgres":
-                        if smart_postgres_reset():
+                        if skip_docker:
+                            # Use psql directly when not using Docker (e.g., macOS with homebrew postgres)
+                            try:
+                                result = subprocess.run(
+                                    ["psql", "-U", "cloacina", "-d", "cloacina",
+                                     "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"],
+                                    capture_output=True, text=True
+                                )
+                                if result.returncode == 0:
+                                    print("PostgreSQL state reset (direct psql)")
+                                else:
+                                    print(f"Warning: PostgreSQL reset failed: {result.stderr}")
+                            except Exception as e:
+                                print(f"Warning: Could not reset PostgreSQL: {e}")
+                        elif smart_postgres_reset():
                             print("PostgreSQL state reset")
-                        elif not skip_docker:
+                        else:
                             print("Fast reset failed, restarting Docker...")
                             docker_down(remove_volumes=True)
                             docker_up()
