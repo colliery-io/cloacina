@@ -52,13 +52,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: Install PostgreSQL dev headers (macOS)
+      - name: Install PostgreSQL (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install libpq
-          echo "$(brew --prefix libpq)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          brew install postgresql@14
+          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+
+      - name: Start PostgreSQL services (macOS)
+        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+        run: |
+          brew services start postgresql@14
+          sleep 5
+          # Create the cloacina user and database that tests expect
+          createuser -s cloacina || true
+          createdb -O cloacina cloacina || true
 
       - name: Install PostgreSQL dev headers (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -66,8 +75,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpq-dev
 
-      - name: Start PostgreSQL via Docker Compose
-        if: matrix.backend == 'postgres'
+      - name: Start PostgreSQL via Docker Compose (Ubuntu)
+        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
         uses: hoverkraft-tech/compose-action@v2.0.1
         with:
           compose-file: ".angreal/docker-compose.yaml"
