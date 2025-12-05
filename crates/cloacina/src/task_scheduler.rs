@@ -113,18 +113,23 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+use diesel::prelude::*;
+use diesel::Connection;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use crate::dal::unified::models::{NewUnifiedPipelineExecution, NewUnifiedTaskExecution};
 use crate::dal::DAL;
-use crate::database::universal_types::UniversalUuid;
+use crate::database::schema::unified::{pipeline_executions, task_executions};
+use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
+use crate::database::BackendType;
 use crate::error::ValidationError;
-use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
+use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
-use crate::models::task_execution::{NewTaskExecution, TaskExecution};
+use crate::models::task_execution::TaskExecution;
 use crate::task::TaskNamespace;
 use crate::{Context, Database, Workflow};
 
@@ -326,25 +331,138 @@ impl TaskScheduler {
             );
         }
 
-        // Store context
+        // Store context first (separate operation - needed before main transaction)
         let stored_context = self.dal.context().create(&input_context).await?;
 
-        // Create pipeline execution
-        let new_execution = NewPipelineExecution {
-            pipeline_name: workflow_name.to_string(),
-            pipeline_version: current_version,
-            status: "Pending".to_string(),
-            context_id: stored_context,
-        };
+        // Build all task data BEFORE the transaction
+        let task_ids = workflow.topological_sort()?;
+        let mut task_data: Vec<(String, String, String, i32)> = Vec::with_capacity(task_ids.len());
 
-        let pipeline_execution = self.dal.pipeline_execution().create(new_execution).await?;
+        for task_id in &task_ids {
+            let trigger_rules = self.get_task_trigger_rules(&workflow, task_id);
+            let task_config = self.get_task_configuration(&workflow, task_id);
+            let max_attempts = workflow
+                .get_task(task_id)
+                .map(|t| t.retry_policy().max_attempts)
+                .unwrap_or(3);
 
-        // Initialize task executions
-        self.initialize_task_executions(pipeline_execution.id.into(), &workflow)
-            .await?;
+            task_data.push((
+                task_id.to_string(),
+                trigger_rules.to_string(),
+                task_config.to_string(),
+                max_attempts,
+            ));
+        }
 
-        info!("Workflow execution scheduled: {}", pipeline_execution.id);
-        Ok(pipeline_execution.id.into())
+        // Prepare pipeline data
+        let pipeline_id = UniversalUuid::new_v4();
+        let now = UniversalTimestamp::now();
+        let pipeline_name = workflow_name.to_string();
+        let pipeline_version = current_version.clone();
+
+        // Create pipeline AND tasks in a single atomic transaction
+        // This prevents the race condition where the scheduler sees a pipeline before tasks exist
+        match self.dal.backend() {
+            BackendType::Postgres => {
+                let conn = self
+                    .dal
+                    .database()
+                    .get_postgres_connection()
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+                conn.interact(move |conn| {
+                    conn.transaction(|conn| {
+                        // Insert pipeline
+                        diesel::insert_into(pipeline_executions::table)
+                            .values(&NewUnifiedPipelineExecution {
+                                id: pipeline_id,
+                                pipeline_name,
+                                pipeline_version,
+                                status: "Pending".to_string(),
+                                context_id: stored_context,
+                                started_at: now,
+                                created_at: now,
+                                updated_at: now,
+                            })
+                            .execute(conn)?;
+
+                        // Insert all tasks
+                        for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                            diesel::insert_into(task_executions::table)
+                                .values(&NewUnifiedTaskExecution {
+                                    id: UniversalUuid::new_v4(),
+                                    pipeline_execution_id: pipeline_id,
+                                    task_name,
+                                    status: "NotStarted".to_string(),
+                                    attempt: 1,
+                                    max_attempts,
+                                    trigger_rules,
+                                    task_configuration: task_config,
+                                    created_at: now,
+                                    updated_at: now,
+                                })
+                                .execute(conn)?;
+                        }
+
+                        Ok::<_, diesel::result::Error>(())
+                    })
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            }
+            BackendType::Sqlite => {
+                let conn = self
+                    .dal
+                    .database()
+                    .get_sqlite_connection()
+                    .await
+                    .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+                conn.interact(move |conn| {
+                    conn.transaction(|conn| {
+                        // Insert pipeline
+                        diesel::insert_into(pipeline_executions::table)
+                            .values(&NewUnifiedPipelineExecution {
+                                id: pipeline_id,
+                                pipeline_name,
+                                pipeline_version,
+                                status: "Pending".to_string(),
+                                context_id: stored_context,
+                                started_at: now,
+                                created_at: now,
+                                updated_at: now,
+                            })
+                            .execute(conn)?;
+
+                        // Insert all tasks
+                        for (task_name, trigger_rules, task_config, max_attempts) in task_data {
+                            diesel::insert_into(task_executions::table)
+                                .values(&NewUnifiedTaskExecution {
+                                    id: UniversalUuid::new_v4(),
+                                    pipeline_execution_id: pipeline_id,
+                                    task_name,
+                                    status: "NotStarted".to_string(),
+                                    attempt: 1,
+                                    max_attempts,
+                                    trigger_rules,
+                                    task_configuration: task_config,
+                                    created_at: now,
+                                    updated_at: now,
+                                })
+                                .execute(conn)?;
+                        }
+
+                        Ok::<_, diesel::result::Error>(())
+                    })
+                })
+                .await
+                .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+            }
+        }
+
+        info!("Workflow execution scheduled: {}", pipeline_id);
+        Ok(pipeline_id.into())
     }
 
     /// Runs the main scheduling loop that continuously processes active pipeline executions.
@@ -400,58 +518,6 @@ impl TaskScheduler {
                 Err(e) => error!("Scheduling loop error: {}", e),
             }
         }
-    }
-
-    /// Initializes task execution records for all tasks in a workflow.
-    ///
-    /// # Arguments
-    ///
-    /// * `pipeline_execution_id` - UUID of the pipeline execution
-    /// * `workflow` - The workflow containing tasks to initialize
-    ///
-    /// # Returns
-    ///
-    /// Ok(()) on success, ValidationError on failure.
-    async fn initialize_task_executions(
-        &self,
-        pipeline_execution_id: Uuid,
-        workflow: &Workflow,
-    ) -> Result<(), ValidationError> {
-        debug!(
-            "Initializing task executions for pipeline: {}",
-            pipeline_execution_id
-        );
-
-        let task_ids = workflow.topological_sort()?;
-
-        for task_id in task_ids {
-            let trigger_rules = self.get_task_trigger_rules(workflow, &task_id);
-            let task_config = self.get_task_configuration(workflow, &task_id);
-
-            // Get retry policy from task to determine max_attempts
-            let max_attempts = if let Ok(task) = workflow.get_task(&task_id) {
-                task.retry_policy().max_attempts
-            } else {
-                3 // Fallback default
-            };
-
-            // Use the TaskNamespace directly as it's already a full namespace
-            let full_task_name = task_id.to_string();
-
-            let new_task = NewTaskExecution {
-                pipeline_execution_id: UniversalUuid(pipeline_execution_id),
-                task_name: full_task_name,
-                status: "NotStarted".to_string(),
-                attempt: 1,
-                max_attempts,
-                trigger_rules: trigger_rules.to_string(),
-                task_configuration: task_config.to_string(),
-            };
-
-            self.dal.task_execution().create(new_task).await?;
-        }
-
-        Ok(())
     }
 
     /// Recovers tasks from workflows that are still available in the registry.
