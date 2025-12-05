@@ -33,8 +33,7 @@ cloaca = angreal.command_group(name="cloaca", about="commands for Python binding
 @angreal.argument(name="filter", short="k", help="filter tests using pytest -k expression syntax")
 @angreal.argument(name="file", long="file", help="run specific test file by filename")
 @angreal.argument(name="skip_docker", long="skip-docker", help="skip Docker setup/teardown (use when postgres is already running)", takes_value=False, is_flag=True)
-@angreal.argument(name="verbose", short="v", long="verbose", help="show full pytest output on failures", takes_value=False, is_flag=True)
-def test(backend=None, filter=None, file=None, skip_docker=False, verbose=False):
+def test(backend=None, filter=None, file=None, skip_docker=False):
     """Run Python binding tests in isolated virtual environments.
 
     Creates a fresh virtual environment with the unified wheel and runs
@@ -172,22 +171,13 @@ def test(backend=None, filter=None, file=None, skip_docker=False, verbose=False)
                                 return_code=result.returncode
                             )
 
-                            # Print immediate failure info
-                            if verbose:
-                                print("\n--- FULL PYTEST OUTPUT ---")
-                                print(result.stdout)
-                                if result.stderr:
-                                    print("\n--- STDERR ---")
-                                    print(result.stderr)
-                                print("--- END OUTPUT ---\n")
-                            else:
-                                short_failures = test_result.get_short_failures()
-                                if short_failures:
-                                    print("  Failures:")
-                                    for line in short_failures.split('\n')[:5]:
-                                        print(f"    {line}")
-                                elif result.stderr:
-                                    print(f"  STDERR: {result.stderr[:200]}")
+                            # Print full pytest output on failure for debugging
+                            print("\n--- PYTEST OUTPUT ---")
+                            print(result.stdout)
+                            if result.stderr:
+                                print("\n--- STDERR ---")
+                                print(result.stderr)
+                            print("--- END OUTPUT ---\n")
 
                             file_results.append((test_file.name, False))
                             all_passed = False
