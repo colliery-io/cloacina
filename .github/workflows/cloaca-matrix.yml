@@ -52,46 +52,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
-      - name: Install PostgreSQL (macOS)
+      - name: Install PostgreSQL dev headers (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew install postgresql@14
-          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+          brew install libpq
+          echo "$(brew --prefix libpq)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
 
-      - name: Install PostgreSQL (Ubuntu)
+      - name: Install PostgreSQL dev headers (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
 
-      - name: Docker Compose Cache
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
-        with:
-          path: ~/.docker
-          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
-
-      - name: Start PostgreSQL services (Ubuntu)
-        if: matrix.backend == 'postgres' && matrix.os == 'ubuntu-latest'
-        uses: hoverkraft-tech/compose-action@v2.0.1
-        with:
-          compose-file: ".angreal/docker-compose.yaml"
-
-      - name: Start PostgreSQL services (macOS)
-        if: matrix.backend == 'postgres' && matrix.os == 'macos-latest'
+      - name: Start PostgreSQL via Docker Compose
+        if: matrix.backend == 'postgres'
         run: |
-          brew services start postgresql@14
-          sleep 5
-          # Create the cloacina user and database that tests expect
-          createuser -s cloacina || true
-          createdb -O cloacina cloacina || true
+          docker compose -f .angreal/docker-compose.yaml up -d
+          # Wait for postgres to be ready
+          for i in {1..30}; do
+            if docker exec cloacina-postgres pg_isready -U cloacina; then
+              echo "PostgreSQL is ready"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
 
       - name: Run all Python bindings tests
-        run: |
-          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.backend }}" = "postgres" ]; then
-            angreal cloaca test --backend ${{ matrix.backend }} --skip-docker
-          else
-            angreal cloaca test --backend ${{ matrix.backend }}
-          fi
+        run: angreal cloaca test --backend ${{ matrix.backend }}
