@@ -4,14 +4,14 @@ level: initiative
 title: "Implement execution_order Field in Package Manifest"
 short_code: "CLOACI-I-0011"
 created_at: 2025-11-29T02:40:15.272951+00:00
-updated_at: 2025-11-29T02:40:15.272951+00:00
+updated_at: 2025-12-06T16:25:52.673513+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -24,7 +24,18 @@ initiative_id: implement-execution-order-field-in
 
 *This template includes sections for various types of initiatives. Delete sections that don't apply to your specific use case.*
 
-## Context
+## Resolution
+
+**Decision: Remove the field rather than implement it.**
+
+After analysis, we determined that:
+1. The field was never consumed by any code
+2. Task execution order is computed dynamically at runtime via `topological_sort()`
+3. A flat execution order loses parallelism information - the dependency graph preserves which tasks can run concurrently
+
+The field was removed in PR #46.
+
+## Original Context
 
 In `cloacina/src/packaging/manifest.rs` (line 72), there's an incomplete TODO:
 
