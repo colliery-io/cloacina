@@ -4,14 +4,14 @@ level: task
 title: "Apply schema validation to setup_schema and get_connection_with_schema"
 short_code: "CLOACI-T-0020"
 created_at: 2025-12-06T01:40:35.031718+00:00
-updated_at: 2025-12-06T01:40:35.031718+00:00
+updated_at: 2025-12-06T02:38:48.320750+00:00
 parent: CLOACI-I-0005
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,12 @@ initiative_id: CLOACI-I-0005
 ## Objective
 
 Integrate the `validate_schema_name()` function into all code paths that use schema names in raw SQL queries. This eliminates the SQL injection vulnerability by ensuring malicious schema names are rejected before reaching the database.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

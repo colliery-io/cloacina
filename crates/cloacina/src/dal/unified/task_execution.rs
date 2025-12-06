@@ -113,17 +113,12 @@ impl<'a> TaskExecutionDAL<'a> {
             updated_at: now,
         };
 
-        conn.interact(move |conn| {
-            diesel::insert_into(task_executions::table)
-                .values(&new_unified_task)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        // Fetch the created task
         let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(id).first(conn))
+            .interact(move |conn| {
+                diesel::insert_into(task_executions::table)
+                    .values(&new_unified_task)
+                    .get_result(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -157,16 +152,12 @@ impl<'a> TaskExecutionDAL<'a> {
             updated_at: now,
         };
 
-        conn.interact(move |conn| {
-            diesel::insert_into(task_executions::table)
-                .values(&new_unified_task)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
         let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(id).first(conn))
+            .interact(move |conn| {
+                diesel::insert_into(task_executions::table)
+                    .values(&new_unified_task)
+                    .get_result(conn)
+            })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
@@ -842,16 +833,6 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        // Get task info for logging before updating
-        let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(task_id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let task_status = task.status.clone();
-        let task_name = task.task_name.clone();
-        let pipeline_id = task.pipeline_execution_id;
-
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -864,12 +845,7 @@ impl<'a> TaskExecutionDAL<'a> {
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        tracing::debug!(
-            "Task state change: {} -> Ready (task: {}, pipeline: {})",
-            task_status,
-            task_name,
-            pipeline_id
-        );
+        tracing::debug!(task_id = %task_id, "Task marked as Ready");
         Ok(())
     }
 
@@ -881,16 +857,6 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        // Get task info for logging before updating
-        let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(task_id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let task_status = task.status.clone();
-        let task_name = task.task_name.clone();
-        let pipeline_id = task.pipeline_execution_id;
-
         let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
@@ -903,12 +869,7 @@ impl<'a> TaskExecutionDAL<'a> {
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        tracing::debug!(
-            "Task state change: {} -> Ready (task: {}, pipeline: {})",
-            task_status,
-            task_name,
-            pipeline_id
-        );
+        tracing::debug!(task_id = %task_id, "Task marked as Ready");
         Ok(())
     }
 
@@ -936,16 +897,6 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        // Get task info for logging before updating
-        let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(task_id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let task_status = task.status.clone();
-        let task_name = task.task_name.clone();
-        let pipeline_id = task.pipeline_execution_id;
-
         let now = UniversalTimestamp::now();
         let reason_owned = reason.to_string();
         let reason_log = reason.to_string();
@@ -961,13 +912,7 @@ impl<'a> TaskExecutionDAL<'a> {
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        tracing::info!(
-            "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
-            task_status,
-            task_name,
-            pipeline_id,
-            reason_log
-        );
+        tracing::info!(task_id = %task_id, reason = %reason_log, "Task marked as Skipped");
         Ok(())
     }
 
@@ -983,16 +928,6 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        // Get task info for logging before updating
-        let task: UnifiedTaskExecution = conn
-            .interact(move |conn| task_executions::table.find(task_id).first(conn))
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
-        let task_status = task.status.clone();
-        let task_name = task.task_name.clone();
-        let pipeline_id = task.pipeline_execution_id;
-
         let now = UniversalTimestamp::now();
         let reason_owned = reason.to_string();
         let reason_log = reason.to_string();
@@ -1008,13 +943,7 @@ impl<'a> TaskExecutionDAL<'a> {
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
-        tracing::info!(
-            "Task state change: {} -> Skipped (task: {}, pipeline: {}, reason: {})",
-            task_status,
-            task_name,
-            pipeline_id,
-            reason_log
-        );
+        tracing::info!(task_id = %task_id, reason = %reason_log, "Task marked as Skipped");
         Ok(())
     }
 
@@ -1272,24 +1201,12 @@ impl<'a> TaskExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let now = UniversalTimestamp::now();
-
-        // First get current recovery_attempts value
-        let current_recovery: i32 = conn
-            .interact(move |conn| {
-                task_executions::table
-                    .find(task_id)
-                    .select(task_executions::recovery_attempts)
-                    .first(conn)
-            })
-            .await
-            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
-
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id))
                 .set((
                     task_executions::status.eq("Ready"),
                     task_executions::started_at.eq(None::<UniversalTimestamp>),
-                    task_executions::recovery_attempts.eq(current_recovery + 1),
+                    task_executions::recovery_attempts.eq(task_executions::recovery_attempts + 1),
                     task_executions::last_recovery_at.eq(Some(now)),
                     task_executions::updated_at.eq(now),
                 ))
