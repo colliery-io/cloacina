@@ -4,14 +4,14 @@ level: initiative
 title: "Fix Async Runtime Shutdown Error Handling in Python Bindings"
 short_code: "CLOACI-I-0012"
 created_at: 2025-11-29T02:40:20.488270+00:00
-updated_at: 2025-11-29T02:40:20.488270+00:00
+updated_at: 2025-12-06T17:22:24.677241+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
