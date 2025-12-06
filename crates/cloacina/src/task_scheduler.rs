@@ -301,12 +301,7 @@ impl TaskScheduler {
         // Look up workflow in global registry
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!(
-                    "Failed to access global workflow registry: {}",
-                    e
-                ))
-            })?;
+            let registry_guard = global_registry.read();
 
             if let Some(constructor) = registry_guard.get(workflow_name) {
                 constructor()
@@ -560,7 +555,7 @@ impl TaskScheduler {
     ) -> Result<usize, ValidationError> {
         let mut available_workflows: Vec<String> = {
             let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+            let registry_guard = global_registry.read();
             registry_guard.keys().cloned().collect()
         };
         available_workflows.sort();
@@ -814,12 +809,7 @@ impl TaskScheduler {
             .await?;
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!(
-                    "Failed to access global workflow registry: {}",
-                    e
-                ))
-            })?;
+            let registry_guard = global_registry.read();
 
             if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
                 constructor()
@@ -1076,12 +1066,7 @@ impl TaskScheduler {
             .await?;
         let workflow = {
             let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read().map_err(|e| {
-                ValidationError::WorkflowNotFound(format!(
-                    "Failed to access global workflow registry: {}",
-                    e
-                ))
-            })?;
+            let registry_guard = global_registry.read();
 
             if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
                 constructor()
@@ -1350,7 +1335,7 @@ impl TaskScheduler {
         let mut failed_pipelines = 0;
         let mut available_workflows: Vec<String> = {
             let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+            let registry_guard = global_registry.read();
             registry_guard.keys().cloned().collect()
         };
         available_workflows.sort();
@@ -1364,7 +1349,7 @@ impl TaskScheduler {
         for (pipeline_id, (pipeline, tasks)) in tasks_by_pipeline {
             let workflow_exists = {
                 let global_registry = crate::workflow::global_workflow_registry();
-                let registry_guard = global_registry.read().unwrap_or_else(|e| e.into_inner());
+                let registry_guard = global_registry.read();
                 registry_guard.contains_key(&pipeline.pipeline_name)
             };
 

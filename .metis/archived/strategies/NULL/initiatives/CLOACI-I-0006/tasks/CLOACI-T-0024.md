@@ -7,7 +7,7 @@ created_at: 2025-12-06T02:46:35.687012+00:00
 updated_at: 2025-12-06T02:46:35.687012+00:00
 parent: CLOACI-I-0006
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0006
 ## Objective
 
 Verify that the refactored DAL methods maintain correct behavior after eliminating N+1 query patterns. Run existing tests and add any missing coverage for the affected methods.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,14 +4,14 @@ level: initiative
 title: "Eliminate N+1 Query Pattern in Task Execution DAL"
 short_code: "CLOACI-I-0006"
 created_at: 2025-11-29T02:40:07.223787+00:00
-updated_at: 2025-12-06T02:50:22.556801+00:00
+updated_at: 2025-12-06T03:31:16.051177+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

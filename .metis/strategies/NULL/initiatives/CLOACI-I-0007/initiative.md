@@ -4,14 +4,14 @@ level: initiative
 title: "Fix RwLock Poisoning Recovery in Task Registry"
 short_code: "CLOACI-I-0007"
 created_at: 2025-11-29T02:40:07.342548+00:00
-updated_at: 2025-11-29T02:40:07.342548+00:00
+updated_at: 2025-12-06T03:36:20.930870+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/design"
 
 
 exit_criteria_met: false

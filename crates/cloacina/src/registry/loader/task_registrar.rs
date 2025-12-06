@@ -21,10 +21,11 @@
 //! isolation and task lifecycle management.
 
 use libloading::{Library, Symbol};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -221,12 +222,7 @@ impl TaskRegistrar {
 
         // Track registered tasks for cleanup
         {
-            let mut registered =
-                self.registered_tasks
-                    .write()
-                    .map_err(|e| LoaderError::TaskRegistration {
-                        reason: format!("Failed to acquire registration lock: {}", e),
-                    })?;
+            let mut registered = self.registered_tasks.write();
             registered.insert(package_id.to_string(), registered_namespaces.clone());
         }
 
@@ -370,12 +366,7 @@ impl TaskRegistrar {
     pub fn unregister_package_tasks(&self, package_id: &str) -> Result<(), LoaderError> {
         // Remove from tracked registrations
         let namespaces = {
-            let mut registered =
-                self.registered_tasks
-                    .write()
-                    .map_err(|e| LoaderError::TaskRegistration {
-                        reason: format!("Failed to acquire registration lock: {}", e),
-                    })?;
+            let mut registered = self.registered_tasks.write();
             registered.remove(package_id)
         };
 
@@ -392,12 +383,7 @@ impl TaskRegistrar {
 
         // Remove library reference
         {
-            let mut libraries =
-                self.loaded_libraries
-                    .write()
-                    .map_err(|e| LoaderError::TaskRegistration {
-                        reason: format!("Failed to acquire library lock: {}", e),
-                    })?;
+            let mut libraries = self.loaded_libraries.write();
             libraries.remove(package_id);
         }
 
@@ -406,28 +392,19 @@ impl TaskRegistrar {
 
     /// Get the list of task namespaces registered for a package.
     pub fn get_registered_namespaces(&self, package_id: &str) -> Vec<TaskNamespace> {
-        let registered = self
-            .registered_tasks
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let registered = self.registered_tasks.read();
         registered.get(package_id).cloned().unwrap_or_default()
     }
 
     /// Get the number of currently loaded packages.
     pub fn loaded_package_count(&self) -> usize {
-        let libraries = self
-            .loaded_libraries
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let libraries = self.loaded_libraries.read();
         libraries.len()
     }
 
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
-        let registered = self
-            .registered_tasks
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let registered = self.registered_tasks.read();
         registered.values().map(|tasks| tasks.len()).sum()
     }
 

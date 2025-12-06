@@ -531,18 +531,17 @@ impl RegistryReconciler {
                             // This is a template, need to look up actual workflow_id from registered tasks
                             let task_registry = crate::task::global_task_registry();
                             let mut found_id = None;
-                            if let Ok(registry) = task_registry.read() {
-                                for (namespace, _) in registry.iter() {
-                                    if namespace.package_name == metadata.package_name
-                                        && namespace.tenant_id == self.config.default_tenant_id
-                                    {
-                                        debug!(
-                                            "Found registered task with workflow_id: '{}'",
-                                            namespace.workflow_id
-                                        );
-                                        found_id = Some(namespace.workflow_id.clone());
-                                        break;
-                                    }
+                            let registry = task_registry.read();
+                            for (namespace, _) in registry.iter() {
+                                if namespace.package_name == metadata.package_name
+                                    && namespace.tenant_id == self.config.default_tenant_id
+                                {
+                                    debug!(
+                                        "Found registered task with workflow_id: '{}'",
+                                        namespace.workflow_id
+                                    );
+                                    found_id = Some(namespace.workflow_id.clone());
+                                    break;
                                 }
                             }
                             // Use found ID or fallback
@@ -594,12 +593,7 @@ impl RegistryReconciler {
 
             // Register workflow constructor with global workflow registry
             let workflow_registry = global_workflow_registry();
-            let mut registry =
-                workflow_registry
-                    .write()
-                    .map_err(|e| RegistryError::RegistrationFailed {
-                        message: format!("Failed to access workflow registry: {}", e),
-                    })?;
+            let mut registry = workflow_registry.write();
 
             // Create a constructor that recreates the workflow from host registry each time
             let workflow_name_for_closure = workflow_name.clone();
@@ -660,11 +654,7 @@ impl RegistryReconciler {
 
         // Add tasks from the host's global task registry
         let task_registry = crate::task::global_task_registry();
-        let registry = task_registry
-            .read()
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("Failed to access task registry: {}", e),
-            })?;
+        let registry = task_registry.read();
 
         let mut found_tasks = 0;
         for (namespace, task_constructor) in registry.iter() {
@@ -714,11 +704,7 @@ impl RegistryReconciler {
 
         // Add tasks from the host's global task registry
         let task_registry = crate::task::global_task_registry();
-        let registry = task_registry
-            .read()
-            .map_err(|e| RegistryError::RegistrationFailed {
-                message: format!("Failed to access task registry: {}", e),
-            })?;
+        let registry = task_registry.read();
 
         let mut found_tasks = 0;
         for (namespace, task_constructor) in registry.iter() {
@@ -771,12 +757,7 @@ impl RegistryReconciler {
 
         // Then unregister from the global task registry
         let task_registry = global_task_registry();
-        let mut registry =
-            task_registry
-                .write()
-                .map_err(|e| RegistryError::RegistrationFailed {
-                    message: format!("Failed to access task registry for unregistration: {}", e),
-                })?;
+        let mut registry = task_registry.write();
 
         for namespace in task_namespaces {
             registry.remove(namespace);
@@ -789,15 +770,7 @@ impl RegistryReconciler {
     /// Unregister a workflow from the global workflow registry
     async fn unregister_package_workflow(&self, workflow_name: &str) -> Result<(), RegistryError> {
         let workflow_registry = global_workflow_registry();
-        let mut registry =
-            workflow_registry
-                .write()
-                .map_err(|e| RegistryError::RegistrationFailed {
-                    message: format!(
-                        "Failed to access workflow registry for unregistration: {}",
-                        e
-                    ),
-                })?;
+        let mut registry = workflow_registry.write();
 
         registry.remove(workflow_name);
         debug!("Unregistered workflow: {}", workflow_name);

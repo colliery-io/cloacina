@@ -109,13 +109,7 @@ impl ThreadTaskExecutor {
     ) -> Result<Self, crate::error::RegistrationError> {
         let mut registry = TaskRegistry::new();
         let global_registry = crate::global_task_registry();
-        let global_tasks = match global_registry.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                tracing::warn!("Task registry RwLock was poisoned, recovering data");
-                poisoned.into_inner()
-            }
-        };
+        let global_tasks = global_registry.read();
 
         for (namespace, constructor) in global_tasks.iter() {
             let task = constructor();
