@@ -49,15 +49,16 @@ jobs:
         with:
           filters: |
             rust:
-              - 'cloacina/**'
-              - 'cloacina-macros/**'
+              - 'crates/cloacina/**'
+              - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-workflow/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
             python:
               - 'python-tests/**'
-              - 'cloaca/**'
-              - 'cloaca-backend/**'
-              - 'cloacina/**'
+              - 'crates/cloaca/**'
+              - 'crates/cloaca-backend/**'
+              - 'crates/cloacina/**'
               - 'Cargo.*'
             examples:
               - 'examples/**'
