@@ -7,7 +7,7 @@ created_at: 2025-11-30T02:05:39.366703+00:00
 updated_at: 2025-11-30T02:51:13.322887+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Create a unified schema module that works with Diesel's `MultiConnection`, replacing the current separate `postgres_schema` and `sqlite_schema` modules with conditional compilation.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

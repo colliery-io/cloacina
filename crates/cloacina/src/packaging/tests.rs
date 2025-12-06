@@ -375,4 +375,161 @@ pub fn regular_function() -> String {
             );
         }
     }
+
+    // FFI Validation Helper Tests
+
+    #[test]
+    fn test_safe_cstr_to_string_null_pointer() {
+        use super::super::manifest::{safe_cstr_to_string, ManifestError};
+        use std::ptr;
+
+        let result = safe_cstr_to_string(ptr::null(), "test_field");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ManifestError::NullString { field } => {
+                assert_eq!(field, "test_field");
+            }
+            _ => panic!("Expected NullString error"),
+        }
+    }
+
+    #[test]
+    fn test_safe_cstr_to_string_valid() {
+        use super::super::manifest::safe_cstr_to_string;
+        use std::ffi::CString;
+
+        let c_string = CString::new("hello world").unwrap();
+        let result = safe_cstr_to_string(c_string.as_ptr(), "test_field");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_safe_cstr_to_option_string_null_returns_none() {
+        use super::super::manifest::safe_cstr_to_option_string;
+        use std::ptr;
+
+        let result = safe_cstr_to_option_string(ptr::null(), "test_field");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_safe_cstr_to_option_string_valid() {
+        use super::super::manifest::safe_cstr_to_option_string;
+        use std::ffi::CString;
+
+        let c_string = CString::new("optional value").unwrap();
+        let result = safe_cstr_to_option_string(c_string.as_ptr(), "test_field");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some("optional value".to_string()));
+    }
+
+    #[test]
+    fn test_validate_ptr_null_pointer() {
+        use super::super::manifest::{validate_ptr, ManifestError};
+        use std::ptr;
+
+        let result: Result<&u32, ManifestError> = unsafe { validate_ptr(ptr::null(), "test_ptr") };
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ManifestError::NullPointer { field } => {
+                assert_eq!(field, "test_ptr");
+            }
+            _ => panic!("Expected NullPointer error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_ptr_valid() {
+        use super::super::manifest::validate_ptr;
+
+        let value: u32 = 42;
+        let result = unsafe { validate_ptr(&value as *const u32, "test_ptr") };
+        assert!(result.is_ok());
+        assert_eq!(*result.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_validate_slice_null_with_nonzero_count() {
+        use super::super::manifest::{validate_slice, ManifestError};
+        use std::ptr;
+
+        let result: Result<&[u32], ManifestError> =
+            unsafe { validate_slice(ptr::null(), 5, "test_slice") };
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ManifestError::NullTaskSlice { count } => {
+                assert_eq!(count, 5);
+            }
+            _ => panic!("Expected NullTaskSlice error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_slice_null_with_zero_count() {
+        use super::super::manifest::validate_slice;
+        use std::ptr;
+
+        let result: Result<&[u32], _> = unsafe { validate_slice(ptr::null(), 0, "test_slice") };
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_validate_slice_exceeds_max_tasks() {
+        use super::super::manifest::{validate_slice, ManifestError};
+
+        let value: u32 = 42;
+        // MAX_TASKS is 10_000, so we test with 10_001
+        let result: Result<&[u32], ManifestError> =
+            unsafe { validate_slice(&value as *const u32, 10_001, "test_slice") };
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ManifestError::TooManyTasks { count, max } => {
+                assert_eq!(count, 10_001);
+                assert_eq!(max, 10_000);
+            }
+            _ => panic!("Expected TooManyTasks error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_slice_valid() {
+        use super::super::manifest::validate_slice;
+
+        let values: [u32; 3] = [1, 2, 3];
+        let result = unsafe { validate_slice(values.as_ptr(), 3, "test_slice") };
+        assert!(result.is_ok());
+        let slice = result.unwrap();
+        assert_eq!(slice.len(), 3);
+        assert_eq!(slice[0], 1);
+        assert_eq!(slice[1], 2);
+        assert_eq!(slice[2], 3);
+    }
+
+    #[test]
+    fn test_manifest_error_display() {
+        use super::super::manifest::ManifestError;
+
+        let err = ManifestError::NullPointer {
+            field: "test_field",
+        };
+        assert!(err.to_string().contains("test_field"));
+
+        let err = ManifestError::NullString {
+            field: "string_field".to_string(),
+        };
+        assert!(err.to_string().contains("string_field"));
+
+        let err = ManifestError::NullTaskSlice { count: 42 };
+        assert!(err.to_string().contains("42"));
+
+        let err = ManifestError::TooManyTasks {
+            count: 20000,
+            max: 10000,
+        };
+        assert!(err.to_string().contains("20000"));
+        assert!(err.to_string().contains("10000"));
+    }
 }

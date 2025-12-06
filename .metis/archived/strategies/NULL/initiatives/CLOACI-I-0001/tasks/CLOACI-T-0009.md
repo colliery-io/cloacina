@@ -7,7 +7,7 @@ created_at: 2025-11-30T02:05:40.575567+00:00
 updated_at: 2025-12-03T23:36:08.274935+00:00
 parent: CLOACI-I-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -30,6 +30,8 @@ initiative_id: CLOACI-I-0001
 ## Objective
 
 Remove the deprecated duplicate `postgres_dal/` and `sqlite_dal/` directories and update all module exports to use the unified DAL implementation.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
