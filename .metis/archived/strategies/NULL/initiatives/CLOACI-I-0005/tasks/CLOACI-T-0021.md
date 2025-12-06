@@ -4,14 +4,14 @@ level: task
 title: "Add comprehensive tests for schema validation"
 short_code: "CLOACI-T-0021"
 created_at: 2025-12-06T01:40:35.251685+00:00
-updated_at: 2025-12-06T01:40:35.251685+00:00
+updated_at: 2025-12-06T02:38:48.478017+00:00
 parent: CLOACI-I-0005
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -28,6 +28,12 @@ initiative_id: CLOACI-I-0005
 ## Objective
 
 Create comprehensive unit tests that verify the schema validation correctly rejects all SQL injection attempts and accepts valid schema names. Tests should cover edge cases and ensure the security fix is robust.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
