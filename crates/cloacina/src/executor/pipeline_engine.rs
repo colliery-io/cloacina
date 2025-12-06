@@ -478,7 +478,7 @@ impl std::fmt::Debug for PipelineEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PipelineEngine")
             .field("mode", &self.mode)
-            .field("task_registry_size", &self.task_registry.task_ids().len())
+            .field("task_registry_size", &self.task_registry.task_count())
             .finish()
     }
 }
