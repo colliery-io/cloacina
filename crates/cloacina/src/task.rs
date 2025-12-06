@@ -482,6 +482,11 @@ impl TaskRegistry {
         self.tasks.keys().cloned().collect()
     }
 
+    /// Get the number of registered tasks (O(1))
+    pub fn task_count(&self) -> usize {
+        self.tasks.len()
+    }
+
     /// Validate all task dependencies
     ///
     /// Checks that:

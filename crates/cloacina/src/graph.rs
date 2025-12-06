@@ -122,9 +122,14 @@ impl WorkflowGraph {
             .and_then(|&index| self.graph.node_weight(index))
     }
 
-    /// Get all task IDs in the graph
-    pub fn task_ids(&self) -> Vec<String> {
-        self.task_index.keys().cloned().collect()
+    /// Get an iterator over task IDs without allocation
+    pub fn task_ids(&self) -> impl Iterator<Item = &str> {
+        self.task_index.keys().map(|s| s.as_str())
+    }
+
+    /// Get the number of tasks in the graph (O(1))
+    pub fn task_count(&self) -> usize {
+        self.task_index.len()
     }
 
     /// Check if the graph has cycles
@@ -143,66 +148,69 @@ impl WorkflowGraph {
         }
     }
 
-    /// Get direct dependencies of a task
-    pub fn get_dependencies(&self, task_id: &str) -> Vec<String> {
-        if let Some(&node_idx) = self.task_index.get(task_id) {
-            self.graph
-                .edges_directed(node_idx, petgraph::Direction::Outgoing)
-                .filter_map(|edge| self.graph.node_weight(edge.target()).map(|n| n.id.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Get tasks that depend on the given task
-    pub fn get_dependents(&self, task_id: &str) -> Vec<String> {
-        if let Some(&node_idx) = self.task_index.get(task_id) {
-            self.graph
-                .edges_directed(node_idx, petgraph::Direction::Incoming)
-                .filter_map(|edge| self.graph.node_weight(edge.source()).map(|n| n.id.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Find all root tasks (tasks with no dependencies)
-    pub fn find_roots(&self) -> Vec<String> {
-        self.graph
-            .node_indices()
-            .filter(|&idx| {
+    /// Get an iterator over direct dependencies of a task
+    pub fn get_dependencies(&self, task_id: &str) -> impl Iterator<Item = &str> {
+        self.task_index
+            .get(task_id)
+            .into_iter()
+            .flat_map(|&node_idx| {
                 self.graph
-                    .edges_directed(idx, petgraph::Direction::Outgoing)
-                    .count()
-                    == 0
+                    .edges_directed(node_idx, petgraph::Direction::Outgoing)
+                    .filter_map(|edge| self.graph.node_weight(edge.target()).map(|n| n.id.as_str()))
             })
-            .filter_map(|idx| self.graph.node_weight(idx).map(|n| n.id.clone()))
-            .collect()
     }
 
-    /// Find all leaf tasks (tasks with no dependents)
-    pub fn find_leaves(&self) -> Vec<String> {
-        self.graph
-            .node_indices()
-            .filter(|&idx| {
+    /// Get an iterator over tasks that depend on the given task
+    pub fn get_dependents(&self, task_id: &str) -> impl Iterator<Item = &str> {
+        self.task_index
+            .get(task_id)
+            .into_iter()
+            .flat_map(|&node_idx| {
                 self.graph
-                    .edges_directed(idx, petgraph::Direction::Incoming)
-                    .count()
-                    == 0
+                    .edges_directed(node_idx, petgraph::Direction::Incoming)
+                    .filter_map(|edge| self.graph.node_weight(edge.source()).map(|n| n.id.as_str()))
             })
-            .filter_map(|idx| self.graph.node_weight(idx).map(|n| n.id.clone()))
-            .collect()
+    }
+
+    /// Get an iterator over root tasks (tasks with no dependencies)
+    pub fn find_roots(&self) -> impl Iterator<Item = &str> {
+        self.graph.node_indices().filter_map(|idx| {
+            let has_no_deps = self
+                .graph
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .next()
+                .is_none();
+            if has_no_deps {
+                self.graph.node_weight(idx).map(|n| n.id.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get an iterator over leaf tasks (tasks with no dependents)
+    pub fn find_leaves(&self) -> impl Iterator<Item = &str> {
+        self.graph.node_indices().filter_map(|idx| {
+            let has_no_dependents = self
+                .graph
+                .edges_directed(idx, petgraph::Direction::Incoming)
+                .next()
+                .is_none();
+            if has_no_dependents {
+                self.graph.node_weight(idx).map(|n| n.id.as_str())
+            } else {
+                None
+            }
+        })
     }
 
     /// Calculate the depth of each task (longest path from root)
     pub fn calculate_depths(&self) -> HashMap<String, usize> {
         let mut depths = HashMap::new();
-        let roots = self.find_roots();
 
         // Initialize roots with depth 0
-        for root_id in &roots {
-            depths.insert(root_id.clone(), 0);
+        for root_id in self.find_roots() {
+            depths.insert(root_id.to_string(), 0);
         }
 
         // Process nodes in topological order
@@ -288,8 +296,8 @@ impl WorkflowGraph {
             edge_count: edges.len(),
             has_cycles: self.has_cycles(),
             depth_levels: self.calculate_depths().values().max().copied().unwrap_or(0) + 1,
-            root_tasks: self.find_roots(),
-            leaf_tasks: self.find_leaves(),
+            root_tasks: self.find_roots().map(|s| s.to_string()).collect(),
+            leaf_tasks: self.find_leaves().map(|s| s.to_string()).collect(),
         };
 
         WorkflowGraphData {
@@ -403,10 +411,16 @@ mod tests {
             .add_dependency("task2", "task1", DependencyEdge::default())
             .unwrap();
 
-        assert_eq!(graph.task_ids().len(), 2);
+        assert_eq!(graph.task_count(), 2);
         assert!(!graph.has_cycles());
-        assert_eq!(graph.get_dependencies("task2"), vec!["task1"]);
-        assert_eq!(graph.get_dependents("task1"), vec!["task2"]);
+        assert_eq!(
+            graph.get_dependencies("task2").collect::<Vec<_>>(),
+            vec!["task1"]
+        );
+        assert_eq!(
+            graph.get_dependents("task1").collect::<Vec<_>>(),
+            vec!["task2"]
+        );
     }
 
     #[test]
@@ -459,5 +473,50 @@ mod tests {
 
         assert_eq!(deserialized.nodes.len(), 1);
         assert_eq!(deserialized.metadata.task_count, 1);
+    }
+
+    #[test]
+    fn test_task_count() {
+        let mut graph = WorkflowGraph::new();
+        assert_eq!(graph.task_count(), 0);
+
+        graph.add_task(TaskNode {
+            id: "task1".to_string(),
+            name: "Task 1".to_string(),
+            description: None,
+            source_location: None,
+            metadata: HashMap::new(),
+        });
+        assert_eq!(graph.task_count(), 1);
+
+        graph.add_task(TaskNode {
+            id: "task2".to_string(),
+            name: "Task 2".to_string(),
+            description: None,
+            source_location: None,
+            metadata: HashMap::new(),
+        });
+        assert_eq!(graph.task_count(), 2);
+    }
+
+    #[test]
+    fn test_task_ids_iterator() {
+        let mut graph = WorkflowGraph::new();
+
+        for id in ["a", "b", "c"] {
+            graph.add_task(TaskNode {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: None,
+                source_location: None,
+                metadata: HashMap::new(),
+            });
+        }
+
+        let ids: Vec<&str> = graph.task_ids().collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&"a"));
+        assert!(ids.contains(&"b"));
+        assert!(ids.contains(&"c"));
     }
 }
