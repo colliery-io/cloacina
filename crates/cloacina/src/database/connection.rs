@@ -48,6 +48,7 @@
 //! );
 //! ```
 
+use thiserror::Error;
 use tracing::info;
 
 use deadpool_diesel::postgres::{Manager as PgManager, Pool as PgPool, Runtime as PgRuntime};
@@ -58,6 +59,95 @@ use deadpool_diesel::sqlite::{
     Manager as SqliteManager, Pool as SqlitePool, Runtime as SqliteRuntime,
 };
 use diesel::SqliteConnection;
+
+// =============================================================================
+// Schema Validation
+// =============================================================================
+
+/// Maximum length for PostgreSQL schema names (NAMEDATALEN - 1).
+const MAX_SCHEMA_NAME_LENGTH: usize = 63;
+
+/// Reserved PostgreSQL schema names that cannot be used.
+const RESERVED_SCHEMA_NAMES: &[&str] = &["public", "pg_catalog", "information_schema", "pg_temp"];
+
+/// Errors that can occur during schema name validation.
+///
+/// These errors are returned when a schema name fails validation checks
+/// designed to prevent SQL injection attacks.
+#[derive(Debug, Error)]
+pub enum SchemaError {
+    /// Schema name is empty or exceeds the maximum length.
+    #[error("Schema name length invalid: '{name}' (must be 1-{max} characters)")]
+    InvalidLength { name: String, max: usize },
+
+    /// Schema name does not start with a letter or underscore.
+    #[error("Schema name must start with a letter or underscore: '{0}'")]
+    InvalidStart(String),
+
+    /// Schema name contains characters other than alphanumeric or underscore.
+    #[error(
+        "Schema name contains invalid characters (only alphanumeric and underscore allowed): '{0}'"
+    )]
+    InvalidCharacters(String),
+
+    /// Schema name is a reserved PostgreSQL name.
+    #[error("Schema name is reserved: '{0}'")]
+    ReservedName(String),
+}
+
+/// Validates a PostgreSQL schema name to prevent SQL injection.
+///
+/// This function enforces PostgreSQL identifier naming rules:
+/// - Length must be between 1 and 63 characters
+/// - Must start with a letter (a-z, A-Z) or underscore
+/// - Subsequent characters must be alphanumeric or underscore
+/// - Cannot be a reserved PostgreSQL schema name
+///
+/// # Arguments
+/// * `name` - The schema name to validate
+///
+/// # Returns
+/// * `Ok(&str)` - The validated schema name (zero-copy)
+/// * `Err(SchemaError)` - Description of the validation failure
+///
+/// # Example
+/// ```
+/// use cloacina::database::connection::validate_schema_name;
+///
+/// assert!(validate_schema_name("my_schema").is_ok());
+/// assert!(validate_schema_name("tenant_123").is_ok());
+/// assert!(validate_schema_name("public").is_err()); // Reserved
+/// assert!(validate_schema_name("123abc").is_err()); // Starts with number
+/// assert!(validate_schema_name("my-schema").is_err()); // Contains hyphen
+/// ```
+pub fn validate_schema_name(name: &str) -> Result<&str, SchemaError> {
+    // Check length
+    if name.is_empty() || name.len() > MAX_SCHEMA_NAME_LENGTH {
+        return Err(SchemaError::InvalidLength {
+            name: name.to_string(),
+            max: MAX_SCHEMA_NAME_LENGTH,
+        });
+    }
+
+    // Must start with letter or underscore
+    let first_char = name.chars().next().unwrap(); // Safe: we checked non-empty above
+    if !first_char.is_ascii_alphabetic() && first_char != '_' {
+        return Err(SchemaError::InvalidStart(name.to_string()));
+    }
+
+    // Only allow alphanumeric and underscore
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(SchemaError::InvalidCharacters(name.to_string()));
+    }
+
+    // Reject reserved names (case-insensitive)
+    let lower_name = name.to_lowercase();
+    if RESERVED_SCHEMA_NAMES.contains(&lower_name.as_str()) {
+        return Err(SchemaError::ReservedName(name.to_string()));
+    }
+
+    Ok(name)
+}
 
 // =============================================================================
 // Runtime Database Backend Selection
@@ -383,9 +473,17 @@ impl Database {
     /// Sets up the PostgreSQL schema for multi-tenant isolation.
     ///
     /// Creates the schema if it doesn't exist and runs migrations within it.
-    /// Returns an error if called on a SQLite backend.
+    /// Returns an error if called on a SQLite backend or if the schema name
+    /// is invalid (to prevent SQL injection).
+    ///
+    /// # Security
+    /// Schema names are validated to prevent SQL injection attacks.
+    /// Only alphanumeric characters and underscores are allowed.
     pub async fn setup_schema(&self, schema: &str) -> Result<(), String> {
         use diesel::prelude::*;
+
+        // Validate schema name to prevent SQL injection
+        let validated_schema = validate_schema_name(schema).map_err(|e| e.to_string())?;
 
         let pool = match &self.pool {
             AnyPool::Postgres(pool) => pool,
@@ -396,7 +494,7 @@ impl Database {
 
         let conn = pool.get().await.map_err(|e| e.to_string())?;
 
-        let schema_name = schema.to_string();
+        let schema_name = validated_schema.to_string();
         let schema_name_clone = schema_name.clone();
 
         // Create schema if it doesn't exist
@@ -434,6 +532,9 @@ impl Database {
     ///
     /// For PostgreSQL, this sets the search path to the configured schema.
     /// For SQLite, this is a no-op and returns an error.
+    ///
+    /// # Security
+    /// Schema names are validated before use in SQL to prevent injection attacks.
     pub async fn get_connection_with_schema(
         &self,
     ) -> Result<
@@ -452,13 +553,19 @@ impl Database {
         let conn = pool.get().await?;
 
         if let Some(ref schema) = self.schema {
-            let schema_name = schema.clone();
-            let _ = conn
-                .interact(move |conn| {
-                    let set_search_path_sql = format!("SET search_path TO {}, public", schema_name);
-                    diesel::sql_query(&set_search_path_sql).execute(conn)
-                })
-                .await;
+            // Validate schema name to prevent SQL injection
+            // This should already be validated at construction time, but we validate
+            // again here for defense in depth
+            if let Ok(validated) = validate_schema_name(schema) {
+                let schema_name = validated.to_string();
+                let _ = conn
+                    .interact(move |conn| {
+                        let set_search_path_sql =
+                            format!("SET search_path TO {}, public", schema_name);
+                        diesel::sql_query(&set_search_path_sql).execute(conn)
+                    })
+                    .await;
+            }
         }
 
         Ok(conn)

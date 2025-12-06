@@ -4,14 +4,14 @@ level: initiative
 title: "Fix SQL Injection Risk in Schema Setup"
 short_code: "CLOACI-I-0005"
 created_at: 2025-11-29T02:40:07.115570+00:00
-updated_at: 2025-11-29T02:40:07.115570+00:00
+updated_at: 2025-12-06T01:42:17.013068+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
