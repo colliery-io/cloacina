@@ -7,7 +7,7 @@ created_at: 2025-12-06T02:46:35.266515+00:00
 updated_at: 2025-12-06T02:46:35.266515+00:00
 parent: CLOACI-I-0006
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0006
 ## Objective
 
 Eliminate the N+1 query pattern in `mark_ready` and `mark_skipped` methods by removing the pre-SELECT query used only for logging. The current pattern fetches task info before updating, resulting in 2 queries per state transition.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

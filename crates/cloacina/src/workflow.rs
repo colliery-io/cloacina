@@ -76,12 +76,13 @@
 
 use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use petgraph::algo::{is_cyclic_directed, toposort};
 use petgraph::{Directed, Graph};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::error::{SubgraphError, ValidationError, WorkflowError};
 use crate::task::{Task, TaskNamespace};
@@ -1211,9 +1212,7 @@ impl Workflow {
 
         // Get the task registry
         let registry = crate::task::global_task_registry();
-        let guard = registry.write().map_err(|e| {
-            WorkflowError::RegistryError(format!("Failed to access task registry: {}", e))
-        })?;
+        let guard = registry.write();
 
         // Recreate all tasks from the registry
         for task_namespace in self.get_task_ids() {
@@ -1395,13 +1394,7 @@ pub fn register_workflow_constructor<F>(workflow_name: String, constructor: F)
 where
     F: Fn() -> Workflow + Send + Sync + 'static,
 {
-    let mut registry = match GLOBAL_WORKFLOW_REGISTRY.write() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            tracing::warn!("Workflow registry RwLock was poisoned, recovering data");
-            poisoned.into_inner()
-        }
-    };
+    let mut registry = GLOBAL_WORKFLOW_REGISTRY.write();
     registry.insert(workflow_name, Box::new(constructor));
     tracing::debug!("Successfully registered workflow constructor");
 }
@@ -1429,13 +1422,7 @@ pub fn global_workflow_registry() -> GlobalWorkflowRegistry {
 /// }
 /// ```
 pub fn get_all_workflows() -> Vec<Workflow> {
-    let registry = match GLOBAL_WORKFLOW_REGISTRY.read() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            tracing::warn!("Workflow registry RwLock was poisoned, recovering data");
-            poisoned.into_inner()
-        }
-    };
+    let registry = GLOBAL_WORKFLOW_REGISTRY.read();
     registry.values().map(|constructor| constructor()).collect()
 }
 

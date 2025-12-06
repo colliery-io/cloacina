@@ -74,9 +74,7 @@ impl PyWorkflowBuilder {
             let (tenant_id, package_name, workflow_id) = self.context.as_components();
             let task_namespace =
                 cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
-            let guard = registry.read().map_err(|e| {
-                PyValueError::new_err(format!("Failed to access task registry: {}", e))
-            })?;
+            let guard = registry.read();
 
             let constructor = guard.get(&task_namespace).ok_or_else(|| {
                 PyValueError::new_err(format!(
@@ -110,9 +108,7 @@ impl PyWorkflowBuilder {
                                     // Look up the task from the workflow context namespace
                                     let (tenant_id, package_name, workflow_id) = self.context.as_components();
                                     let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
-                                    let guard = registry.read().map_err(|e| {
-                                        PyValueError::new_err(format!("Failed to access task registry: {}", e))
-                                    })?;
+                                    let guard = registry.read();
 
                                     let constructor = guard.get(&task_namespace).ok_or_else(|| {
                                         PyValueError::new_err(format!(
@@ -198,9 +194,7 @@ impl PyWorkflowBuilder {
 
         // Collect all tasks registered with this workflow's namespace
         let registry = cloacina::task::global_task_registry();
-        let guard = registry
-            .read()
-            .map_err(|e| PyValueError::new_err(format!("Failed to access task registry: {}", e)))?;
+        let guard = registry.read();
 
         // Find all tasks that belong to this workflow's namespace
         for (namespace, constructor) in guard.iter() {

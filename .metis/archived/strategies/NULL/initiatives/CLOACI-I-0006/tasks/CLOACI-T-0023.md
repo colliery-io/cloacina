@@ -7,7 +7,7 @@ created_at: 2025-12-06T02:46:35.422111+00:00
 updated_at: 2025-12-06T02:46:35.422111+00:00
 parent: CLOACI-I-0006
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0006
 ## Objective
 
 Eliminate N+1 query patterns in `create_postgres`, `create_sqlite`, and `reset_task_for_recovery_sqlite` methods by using RETURNING clause for inserts and eliminating unnecessary pre-SELECT queries.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

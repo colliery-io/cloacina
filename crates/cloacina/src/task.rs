@@ -337,8 +337,9 @@ pub mod namespace;
 
 use crate::error::{RegistrationError, ValidationError};
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 // Re-export core task types from cloacina_workflow
 // This ensures type compatibility between macro-generated code and runtime
@@ -639,13 +640,7 @@ pub fn register_task_constructor<F>(namespace: TaskNamespace, constructor: F)
 where
     F: Fn() -> Arc<dyn Task> + Send + Sync + 'static,
 {
-    let mut registry = match GLOBAL_TASK_REGISTRY.write() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            tracing::warn!("Task registry RwLock was poisoned, recovering data");
-            poisoned.into_inner()
-        }
-    };
+    let mut registry = GLOBAL_TASK_REGISTRY.write();
     registry.insert(namespace.clone(), Box::new(constructor));
     tracing::debug!(
         "Successfully registered task constructor for namespace: {}",
@@ -666,13 +661,7 @@ pub fn global_task_registry() -> GlobalTaskRegistry {
 /// This is a convenience function for getting task instances without
 /// directly accessing the registry.
 pub fn get_task(namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
-    let registry = match GLOBAL_TASK_REGISTRY.read() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            tracing::warn!("Task registry RwLock was poisoned, recovering data");
-            poisoned.into_inner()
-        }
-    };
+    let registry = GLOBAL_TASK_REGISTRY.read();
     registry.get(namespace).map(|constructor| constructor())
 }
 
