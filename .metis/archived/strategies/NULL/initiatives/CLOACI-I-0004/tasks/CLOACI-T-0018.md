@@ -7,7 +7,7 @@ created_at: 2025-12-05T22:35:47.387100+00:00
 updated_at: 2025-12-05T22:51:40.391324+00:00
 parent: CLOACI-I-0004
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0004
 ## Objective
 
 Add unit tests for the FFI validation helpers and error handling to ensure proper behavior with malformed inputs. Tests should verify that invalid pointers, corrupt data, and edge cases produce appropriate errors rather than undefined behavior.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

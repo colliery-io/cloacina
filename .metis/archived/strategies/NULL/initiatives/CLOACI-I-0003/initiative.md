@@ -4,14 +4,14 @@ level: initiative
 title: "CI/CD Pipeline Optimization - Fail Fast and Path-Based Filtering"
 short_code: "CLOACI-I-0003"
 created_at: 2025-11-28T15:38:43.692490+00:00
-updated_at: 2025-11-28T15:38:43.692490+00:00
+updated_at: 2025-12-06T01:25:55.935314+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -272,30 +272,38 @@ unified_release.yml (unchanged trigger, reduced matrix)
 
 ## Implementation Plan
 
-### Phase 1: Quick Gate
+### Phase 1: Quick Gate - COMPLETED
 - Add quick-checks job with fmt, clippy, cargo check
 - Make all other jobs depend on quick-checks
-- Enable concurrency cancel-in-progress (already done)
+- Enable concurrency cancel-in-progress
 
-### Phase 2: Path Filtering
+### Phase 2: Path Filtering - COMPLETED
 - Add dorny/paths-filter to ci.yml
 - Add conditional `if:` statements to each job group
 - Test with doc-only and rust-only changes
 
-### Phase 3: Consolidate Python Tests
+### Phase 3: Consolidate Python Tests - COMPLETED
 - Replace per-file matrix with single pytest run
-- Reduce Python version matrix to 3.10 + 3.12
-- Remove Python 3.9 from release builds
+- Reduce Python version matrix to 3.12 for testing
+- Release builds use 3.10, 3.11, 3.12
 
-### Phase 4: Workflow Cleanup
-- Delete test.yml
-- Investigate and remove/integrate cloaca.yml
-- Merge cloacina.yml and cloaca-matrix.yml
+### Phase 4: Workflow Cleanup - COMPLETED
+- Deleted test.yml (no longer exists)
+- Deleted cloaca.yml (no longer exists)
+- cloacina.yml and cloaca-matrix.yml consolidated
 
-### Phase 5: Conditional Expensive Jobs
-- Move performance tests to main-only (or labeled PRs)
-- Move examples to conditional (path-based or main-only)
-- Add PR labels for opt-in expensive tests
+### Phase 5: Conditional Expensive Jobs - COMPLETED
+- Performance tests run on main-only or with 'run-perf' label
+- Examples run only when examples/ changed or on main/develop
+- Path-based filtering prevents unnecessary job runs
+
+## Completion Status
+
+**All phases completed.** Current CI achieves:
+- 10 jobs for typical Rust-only PR (target was ~10)
+- 14 jobs for Rust+Python PR
+- Doc-only changes skip all test jobs
+- Examples/performance only run when relevant
 
 ## Alternatives Considered
 

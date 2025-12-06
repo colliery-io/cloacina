@@ -7,7 +7,7 @@ created_at: 2025-12-05T22:35:47.174554+00:00
 updated_at: 2025-12-05T22:48:25.423305+00:00
 parent: CLOACI-I-0004
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0004
 ## Objective
 
 Replace all raw pointer dereferences in `extract_task_info_and_graph_from_library()` with calls to the validation helper functions created in CLOACI-T-0015. This eliminates undefined behavior from null or misaligned pointer access.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

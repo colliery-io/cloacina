@@ -7,7 +7,7 @@ created_at: 2025-12-05T22:35:47.099961+00:00
 updated_at: 2025-12-05T22:47:01.971682+00:00
 parent: CLOACI-I-0004
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -28,6 +28,8 @@ initiative_id: CLOACI-I-0004
 ## Objective
 
 Create a comprehensive `ManifestError` enum type using `thiserror` and implement helper functions for safe FFI pointer validation. This provides the foundation for replacing unsafe operations with proper error-returning alternatives.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
