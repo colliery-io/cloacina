@@ -18,11 +18,32 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
+use thiserror::Error;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 use crate::context::PyContext;
+
+/// Timeout for waiting on runtime thread shutdown
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Errors that can occur during async runtime shutdown
+#[derive(Debug, Error)]
+pub enum ShutdownError {
+    /// Failed to send shutdown signal to runtime thread
+    #[error("Failed to send shutdown signal: channel closed")]
+    ChannelClosed,
+
+    /// Runtime thread panicked during shutdown
+    #[error("Runtime thread panicked during shutdown")]
+    ThreadPanic,
+
+    /// Shutdown timed out waiting for thread to complete
+    #[error("Shutdown timed out after {} seconds", .0)]
+    Timeout(u64),
+}
 
 /// Message types for communication with the async runtime thread
 enum RuntimeMessage {
@@ -102,21 +123,71 @@ struct AsyncRuntimeHandle {
 
 impl AsyncRuntimeHandle {
     /// Shutdown the runtime thread and wait for it to complete
-    fn shutdown(&mut self) {
-        // Send shutdown signal
-        let _ = self.tx.send(RuntimeMessage::Shutdown);
+    ///
+    /// This method sends a shutdown signal to the runtime thread and waits
+    /// for it to complete with a timeout. Errors are logged and returned.
+    fn shutdown(&mut self) -> Result<(), ShutdownError> {
+        let start = std::time::Instant::now();
+        debug!("Initiating async runtime shutdown");
 
-        // Wait for thread to finish
+        // Send shutdown signal
+        if let Err(e) = self.tx.send(RuntimeMessage::Shutdown) {
+            error!("Failed to send shutdown signal to runtime thread: {:?}", e);
+            // Continue anyway - thread might already be dead
+        }
+
+        // Wait for thread to finish with timeout
         if let Some(handle) = self.thread_handle.take() {
-            let _ = handle.join();
+            // Use a channel to implement timeout on join
+            let (done_tx, done_rx) = std::sync::mpsc::channel();
+
+            // Spawn a helper thread to do the blocking join
+            let join_thread = thread::spawn(move || {
+                let result = handle.join();
+                let _ = done_tx.send(result);
+            });
+
+            // Wait for completion with timeout
+            match done_rx.recv_timeout(SHUTDOWN_TIMEOUT) {
+                Ok(Ok(())) => {
+                    debug!(
+                        duration_ms = start.elapsed().as_millis() as u64,
+                        "Async runtime shutdown completed successfully"
+                    );
+                    Ok(())
+                }
+                Ok(Err(_panic_payload)) => {
+                    error!("Async runtime thread panicked during shutdown");
+                    Err(ShutdownError::ThreadPanic)
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    error!(
+                        timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
+                        "Async runtime shutdown timed out - thread may be stuck"
+                    );
+                    // Detach the join thread - we can't wait forever
+                    drop(join_thread);
+                    Err(ShutdownError::Timeout(SHUTDOWN_TIMEOUT.as_secs()))
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // Join thread finished but channel was dropped - treat as panic
+                    error!("Join thread disconnected unexpectedly");
+                    Err(ShutdownError::ThreadPanic)
+                }
+            }
+        } else {
+            debug!("Async runtime already shut down");
+            Ok(())
         }
     }
 }
 
 impl Drop for AsyncRuntimeHandle {
     fn drop(&mut self) {
-        // Ensure shutdown on drop
-        self.shutdown();
+        // Ensure shutdown on drop, logging any errors
+        if let Err(e) = self.shutdown() {
+            warn!("Error during AsyncRuntimeHandle drop: {}", e);
+        }
     }
 }
 
@@ -1141,17 +1212,32 @@ impl PyDefaultRunner {
     }
 
     /// Shutdown the runner and cleanup resources
+    ///
+    /// This method sends a shutdown signal to the async runtime thread and waits
+    /// for it to complete (with a 5-second timeout). Errors during shutdown are
+    /// raised as Python exceptions.
+    ///
+    /// # Raises
+    /// * `ValueError` - If shutdown fails (timeout, thread panic, or channel error)
     pub fn shutdown(&self, py: Python) -> PyResult<()> {
-        eprintln!("THREADS: Starting shutdown process");
+        info!("Starting async runtime shutdown from Python");
 
         // Release the GIL while waiting for the thread to complete
-        py.allow_threads(|| {
-            // Call shutdown on the runtime handle, which will send the message and wait for thread completion
-            self.runtime_handle.lock().unwrap().shutdown();
-        });
+        let result = py.allow_threads(|| self.runtime_handle.lock().unwrap().shutdown());
 
-        eprintln!("THREADS: Shutdown completed successfully");
-        Ok(())
+        match result {
+            Ok(()) => {
+                info!("Async runtime shutdown completed successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Async runtime shutdown failed: {}", e);
+                Err(PyValueError::new_err(format!(
+                    "Failed to shutdown async runtime: {}",
+                    e
+                )))
+            }
+        }
     }
 
     /// Register a cron workflow for automatic execution at scheduled times
