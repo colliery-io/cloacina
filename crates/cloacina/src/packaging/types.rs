@@ -59,8 +59,6 @@ pub struct PackageManifest {
     pub library: LibraryInfo,
     /// Task information
     pub tasks: Vec<TaskInfo>,
-    /// Task execution order
-    pub execution_order: Vec<String>,
     /// Workflow graph data (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph: Option<crate::WorkflowGraphData>,

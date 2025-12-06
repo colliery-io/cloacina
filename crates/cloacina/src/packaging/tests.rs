@@ -319,7 +319,6 @@ pub fn regular_function() -> String {
                     source_location: "src/lib.rs:20".to_string(),
                 },
             ],
-            execution_order: vec!["task1".to_string(), "task2".to_string()],
             graph: None,
         };
 
@@ -346,10 +345,6 @@ pub fn regular_function() -> String {
         assert_eq!(
             deserialized.tasks[1].dependencies,
             original_manifest.tasks[1].dependencies
-        );
-        assert_eq!(
-            deserialized.execution_order,
-            original_manifest.execution_order
         );
     }
 
