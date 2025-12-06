@@ -209,19 +209,39 @@ impl DAL {
     ///
     /// * `storage` - A storage backend implementing `RegistryStorage`
     ///
-    /// # Returns
+    /// # Panics
     ///
-    /// A `WorkflowRegistryImpl` configured with the provided storage and this DAL's database.
+    /// Panics if the workflow registry cannot be created.
+    /// Use [`try_workflow_registry`](Self::try_workflow_registry) for fallible construction.
     pub fn workflow_registry<S: crate::registry::traits::RegistryStorage + 'static>(
         &self,
         storage: S,
     ) -> crate::registry::workflow_registry::WorkflowRegistryImpl<S> {
-        // Note: WorkflowRegistryImpl::new can fail, so we unwrap here.
-        // In a more robust implementation, this could return a Result.
+        self.try_workflow_registry(storage)
+            .expect("Failed to create workflow registry")
+    }
+
+    /// Creates a workflow registry implementation with the given storage backend.
+    ///
+    /// This is the fallible version of [`workflow_registry`](Self::workflow_registry).
+    ///
+    /// # Arguments
+    ///
+    /// * `storage` - A storage backend implementing `RegistryStorage`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the workflow registry cannot be initialized.
+    pub fn try_workflow_registry<S: crate::registry::traits::RegistryStorage + 'static>(
+        &self,
+        storage: S,
+    ) -> Result<
+        crate::registry::workflow_registry::WorkflowRegistryImpl<S>,
+        crate::registry::error::RegistryError,
+    > {
         crate::registry::workflow_registry::WorkflowRegistryImpl::new(
             storage,
             self.database.clone(),
         )
-        .expect("Failed to create workflow registry")
     }
 }
