@@ -1214,7 +1214,8 @@ pub fn generate_packaged_workflow_impl(
 
                 // Add tasks from the task registry to the workflow
                 let task_registry = cloacina::task::global_task_registry();
-                if let Ok(registry) = task_registry.read() {
+                {
+                    let registry = task_registry.read();
                     tracing::debug!("Task registry has {} entries", registry.len());
                     tracing::debug!("Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
                     eprintln!("DEBUG: Task registry has {} entries", registry.len());
