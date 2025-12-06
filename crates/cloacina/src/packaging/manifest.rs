@@ -15,6 +15,7 @@
  */
 
 use anyhow::{Context, Result};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -29,6 +30,13 @@ use super::types::{
 /// Maximum number of tasks allowed in a single package.
 /// This limit prevents resource exhaustion from malformed packages.
 const MAX_TASKS: usize = 10_000;
+
+/// Statically compiled regex for matching packaged_workflow attributes.
+/// Compiled once at first use, avoiding runtime compilation overhead.
+static PACKAGED_WORKFLOW_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
+        .expect("Invalid packaged_workflow regex pattern - this is a compile-time bug")
+});
 
 /// Errors that can occur during manifest extraction from FFI.
 ///
@@ -428,11 +436,6 @@ pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<V
     let src_path = project_path.join("src");
     let mut package_names = Vec::new();
 
-    // Regex to find packaged_workflow attributes and extract package names
-    let packaged_workflow_regex =
-        Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
-            .expect("Failed to compile regex");
-
     // Walk through .rs files in src directory
     for entry in std::fs::read_dir(&src_path)
         .with_context(|| format!("Failed to read src directory: {:?}", src_path))?
@@ -444,7 +447,7 @@ pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<V
             let content = std::fs::read_to_string(&path)
                 .with_context(|| format!("Failed to read file: {:?}", path))?;
 
-            for captures in packaged_workflow_regex.captures_iter(&content) {
+            for captures in PACKAGED_WORKFLOW_REGEX.captures_iter(&content) {
                 if let Some(package_name) = captures.get(1) {
                     package_names.push(package_name.as_str().to_string());
                 }
