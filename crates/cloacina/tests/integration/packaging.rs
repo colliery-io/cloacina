@@ -325,7 +325,6 @@ fn test_package_manifest_serialization() {
             description: "Test task".to_string(),
             source_location: "src/lib.rs:5".to_string(),
         }],
-        execution_order: vec!["test_task".to_string()],
         graph: None,
     };
 

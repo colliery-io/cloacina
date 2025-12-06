@@ -244,7 +244,6 @@ pub fn generate_manifest(
             architecture,
         },
         tasks,
-        execution_order: vec![], // TODO: Generate from task dependencies based on extracted tasks
         graph: graph_data,
     };
 
