@@ -337,6 +337,12 @@ impl Database {
     /// * `database_name` - The database name (used for PostgreSQL, ignored for SQLite)
     /// * `max_size` - Maximum number of connections in the pool
     /// * `schema` - Optional schema name for PostgreSQL multi-tenant isolation
+    ///
+    /// # Panics
+    ///
+    /// Panics if the schema name is invalid (to prevent SQL injection).
+    /// Valid schema names must start with a letter or underscore, contain only
+    /// alphanumeric characters and underscores, and not be a reserved name.
     pub fn new_with_schema(
         connection_string: &str,
         _database_name: &str,
@@ -344,6 +350,13 @@ impl Database {
         schema: Option<&str>,
     ) -> Self {
         let backend = BackendType::from_url(connection_string);
+
+        // Validate schema name at construction time to prevent SQL injection
+        let validated_schema = schema.map(|s| {
+            validate_schema_name(s)
+                .expect("Invalid schema name provided to Database::new_with_schema")
+                .to_string()
+        });
 
         match backend {
             BackendType::Postgres => {
@@ -356,13 +369,15 @@ impl Database {
 
                 info!(
                     "PostgreSQL connection pool initialized{}",
-                    schema.map_or(String::new(), |s| format!(" with schema '{}'", s))
+                    validated_schema
+                        .as_ref()
+                        .map_or(String::new(), |s| format!(" with schema '{}'", s))
                 );
 
                 Self {
                     pool: AnyPool::Postgres(pool),
                     backend,
-                    schema: schema.map(String::from),
+                    schema: validated_schema,
                 }
             }
             BackendType::Sqlite => {
@@ -386,7 +401,7 @@ impl Database {
                 Self {
                     pool: AnyPool::Sqlite(pool),
                     backend,
-                    schema: schema.map(String::from),
+                    schema: validated_schema,
                 }
             }
         }
@@ -698,5 +713,236 @@ mod tests {
                 BackendType::Sqlite
             );
         }
+    }
+
+    // =========================================================================
+    // Schema Validation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_valid_schema_names() {
+        // Simple valid names
+        assert!(validate_schema_name("my_schema").is_ok());
+        assert!(validate_schema_name("tenant_123").is_ok());
+        assert!(validate_schema_name("MySchema").is_ok());
+
+        // Starting with underscore
+        assert!(validate_schema_name("_private").is_ok());
+        assert!(validate_schema_name("_123").is_ok());
+
+        // Single character
+        assert!(validate_schema_name("a").is_ok());
+        assert!(validate_schema_name("_").is_ok());
+
+        // Maximum length (63 characters)
+        let max_name = "a".repeat(63);
+        assert!(validate_schema_name(&max_name).is_ok());
+    }
+
+    #[test]
+    fn test_sql_injection_attempts_rejected() {
+        // Command injection with semicolon
+        assert!(matches!(
+            validate_schema_name("test; DROP TABLE users; --"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Quote injection
+        assert!(matches!(
+            validate_schema_name("test' OR '1'='1"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Comment injection
+        assert!(matches!(
+            validate_schema_name("test/*comment*/"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Double dash comment
+        assert!(matches!(
+            validate_schema_name("test--comment"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Parentheses
+        assert!(matches!(
+            validate_schema_name("test()"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Equals sign
+        assert!(matches!(
+            validate_schema_name("test=1"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+    }
+
+    #[test]
+    fn test_invalid_length() {
+        // Empty string
+        assert!(matches!(
+            validate_schema_name(""),
+            Err(SchemaError::InvalidLength { .. })
+        ));
+
+        // Too long (64 characters)
+        let too_long = "a".repeat(64);
+        assert!(matches!(
+            validate_schema_name(&too_long),
+            Err(SchemaError::InvalidLength { .. })
+        ));
+
+        // Way too long
+        let way_too_long = "a".repeat(1000);
+        assert!(matches!(
+            validate_schema_name(&way_too_long),
+            Err(SchemaError::InvalidLength { .. })
+        ));
+    }
+
+    #[test]
+    fn test_invalid_start_character() {
+        // Starting with number
+        assert!(matches!(
+            validate_schema_name("123abc"),
+            Err(SchemaError::InvalidStart(_))
+        ));
+
+        // Starting with hyphen
+        assert!(matches!(
+            validate_schema_name("-schema"),
+            Err(SchemaError::InvalidStart(_))
+        ));
+
+        // Starting with dot
+        assert!(matches!(
+            validate_schema_name(".schema"),
+            Err(SchemaError::InvalidStart(_))
+        ));
+
+        // Starting with space
+        assert!(matches!(
+            validate_schema_name(" schema"),
+            Err(SchemaError::InvalidStart(_))
+        ));
+    }
+
+    #[test]
+    fn test_invalid_characters() {
+        // Hyphen
+        assert!(matches!(
+            validate_schema_name("my-schema"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Dot
+        assert!(matches!(
+            validate_schema_name("my.schema"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Space
+        assert!(matches!(
+            validate_schema_name("my schema"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Special characters
+        assert!(matches!(
+            validate_schema_name("schema@test"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("schema#1"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("schema$"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+    }
+
+    #[test]
+    fn test_reserved_names() {
+        // Reserved names (case-insensitive)
+        assert!(matches!(
+            validate_schema_name("public"),
+            Err(SchemaError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("PUBLIC"),
+            Err(SchemaError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("Public"),
+            Err(SchemaError::ReservedName(_))
+        ));
+
+        assert!(matches!(
+            validate_schema_name("pg_catalog"),
+            Err(SchemaError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("PG_CATALOG"),
+            Err(SchemaError::ReservedName(_))
+        ));
+
+        assert!(matches!(
+            validate_schema_name("information_schema"),
+            Err(SchemaError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_schema_name("INFORMATION_SCHEMA"),
+            Err(SchemaError::ReservedName(_))
+        ));
+
+        assert!(matches!(
+            validate_schema_name("pg_temp"),
+            Err(SchemaError::ReservedName(_))
+        ));
+    }
+
+    #[test]
+    fn test_schema_error_display() {
+        // Verify error messages are informative
+        let err = validate_schema_name("").unwrap_err();
+        assert!(err.to_string().contains("length"));
+
+        let err = validate_schema_name("123abc").unwrap_err();
+        assert!(err.to_string().contains("start"));
+
+        let err = validate_schema_name("my-schema").unwrap_err();
+        assert!(err.to_string().contains("invalid characters"));
+
+        let err = validate_schema_name("public").unwrap_err();
+        assert!(err.to_string().contains("reserved"));
+    }
+
+    #[test]
+    fn test_unicode_characters_rejected() {
+        // Unicode Greek letter alpha
+        assert!(matches!(
+            validate_schema_name("schema_\u{03B1}"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Unicode snowman emoji
+        assert!(matches!(
+            validate_schema_name("schema_\u{2603}"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Non-ASCII e with acute accent (cafe with accented e)
+        assert!(matches!(
+            validate_schema_name("caf\u{00E9}"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
+
+        // Chinese character
+        assert!(matches!(
+            validate_schema_name("schema_\u{4E2D}"),
+            Err(SchemaError::InvalidCharacters(_))
+        ));
     }
 }
