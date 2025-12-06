@@ -469,7 +469,8 @@ impl PackageValidator {
 
 impl Default for PackageValidator {
     fn default() -> Self {
-        Self::new().expect("Failed to create default PackageValidator")
+        Self::new()
+            .expect("Failed to create PackageValidator: unable to create temporary directory")
     }
 }
 

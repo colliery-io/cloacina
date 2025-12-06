@@ -70,6 +70,33 @@ const MAX_SCHEMA_NAME_LENGTH: usize = 63;
 /// Reserved PostgreSQL schema names that cannot be used.
 const RESERVED_SCHEMA_NAMES: &[&str] = &["public", "pg_catalog", "information_schema", "pg_temp"];
 
+/// Errors that can occur during database operations.
+///
+/// This error type covers connection pool creation, URL parsing,
+/// migration execution, and schema validation failures.
+#[derive(Debug, Error)]
+pub enum DatabaseError {
+    /// Failed to create connection pool
+    #[error("Failed to create {backend} connection pool: {source}")]
+    PoolCreation {
+        backend: &'static str,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// Failed to parse database URL
+    #[error("Invalid database URL: {0}")]
+    InvalidUrl(#[from] url::ParseError),
+
+    /// Schema validation failed
+    #[error("Schema validation failed: {0}")]
+    Schema(#[from] SchemaError),
+
+    /// Migration execution failed
+    #[error("Migration failed: {0}")]
+    Migration(String),
+}
+
 /// Errors that can occur during schema name validation.
 ///
 /// These errors are returned when a schema name fails validation checks
@@ -340,32 +367,58 @@ impl Database {
     ///
     /// # Panics
     ///
-    /// Panics if the schema name is invalid (to prevent SQL injection).
-    /// Valid schema names must start with a letter or underscore, contain only
-    /// alphanumeric characters and underscores, and not be a reserved name.
+    /// Panics if connection pool creation fails or if the schema name is invalid.
+    /// Use [`try_new_with_schema`](Self::try_new_with_schema) for fallible construction.
     pub fn new_with_schema(
+        connection_string: &str,
+        database_name: &str,
+        max_size: u32,
+        schema: Option<&str>,
+    ) -> Self {
+        Self::try_new_with_schema(connection_string, database_name, max_size, schema)
+            .expect("Failed to create database connection pool")
+    }
+
+    /// Creates a new database connection pool with optional schema support.
+    ///
+    /// This is the fallible version of [`new_with_schema`](Self::new_with_schema).
+    ///
+    /// # Arguments
+    ///
+    /// * `connection_string` - The database connection URL or path
+    /// * `database_name` - The database name (used for PostgreSQL, ignored for SQLite)
+    /// * `max_size` - Maximum number of connections in the pool
+    /// * `schema` - Optional schema name for PostgreSQL multi-tenant isolation
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The schema name is invalid (SQL injection prevention)
+    /// - The connection pool cannot be created
+    pub fn try_new_with_schema(
         connection_string: &str,
         _database_name: &str,
         max_size: u32,
         schema: Option<&str>,
-    ) -> Self {
+    ) -> Result<Self, DatabaseError> {
         let backend = BackendType::from_url(connection_string);
 
         // Validate schema name at construction time to prevent SQL injection
-        let validated_schema = schema.map(|s| {
-            validate_schema_name(s)
-                .expect("Invalid schema name provided to Database::new_with_schema")
-                .to_string()
-        });
+        let validated_schema = schema
+            .map(|s| validate_schema_name(s).map(|v| v.to_string()))
+            .transpose()?;
 
         match backend {
             BackendType::Postgres => {
-                let connection_url = Self::build_postgres_url(connection_string, _database_name);
+                let connection_url = Self::build_postgres_url(connection_string, _database_name)?;
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
                     .max_size(max_size as usize)
                     .build()
-                    .expect("Failed to create PostgreSQL connection pool");
+                    .map_err(|e| DatabaseError::PoolCreation {
+                        backend: "PostgreSQL",
+                        source: Box::new(e),
+                    })?;
 
                 info!(
                     "PostgreSQL connection pool initialized{}",
@@ -374,11 +427,11 @@ impl Database {
                         .map_or(String::new(), |s| format!(" with schema '{}'", s))
                 );
 
-                Self {
+                Ok(Self {
                     pool: AnyPool::Postgres(pool),
                     backend,
                     schema: validated_schema,
-                }
+                })
             }
             BackendType::Sqlite => {
                 let connection_url = Self::build_sqlite_url(connection_string);
@@ -391,18 +444,21 @@ impl Database {
                 let pool = SqlitePool::builder(manager)
                     .max_size(sqlite_pool_size)
                     .build()
-                    .expect("Failed to create SQLite connection pool");
+                    .map_err(|e| DatabaseError::PoolCreation {
+                        backend: "SQLite",
+                        source: Box::new(e),
+                    })?;
 
                 info!(
                     "SQLite connection pool initialized (size: {})",
                     sqlite_pool_size
                 );
 
-                Self {
+                Ok(Self {
                     pool: AnyPool::Sqlite(pool),
                     backend,
                     schema: validated_schema,
-                }
+                })
             }
         }
     }
@@ -428,10 +484,10 @@ impl Database {
     }
 
     /// Builds a PostgreSQL connection URL.
-    fn build_postgres_url(base_url: &str, database_name: &str) -> String {
-        let mut url = Url::parse(base_url).expect("Invalid PostgreSQL URL");
+    fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
+        let mut url = Url::parse(base_url)?;
         url.set_path(database_name);
-        url.to_string()
+        Ok(url.to_string())
     }
 
     /// Builds a SQLite connection URL.
@@ -455,10 +511,12 @@ impl Database {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
                 conn.interact(|conn| {
                     conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
-                        .expect("Failed to run PostgreSQL migrations");
+                        .map(|_| ())
+                        .map_err(|e| format!("Failed to run PostgreSQL migrations: {}", e))
                 })
                 .await
-                .map_err(|e| format!("Failed to run migrations: {}", e))?;
+                .map_err(|e| format!("Failed to run migrations: {}", e))?
+                .map_err(|e| e)?;
             }
             AnyPool::Sqlite(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
@@ -469,17 +527,19 @@ impl Database {
                     // WAL mode allows concurrent reads during writes
                     diesel::sql_query("PRAGMA journal_mode=WAL;")
                         .execute(conn)
-                        .expect("Failed to set WAL mode");
+                        .map_err(|e| format!("Failed to set WAL mode: {}", e))?;
                     // busy_timeout makes SQLite wait 30s instead of immediately failing on locks
                     diesel::sql_query("PRAGMA busy_timeout=30000;")
                         .execute(conn)
-                        .expect("Failed to set busy_timeout");
+                        .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
 
                     conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
-                        .expect("Failed to run SQLite migrations");
+                        .map(|_| ())
+                        .map_err(|e| format!("Failed to run SQLite migrations: {}", e))
                 })
                 .await
-                .map_err(|e| format!("Failed to run migrations: {}", e))?;
+                .map_err(|e| format!("Failed to run migrations: {}", e))?
+                .map_err(|e| e)?;
             }
         }
         Ok(())
@@ -534,10 +594,12 @@ impl Database {
         conn.interact(|conn| {
             use diesel_migrations::MigrationHarness;
             conn.run_pending_migrations(crate::database::POSTGRES_MIGRATIONS)
-                .expect("Failed to run migrations");
+                .map(|_| ())
+                .map_err(|e| format!("Failed to run migrations: {}", e))
         })
         .await
-        .map_err(|e| format!("Failed to run migrations in schema: {}", e))?;
+        .map_err(|e| format!("Failed to run migrations in schema: {}", e))?
+        .map_err(|e| e)?;
 
         info!("Schema '{}' set up successfully", schema);
         Ok(())
