@@ -431,6 +431,51 @@
 // This makes cloacina_workflow available to any crate that depends on cloacina
 pub extern crate cloacina_workflow;
 
+/// Prelude module for convenient imports.
+///
+/// The prelude provides convenient access to the most commonly used types
+/// in Cloacina. Import everything with:
+///
+/// ```rust
+/// use cloacina::prelude::*;
+/// ```
+///
+/// This gives you access to:
+/// - Core types: [`Context`], [`Task`], [`Workflow`], [`WorkflowBuilder`]
+/// - Error types: [`TaskError`], [`WorkflowError`], [`ExecutorError`]
+/// - Retry configuration: [`RetryPolicy`], [`BackoffStrategy`]
+/// - Task state and scheduling: [`TaskState`], [`TriggerRule`]
+/// - Execution: [`DefaultRunner`], [`PipelineExecutor`]
+/// - Macros: `#[task]` and `workflow!` (when "macros" feature is enabled)
+pub mod prelude {
+    // Core types
+    pub use crate::context::Context;
+    pub use crate::task::{Task, TaskRegistry, TaskState};
+    pub use crate::workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata};
+
+    // Error types
+    pub use crate::error::{ExecutorError, TaskError, WorkflowError};
+
+    // Retry configuration
+    pub use crate::retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
+
+    // Task scheduling
+    pub use crate::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
+
+    // Execution
+    pub use crate::executor::{
+        PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus,
+    };
+    pub use crate::runner::{DefaultRunner, DefaultRunnerBuilder, DefaultRunnerConfig};
+
+    // Universal types for database interop
+    pub use crate::database::{UniversalBool, UniversalTimestamp, UniversalUuid};
+
+    // Re-export macros when feature is enabled
+    #[cfg(feature = "macros")]
+    pub use cloacina_macros::{task, workflow};
+}
+
 // #[cfg(feature = "auth")]
 // pub mod auth;
 pub mod context;

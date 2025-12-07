@@ -4,14 +4,14 @@ level: task
 title: "Create prelude module in lib.rs"
 short_code: "CLOACI-T-0036"
 created_at: 2025-12-07T01:16:46.361789+00:00
-updated_at: 2025-12-07T01:16:46.361789+00:00
+updated_at: 2025-12-07T04:18:18.189881+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -42,6 +42,8 @@ pub mod prelude {
     // ... other commonly used types
 }
 ```
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
