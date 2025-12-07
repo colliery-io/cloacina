@@ -61,7 +61,7 @@ pub use cron_execution::CronExecutionDAL;
 pub use cron_schedule::CronScheduleDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
-pub use task_execution::TaskExecutionDAL;
+pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
 pub use workflow_registry::WorkflowRegistryDAL;
