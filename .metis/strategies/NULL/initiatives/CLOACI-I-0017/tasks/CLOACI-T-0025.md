@@ -4,14 +4,14 @@ level: task
 title: "Split workflow.rs into module hierarchy"
 short_code: "CLOACI-T-0025"
 created_at: 2025-12-07T01:16:44.672954+00:00
-updated_at: 2025-12-07T02:19:06.255664+00:00
+updated_at: 2025-12-07T02:26:02.744085+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,6 +46,8 @@ src/workflow/
   registry.rs     (~300 lines - global registry, constructors)
   types.rs        (~150 lines - Workflow struct, serialization)
 ```
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

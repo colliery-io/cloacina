@@ -20,79 +20,26 @@
 //! library packages with cloacina's global task registry, ensuring proper namespace
 //! isolation and task lifecycle management.
 
-use libloading::{Library, Symbol};
+mod dynamic_task;
+mod extraction;
+mod types;
+
+pub use types::{
+    OwnedTaskMetadata, OwnedTaskMetadataCollection, TaskMetadata, TaskMetadataCollection,
+};
+
+use libloading::Library;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
-use tokio::fs;
 
-use crate::context::Context;
-use crate::error::TaskError;
+use dynamic_task::DynamicLibraryTask;
+
 use crate::registry::error::LoaderError;
-use crate::registry::loader::package_loader::{get_library_extension, PackageMetadata};
+use crate::registry::loader::package_loader::PackageMetadata;
 use crate::task::{register_task_constructor, Task, TaskNamespace};
-use chrono::Utc;
-
-/// C-compatible task metadata structure for FFI (from packaged_workflow macro)
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct TaskMetadata {
-    /// Local task ID (e.g., "collect_data")
-    pub local_id: *const std::os::raw::c_char,
-    /// Template for namespaced ID (e.g., "{tenant}::simple_demo::data_processing::collect_data")
-    pub namespaced_id_template: *const std::os::raw::c_char,
-    /// JSON string of task dependencies
-    pub dependencies_json: *const std::os::raw::c_char,
-    /// Name of the task constructor function in the library
-    pub constructor_fn_name: *const std::os::raw::c_char,
-    /// Task description
-    pub description: *const std::os::raw::c_char,
-}
-
-/// C-compatible collection of task metadata for FFI (from packaged_workflow macro)
-#[repr(C)]
-#[derive(Debug, Clone)]
-pub struct TaskMetadataCollection {
-    /// Number of tasks in this package
-    pub task_count: u32,
-    /// Array of task metadata
-    pub tasks: *const TaskMetadata,
-    /// Name of the workflow (e.g., "data_processing")
-    pub workflow_name: *const std::os::raw::c_char,
-    /// Name of the package (e.g., "simple_demo")
-    pub package_name: *const std::os::raw::c_char,
-}
-
-/// Owned version of task metadata - safe to use after library is unloaded.
-///
-/// This struct contains owned `String` copies of all data from the FFI structs,
-/// ensuring no dangling pointers after the dynamic library is dropped.
-#[derive(Debug, Clone)]
-pub struct OwnedTaskMetadata {
-    /// Local task ID (e.g., "collect_data")
-    pub local_id: String,
-    /// JSON string of task dependencies
-    pub dependencies_json: String,
-    /// Name of the task constructor function in the library
-    pub constructor_fn_name: String,
-}
-
-/// Owned version of task metadata collection - safe to use after library is unloaded.
-///
-/// This struct contains owned `String` copies of all data from the FFI structs,
-/// ensuring no dangling pointers after the dynamic library is dropped.
-#[derive(Debug, Clone)]
-pub struct OwnedTaskMetadataCollection {
-    /// Name of the workflow (e.g., "data_processing")
-    pub workflow_name: String,
-    /// Name of the package (e.g., "simple_demo")
-    pub package_name: String,
-    /// Owned task metadata for each task in the package
-    pub tasks: Vec<OwnedTaskMetadata>,
-}
 
 /// Task registrar for managing dynamically loaded package tasks.
 ///
@@ -101,7 +48,7 @@ pub struct OwnedTaskMetadataCollection {
 /// management for dynamic libraries.
 pub struct TaskRegistrar {
     /// Temporary directory for library file operations
-    temp_dir: TempDir,
+    pub(super) temp_dir: TempDir,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamespace>>>>,
     /// Map of package IDs to loaded libraries (kept alive)
@@ -235,124 +182,6 @@ impl TaskRegistrar {
         Ok(registered_namespaces)
     }
 
-    /// Extract task metadata from library using get_task_metadata() FFI function.
-    ///
-    /// SAFETY: This function copies all string data from FFI pointers into owned Rust
-    /// Strings BEFORE the library is unloaded. The returned `OwnedTaskMetadataCollection`
-    /// contains no raw pointers and is safe to use after this function returns.
-    async fn extract_task_metadata_from_library(
-        &self,
-        package_data: &[u8],
-    ) -> Result<OwnedTaskMetadataCollection, LoaderError> {
-        // Write package to temporary file with correct extension
-        let library_extension = get_library_extension();
-        let temp_path = self
-            .temp_dir
-            .path()
-            .join(format!("metadata_extract.{}", library_extension));
-        fs::write(&temp_path, package_data)
-            .await
-            .map_err(|e| LoaderError::FileSystem {
-                path: temp_path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            })?;
-
-        // Load the library
-        let lib = unsafe {
-            Library::new(&temp_path).map_err(|e| LoaderError::LibraryLoad {
-                path: temp_path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            })?
-        };
-
-        // Get the get_task_metadata function
-        let get_metadata = unsafe {
-            lib.get::<unsafe extern "C" fn() -> *const TaskMetadataCollection>(b"get_task_metadata")
-                .map_err(|e| LoaderError::SymbolNotFound {
-                    symbol: "get_task_metadata".to_string(),
-                    error: e.to_string(),
-                })?
-        };
-
-        // Call the FFI function to get metadata
-        let metadata_ptr = unsafe { get_metadata() };
-        if metadata_ptr.is_null() {
-            return Err(LoaderError::MetadataExtraction {
-                reason: "get_task_metadata() returned null pointer".to_string(),
-            });
-        }
-
-        // CRITICAL: Copy ALL data from FFI pointers into owned Strings BEFORE lib is dropped.
-        // The raw pointers in TaskMetadataCollection point to static strings inside the
-        // loaded library. Once `lib` is dropped, those memory regions become invalid.
-        let metadata = unsafe { &*metadata_ptr };
-
-        // Copy workflow and package names
-        let workflow_name = unsafe { CStr::from_ptr(metadata.workflow_name) }
-            .to_str()
-            .map_err(|e| LoaderError::MetadataExtraction {
-                reason: format!("Invalid workflow name: {}", e),
-            })?
-            .to_string();
-
-        let package_name = unsafe { CStr::from_ptr(metadata.package_name) }
-            .to_str()
-            .map_err(|e| LoaderError::MetadataExtraction {
-                reason: format!("Invalid package name: {}", e),
-            })?
-            .to_string();
-
-        // Copy all task metadata
-        let tasks_slice =
-            unsafe { std::slice::from_raw_parts(metadata.tasks, metadata.task_count as usize) };
-
-        let mut owned_tasks = Vec::with_capacity(tasks_slice.len());
-        for task in tasks_slice {
-            let local_id = unsafe { CStr::from_ptr(task.local_id) }
-                .to_str()
-                .map_err(|e| LoaderError::MetadataExtraction {
-                    reason: format!("Invalid task local_id: {}", e),
-                })?
-                .to_string();
-
-            let dependencies_json = unsafe { CStr::from_ptr(task.dependencies_json) }
-                .to_str()
-                .map_err(|e| LoaderError::MetadataExtraction {
-                    reason: format!("Invalid task dependencies_json: {}", e),
-                })?
-                .to_string();
-
-            let constructor_fn_name = unsafe { CStr::from_ptr(task.constructor_fn_name) }
-                .to_str()
-                .map_err(|e| LoaderError::MetadataExtraction {
-                    reason: format!("Invalid task constructor_fn_name: {}", e),
-                })?
-                .to_string();
-
-            owned_tasks.push(OwnedTaskMetadata {
-                local_id,
-                dependencies_json,
-                constructor_fn_name,
-            });
-        }
-
-        tracing::debug!(
-            "Extracted metadata: package={}, workflow={}, task_count={}",
-            package_name,
-            workflow_name,
-            owned_tasks.len()
-        );
-
-        // Return owned data - safe to use after library is dropped
-        // The `lib` variable is dropped here when function returns, unloading the library.
-        // But we've already copied all the data we need into owned Strings.
-        Ok(OwnedTaskMetadataCollection {
-            workflow_name,
-            package_name,
-            tasks: owned_tasks,
-        })
-    }
-
     /// Unregister package tasks from the global registry.
     ///
     /// # Arguments
@@ -420,265 +249,15 @@ impl Default for TaskRegistrar {
     }
 }
 
-/// A task implementation that executes via dynamic library FFI calls.
-///
-/// This task type represents a task loaded from a packaged workflow .so file,
-/// using the host-managed registry approach but executing tasks via the
-/// cloacina_execute_task FFI function.
-#[derive(Debug)]
-struct DynamicLibraryTask {
-    /// Binary data of the library (.so/.dylib/.dll)
-    library_data: Vec<u8>,
-    /// Name of the task within the package
-    task_name: String,
-    /// Name of the package containing this task
-    package_name: String,
-    /// Task dependencies as fully qualified namespaces
-    dependencies: Vec<TaskNamespace>,
-}
-
-impl DynamicLibraryTask {
-    /// Create a new dynamic library task.
-    fn new(
-        library_data: Vec<u8>,
-        task_name: String,
-        package_name: String,
-        dependencies: Vec<TaskNamespace>,
-    ) -> Self {
-        Self {
-            library_data,
-            task_name,
-            package_name,
-            dependencies,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Task for DynamicLibraryTask {
-    /// Execute the task using the cloacina_execute_task FFI function.
-    ///
-    /// This loads the library, calls the cloacina_execute_task function with the task name,
-    /// and returns the result as a JSON value.
-    async fn execute(
-        &self,
-        context: Context<serde_json::Value>,
-    ) -> Result<Context<serde_json::Value>, TaskError> {
-        // Write library to temporary file
-        let library_extension = get_library_extension();
-        let temp_dir = tempfile::TempDir::new().map_err(|e| TaskError::ExecutionFailed {
-            task_id: self.task_name.clone(),
-            message: format!(
-                "Failed to create temp directory for package '{}': {}",
-                self.package_name, e
-            ),
-            timestamp: Utc::now(),
-        })?;
-
-        let temp_path = temp_dir
-            .path()
-            .join(format!("task_exec.{}", library_extension));
-        std::fs::write(&temp_path, &self.library_data).map_err(|e| TaskError::ExecutionFailed {
-            task_id: self.task_name.clone(),
-            message: format!("Failed to write library to temp file: {}", e),
-            timestamp: Utc::now(),
-        })?;
-
-        // Load the library
-        let lib = unsafe {
-            Library::new(&temp_path).map_err(|e| TaskError::ExecutionFailed {
-                task_id: self.task_name.clone(),
-                message: format!(
-                    "Failed to load library for package '{}' at {}: {}",
-                    self.package_name,
-                    temp_path.display(),
-                    e
-                ),
-                timestamp: Utc::now(),
-            })?
-        };
-
-        // Get the execute function symbol
-        let execute_task_symbol = b"cloacina_execute_task";
-        let execute_task: Symbol<
-            unsafe extern "C" fn(
-                task_name: *const std::os::raw::c_char,
-                task_name_len: u32,
-                context_json: *const std::os::raw::c_char,
-                context_len: u32,
-                result_buffer: *mut u8,
-                result_capacity: u32,
-                result_len: *mut u32,
-            ) -> i32,
-        > = unsafe {
-            lib.get(execute_task_symbol)
-                .map_err(|e| TaskError::ExecutionFailed {
-                    task_id: self.task_name.clone(),
-                    message: format!(
-                        "Symbol 'cloacina_execute_task' not found in library for package '{}': {}",
-                        self.package_name, e
-                    ),
-                    timestamp: Utc::now(),
-                })?
-        };
-
-        // Prepare input data
-        let task_name_cstring = std::ffi::CString::new(self.task_name.clone()).map_err(|e| {
-            TaskError::ExecutionFailed {
-                task_id: self.task_name.clone(),
-                message: format!("Invalid task name: {}", e),
-                timestamp: Utc::now(),
-            }
-        })?;
-
-        let context_json =
-            serde_json::to_string(context.data()).map_err(|e| TaskError::ValidationFailed {
-                message: format!(
-                    "Failed to serialize context for task {}: {}",
-                    self.task_name, e
-                ),
-            })?;
-
-        // Debug: Log the context being passed to the task
-        tracing::debug!("Task '{}' input context: {}", self.task_name, context_json);
-        eprintln!(
-            "DEBUG: Task '{}' input context: {}",
-            self.task_name, context_json
-        );
-
-        let context_cstring =
-            std::ffi::CString::new(context_json).map_err(|e| TaskError::ExecutionFailed {
-                task_id: self.task_name.clone(),
-                message: format!("Invalid context JSON: {}", e),
-                timestamp: Utc::now(),
-            })?;
-
-        // Prepare output buffer
-        let mut result_buffer = vec![0u8; 10 * 1024 * 1024]; // 10MB buffer (matches database limit)
-        let mut result_len = 0u32;
-
-        // Call the FFI function
-        let return_code = unsafe {
-            execute_task(
-                task_name_cstring.as_ptr(),
-                task_name_cstring.as_bytes().len() as u32,
-                context_cstring.as_ptr(),
-                context_cstring.as_bytes().len() as u32,
-                result_buffer.as_mut_ptr(),
-                result_buffer.len() as u32,
-                &mut result_len,
-            )
-        };
-
-        // Handle the result
-        if return_code == 0 {
-            // Success - parse the result JSON
-            let mut result_context = context;
-            if result_len > 0 {
-                if result_len > result_buffer.len() as u32 {
-                    return Err(TaskError::ExecutionFailed {
-                        task_id: self.task_name.clone(),
-                        message: format!(
-                            "Task execution result too large: {} bytes exceeds maximum buffer size of {} bytes. \
-                            This indicates the task context has grown beyond the database storage limit.",
-                            result_len,
-                            result_buffer.len()
-                        ),
-                        timestamp: Utc::now(),
-                    });
-                }
-                result_buffer.truncate(result_len as usize);
-                let result_str =
-                    String::from_utf8(result_buffer).map_err(|e| TaskError::ExecutionFailed {
-                        task_id: self.task_name.clone(),
-                        message: format!("Invalid UTF-8 in result: {}", e),
-                        timestamp: Utc::now(),
-                    })?;
-
-                // Debug: Log the result from the task
-                tracing::debug!("Task '{}' output result: {}", self.task_name, result_str);
-                eprintln!(
-                    "DEBUG: Task '{}' output result: {}",
-                    self.task_name, result_str
-                );
-
-                let result_value: serde_json::Value =
-                    serde_json::from_str(&result_str).map_err(|e| TaskError::ValidationFailed {
-                        message: format!(
-                            "Invalid JSON in result for task {}: {}",
-                            self.task_name, e
-                        ),
-                    })?;
-                // Merge result into context (overwrite existing keys)
-                if let serde_json::Value::Object(obj) = result_value {
-                    for (key, value) in obj {
-                        // Check if key exists and use appropriate method
-                        if result_context.get(&key).is_some() {
-                            // Key exists, update it
-                            result_context.update(key, value).map_err(|e| {
-                                TaskError::ExecutionFailed {
-                                    task_id: self.task_name.clone(),
-                                    message: format!("Failed to update result: {}", e),
-                                    timestamp: Utc::now(),
-                                }
-                            })?;
-                        } else {
-                            // Key doesn't exist, insert it
-                            result_context.insert(key, value).map_err(|e| {
-                                TaskError::ExecutionFailed {
-                                    task_id: self.task_name.clone(),
-                                    message: format!("Failed to insert result: {}", e),
-                                    timestamp: Utc::now(),
-                                }
-                            })?;
-                        }
-                    }
-                }
-            }
-            Ok(result_context)
-        } else {
-            // Error - try to parse error message from buffer
-            let error_msg = if result_len > 0 {
-                if result_len > result_buffer.len() as u32 {
-                    format!(
-                        "Task execution failed (code: {}) with oversized error message: {} bytes exceeds buffer size of {} bytes",
-                        return_code, result_len, result_buffer.len()
-                    )
-                } else {
-                    result_buffer.truncate(result_len as usize);
-                    String::from_utf8_lossy(&result_buffer).to_string()
-                }
-            } else {
-                format!("Task execution failed with code {}", return_code)
-            };
-            Err(TaskError::ExecutionFailed {
-                task_id: self.task_name.clone(),
-                message: error_msg,
-                timestamp: Utc::now(),
-            })
-        }
-    }
-
-    /// Get the unique identifier for this task.
-    fn id(&self) -> &str {
-        &self.task_name
-    }
-
-    /// Get the list of task dependencies.
-    fn dependencies(&self) -> &[TaskNamespace] {
-        &self.dependencies
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::loader::package_loader::{PackageMetadata, TaskMetadata};
+    use crate::registry::loader::package_loader::TaskMetadata as LoaderTaskMetadata;
 
     /// Helper to create mock package metadata for testing
     fn create_mock_package_metadata(package_name: &str, task_count: usize) -> PackageMetadata {
-        let tasks: Vec<TaskMetadata> = (0..task_count)
-            .map(|i| TaskMetadata {
+        let tasks: Vec<LoaderTaskMetadata> = (0..task_count)
+            .map(|i| LoaderTaskMetadata {
                 index: i as u32,
                 local_id: format!("task_{}", i),
                 namespaced_id_template: format!(
@@ -958,19 +537,6 @@ mod tests {
         // Error message should be informative
         assert!(!error_string.is_empty());
         assert!(error_string.contains("Failed to load library") || error_string.contains("Symbol"));
-    }
-
-    #[test]
-    fn test_dynamic_library_task_creation() {
-        let task = DynamicLibraryTask::new(
-            vec![0x7f, 0x45, 0x4c, 0x46], // Mock library data
-            "test_task".to_string(),
-            "test_package".to_string(),
-            Vec::new(), // No dependencies for test
-        );
-
-        assert_eq!(task.id(), "test_task");
-        assert_eq!(task.dependencies().len(), 0); // No dependencies provided
     }
 
     #[test]

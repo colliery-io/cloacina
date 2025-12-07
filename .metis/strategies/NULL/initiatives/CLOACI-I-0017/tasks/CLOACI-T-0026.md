@@ -4,14 +4,14 @@ level: task
 title: "Split task_scheduler.rs into module hierarchy"
 short_code: "CLOACI-T-0026"
 created_at: 2025-12-07T01:16:44.805554+00:00
-updated_at: 2025-12-07T01:16:44.805554+00:00
+updated_at: 2025-12-07T03:32:59.249015+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,6 +47,10 @@ src/task_scheduler/
   trigger_rules.rs    (~300 lines - TriggerRule, TriggerCondition, ValueOperator)
   context_manager.rs  (~200 lines - context loading, merging)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
