@@ -4,14 +4,14 @@ level: task
 title: "Split task_registrar.rs into modules"
 short_code: "CLOACI-T-0032"
 created_at: 2025-12-07T01:16:45.644627+00:00
-updated_at: 2025-12-07T01:16:45.644627+00:00
+updated_at: 2025-12-07T04:06:30.603005+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,10 @@ src/registry/loader/
     validator.rs     (~250 lines - task validation)
     registration.rs  (~200 lines - registry operations)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

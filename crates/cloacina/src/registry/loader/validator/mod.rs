@@ -20,7 +20,15 @@
 //! they are registered and loaded, including security checks, symbol validation,
 //! metadata verification, and compatibility testing.
 
-use libloading::Library;
+mod format;
+mod metadata;
+mod security;
+mod size;
+mod symbols;
+mod types;
+
+pub use types::{CompatibilityInfo, SecurityLevel, ValidationResult};
+
 use std::collections::HashSet;
 use std::path::Path;
 use tempfile::TempDir;
@@ -31,47 +39,6 @@ use crate::registry::loader::package_loader::{
     get_library_extension, PackageMetadata, EXECUTE_TASK_SYMBOL, GET_METADATA_SYMBOL,
 };
 
-/// Package validation results
-#[derive(Debug, Clone)]
-pub struct ValidationResult {
-    /// Whether the package passed all validations
-    pub is_valid: bool,
-    /// List of validation errors (if any)
-    pub errors: Vec<String>,
-    /// List of validation warnings (non-fatal issues)
-    pub warnings: Vec<String>,
-    /// Security assessment
-    pub security_level: SecurityLevel,
-    /// Compatibility assessment
-    pub compatibility: CompatibilityInfo,
-}
-
-/// Security assessment levels for packages
-#[derive(Debug, Clone, PartialEq)]
-pub enum SecurityLevel {
-    /// Package appears safe for production use
-    Safe,
-    /// Package has minor security concerns but is likely safe
-    Warning,
-    /// Package has significant security risks
-    Dangerous,
-    /// Package cannot be assessed (insufficient information)
-    Unknown,
-}
-
-/// Compatibility information for packages
-#[derive(Debug, Clone)]
-pub struct CompatibilityInfo {
-    /// Target architecture of the package
-    pub architecture: String,
-    /// Required symbols present
-    pub required_symbols: Vec<String>,
-    /// Missing required symbols
-    pub missing_symbols: Vec<String>,
-    /// cloacina version compatibility (if detectable)
-    pub cloacina_version: Option<String>,
-}
-
 /// Comprehensive package validator
 pub struct PackageValidator {
     /// Temporary directory for validation operations
@@ -79,9 +46,9 @@ pub struct PackageValidator {
     /// Strict validation mode (fails on warnings)
     strict_mode: bool,
     /// Maximum allowed package size in bytes
-    max_package_size: u64,
+    pub(super) max_package_size: u64,
     /// Required symbols for cloacina packages
-    required_symbols: HashSet<String>,
+    pub(super) required_symbols: HashSet<String>,
 }
 
 impl PackageValidator {
@@ -195,262 +162,6 @@ impl PackageValidator {
         Ok(result)
     }
 
-    /// Validate package size constraints.
-    fn validate_package_size(&self, package_data: &[u8], result: &mut ValidationResult) {
-        let size = package_data.len() as u64;
-
-        if size == 0 {
-            result.errors.push("Package is empty".to_string());
-        } else if size > self.max_package_size {
-            result.errors.push(format!(
-                "Package size {} bytes exceeds maximum allowed size {} bytes",
-                size, self.max_package_size
-            ));
-        } else if size < 1024 {
-            result
-                .warnings
-                .push("Package is unusually small (< 1KB)".to_string());
-        } else if size > 50 * 1024 * 1024 {
-            result
-                .warnings
-                .push("Package is quite large (> 50MB)".to_string());
-        }
-    }
-
-    /// Validate file format and basic structure.
-    async fn validate_file_format(&self, package_path: &Path, result: &mut ValidationResult) {
-        // Check for supported dynamic library formats
-        match fs::read(package_path).await {
-            Ok(data) if data.len() >= 4 => {
-                let is_valid_format = if &data[0..4] == b"\x7fELF" {
-                    // ELF format (Linux)
-                    if data.len() >= 5 {
-                        match data[4] {
-                            1 => result.compatibility.architecture = "32-bit".to_string(),
-                            2 => result.compatibility.architecture = "64-bit".to_string(),
-                            _ => result.warnings.push("Unknown ELF class".to_string()),
-                        }
-                    }
-                    true
-                } else if data.len() >= 4 && &data[0..4] == b"\xcf\xfa\xed\xfe" {
-                    // Mach-O 64-bit format (macOS)
-                    result.compatibility.architecture = "64-bit".to_string();
-                    true
-                } else if data.len() >= 4 && &data[0..4] == b"\xce\xfa\xed\xfe" {
-                    // Mach-O 32-bit format (macOS)
-                    result.compatibility.architecture = "32-bit".to_string();
-                    true
-                } else if data.len() >= 2 && &data[0..2] == b"MZ" {
-                    // PE format (Windows)
-                    result.compatibility.architecture = "Windows".to_string();
-                    true
-                } else {
-                    false
-                };
-
-                if !is_valid_format {
-                    result.errors.push(
-                        "Package is not a valid dynamic library (not ELF, Mach-O, or PE format)"
-                            .to_string(),
-                    );
-                }
-            }
-            Ok(_) => result
-                .errors
-                .push("Package file is too small to be a valid dynamic library".to_string()),
-            Err(e) => result
-                .errors
-                .push(format!("Failed to read package file: {}", e)),
-        }
-
-        // Try to load as dynamic library
-        match unsafe { Library::new(package_path) } {
-            Ok(_) => {
-                // Library loads successfully
-            }
-            Err(e) => {
-                result.errors.push(format!(
-                    "Package cannot be loaded as dynamic library: {}",
-                    e
-                ));
-            }
-        }
-    }
-
-    /// Validate required symbols are present.
-    async fn validate_symbols(&self, package_path: &Path, result: &mut ValidationResult) {
-        match unsafe { Library::new(package_path) } {
-            Ok(lib) => {
-                for symbol in &self.required_symbols {
-                    match unsafe { lib.get::<unsafe extern "C" fn()>(symbol.as_bytes()) } {
-                        Ok(_) => {
-                            result.compatibility.required_symbols.push(symbol.clone());
-                        }
-                        Err(_) => {
-                            result.compatibility.missing_symbols.push(symbol.clone());
-                            result
-                                .errors
-                                .push(format!("Required symbol '{}' not found", symbol));
-                        }
-                    }
-                }
-
-                // Check for common optional symbols
-                let optional_symbols = [
-                    "cloacina_get_version",
-                    "cloacina_get_author",
-                    "cloacina_get_description",
-                ];
-
-                for symbol in &optional_symbols {
-                    if unsafe { lib.get::<unsafe extern "C" fn()>(symbol.as_bytes()).is_ok() } {
-                        result
-                            .compatibility
-                            .required_symbols
-                            .push(symbol.to_string());
-                    }
-                }
-            }
-            Err(e) => {
-                result
-                    .errors
-                    .push(format!("Cannot load library for symbol validation: {}", e));
-            }
-        }
-    }
-
-    /// Validate package metadata for consistency and safety.
-    fn validate_metadata(&self, metadata: &PackageMetadata, result: &mut ValidationResult) {
-        // Package name validation
-        if metadata.package_name.is_empty() {
-            result
-                .errors
-                .push("Package name cannot be empty".to_string());
-        } else if !metadata
-            .package_name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-        {
-            result
-                .warnings
-                .push("Package name contains non-standard characters".to_string());
-        }
-
-        // Version validation
-        if metadata.version.is_empty() {
-            result.warnings.push("Package version is empty".to_string());
-        }
-
-        // Task validation
-        if metadata.tasks.is_empty() {
-            result
-                .warnings
-                .push("Package contains no tasks".to_string());
-        } else {
-            let mut task_ids = HashSet::new();
-            for task in &metadata.tasks {
-                // Check for duplicate task IDs
-                if !task_ids.insert(&task.local_id) {
-                    result
-                        .errors
-                        .push(format!("Duplicate task ID: {}", task.local_id));
-                }
-
-                // Validate task ID format
-                if task.local_id.is_empty() {
-                    result.errors.push("Task has empty ID".to_string());
-                } else if !task
-                    .local_id
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_')
-                {
-                    result.warnings.push(format!(
-                        "Task ID '{}' contains non-standard characters",
-                        task.local_id
-                    ));
-                }
-            }
-        }
-
-        // Architecture compatibility
-        let current_arch = std::env::consts::ARCH;
-        if !metadata.architecture.is_empty() && metadata.architecture != current_arch {
-            result.warnings.push(format!(
-                "Package architecture '{}' may not be compatible with current architecture '{}'",
-                metadata.architecture, current_arch
-            ));
-        }
-    }
-
-    /// Perform security assessment of the package.
-    async fn assess_security(&self, package_path: &Path, result: &mut ValidationResult) {
-        let mut security_issues = 0;
-
-        // Check file permissions
-        match fs::metadata(package_path).await {
-            Ok(metadata) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let mode = metadata.permissions().mode();
-
-                    // Check if file is world-writable
-                    if mode & 0o002 != 0 {
-                        result
-                            .warnings
-                            .push("Package file is world-writable".to_string());
-                        security_issues += 1;
-                    }
-
-                    // Check if file is executable
-                    if mode & 0o111 == 0 {
-                        result
-                            .warnings
-                            .push("Package file is not executable".to_string());
-                    }
-                }
-            }
-            Err(e) => {
-                result
-                    .warnings
-                    .push(format!("Cannot check file permissions: {}", e));
-            }
-        }
-
-        // Basic heuristic checks for suspicious patterns
-        match fs::read(package_path).await {
-            Ok(data) => {
-                // Check for suspicious strings (basic detection)
-                let suspicious_patterns: [&[u8]; 6] =
-                    [b"/bin/sh", b"system(", b"exec", b"curl", b"wget", b"nc "];
-
-                for pattern in &suspicious_patterns {
-                    if data.windows(pattern.len()).any(|window| window == *pattern) {
-                        result.warnings.push(format!(
-                            "Package contains potentially suspicious pattern: {}",
-                            String::from_utf8_lossy(pattern)
-                        ));
-                        security_issues += 1;
-                    }
-                }
-            }
-            Err(e) => {
-                result
-                    .warnings
-                    .push(format!("Cannot read package for security analysis: {}", e));
-            }
-        }
-
-        // Determine security level
-        result.security_level = if security_issues == 0 {
-            SecurityLevel::Safe
-        } else if security_issues <= 2 {
-            SecurityLevel::Warning
-        } else {
-            SecurityLevel::Dangerous
-        };
-    }
-
     /// Get the temporary directory path.
     pub fn temp_dir(&self) -> &Path {
         self.temp_dir.path()
@@ -477,7 +188,7 @@ impl Default for PackageValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::loader::package_loader::{PackageMetadata, TaskMetadata};
+    use crate::registry::loader::package_loader::TaskMetadata;
 
     /// Helper to create a valid ELF header for testing
     fn create_valid_elf_header() -> Vec<u8> {
