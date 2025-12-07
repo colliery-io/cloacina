@@ -4,14 +4,14 @@ level: task
 title: "Split validator.rs into modular validators"
 short_code: "CLOACI-T-0033"
 created_at: 2025-12-07T01:16:45.804213+00:00
-updated_at: 2025-12-07T01:16:45.804213+00:00
+updated_at: 2025-12-07T04:10:07.111791+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,10 @@ src/registry/loader/validators/
   workflow_validator.rs     (~200 lines - workflow validation)
   dependency_validator.rs   (~150 lines - dependency validation)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
