@@ -4,14 +4,14 @@ level: task
 title: "Split cron_schedule.rs DAL into modules"
 short_code: "CLOACI-T-0034"
 created_at: 2025-12-07T01:16:45.973390+00:00
-updated_at: 2025-12-07T01:16:45.973390+00:00
+updated_at: 2025-12-07T04:13:23.452988+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,6 +38,10 @@ src/dal/unified/cron_schedule/
   queries.rs  (~300 lines - state queries, filtering)
   state.rs    (~200 lines - state transition logic)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
