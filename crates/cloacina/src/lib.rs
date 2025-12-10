@@ -484,6 +484,7 @@ pub mod cron_recovery;
 pub mod cron_scheduler;
 pub mod dal;
 pub mod database;
+pub mod dispatcher;
 pub mod error;
 pub mod executor;
 pub mod graph;
@@ -516,6 +517,10 @@ pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
 pub use cron_scheduler::{CronScheduler, CronSchedulerConfig};
 pub use database::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub use database::{UniversalBool, UniversalTimestamp, UniversalUuid};
+pub use dispatcher::{
+    DefaultDispatcher, DispatchError, Dispatcher, ExecutionResult, ExecutionStatus,
+    ExecutorMetrics, RoutingConfig, RoutingRule, TaskExecutor, TaskReadyEvent,
+};
 pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,
     ValidationError, WorkflowError,
