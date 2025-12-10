@@ -61,42 +61,69 @@ Key aspects of initialization:
 - Retry policy and trigger rules are configured
 - Task configuration is stored for execution
 
-## Concurrency and Task Execution
+## Execution Architecture
 
-The system uses a semaphore-based approach to control concurrent task execution:
+Cloacina uses a **dispatcher-based architecture** that decouples task scheduling from task execution. This enables pluggable execution backends while maintaining reliable state management.
 
 ```rust
 pub struct ExecutorConfig {
     pub max_concurrent_tasks: usize,  // Default: 4
-    pub poll_interval: Duration,      // Default: 1 second
     pub task_timeout: Duration,       // Default: 5 minutes
 }
 ```
 
-### Task Claiming and Execution
+### Push-Based Execution Flow
+
+The scheduler pushes tasks to executors via the dispatcher:
+
 <!-- codespell:disable -->
 ```mermaid
 sequenceDiagram
+    participant S as Scheduler
+    participant D as Dispatcher
+    participant R as Router
     participant EX as TaskExecutor
     participant DB as Database
-    participant Task as Task
 
-    EX ->> DB: Poll for ready tasks
-    DB -->> EX: Return ready task
-    EX ->> EX: Acquire semaphore permit
-    EX ->> Task: Execute task
-    Task -->> EX: Return result
-    EX ->> DB: Update task status
-    EX ->> EX: Release semaphore permit
+    S ->> DB: Mark task Ready
+    S ->> D: TaskReadyEvent
+    D ->> R: resolve_executor_key(namespace)
+    R -->> D: executor_key
+    D ->> EX: execute(event)
+    EX ->> DB: claim_ready_task (atomic)
+    EX ->> EX: Load context, run task
+    EX ->> DB: Update state (complete/fail)
+    EX -->> D: ExecutionResult
+    D ->> DB: Handle result
 ```
 <!-- codespell:enable -->
 
 The execution process:
-1. Task executor polls for ready tasks
-2. Claims a task using a semaphore for concurrency control
-3. Executes the task in a background Tokio task
-4. Updates task status based on execution result
-5. Releases the semaphore permit
+1. Scheduler determines task is ready (dependencies satisfied, trigger rules pass)
+2. Scheduler emits `TaskReadyEvent` to dispatcher
+3. Dispatcher routes event to appropriate executor based on task namespace
+4. Executor atomically claims the task (Ready -> Running)
+5. Executor loads context and executes the task
+6. Executor updates task state and returns result
+7. Dispatcher handles result (retry scheduling, state updates)
+
+### Atomic Task Claiming
+
+The `claim_ready_task()` operation ensures safe concurrent execution:
+
+```sql
+-- Atomic claim with FOR UPDATE SKIP LOCKED
+UPDATE task_executions
+SET status = 'Running', claimed_at = NOW(), claimed_by = $executor_id
+WHERE id = (
+    SELECT id FROM task_executions
+    WHERE status = 'Ready' AND id = $task_id
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING *;
+```
+
+This prevents multiple executors from claiming the same task even in distributed scenarios.
 
 ## Task Isolation and Threading
 
@@ -391,13 +418,41 @@ The task execution system is optimized for:
    - Memory-efficient context handling
    - Controlled retry behavior
 
+## Pluggable Executors
+
+The dispatcher architecture enables custom execution backends. Implement the `TaskExecutor` trait to create executors for:
+
+- **Kubernetes Jobs**: Run tasks as K8s batch jobs
+- **Serverless Functions**: Execute via AWS Lambda, Cloud Functions
+- **Remote Workers**: Distribute to worker pools
+- **GPU Clusters**: Route ML tasks to specialized hardware
+
+See [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) for implementation details.
+
+### Routing Configuration
+
+Route tasks to different executors based on namespace patterns:
+
+```rust
+let routing = RoutingConfig::new("default")
+    .with_rule(RoutingRule::new("*::ml::*", "gpu"))
+    .with_rule(RoutingRule::new("*::batch::*", "k8s"));
+```
+
 ## Conclusion
 
 Cloacina's task execution system provides a robust, reliable framework for executing complex workflows. Through careful state management, dependency handling, and error recovery, it ensures that tasks execute in the correct order while maintaining system stability and performance.
 
 The system's design emphasizes:
 - Reliability through retry mechanisms
-- Efficiency through batch operations
+- Efficiency through push-based dispatch
+- Extensibility through pluggable executors
 - Observability through detailed status tracking
 - Flexibility through configurable trigger rules
 - Resilience through comprehensive error handling
+
+## See Also
+
+- [Dispatcher Architecture]({{< relref "dispatcher-architecture.md" >}}) - Implementing custom executors
+- [Guaranteed Execution Architecture]({{< relref "guaranteed-execution-architecture.md" >}}) - Reliability guarantees
+- [Performance Characteristics]({{< relref "performance-characteristics.md" >}}) - Tuning for performance
