@@ -526,9 +526,8 @@ pub use error::{
     ValidationError, WorkflowError,
 };
 pub use executor::{
-    EngineMode, ExecutionScope, ExecutorConfig, PipelineEngine, PipelineError, PipelineExecution,
-    PipelineExecutor, PipelineResult, PipelineStatus, TaskExecutorTrait, TaskResult,
-    ThreadTaskExecutor,
+    ExecutorConfig, PipelineError, PipelineExecution, PipelineExecutor, PipelineResult,
+    PipelineStatus, TaskResult, ThreadTaskExecutor,
 };
 pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,

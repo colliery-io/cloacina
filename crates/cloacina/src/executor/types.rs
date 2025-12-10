@@ -164,8 +164,6 @@ impl DependencyLoader {
 pub struct ExecutorConfig {
     /// Maximum number of tasks that can run concurrently
     pub max_concurrent_tasks: usize,
-    /// Interval between polling for new tasks
-    pub poll_interval: std::time::Duration,
     /// Maximum time a task is allowed to run before timing out
     pub task_timeout: std::time::Duration,
 }
@@ -175,30 +173,13 @@ impl Default for ExecutorConfig {
     ///
     /// Default values:
     /// * max_concurrent_tasks: 4
-    /// * poll_interval: 1 second
     /// * task_timeout: 5 minutes
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
-            poll_interval: std::time::Duration::from_secs(1),
             task_timeout: std::time::Duration::from_secs(300), // 5 minutes
         }
     }
-}
-
-/// Defines the operating mode of the execution engine
-///
-/// This enum specifies whether the engine is running in a unified mode
-/// (scheduler and executor in the same process) or in a distributed mode
-/// where scheduler and executor run in separate processes.
-#[derive(Debug, Clone)]
-pub enum EngineMode {
-    /// Both scheduler and executor run in the same process
-    Unified,
-    /// Only the scheduler component runs in this process
-    SchedulerOnly,
-    /// Only the executor component runs in this process
-    ExecutorOnly,
 }
 
 /// Represents a task that has been claimed for execution

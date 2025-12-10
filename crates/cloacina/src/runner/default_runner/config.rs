@@ -43,10 +43,6 @@ pub struct DefaultRunnerConfig {
     /// This controls the parallelism of task processing.
     pub max_concurrent_tasks: usize,
 
-    /// How often the task executor should poll for new tasks to execute.
-    /// Lower values increase responsiveness but may increase database load.
-    pub executor_poll_interval: Duration,
-
     /// How often the scheduler should check for ready tasks and dependencies.
     /// Lower values increase responsiveness but may increase database load.
     pub scheduler_poll_interval: Duration,
@@ -124,10 +120,9 @@ impl Default for DefaultRunnerConfig {
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
-            executor_poll_interval: Duration::from_millis(100), // 100ms for responsive execution
             scheduler_poll_interval: Duration::from_millis(100), // 100ms for responsive scheduling
-            task_timeout: Duration::from_secs(300),             // 5 minutes
-            pipeline_timeout: Some(Duration::from_secs(3600)),  // 1 hour
+            task_timeout: Duration::from_secs(300),              // 5 minutes
+            pipeline_timeout: Some(Duration::from_secs(3600)),   // 1 hour
             db_pool_size: 10, // Default pool size (works for both PostgreSQL and SQLite)
             enable_recovery: true,
             enable_cron_scheduling: true, // Opt-out
@@ -288,7 +283,6 @@ impl DefaultRunnerBuilder {
         // Create task executor
         let executor_config = ExecutorConfig {
             max_concurrent_tasks: self.config.max_concurrent_tasks,
-            poll_interval: self.config.executor_poll_interval,
             task_timeout: self.config.task_timeout,
         };
 
@@ -307,10 +301,7 @@ impl DefaultRunnerBuilder {
         let dispatcher = DefaultDispatcher::new(dal, routing_config);
 
         // Register the executor with the dispatcher
-        dispatcher.register_executor(
-            "default",
-            Arc::new(executor.clone()) as Arc<dyn TaskExecutor>,
-        );
+        dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
 
         let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
 
@@ -318,7 +309,6 @@ impl DefaultRunnerBuilder {
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
-            executor: Arc::new(executor) as Arc<dyn crate::executor::traits::TaskExecutorTrait>,
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
@@ -371,7 +361,6 @@ mod tests {
 
         // Test default values
         assert_eq!(config.max_concurrent_tasks, 4);
-        assert_eq!(config.executor_poll_interval, Duration::from_millis(100));
         assert_eq!(config.scheduler_poll_interval, Duration::from_millis(100));
         assert_eq!(config.task_timeout, Duration::from_secs(300));
         assert_eq!(config.pipeline_timeout, Some(Duration::from_secs(3600)));
