@@ -113,22 +113,10 @@ pub struct DefaultRunnerConfig {
     /// Optional runner name for logging context
     pub runner_name: Option<String>,
 
-    /// Whether to enable dispatcher mode for push-based task execution.
+    /// Routing configuration for task dispatch.
     ///
-    /// When enabled:
-    /// - Scheduler dispatches task events directly to executors
-    /// - Reduces database polling overhead
-    /// - Enables routing to multiple executor backends
-    ///
-    /// When disabled (default):
-    /// - Uses traditional polling mode
-    /// - Executor polls database for ready tasks
-    pub enable_dispatcher: bool,
-
-    /// Optional routing configuration for dispatcher mode.
-    ///
-    /// When dispatcher is enabled and routing_config is None,
-    /// all tasks are routed to the "default" executor.
+    /// Controls how tasks are routed to executor backends.
+    /// If None, all tasks are routed to the "default" executor.
     pub routing_config: Option<RoutingConfig>,
 }
 
@@ -157,7 +145,6 @@ impl Default for DefaultRunnerConfig {
             registry_storage_backend: "filesystem".to_string(),
             runner_id: None,
             runner_name: None,
-            enable_dispatcher: false, // Opt-in to dispatcher mode
             routing_config: None,
         }
     }
@@ -310,27 +297,22 @@ impl DefaultRunnerBuilder {
                 message: e.to_string(),
             })?;
 
-        // Configure dispatcher if enabled
-        let scheduler = if self.config.enable_dispatcher {
-            let dal = crate::dal::DAL::new(database.clone());
-            let routing_config = self
-                .config
-                .routing_config
-                .clone()
-                .unwrap_or_else(RoutingConfig::default);
-            let dispatcher = DefaultDispatcher::new(dal, routing_config);
+        // Configure dispatcher for push-based task execution
+        let dal = crate::dal::DAL::new(database.clone());
+        let routing_config = self
+            .config
+            .routing_config
+            .clone()
+            .unwrap_or_else(RoutingConfig::default);
+        let dispatcher = DefaultDispatcher::new(dal, routing_config);
 
-            // Register the executor with the dispatcher
-            dispatcher.register_executor(
-                "default",
-                Arc::new(executor.clone()) as Arc<dyn TaskExecutor>,
-            );
+        // Register the executor with the dispatcher
+        dispatcher.register_executor(
+            "default",
+            Arc::new(executor.clone()) as Arc<dyn TaskExecutor>,
+        );
 
-            tracing::info!("Dispatcher mode enabled - scheduler will push tasks to executor");
-            scheduler.with_dispatcher(Arc::new(dispatcher))
-        } else {
-            scheduler
-        };
+        let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
 
         let default_runner = DefaultRunner {
             database,
@@ -357,13 +339,22 @@ impl DefaultRunnerBuilder {
         Ok(default_runner)
     }
 
-    /// Enables dispatcher mode for push-based task execution.
-    pub fn enable_dispatcher(mut self) -> Self {
-        self.config.enable_dispatcher = true;
-        self
-    }
-
-    /// Sets custom routing configuration for dispatcher mode.
+    /// Sets custom routing configuration for task dispatch.
+    ///
+    /// Use this to route different tasks to different executor backends.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let runner = DefaultRunner::builder()
+    ///     .database_url("sqlite://test.db")
+    ///     .routing_config(
+    ///         RoutingConfig::new("default")
+    ///             .with_rule(RoutingRule::new("ml::*", "gpu"))
+    ///     )
+    ///     .build()
+    ///     .await?;
+    /// ```
     pub fn routing_config(mut self, config: RoutingConfig) -> Self {
         self.config.routing_config = Some(config);
         self

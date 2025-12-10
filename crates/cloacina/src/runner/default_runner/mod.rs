@@ -37,6 +37,8 @@ pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
+use crate::dal::DAL;
+use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
 use crate::executor::pipeline_executor::PipelineError;
 use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
@@ -200,6 +202,22 @@ impl DefaultRunner {
             .map_err(|e| PipelineError::Configuration {
                 message: e.to_string(),
             })?;
+
+        // Configure dispatcher for push-based task execution
+        let dal = DAL::new(database.clone());
+        let routing_config = config
+            .routing_config
+            .clone()
+            .unwrap_or_else(RoutingConfig::default);
+        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+
+        // Register the executor with the dispatcher
+        dispatcher.register_executor(
+            "default",
+            Arc::new(executor.clone()) as Arc<dyn TaskExecutor>,
+        );
+
+        let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
 
         let default_runner = Self {
             database,
