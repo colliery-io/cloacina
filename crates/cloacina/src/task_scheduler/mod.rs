@@ -122,6 +122,7 @@ mod trigger_rules;
 // Re-export public types
 pub use trigger_rules::{TriggerCondition, TriggerRule, ValueOperator};
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use diesel::prelude::*;
@@ -134,6 +135,7 @@ use crate::dal::DAL;
 use crate::database::schema::unified::{pipeline_executions, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::database::BackendType;
+use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
 use crate::task::TaskNamespace;
 use crate::{Context, Database, Workflow};
@@ -185,6 +187,8 @@ pub struct TaskScheduler {
     dal: DAL,
     instance_id: Uuid,
     poll_interval: Duration,
+    /// Optional dispatcher for push-based task execution
+    dispatcher: Option<Arc<dyn Dispatcher>>,
 }
 
 impl TaskScheduler {
@@ -254,7 +258,30 @@ impl TaskScheduler {
             dal,
             instance_id: Uuid::new_v4(),
             poll_interval,
+            dispatcher: None,
         }
+    }
+
+    /// Sets the dispatcher for push-based task execution.
+    ///
+    /// When a dispatcher is configured, the scheduler will dispatch task events
+    /// when tasks become ready, in addition to marking them Ready in the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `dispatcher` - The dispatcher to use for task events
+    ///
+    /// # Returns
+    ///
+    /// Self for method chaining
+    pub fn with_dispatcher(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// Returns a reference to the dispatcher if configured.
+    pub fn dispatcher(&self) -> Option<&Arc<dyn Dispatcher>> {
+        self.dispatcher.as_ref()
     }
 
     /// Schedules a new workflow execution with the provided input context.
@@ -554,13 +581,23 @@ impl TaskScheduler {
     /// The scheduling loop is designed to be run in a separate thread or task.
     /// Multiple instances should not be run simultaneously.
     pub async fn run_scheduling_loop(&self) -> Result<(), ValidationError> {
-        let scheduler_loop = SchedulerLoop::new(&self.dal, self.instance_id, self.poll_interval);
+        let scheduler_loop = SchedulerLoop::with_dispatcher(
+            &self.dal,
+            self.instance_id,
+            self.poll_interval,
+            self.dispatcher.clone(),
+        );
         scheduler_loop.run().await
     }
 
     /// Processes all active pipeline executions to update task readiness.
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
-        let scheduler_loop = SchedulerLoop::new(&self.dal, self.instance_id, self.poll_interval);
+        let scheduler_loop = SchedulerLoop::with_dispatcher(
+            &self.dal,
+            self.instance_id,
+            self.poll_interval,
+            self.dispatcher.clone(),
+        );
         scheduler_loop.process_active_pipelines().await
     }
 
