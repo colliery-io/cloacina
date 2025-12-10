@@ -244,8 +244,8 @@ mod tests {
     #[allow(dead_code)]
     fn create_test_event(task_name: &str) -> TaskReadyEvent {
         TaskReadyEvent::new(
-            UniversalUuid::new(),
-            UniversalUuid::new(),
+            UniversalUuid::new_v4(),
+            UniversalUuid::new_v4(),
             task_name.to_string(),
             1,
         )
