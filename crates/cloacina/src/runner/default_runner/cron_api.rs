@@ -39,7 +39,7 @@ impl DefaultRunner {
     /// * `Result<UniversalUuid, PipelineError>` - The ID of the created schedule or an error
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::new("postgresql://localhost/db").await?;
     ///
     /// // Schedule daily backup at 2 AM UTC

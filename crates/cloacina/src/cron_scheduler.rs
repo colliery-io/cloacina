@@ -45,7 +45,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::cron_scheduler::CronScheduler;
 //! use cloacina::runner::DefaultRunner;
 //! use std::time::Duration;

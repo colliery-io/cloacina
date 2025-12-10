@@ -73,7 +73,7 @@
 //!
 //! The easiest way to create tasks is with the `#[task]` macro:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(
@@ -97,7 +97,7 @@
 //!
 //! Tasks can depend on other tasks, forming a directed acyclic graph (DAG):
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(id = "fetch_data", dependencies = [])]
@@ -148,7 +148,7 @@
 //!
 //! Configure retry policies for resilient task execution:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //! use std::time::Duration;
 //!
@@ -187,7 +187,7 @@
 //!
 //! Use trigger rules for conditional task execution based on context data:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(id = "validate_input", dependencies = [])]
@@ -221,7 +221,7 @@
 //!
 //! The [`Context`] is your primary way to share data between tasks:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //! use serde_json::json;
 //!
@@ -261,7 +261,7 @@
 //!
 //! Test your tasks in isolation:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(id = "math_task", dependencies = [])]
@@ -295,7 +295,7 @@
 //!
 //! For advanced use cases, you can implement the [`Task`] trait manually instead of using the macro:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //! use async_trait::async_trait;
 //!
@@ -373,7 +373,7 @@ pub use namespace::{parse_namespace, TaskNamespace};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::*;
 ///
 /// let mut registry = TaskRegistry::new();

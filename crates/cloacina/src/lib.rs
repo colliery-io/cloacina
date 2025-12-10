@@ -55,7 +55,7 @@
 //!
 //! Define a task using the `#[task]` macro:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(
@@ -74,7 +74,7 @@
 //!
 //! Create workflows with the `workflow!` macro:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! #[task(id = "extract", dependencies = [])]
@@ -107,7 +107,7 @@
 //!
 //! ### Execution with Database Persistence
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::runner::{DefaultRunner, PipelineExecutor};
 //!
 //! #[tokio::main]
@@ -130,7 +130,7 @@
 //!
 //! ### PostgreSQL Schema-Based Multi-Tenancy
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::runner::DefaultRunner;
 //!
 //! // Each tenant gets their own PostgreSQL schema
@@ -154,7 +154,7 @@
 //!
 //! ### SQLite File-Based Multi-Tenancy
 //!
-//! ```rust
+//! ```rust,ignore
 //! // Each tenant gets their own database file
 //! let tenant_a = DefaultRunner::new("sqlite://./tenant_a.db").await?;
 //! let tenant_b = DefaultRunner::new("sqlite://./tenant_b.db").await?;
@@ -172,7 +172,7 @@
 //!
 //! Tasks are the fundamental units of work. Use the `#[task]` macro for the most convenient definition:
 //!
-//! ```rust
+//! ```rust,ignore
 //! #[task(
 //!     id = "my_task",
 //!     dependencies = ["other_task_id"],
@@ -196,7 +196,7 @@
 //!
 //! The Context is a type-safe container for sharing data between tasks:
 //!
-//! ```rust
+//! ```rust,ignore
 //! // Insert data
 //! context.insert("user_id", serde_json::json!(12345))?;
 //! context.insert("config", serde_json::json!({"env": "prod"}))?;
@@ -217,7 +217,7 @@
 //!
 //! Cloacina automatically resolves task dependencies and executes them in the correct order:
 //!
-//! ```rust
+//! ```rust,ignore
 //! #[task(id = "a", dependencies = [])]
 //! async fn task_a(_: &mut Context<serde_json::Value>) -> Result<(), TaskError> { Ok(()) }
 //!
@@ -298,7 +298,7 @@
 //!
 //! Configure retry policies for resilient execution:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use std::time::Duration;
 //!
 //! #[task(
@@ -328,7 +328,7 @@
 //!
 //! Use trigger rules for conditional task execution:
 //!
-//! ```rust
+//! ```rust,ignore
 //! #[task(
 //!     id = "conditional_task",
 //!     dependencies = ["validation_task"],

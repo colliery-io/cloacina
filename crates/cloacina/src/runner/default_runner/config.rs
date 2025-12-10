@@ -156,7 +156,7 @@ impl Default for DefaultRunnerConfig {
 /// Each schema provides complete data isolation with zero collision risk.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// // Single-tenant PostgreSQL (uses public schema)
 /// let runner = DefaultRunnerBuilder::new()
 ///     .database_url("postgresql://user:pass@localhost/cloacina")

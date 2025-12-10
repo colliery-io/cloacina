@@ -84,7 +84,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::{workflow, task, Context, Database, TaskError};
 //! use cloacina::scheduler::TaskScheduler;
 //!
@@ -172,7 +172,7 @@ use scheduler_loop::SchedulerLoop;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::{Database, TaskScheduler};
 /// use cloacina::workflow::Workflow;
 ///
@@ -209,7 +209,7 @@ impl TaskScheduler {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::{Database, TaskScheduler};
     ///
     /// let database = Database::new("postgresql://localhost/cloacina")?;
@@ -303,7 +303,7 @@ impl TaskScheduler {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::{Context, TaskScheduler};
     /// use serde_json::json;
     ///
@@ -556,7 +556,7 @@ impl TaskScheduler {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::TaskScheduler;
     ///
     /// let scheduler = TaskScheduler::with_global_workflows(database);

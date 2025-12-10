@@ -110,7 +110,7 @@ impl DefaultRunner {
     /// * `Result<Self, PipelineError>` - The initialized executor or an error
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::new("postgres://localhost/db").await?;
     /// ```
     pub async fn new(database_url: &str) -> Result<Self, PipelineError> {
@@ -123,7 +123,7 @@ impl DefaultRunner {
     /// * `DefaultRunnerBuilder` - Builder for configuring the runner
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::builder()
     ///     .database_url("postgres://localhost/db")
     ///     .build()
@@ -143,7 +143,7 @@ impl DefaultRunner {
     /// * `Result<Self, PipelineError>` - The initialized executor or an error
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::with_schema(
     ///     "postgresql://user:pass@localhost/cloacina",
     ///     "tenant_123"

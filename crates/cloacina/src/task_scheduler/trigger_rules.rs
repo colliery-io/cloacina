@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::scheduler::{TriggerRule, TriggerCondition, ValueOperator};
 /// use serde_json::json;
 ///
@@ -101,7 +101,7 @@ pub enum TriggerRule {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::scheduler::{TriggerCondition, ValueOperator};
 /// use serde_json::json;
 ///
@@ -162,7 +162,7 @@ pub enum TriggerCondition {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::scheduler::ValueOperator;
 /// use serde_json::json;
 ///

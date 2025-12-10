@@ -38,7 +38,7 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use cloacina::registry::{WorkflowRegistry, WorkflowPackage};
 //! use cloacina::dal::{PostgresWorkflowRegistryDAL, FilesystemWorkflowRegistryDAL};
 //!

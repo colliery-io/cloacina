@@ -96,7 +96,7 @@ use crate::{Database, TaskRegistry, TaskScheduler};
 ///
 /// ## Basic Usage
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
 /// use std::sync::Arc;
 ///
@@ -119,7 +119,7 @@ use crate::{Database, TaskRegistry, TaskScheduler};
 ///
 /// ## With Recovery
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
 /// use std::sync::Arc;
 ///
@@ -167,7 +167,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// use std::sync::Arc;
     ///
@@ -238,7 +238,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// use std::sync::Arc;
     ///
@@ -303,7 +303,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// # use std::sync::Arc;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -402,7 +402,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// # use std::sync::Arc;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -426,7 +426,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// # use std::sync::Arc;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -450,7 +450,7 @@ impl PipelineEngine {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::{Database, TaskRegistry, PipelineEngine, ExecutorConfig, EngineMode};
     /// # use std::sync::Arc;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {

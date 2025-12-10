@@ -26,6 +26,7 @@
 //! use cloacina::cron_evaluator::CronEvaluator;
 //! use chrono::{DateTime, Utc};
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create evaluator for daily 9 AM EST/EDT
 //! let evaluator = CronEvaluator::new("0 9 * * *", "America/New_York")?;
 //!
@@ -34,6 +35,8 @@
 //! let next = evaluator.next_execution(now)?;
 //!
 //! println!("Next execution: {}", next);
+//! # Ok(())
+//! # }
 //! ```
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -74,6 +77,7 @@ pub enum CronError {
 /// use cloacina::cron_evaluator::CronEvaluator;
 /// use chrono::Utc;
 ///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Daily at 2 AM Eastern Time (handles EST/EDT automatically)
 /// let evaluator = CronEvaluator::new("0 2 * * *", "America/New_York")?;
 /// let next = evaluator.next_execution(Utc::now())?;
@@ -81,6 +85,8 @@ pub enum CronError {
 /// // Hourly during business hours in London
 /// let evaluator = CronEvaluator::new("0 9-17 * * 1-5", "Europe/London")?;
 /// let next = evaluator.next_execution(Utc::now())?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct CronEvaluator {
@@ -107,6 +113,9 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
+    /// use cloacina::cron_evaluator::CronEvaluator;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // Daily at 9 AM Eastern Time
     /// let evaluator = CronEvaluator::new("0 9 * * *", "America/New_York")?;
     ///
@@ -115,6 +124,8 @@ impl CronEvaluator {
     ///
     /// // Monthly on the 1st at midnight Pacific Time
     /// let evaluator = CronEvaluator::new("0 0 1 * *", "America/Los_Angeles")?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(cron_expr: &str, timezone_str: &str) -> Result<Self, CronError> {
         let cron = Cron::new(cron_expr)
@@ -149,14 +160,18 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
+    /// use cloacina::cron_evaluator::CronEvaluator;
     /// use chrono::Utc;
     ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator = CronEvaluator::new("0 14 * * *", "America/New_York")?;
     /// let now = Utc::now();
     /// let next = evaluator.next_execution(now)?;
     ///
     /// // Next execution will be at 2 PM Eastern Time, converted to UTC
     /// // During EST: 7 PM UTC, During EDT: 6 PM UTC
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn next_execution(&self, after: DateTime<Utc>) -> Result<DateTime<Utc>, CronError> {
         // Convert UTC time to the target timezone
@@ -186,13 +201,17 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
+    /// use cloacina::cron_evaluator::CronEvaluator;
     /// use chrono::Utc;
     ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator = CronEvaluator::new("0 */6 * * *", "UTC").unwrap();
     /// let now = Utc::now();
     /// let next_executions = evaluator.next_executions(now, 5)?;
     ///
     /// // Returns next 5 executions every 6 hours
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn next_executions(
         &self,
@@ -232,14 +251,18 @@ impl CronEvaluator {
     /// # Examples
     ///
     /// ```rust
+    /// use cloacina::cron_evaluator::CronEvaluator;
     /// use chrono::{Duration, Utc};
     ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator = CronEvaluator::new("0 * * * *", "UTC")?; // Hourly
     /// let start = Utc::now() - Duration::hours(6);
     /// let end = Utc::now();
     /// let missed = evaluator.executions_between(start, end, 10)?;
     ///
     /// // Returns up to 6 hourly executions from the past 6 hours
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn executions_between(
         &self,
@@ -334,8 +357,13 @@ impl FromStr for CronEvaluator {
     /// # Examples
     ///
     /// ```rust
+    /// use cloacina::cron_evaluator::CronEvaluator;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator: CronEvaluator = "0 9 * * *@America/New_York".parse()?;
     /// let evaluator: CronEvaluator = "*/15 * * * *@UTC".parse()?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('@').collect();

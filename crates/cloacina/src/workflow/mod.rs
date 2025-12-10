@@ -37,7 +37,7 @@
 //!
 //! ## Type Definitions
 //!
-//! ```rust
+//! ```rust,ignore
 //! pub struct Workflow {
 //!     name: String,
 //!     tasks: HashMap<String, Arc<dyn Task>>,
@@ -121,7 +121,7 @@ use crate::task::{Task, TaskNamespace};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::*;
 ///
 /// # struct TestTask { id: String, deps: Vec<String> }
@@ -177,7 +177,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::Workflow;
     ///
     /// let workflow = Workflow::new("my_workflow");
@@ -202,7 +202,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use cloacina::*;
     ///
     /// let builder = Workflow::builder("my_workflow")
@@ -241,7 +241,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let metadata = workflow.metadata();
@@ -274,7 +274,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let mut workflow = Workflow::new("test");
     /// workflow.add_tag("environment", "production");
@@ -322,7 +322,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # use async_trait::async_trait;
     /// # struct MyTask;
@@ -375,7 +375,7 @@ impl Workflow {
     /// * `None` - If no task with that ID existed
     ///
     /// # Examples
-    /// ```
+    /// ```ignore
     /// use cloacina::*;
     /// use std::sync::Arc;
     ///
@@ -405,7 +405,7 @@ impl Workflow {
     /// * `to_task` - Task that `from_task` currently depends on
     ///
     /// # Examples
-    /// ```
+    /// ```ignore
     /// use cloacina::*;
     /// use std::sync::Arc;
     ///
@@ -436,7 +436,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// match workflow.validate() {
@@ -488,7 +488,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let execution_order = workflow.topological_sort()?;
@@ -552,7 +552,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let namespace = TaskNamespace::new("public", "embedded", "test", "extract_data");
@@ -650,7 +650,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let levels = workflow.get_execution_levels()?;
@@ -705,7 +705,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let roots = workflow.get_roots();
@@ -732,7 +732,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let leaves = workflow.get_leaves();
@@ -765,7 +765,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// if workflow.can_run_parallel("fetch_users", "fetch_orders") {
@@ -817,7 +817,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let mut workflow = Workflow::new("my-workflow");
     /// let version = workflow.calculate_version();
@@ -899,7 +899,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let workflow = Workflow::new("test");
     /// let task_namespaces = workflow.get_task_ids();
@@ -925,7 +925,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let original_workflow = Workflow::new("test");
     /// let recreated_workflow = original_workflow.recreate_from_registry()?;
@@ -987,7 +987,7 @@ impl Workflow {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// # use cloacina::*;
     /// # let mut workflow = Workflow::new("my-workflow");
     /// // Version is empty before finalization

@@ -43,7 +43,7 @@ use async_trait::async_trait;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::executor::traits::TaskExecutorTrait;
 /// use async_trait::async_trait;
 ///

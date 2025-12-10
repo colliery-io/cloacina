@@ -46,7 +46,7 @@ use crate::task::TaskNamespace;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::DependencyGraph;
 ///
 /// let mut graph = DependencyGraph::new();

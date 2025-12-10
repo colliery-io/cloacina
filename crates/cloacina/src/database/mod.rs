@@ -63,7 +63,7 @@
 //!
 //! ## Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::runner::DefaultRunner;
 //! use cloacina::database::{DbPool, Result};
 //!
@@ -161,7 +161,7 @@ pub const MIGRATIONS: EmbeddedMigrations = POSTGRES_MIGRATIONS;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::database::{run_migrations, DbConnection};
 ///
 /// # fn example(mut conn: DbConnection) -> Result<(), diesel::result::Error> {

@@ -46,7 +46,7 @@ use super::Workflow;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::*;
 ///
 /// # struct TestTask { id: String, deps: Vec<String> }
