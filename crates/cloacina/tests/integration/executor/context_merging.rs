@@ -15,20 +15,14 @@
  */
 
 use async_trait::async_trait;
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::fixtures::get_or_init_fixture;
-
-// Helper for getting database for tests
-async fn get_test_database() -> Database {
-    let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    locked_fixture.initialize().await;
-    locked_fixture.get_database()
-}
 
 // Simple task for workflow construction
 #[derive(Debug)]
@@ -125,7 +119,14 @@ async fn merger_task(context: &mut Context<Value>) -> Result<(), TaskError> {
 
 #[tokio::test]
 async fn test_context_merging_latest_wins() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow using the #[task] functions with unique name
     let workflow_name = format!(
@@ -196,34 +197,28 @@ async fn test_context_merging_latest_wins() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
-
-    // Schedule workflow execution
-    let input_context = Arc::new(tokio::sync::Mutex::new(Context::new()));
-    {
-        let mut context = input_context.lock().await;
-        context
-            .insert("initial_context", Value::String("merging_test".to_string()))
-            .unwrap();
-    }
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context.lock().await.clone_data())
+    // Create runner with sequential execution to ensure order and proper schema isolation
+    let mut config = DefaultRunnerConfig::default();
+    config.max_concurrent_tasks = 1;
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .with_config(config)
+        .build()
         .await
         .unwrap();
 
-    // Create and run executor using global registry
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1, // Sequential execution to ensure order
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-
-    // Run scheduling and execution
-    let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
-
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    // Schedule workflow execution
+    let mut input_context = Context::new();
+    input_context
+        .insert("initial_context", Value::String("merging_test".to_string()))
+        .unwrap();
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
+        .await
+        .unwrap();
+    let pipeline_id = execution.execution_id;
 
     // Give time for all tasks to execute
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -260,15 +255,8 @@ async fn test_context_merging_latest_wins() {
         "Merger should have created a summary of merged keys"
     );
 
-    // Verify latest wins strategy by checking if late_producer's value overwrote early_producer's
-    // This would be evident in the dependency loader's behavior during task execution
-
-    // Check that all expected unique keys are available through dependency loading
-    // (This is indirectly tested by the merger task succeeding)
-
     // Cleanup
-    scheduler_handle.abort();
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[task(
@@ -289,7 +277,14 @@ async fn scope_inspector_task(context: &mut Context<Value>) -> Result<(), TaskEr
 
 #[tokio::test]
 async fn test_execution_scope_context_setup() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow with unique name
     let workflow_name = format!(
@@ -321,31 +316,25 @@ async fn test_execution_scope_context_setup() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution
     let mut input_context = Context::new();
     input_context
         .insert("scope_test", Value::String("execution_scope".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context)
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-
-    // Process scheduling
-    scheduler.process_active_pipelines().await.unwrap();
-
-    // Create and run executor using global registry
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for execution
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -398,5 +387,5 @@ async fn test_execution_scope_context_setup() {
     }
 
     // Cleanup
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }

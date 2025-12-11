@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
 use crate::executor::pipeline_executor::PipelineError;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
@@ -41,10 +42,6 @@ pub struct DefaultRunnerConfig {
     /// Maximum number of concurrent task executions allowed at any given time.
     /// This controls the parallelism of task processing.
     pub max_concurrent_tasks: usize,
-
-    /// How often the task executor should poll for new tasks to execute.
-    /// Lower values increase responsiveness but may increase database load.
-    pub executor_poll_interval: Duration,
 
     /// How often the scheduler should check for ready tasks and dependencies.
     /// Lower values increase responsiveness but may increase database load.
@@ -111,16 +108,21 @@ pub struct DefaultRunnerConfig {
 
     /// Optional runner name for logging context
     pub runner_name: Option<String>,
+
+    /// Routing configuration for task dispatch.
+    ///
+    /// Controls how tasks are routed to executor backends.
+    /// If None, all tasks are routed to the "default" executor.
+    pub routing_config: Option<RoutingConfig>,
 }
 
 impl Default for DefaultRunnerConfig {
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
-            executor_poll_interval: Duration::from_millis(100), // 100ms for responsive execution
             scheduler_poll_interval: Duration::from_millis(100), // 100ms for responsive scheduling
-            task_timeout: Duration::from_secs(300),             // 5 minutes
-            pipeline_timeout: Some(Duration::from_secs(3600)),  // 1 hour
+            task_timeout: Duration::from_secs(300),              // 5 minutes
+            pipeline_timeout: Some(Duration::from_secs(3600)),   // 1 hour
             db_pool_size: 10, // Default pool size (works for both PostgreSQL and SQLite)
             enable_recovery: true,
             enable_cron_scheduling: true, // Opt-out
@@ -138,6 +140,7 @@ impl Default for DefaultRunnerConfig {
             registry_storage_backend: "filesystem".to_string(),
             runner_id: None,
             runner_name: None,
+            routing_config: None,
         }
     }
 }
@@ -148,7 +151,7 @@ impl Default for DefaultRunnerConfig {
 /// Each schema provides complete data isolation with zero collision risk.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// // Single-tenant PostgreSQL (uses public schema)
 /// let runner = DefaultRunnerBuilder::new()
 ///     .database_url("postgresql://user:pass@localhost/cloacina")
@@ -280,7 +283,6 @@ impl DefaultRunnerBuilder {
         // Create task executor
         let executor_config = ExecutorConfig {
             max_concurrent_tasks: self.config.max_concurrent_tasks,
-            poll_interval: self.config.executor_poll_interval,
             task_timeout: self.config.task_timeout,
         };
 
@@ -289,11 +291,24 @@ impl DefaultRunnerBuilder {
                 message: e.to_string(),
             })?;
 
+        // Configure dispatcher for push-based task execution
+        let dal = crate::dal::DAL::new(database.clone());
+        let routing_config = self
+            .config
+            .routing_config
+            .clone()
+            .unwrap_or_else(RoutingConfig::default);
+        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+
+        // Register the executor with the dispatcher
+        dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
+
+        let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
+
         let default_runner = DefaultRunner {
             database,
             config: self.config.clone(),
             scheduler: Arc::new(scheduler),
-            executor: Arc::new(executor) as Arc<dyn crate::executor::traits::TaskExecutorTrait>,
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
@@ -313,6 +328,27 @@ impl DefaultRunnerBuilder {
 
         Ok(default_runner)
     }
+
+    /// Sets custom routing configuration for task dispatch.
+    ///
+    /// Use this to route different tasks to different executor backends.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let runner = DefaultRunner::builder()
+    ///     .database_url("sqlite://test.db")
+    ///     .routing_config(
+    ///         RoutingConfig::new("default")
+    ///             .with_rule(RoutingRule::new("ml::*", "gpu"))
+    ///     )
+    ///     .build()
+    ///     .await?;
+    /// ```
+    pub fn routing_config(mut self, config: RoutingConfig) -> Self {
+        self.config.routing_config = Some(config);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -325,7 +361,6 @@ mod tests {
 
         // Test default values
         assert_eq!(config.max_concurrent_tasks, 4);
-        assert_eq!(config.executor_poll_interval, Duration::from_millis(100));
         assert_eq!(config.scheduler_poll_interval, Duration::from_millis(100));
         assert_eq!(config.task_timeout, Duration::from_secs(300));
         assert_eq!(config.pipeline_timeout, Some(Duration::from_secs(3600)));

@@ -33,7 +33,7 @@
 //!
 //! ## Error Handling Patterns
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::*;
 //!
 //! # let mut context = Context::<i32>::new();

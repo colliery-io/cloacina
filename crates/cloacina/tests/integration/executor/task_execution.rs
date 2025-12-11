@@ -15,6 +15,8 @@
  */
 
 use async_trait::async_trait;
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use serde_json::Value;
 use std::sync::Arc;
@@ -22,14 +24,6 @@ use std::time::Duration;
 use tokio::time;
 
 use crate::fixtures::get_or_init_fixture;
-
-// Helper for getting database for tests
-async fn get_test_database() -> Database {
-    let fixture = get_or_init_fixture().await;
-    let mut locked_fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    locked_fixture.initialize().await;
-    locked_fixture.get_database()
-}
 
 // Simple task for workflow construction
 #[derive(Debug)]
@@ -128,10 +122,12 @@ async fn test_task_executor_basic_execution() {
 
     // Reset the database to ensure a clean state
     fixture.reset_database().await;
+    fixture.initialize().await;
 
+    let database_url = fixture.get_database_url();
     let database = fixture.get_database();
 
-    // Create scheduler and schedule a workflow using the #[task] function
+    // Create workflow using the #[task] function
     let workflow = Workflow::builder("test_pipeline_basic")
         .description("Test pipeline for executor")
         .add_task(Arc::new(WorkflowTask::new("test_task", vec![])))
@@ -154,34 +150,27 @@ async fn test_task_executor_basic_execution() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution
     let mut input_context = Context::new();
     input_context
         .insert("test_data", Value::String("test_value".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution("test_pipeline_basic", input_context)
+    let execution = runner
+        .execute_async("test_pipeline_basic", input_context)
         .await
         .unwrap();
+    let pipeline_id = execution.execution_id;
 
-    // Process scheduling to mark task as ready
-    scheduler.process_active_pipelines().await.unwrap();
-
-    // Create and run executor using global registry
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-
-    // Run executor for a short time to process the task
-    let executor_handle = tokio::spawn(async move { executor.run().await });
-
-    // Give the executor time to process the task
+    // Give time for scheduler loop and dispatcher to process
     time::sleep(Duration::from_millis(500)).await;
 
     // Check that task was executed
@@ -205,12 +194,19 @@ async fn test_task_executor_basic_execution() {
     assert_eq!(task.task_name, expected_task_name);
 
     // Clean up
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn test_task_executor_dependency_loading() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow with dependencies using the #[task] functions
     let workflow_name = format!(
@@ -261,31 +257,25 @@ async fn test_task_executor_dependency_loading() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution
     let mut input_context = Context::new();
     input_context
         .insert("initial_data", Value::String("test_value".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context)
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-
-    // Create and run executor using global registry
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 2,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-
-    // Run scheduling and execution loop
-    let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
-
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for both tasks to execute
     time::sleep(Duration::from_secs(2)).await;
@@ -331,13 +321,19 @@ async fn test_task_executor_dependency_loading() {
     }
 
     // Cleanup
-    scheduler_handle.abort();
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn test_task_executor_timeout_handling() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow with timeout task
     let workflow_name = format!(
@@ -369,32 +365,28 @@ async fn test_task_executor_timeout_handling() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with short timeout and proper schema isolation
+    let mut config = DefaultRunnerConfig::default();
+    config.task_timeout = Duration::from_millis(500);
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .with_config(config)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution
     let mut input_context = Context::new();
     input_context
         .insert("test_data", Value::String("timeout_test".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context)
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-
-    // Process scheduling
-    scheduler.process_active_pipelines().await.unwrap();
-
-    // Create executor with short timeout using global registry
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_millis(500), // Short timeout
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-
-    // Run executor briefly
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for timeout to occur
     time::sleep(Duration::from_secs(2)).await;
@@ -419,7 +411,7 @@ async fn test_task_executor_timeout_handling() {
     );
 
     // Cleanup
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[task(
@@ -433,8 +425,15 @@ async fn unified_task_test(context: &mut Context<Value>) -> Result<(), TaskError
 }
 
 #[tokio::test]
-async fn test_pipeline_engine_unified_mode() {
-    let database = get_test_database().await;
+async fn test_default_runner_execution() {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow using the #[task] function
     let workflow = Workflow::builder("unified_pipeline_test")
@@ -453,53 +452,37 @@ async fn test_pipeline_engine_unified_mode() {
     );
     register_task_constructor(namespace, || Arc::new(unified_task_test_task()));
 
-    // Create pipeline engine
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let task_registry = Arc::new(TaskRegistry::new());
-    let engine = PipelineEngine::new(
-        database.clone(),
-        task_registry,
-        vec![workflow.clone()],
-        config,
-        EngineMode::Unified,
-    );
-
     // Register workflow in global registry for scheduler to find
     register_workflow_constructor(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
 
-    // Schedule a workflow execution manually (since we're testing the engine, not the API)
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
+
+    // Schedule a workflow execution
     let mut input_context = Context::new();
     input_context
         .insert("engine_test", Value::String("unified_mode".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution("unified_pipeline_test", input_context)
+    let execution = runner
+        .execute_async("unified_pipeline_test", input_context)
         .await
         .unwrap();
-
-    // Run the engine briefly
-    let engine_handle = tokio::spawn(async move { engine.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for execution
     time::sleep(Duration::from_secs(1)).await;
 
     // Check that task was processed
     let dal = cloacina::dal::DAL::new(database.clone());
-    let full_task_name = format!(
-        "{}::{}::{}::unified_task_test",
-        workflow.tenant(),
-        workflow.package(),
-        workflow.name()
-    );
     let task_namespace = cloacina::TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
@@ -532,6 +515,12 @@ async fn test_pipeline_engine_unified_mode() {
         }
         Err(_) => {
             // Task might still be in progress or failed - check execution status
+            let full_task_name = format!(
+                "{}::{}::{}::unified_task_test",
+                workflow.tenant(),
+                workflow.package(),
+                workflow.name()
+            );
             let task_status = dal
                 .task_execution()
                 .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
@@ -542,7 +531,7 @@ async fn test_pipeline_engine_unified_mode() {
     }
 
     // Cleanup
-    engine_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[task(
@@ -568,7 +557,14 @@ async fn initial_context_task_test(context: &mut Context<Value>) -> Result<(), T
 
 #[tokio::test]
 async fn test_task_executor_context_loading_no_dependencies() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow using the #[task] function with unique name
     let workflow_name = format!(
@@ -603,7 +599,14 @@ async fn test_task_executor_context_loading_no_dependencies() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution with initial context
     let mut input_context = Context::new();
@@ -613,22 +616,11 @@ async fn test_task_executor_context_loading_no_dependencies() {
     input_context
         .insert("config_value", Value::Number(serde_json::Number::from(42)))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context)
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-
-    // Run scheduling and execution
-    let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
-
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 1,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for execution
     time::sleep(Duration::from_secs(1)).await;
@@ -692,8 +684,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
     }
 
     // Cleanup
-    scheduler_handle.abort();
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }
 
 #[task(
@@ -748,7 +739,14 @@ async fn consumer_context_task(context: &mut Context<Value>) -> Result<(), TaskE
 
 #[tokio::test]
 async fn test_task_executor_context_loading_with_dependencies() {
-    let database = get_test_database().await;
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
 
     // Create workflow with dependency chain using the #[task] functions
     let workflow_name = format!(
@@ -806,29 +804,25 @@ async fn test_task_executor_context_loading_with_dependencies() {
         move || workflow.clone()
     });
 
-    let scheduler = TaskScheduler::new(database.clone()).await.unwrap();
+    // Create runner with proper schema isolation
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
 
     // Schedule workflow execution with initial context
     let mut input_context = Context::new();
     input_context
         .insert("seed_value", Value::String("initial_seed".to_string()))
         .unwrap();
-    let pipeline_id = scheduler
-        .schedule_workflow_execution(&workflow_name, input_context)
+    let execution = runner
+        .execute_async(&workflow_name, input_context)
         .await
         .unwrap();
-
-    // Run scheduling and execution
-    let scheduler_handle = tokio::spawn(async move { scheduler.run_scheduling_loop().await });
-
-    let config = ExecutorConfig {
-        max_concurrent_tasks: 2,
-        poll_interval: Duration::from_millis(100),
-        task_timeout: Duration::from_secs(5),
-    };
-
-    let executor = ThreadTaskExecutor::with_global_registry(database.clone(), config).unwrap();
-    let executor_handle = tokio::spawn(async move { executor.run().await });
+    let pipeline_id = execution.execution_id;
 
     // Give time for both tasks to execute
     time::sleep(Duration::from_secs(2)).await;
@@ -914,6 +908,5 @@ async fn test_task_executor_context_loading_with_dependencies() {
     }
 
     // Cleanup
-    scheduler_handle.abort();
-    executor_handle.abort();
+    runner.shutdown().await.unwrap();
 }

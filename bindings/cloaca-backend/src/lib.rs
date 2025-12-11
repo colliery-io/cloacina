@@ -149,7 +149,7 @@ mod tests {
 
             // Test 4: Check if task is in the registry
             let registry = cloacina::task::global_task_registry();
-            let guard = registry.read().unwrap();
+            let guard = registry.read();
             let namespace =
                 cloacina::TaskNamespace::new("public", "embedded", "default", "test_task");
             let constructor = guard.get(&namespace);
@@ -182,7 +182,7 @@ mod tests {
             println!("✓ Task 'lookup_test_task' registered");
 
             // Test 2: Create workflow builder
-            let mut builder = PyWorkflowBuilder::new("lookup_test_workflow");
+            let mut builder = PyWorkflowBuilder::new("lookup_test_workflow", None, None, None);
             println!("✓ Workflow builder 'lookup_test_workflow' created");
 
             // Test 3: Try to add the task (this is where it might hang)
@@ -230,7 +230,7 @@ mod tests {
                     fn id(&self) -> &str {
                         "investigation_task"
                     }
-                    fn dependencies(&self) -> &[String] {
+                    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
                         &[]
                     }
                     fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
@@ -243,7 +243,7 @@ mod tests {
 
         // Check what namespaces exist
         {
-            let guard = registry.read().unwrap();
+            let guard = registry.read();
             println!("Registry check:");
 
             let default_ns =

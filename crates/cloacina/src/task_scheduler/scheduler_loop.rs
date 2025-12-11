@@ -20,6 +20,7 @@
 //! active pipeline executions and manages task readiness.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::time;
@@ -28,6 +29,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
+use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::task_execution::TaskExecution;
@@ -39,6 +41,8 @@ pub struct SchedulerLoop<'a> {
     dal: &'a DAL,
     instance_id: Uuid,
     poll_interval: Duration,
+    /// Optional dispatcher for push-based task execution
+    dispatcher: Option<Arc<dyn Dispatcher>>,
 }
 
 impl<'a> SchedulerLoop<'a> {
@@ -48,6 +52,22 @@ impl<'a> SchedulerLoop<'a> {
             dal,
             instance_id,
             poll_interval,
+            dispatcher: None,
+        }
+    }
+
+    /// Creates a new SchedulerLoop with an optional dispatcher.
+    pub fn with_dispatcher(
+        dal: &'a DAL,
+        instance_id: Uuid,
+        poll_interval: Duration,
+        dispatcher: Option<Arc<dyn Dispatcher>>,
+    ) -> Self {
+        Self {
+            dal,
+            instance_id,
+            poll_interval,
+            dispatcher,
         }
     }
 
@@ -119,7 +139,7 @@ impl<'a> SchedulerLoop<'a> {
                 .push(task);
         }
 
-        let state_manager = StateManager::new(self.dal);
+        let state_manager = StateManager::with_dispatcher(self.dal, self.dispatcher.clone());
 
         // Process each pipeline's tasks
         for execution in &active_executions {

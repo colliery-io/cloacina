@@ -17,26 +17,32 @@
 //! Task Executor Module
 //!
 //! This module provides the core task execution functionality for the Cloacina pipeline system.
-//! The TaskExecutor is responsible for:
-//! - Polling for and claiming ready tasks
+//! The ThreadTaskExecutor implements the `TaskExecutor` trait for dispatcher-based execution.
+//!
+//! The executor is responsible for:
 //! - Executing tasks with proper timeout handling
 //! - Managing task retries and error handling
 //! - Maintaining task execution state
 //! - Handling task dependencies and context management
 //!
-//! The executor uses a semaphore to limit concurrent task execution and implements
-//! a robust retry mechanism with configurable policies.
+//! ## Dispatcher Integration
+//!
+//! ThreadTaskExecutor implements the `TaskExecutor` trait, allowing it to be registered
+//! with a dispatcher to receive task events directly. The dispatcher routes `TaskReadyEvent`s
+//! to the executor based on routing rules.
 
 use chrono::Utc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio::time;
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
-use super::traits::TaskExecutorTrait;
 use super::types::{ClaimedTask, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
+use crate::dispatcher::{
+    DispatchError, ExecutionResult, ExecutorMetrics, TaskExecutor, TaskReadyEvent,
+};
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
 use crate::task::get_task;
@@ -46,13 +52,19 @@ use async_trait::async_trait;
 /// ThreadTaskExecutor is a thread-based implementation of task execution.
 ///
 /// This executor runs tasks in the current thread/process and manages:
-/// - Task claiming and execution
+/// - Task execution with timeout handling
 /// - Context management and dependency resolution
 /// - Error handling and retry logic
 /// - State persistence
 ///
 /// The executor maintains its own instance ID for tracking and logging purposes
 /// and uses a task registry to resolve task implementations.
+///
+/// ## Dispatcher Integration
+///
+/// ThreadTaskExecutor implements the `TaskExecutor` trait, allowing it to be
+/// registered with a dispatcher to receive task events directly via the
+/// `execute()` method.
 pub struct ThreadTaskExecutor {
     /// Database connection pool for task state persistence
     database: Database,
@@ -64,6 +76,12 @@ pub struct ThreadTaskExecutor {
     instance_id: UniversalUuid,
     /// Configuration parameters for executor behavior
     config: ExecutorConfig,
+    /// Metrics: current number of active (in-flight) tasks
+    active_tasks: AtomicUsize,
+    /// Metrics: total tasks executed
+    total_executed: AtomicU64,
+    /// Metrics: total tasks failed
+    total_failed: AtomicU64,
 }
 
 impl ThreadTaskExecutor {
@@ -89,6 +107,9 @@ impl ThreadTaskExecutor {
             task_registry,
             instance_id: UniversalUuid::new_v4(),
             config,
+            active_tasks: AtomicUsize::new(0),
+            total_executed: AtomicU64::new(0),
+            total_failed: AtomicU64::new(0),
         }
     }
 
@@ -117,133 +138,6 @@ impl ThreadTaskExecutor {
         }
 
         Ok(Self::new(database, Arc::new(registry), config))
-    }
-
-    /// Starts the task executor's main execution loop.
-    ///
-    /// This method begins polling for and executing tasks according to the configured
-    /// parameters. The executor will continue running until explicitly stopped.
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the execution loop
-    pub async fn run(&self) -> Result<(), ExecutorError> {
-        info!("Starting task executor (instance: {})", self.instance_id);
-        self.run_execution_loop().await
-    }
-
-    /// Main execution loop that polls for and executes tasks.
-    ///
-    /// This method implements the core execution logic:
-    /// 1. Polls for ready tasks at configured intervals
-    /// 2. Claims available tasks using a semaphore for concurrency control
-    /// 3. Executes tasks in background tasks
-    /// 4. Handles task results and retries
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the execution loop
-    async fn run_execution_loop(&self) -> Result<(), ExecutorError> {
-        let semaphore = Arc::new(Semaphore::new(self.config.max_concurrent_tasks));
-        let mut interval = time::interval(self.config.poll_interval);
-
-        loop {
-            interval.tick().await;
-
-            // Only poll if we have available concurrency slots
-            let available_slots = semaphore.available_permits();
-            if available_slots == 0 {
-                debug!("All execution slots busy, skipping poll");
-                continue;
-            }
-
-            // Try to claim multiple ready tasks with pre-loaded contexts
-            match self.claim_tasks_with_context(available_slots).await {
-                Ok(claimed_tasks) => {
-                    if claimed_tasks.is_empty() {
-                        debug!("No ready tasks found");
-                        continue;
-                    }
-
-                    debug!(
-                        "Claimed {} tasks for parallel execution",
-                        claimed_tasks.len()
-                    );
-
-                    // Execute all claimed tasks in parallel
-                    for (claimed_task, preloaded_context) in claimed_tasks {
-                        let permit = semaphore.clone().acquire_owned().await?;
-                        let executor = self.clone();
-
-                        // Execute task in background with pre-loaded context
-                        tokio::spawn(async move {
-                            let _permit = permit; // Hold permit until task completes
-
-                            info!(
-                                "Executing task with pre-loaded context: {} (attempt {})",
-                                claimed_task.task_name, claimed_task.attempt
-                            );
-
-                            if let Err(e) = executor
-                                .execute_claimed_task_with_context(claimed_task, preloaded_context)
-                                .await
-                            {
-                                error!("Task execution failed: {}", e);
-                            }
-                        });
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to claim tasks: {}", e);
-                }
-            }
-        }
-    }
-
-    /// Claims up to `limit` ready tasks and pre-loads their execution contexts.
-    ///
-    /// This method optimizes task claiming by combining the claim operation with
-    /// context loading, reducing database roundtrips and enabling parallel execution.
-    ///
-    /// # Arguments
-    /// * `limit` - Maximum number of tasks to claim
-    ///
-    /// # Returns
-    /// Result containing a vector of (ClaimedTask, Context) tuples
-    async fn claim_tasks_with_context(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<(ClaimedTask, Context<serde_json::Value>)>, ExecutorError> {
-        // Use DAL's atomic batch claim method
-        let claim_results = self.dal.task_execution().claim_ready_task(limit).await?;
-        let mut results = Vec::new();
-
-        for claim_result in claim_results {
-            // The unified DAL's ClaimResult already uses UniversalUuid
-            let claimed_task = ClaimedTask {
-                task_execution_id: claim_result.id,
-                pipeline_execution_id: claim_result.pipeline_execution_id,
-                task_name: claim_result.task_name.clone(),
-                attempt: claim_result.attempt,
-            };
-
-            // Get task from global registry to determine dependencies
-            let namespace = parse_namespace(&claimed_task.task_name)
-                .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
-            let task = get_task(&namespace)
-                .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-            let dependencies = task.dependencies();
-
-            // Build context using DAL methods
-            let context = self.build_task_context(&claimed_task, dependencies).await?;
-
-            info!(
-                "Task state change: Ready -> Running (task: {}, pipeline: {}, attempt: {})",
-                claimed_task.task_name, claimed_task.pipeline_execution_id, claimed_task.attempt
-            );
-
-            results.push((claimed_task, context));
-        }
-
-        Ok(results)
     }
 
     /// Builds the execution context for a task by loading its dependencies.
@@ -424,35 +318,6 @@ impl ThreadTaskExecutor {
             // For all other cases (different types or primitives), latest wins
             (_, new_value) => new_value.clone(),
         }
-    }
-
-    /// Executes a claimed task with pre-loaded context.
-    ///
-    /// # Arguments
-    /// * `claimed_task` - The task to execute
-    /// * `context` - Pre-loaded execution context
-    ///
-    /// # Returns
-    /// Result indicating success or failure of task execution
-    async fn execute_claimed_task_with_context(
-        &self,
-        claimed_task: ClaimedTask,
-        context: Context<serde_json::Value>,
-    ) -> Result<(), ExecutorError> {
-        // 1. Resolve task from global registry
-        let namespace = parse_namespace(&claimed_task.task_name)
-            .map_err(|e| ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e)))?;
-        let task = get_task(&namespace)
-            .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-
-        // 2. Execute task with pre-loaded context (skip context building)
-        let execution_result = self.execute_with_timeout(task.as_ref(), context).await;
-
-        // 3. Handle result and update database
-        self.handle_task_result(claimed_task, execution_result)
-            .await?;
-
-        Ok(())
     }
 
     /// Executes a task with timeout protection.
@@ -790,17 +655,157 @@ impl Clone for ThreadTaskExecutor {
             task_registry: Arc::clone(&self.task_registry),
             instance_id: self.instance_id,
             config: self.config.clone(),
+            // Clone metrics by copying current values (each clone gets independent counters)
+            active_tasks: AtomicUsize::new(self.active_tasks.load(Ordering::SeqCst)),
+            total_executed: AtomicU64::new(self.total_executed.load(Ordering::SeqCst)),
+            total_failed: AtomicU64::new(self.total_failed.load(Ordering::SeqCst)),
         }
     }
 }
 
+/// Implementation of the dispatcher's TaskExecutor trait.
+///
+/// This allows ThreadTaskExecutor to be used with the dispatcher pattern,
+/// receiving task events directly instead of polling the database.
 #[async_trait]
-impl TaskExecutorTrait for ThreadTaskExecutor {
-    async fn run(&self) -> Result<(), ExecutorError> {
-        info!(
-            "Starting thread task executor (instance: {})",
-            self.instance_id
-        );
-        self.run_execution_loop().await
+impl TaskExecutor for ThreadTaskExecutor {
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
+        let start = Instant::now();
+        self.active_tasks.fetch_add(1, Ordering::SeqCst);
+
+        // Convert TaskReadyEvent to ClaimedTask format
+        let claimed_task = ClaimedTask {
+            task_execution_id: event.task_execution_id,
+            pipeline_execution_id: event.pipeline_execution_id,
+            task_name: event.task_name.clone(),
+            attempt: event.attempt,
+        };
+
+        // Resolve task from global registry
+        let namespace = match parse_namespace(&claimed_task.task_name) {
+            Ok(ns) => ns,
+            Err(e) => {
+                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+                self.total_failed.fetch_add(1, Ordering::SeqCst);
+                return Ok(ExecutionResult::failure(
+                    event.task_execution_id,
+                    format!("Invalid namespace: {}", e),
+                    start.elapsed(),
+                ));
+            }
+        };
+
+        let task = match get_task(&namespace) {
+            Some(t) => t,
+            None => {
+                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+                self.total_failed.fetch_add(1, Ordering::SeqCst);
+                return Ok(ExecutionResult::failure(
+                    event.task_execution_id,
+                    format!("Task not found: {}", claimed_task.task_name),
+                    start.elapsed(),
+                ));
+            }
+        };
+
+        // Build context for execution
+        let dependencies = task.dependencies();
+        let context = match self.build_task_context(&claimed_task, dependencies).await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+                self.total_failed.fetch_add(1, Ordering::SeqCst);
+                return Ok(ExecutionResult::failure(
+                    event.task_execution_id,
+                    format!("Context build failed: {}", e),
+                    start.elapsed(),
+                ));
+            }
+        };
+
+        // Execute the task
+        let execution_result = self.execute_with_timeout(task.as_ref(), context).await;
+        let duration = start.elapsed();
+
+        self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+
+        match execution_result {
+            Ok(result_context) => {
+                // Save context and mark completed
+                match self
+                    .complete_task_transaction(&claimed_task, result_context)
+                    .await
+                {
+                    Ok(_) => {
+                        self.total_executed.fetch_add(1, Ordering::SeqCst);
+                        info!(
+                            task_id = %event.task_execution_id,
+                            task_name = %event.task_name,
+                            duration_ms = duration.as_millis(),
+                            "Task executed successfully via dispatcher"
+                        );
+                        Ok(ExecutionResult::success(event.task_execution_id, duration))
+                    }
+                    Err(e) => {
+                        self.total_failed.fetch_add(1, Ordering::SeqCst);
+                        Ok(ExecutionResult::failure(
+                            event.task_execution_id,
+                            format!("Failed to save context: {}", e),
+                            duration,
+                        ))
+                    }
+                }
+            }
+            Err(error) => {
+                // Check if we should retry
+                let retry_policy = task.retry_policy();
+                let should_retry = self
+                    .should_retry_task(&claimed_task, &error, &retry_policy)
+                    .await
+                    .unwrap_or(false);
+
+                if should_retry {
+                    // Schedule retry
+                    if let Err(e) = self.schedule_task_retry(&claimed_task, &retry_policy).await {
+                        warn!(
+                            task_id = %event.task_execution_id,
+                            error = %e,
+                            "Failed to schedule retry"
+                        );
+                    }
+                    self.total_executed.fetch_add(1, Ordering::SeqCst);
+                    Ok(ExecutionResult::retry(
+                        event.task_execution_id,
+                        error.to_string(),
+                        duration,
+                    ))
+                } else {
+                    self.total_failed.fetch_add(1, Ordering::SeqCst);
+                    Ok(ExecutionResult::failure(
+                        event.task_execution_id,
+                        error.to_string(),
+                        duration,
+                    ))
+                }
+            }
+        }
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.active_tasks.load(Ordering::SeqCst) < self.config.max_concurrent_tasks
+    }
+
+    fn metrics(&self) -> ExecutorMetrics {
+        ExecutorMetrics {
+            active_tasks: self.active_tasks.load(Ordering::SeqCst),
+            max_concurrent: self.config.max_concurrent_tasks,
+            total_executed: self.total_executed.load(Ordering::SeqCst),
+            total_failed: self.total_failed.load(Ordering::SeqCst),
+            avg_duration_ms: 0, // TODO: track moving average
+        }
+    }
+
+    fn name(&self) -> &str {
+        "ThreadTaskExecutor"
     }
 }

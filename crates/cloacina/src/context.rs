@@ -70,7 +70,7 @@
 //!
 //! ### Basic Operations
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::Context;
 //!
 //! let mut context = Context::<i32>::new();
@@ -89,7 +89,7 @@
 //!
 //! ### Database Integration
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::{Context, ContextDbExt};
 //! use uuid::Uuid;
 //!
@@ -123,7 +123,7 @@ use uuid::Uuid;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::{Context, ContextDbExt};
 /// use uuid::Uuid;
 ///

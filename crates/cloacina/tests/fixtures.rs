@@ -199,6 +199,11 @@ impl TestFixture {
         self.db_url.clone()
     }
 
+    /// Get the schema name for this fixture
+    pub fn get_schema(&self) -> String {
+        self.schema.clone()
+    }
+
     /// Get the name of the current backend (postgres or sqlite)
     pub fn get_current_backend(&self) -> &'static str {
         match self.db.backend() {

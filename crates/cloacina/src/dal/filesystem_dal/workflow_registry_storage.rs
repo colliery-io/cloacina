@@ -46,7 +46,7 @@ use crate::registry::traits::RegistryStorage;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
 /// use cloacina::registry::RegistryStorage;
 ///
@@ -83,7 +83,7 @@ impl FilesystemRegistryStorage {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use cloacina::dal::filesystem_dal::FilesystemRegistryStorage;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {

@@ -73,9 +73,9 @@ impl DefaultRunner {
 
         // Create shutdown channel
         let (shutdown_tx, mut scheduler_shutdown_rx) = broadcast::channel(1);
-        let mut executor_shutdown_rx = shutdown_tx.subscribe();
+        let executor_shutdown_rx = shutdown_tx.subscribe();
 
-        // Start scheduler
+        // Start scheduler (dispatcher mode: scheduler pushes tasks to executor via dispatcher)
         let scheduler = self.scheduler.clone();
         let scheduler_span = self.create_runner_span("task_scheduler");
         let scheduler_handle = tokio::spawn(
@@ -98,32 +98,14 @@ impl DefaultRunner {
             .instrument(scheduler_span),
         );
 
-        // Start executor
-        let executor = self.executor.clone();
-        let executor_span = self.create_runner_span("task_executor");
-        let executor_handle = tokio::spawn(
-            async move {
-                let mut executor_future = Box::pin(executor.run());
-
-                tokio::select! {
-                    result = &mut executor_future => {
-                        if let Err(e) = result {
-                            tracing::error!("Executor failed: {}", e);
-                        } else {
-                            tracing::info!("Executor completed");
-                        }
-                    }
-                    _ = executor_shutdown_rx.recv() => {
-                        tracing::info!("Executor shutdown requested");
-                    }
-                }
-            }
-            .instrument(executor_span),
-        );
+        // Note: executor polling loop is NOT started - dispatcher pushes tasks directly
+        // to executor via TaskExecutor::execute(). The executor_shutdown_rx is kept for
+        // potential future use with hybrid modes.
+        drop(executor_shutdown_rx);
 
         // Store handles
         handles.scheduler_handle = Some(scheduler_handle);
-        handles.executor_handle = Some(executor_handle);
+        handles.executor_handle = None; // No polling loop in dispatcher mode
         handles.shutdown_sender = Some(shutdown_tx.clone());
 
         // Start cron services if enabled

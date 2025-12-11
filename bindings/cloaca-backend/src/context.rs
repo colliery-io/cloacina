@@ -338,7 +338,6 @@ impl PyDefaultRunnerConfig {
     #[new]
     #[pyo3(signature = (
         max_concurrent_tasks = None,
-        executor_poll_interval_ms = None,
         scheduler_poll_interval_ms = None,
         task_timeout_seconds = None,
         pipeline_timeout_seconds = None,
@@ -355,7 +354,6 @@ impl PyDefaultRunnerConfig {
     ))]
     pub fn new(
         max_concurrent_tasks: Option<usize>,
-        executor_poll_interval_ms: Option<u64>,
         scheduler_poll_interval_ms: Option<u64>,
         task_timeout_seconds: Option<u64>,
         pipeline_timeout_seconds: Option<u64>,
@@ -377,9 +375,6 @@ impl PyDefaultRunnerConfig {
         // Apply any provided overrides
         if let Some(val) = max_concurrent_tasks {
             config.max_concurrent_tasks = val;
-        }
-        if let Some(val) = executor_poll_interval_ms {
-            config.executor_poll_interval = Duration::from_millis(val);
         }
         if let Some(val) = scheduler_poll_interval_ms {
             config.scheduler_poll_interval = Duration::from_millis(val);
@@ -440,11 +435,6 @@ impl PyDefaultRunnerConfig {
     #[getter]
     pub fn max_concurrent_tasks(&self) -> usize {
         self.inner.max_concurrent_tasks
-    }
-
-    #[getter]
-    pub fn executor_poll_interval_ms(&self) -> u64 {
-        self.inner.executor_poll_interval.as_millis() as u64
     }
 
     #[getter]
@@ -520,11 +510,6 @@ impl PyDefaultRunnerConfig {
     }
 
     #[setter]
-    pub fn set_executor_poll_interval_ms(&mut self, value: u64) {
-        self.inner.executor_poll_interval = std::time::Duration::from_millis(value);
-    }
-
-    #[setter]
     pub fn set_scheduler_poll_interval_ms(&mut self, value: u64) {
         self.inner.scheduler_poll_interval = std::time::Duration::from_millis(value);
     }
@@ -597,10 +582,6 @@ impl PyDefaultRunnerConfig {
         let dict = pyo3::types::PyDict::new(py);
 
         dict.set_item("max_concurrent_tasks", self.inner.max_concurrent_tasks)?;
-        dict.set_item(
-            "executor_poll_interval_ms",
-            self.inner.executor_poll_interval.as_millis(),
-        )?;
         dict.set_item(
             "scheduler_poll_interval_ms",
             self.inner.scheduler_poll_interval.as_millis(),

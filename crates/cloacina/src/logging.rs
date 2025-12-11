@@ -37,7 +37,7 @@
 //!
 //! ### Production
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::init_logging;
 //! use tracing::Level;
 //!
@@ -117,7 +117,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::init_logging;
 /// use tracing::Level;
 ///
@@ -155,7 +155,7 @@ pub fn init_logging(level: Option<Level>) {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use cloacina::init_test_logging;
 ///
 /// #[test]

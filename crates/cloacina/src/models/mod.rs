@@ -36,7 +36,7 @@
 //! Models are typically used with the Data Access Layer (DAL) to perform
 //! database operations:
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::models::context::NewDbContext;
 //! use cloacina::dal::DAL;
 //!

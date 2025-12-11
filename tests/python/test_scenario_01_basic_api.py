@@ -579,7 +579,7 @@ class TestDefaultRunnerConfig:
 
         # Test default values
         assert config.max_concurrent_tasks == 4
-        assert config.executor_poll_interval_ms == 100
+        assert config.scheduler_poll_interval_ms == 100
         assert config.task_timeout_seconds == 300
         assert config.enable_recovery is True
         assert config.enable_cron_scheduling is True
@@ -615,7 +615,6 @@ class TestDefaultRunnerConfig:
 
         # Test all getter properties return expected types
         assert isinstance(config.max_concurrent_tasks, int)
-        assert isinstance(config.executor_poll_interval_ms, int)
         assert isinstance(config.scheduler_poll_interval_ms, int)
         assert isinstance(config.task_timeout_seconds, int)
         assert isinstance(config.pipeline_timeout_seconds, (int, type(None)))

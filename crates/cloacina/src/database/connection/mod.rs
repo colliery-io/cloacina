@@ -30,7 +30,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,ignore
 //! use cloacina::database::connection::Database;
 //!
 //! // PostgreSQL

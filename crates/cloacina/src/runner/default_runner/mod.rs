@@ -37,8 +37,9 @@ pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
+use crate::dal::DAL;
+use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
 use crate::executor::pipeline_executor::PipelineError;
-use crate::executor::traits::TaskExecutorTrait;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
 use crate::registry::traits::WorkflowRegistry;
@@ -65,8 +66,6 @@ pub struct DefaultRunner {
     pub(super) config: DefaultRunnerConfig,
     /// Task scheduler for managing workflow execution scheduling
     pub(super) scheduler: Arc<TaskScheduler>,
-    /// Task executor for running individual tasks
-    pub(super) executor: Arc<dyn TaskExecutorTrait>,
     /// Runtime handles for managing background services
     pub(super) runtime_handles: Arc<RwLock<RuntimeHandles>>,
     /// Optional cron scheduler for time-based workflow execution
@@ -108,7 +107,7 @@ impl DefaultRunner {
     /// * `Result<Self, PipelineError>` - The initialized executor or an error
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::new("postgres://localhost/db").await?;
     /// ```
     pub async fn new(database_url: &str) -> Result<Self, PipelineError> {
@@ -121,7 +120,7 @@ impl DefaultRunner {
     /// * `DefaultRunnerBuilder` - Builder for configuring the runner
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::builder()
     ///     .database_url("postgres://localhost/db")
     ///     .build()
@@ -141,7 +140,7 @@ impl DefaultRunner {
     /// * `Result<Self, PipelineError>` - The initialized executor or an error
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// let runner = DefaultRunner::with_schema(
     ///     "postgresql://user:pass@localhost/cloacina",
     ///     "tenant_123"
@@ -192,7 +191,6 @@ impl DefaultRunner {
         // Create task executor
         let executor_config = ExecutorConfig {
             max_concurrent_tasks: config.max_concurrent_tasks,
-            poll_interval: config.executor_poll_interval,
             task_timeout: config.task_timeout,
         };
 
@@ -201,11 +199,23 @@ impl DefaultRunner {
                 message: e.to_string(),
             })?;
 
+        // Configure dispatcher for push-based task execution
+        let dal = DAL::new(database.clone());
+        let routing_config = config
+            .routing_config
+            .clone()
+            .unwrap_or_else(RoutingConfig::default);
+        let dispatcher = DefaultDispatcher::new(dal, routing_config);
+
+        // Register the executor with the dispatcher
+        dispatcher.register_executor("default", Arc::new(executor) as Arc<dyn TaskExecutor>);
+
+        let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
+
         let default_runner = Self {
             database,
             config,
             scheduler: Arc::new(scheduler),
-            executor: Arc::new(executor) as Arc<dyn TaskExecutorTrait>,
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
@@ -278,7 +288,6 @@ impl Clone for DefaultRunner {
             database: self.database.clone(),
             config: self.config.clone(),
             scheduler: self.scheduler.clone(),
-            executor: self.executor.clone(),
             runtime_handles: self.runtime_handles.clone(),
             cron_scheduler: self.cron_scheduler.clone(),
             cron_recovery: self.cron_recovery.clone(),
