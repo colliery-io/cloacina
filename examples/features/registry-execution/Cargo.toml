@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 cloacina = { path = "../../../crates/cloacina" }
-cloacina-ctl = { path = "../../cloacina-ctl" }
 tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 tempfile = "3.8"

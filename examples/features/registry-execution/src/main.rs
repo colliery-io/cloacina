@@ -46,11 +46,7 @@ use cloacina::database::Database;
 use cloacina::registry::error::RegistryError;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{Context, PipelineExecutor};
-use std::sync::Arc;
 use std::time::Duration;
-
-// Import cloacina library packaging functions
-use cloacina::packaging::{package_workflow, CompileOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,9 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📋 Database will be saved to: {}", db_path);
 
     let database = Database::new(&db_url, "", 5);
-    let conn = database.pool().get().await?;
-    conn.interact(move |conn| cloacina::database::run_migrations(conn))
-        .await??;
+    database
+        .run_migrations()
+        .await
+        .map_err(|e| format!("Migration error: {}", e))?;
 
     // Step 3: Register the workflow package using the new DAL system
     println!("📋 Registering workflow package using DAL system...");
@@ -86,8 +83,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create DAL and choose storage backend
     let dal = cloacina::dal::DAL::new(database.clone());
 
-    // Option 1: Database storage (SQLite) - stores binary data in workflow_registry table
-    let storage = Arc::new(cloacina::dal::SqliteRegistryStorage::new(database.clone()));
+    // Option 1: Database storage - stores binary data in workflow_registry table
+    let storage = cloacina::dal::UnifiedRegistryStorage::new(database.clone());
 
     // Option 2: Filesystem storage - stores binary data as files
     // let storage_path = "/tmp/cloacina_demo_storage";
@@ -272,7 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // Build the package using the library function directly
     let workspace_root = find_workspace_root()?;
-    let project_path = workspace_root.join("examples/simple-packaged-demo");
+    let project_path = workspace_root.join("examples/features/simple-packaged");
 
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("package.cloacina");
@@ -289,16 +286,6 @@ async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     cloacina::packaging::package_workflow(project_path, output_path.clone(), options)?;
 
     Ok(tokio::fs::read(output_path).await?)
-}
-
-async fn create_database() -> Result<Database, Box<dyn std::error::Error>> {
-    let database = Database::new(":memory:", "", 5);
-
-    let conn = database.pool().get().await?;
-    conn.interact(move |conn| cloacina::database::run_migrations(conn))
-        .await??;
-
-    Ok(database)
 }
 
 fn find_workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {

@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::Dispatcher;
+use crate::dispatcher::{Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::task_execution::TaskExecution;
@@ -104,11 +104,22 @@ impl<'a> SchedulerLoop<'a> {
             .await?;
 
         if active_executions.is_empty() {
+            // Even with no active pipelines, dispatch any Ready tasks (e.g., retries)
+            if self.dispatcher.is_some() {
+                self.dispatch_ready_tasks().await?;
+            }
             return Ok(());
         }
 
-        // Batch process all active pipelines
-        self.process_pipelines_batch(active_executions).await
+        // Batch process all active pipelines (evaluates pending tasks, marks them Ready)
+        self.process_pipelines_batch(active_executions).await?;
+
+        // Dispatch all Ready tasks (including newly marked and retry tasks)
+        if self.dispatcher.is_some() {
+            self.dispatch_ready_tasks().await?;
+        }
+
+        Ok(())
     }
 
     /// Processes multiple pipelines in batch for better performance.
@@ -139,7 +150,7 @@ impl<'a> SchedulerLoop<'a> {
                 .push(task);
         }
 
-        let state_manager = StateManager::with_dispatcher(self.dal, self.dispatcher.clone());
+        let state_manager = StateManager::new(self.dal);
 
         // Process each pipeline's tasks
         for execution in &active_executions {
@@ -164,6 +175,41 @@ impl<'a> SchedulerLoop<'a> {
                 .await?
             {
                 self.complete_pipeline(execution).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Dispatches all Ready tasks to the executor.
+    ///
+    /// This method finds tasks that are Ready (either newly marked or from retries)
+    /// and dispatches them via the configured dispatcher. Tasks are only dispatched
+    /// if their retry_at time has passed (or is null).
+    async fn dispatch_ready_tasks(&self) -> Result<(), ValidationError> {
+        let dispatcher = match &self.dispatcher {
+            Some(d) => d,
+            None => return Ok(()),
+        };
+
+        // Get all Ready tasks where retry_at has passed (or is null)
+        let ready_tasks = self.dal.task_execution().get_ready_for_retry().await?;
+
+        for task in ready_tasks {
+            let event = TaskReadyEvent::new(
+                task.id,
+                task.pipeline_execution_id,
+                task.task_name.clone(),
+                task.attempt,
+            );
+
+            if let Err(e) = dispatcher.dispatch(event).await {
+                warn!(
+                    task_id = %task.id,
+                    task_name = %task.task_name,
+                    error = %e,
+                    "Failed to dispatch ready task"
+                );
             }
         }
 

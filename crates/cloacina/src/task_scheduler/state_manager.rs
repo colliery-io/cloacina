@@ -17,15 +17,13 @@
 //! Task state management and dependency checking.
 //!
 //! This module handles checking task dependencies and updating task readiness
-//! based on dependency states and trigger rules. Optionally dispatches task
-//! events to a dispatcher for push-based execution.
+//! based on dependency states and trigger rules. Dispatch of Ready tasks is
+//! handled separately by the scheduler loop.
 
-use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::dispatcher::{Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 
@@ -35,29 +33,19 @@ use super::trigger_rules::{TriggerCondition, TriggerRule};
 /// State management operations for the scheduler.
 pub struct StateManager<'a> {
     dal: &'a DAL,
-    /// Optional dispatcher for push-based task execution
-    dispatcher: Option<Arc<dyn Dispatcher>>,
 }
 
 impl<'a> StateManager<'a> {
     /// Creates a new StateManager.
     pub fn new(dal: &'a DAL) -> Self {
-        Self {
-            dal,
-            dispatcher: None,
-        }
-    }
-
-    /// Creates a new StateManager with an optional dispatcher.
-    pub fn with_dispatcher(dal: &'a DAL, dispatcher: Option<Arc<dyn Dispatcher>>) -> Self {
-        Self { dal, dispatcher }
+        Self { dal }
     }
 
     /// Updates task readiness for a specific pipeline using pre-loaded tasks.
     ///
-    /// When a task becomes ready:
-    /// 1. Marks it as Ready in the database (for state tracking/audit)
-    /// 2. If a dispatcher is configured, dispatches a TaskReadyEvent
+    /// When a task becomes ready, marks it as Ready in the database.
+    /// Dispatch to executors is handled separately by the scheduler loop's
+    /// dispatch_ready_tasks() method.
     pub async fn update_pipeline_task_readiness(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -71,33 +59,13 @@ impl<'a> StateManager<'a> {
                 let trigger_rules_satisfied = self.evaluate_trigger_rules(task_execution).await?;
 
                 if trigger_rules_satisfied {
-                    // Mark ready in database (for state tracking/audit)
+                    // Mark ready in database - dispatch is handled separately by scheduler_loop
                     self.dal
                         .task_execution()
                         .mark_ready(task_execution.id)
                         .await?;
                     info!("Task ready: {} (pipeline: {}, dependencies satisfied, trigger rules passed)",
                           task_execution.task_name, pipeline_execution_id);
-
-                    // If dispatcher is configured, dispatch the task event
-                    if let Some(ref dispatcher) = self.dispatcher {
-                        let event = TaskReadyEvent::new(
-                            task_execution.id,
-                            task_execution.pipeline_execution_id,
-                            task_execution.task_name.clone(),
-                            task_execution.attempt,
-                        );
-
-                        if let Err(e) = dispatcher.dispatch(event).await {
-                            // Log error but don't fail - task is marked ready and can be picked up by polling
-                            warn!(
-                                task_id = %task_execution.id,
-                                task_name = %task_execution.task_name,
-                                error = %e,
-                                "Failed to dispatch task event (task remains Ready for polling)"
-                            );
-                        }
-                    }
                 } else {
                     // Dependencies satisfied + trigger rules fail -> Mark Skipped
                     self.dal
