@@ -117,6 +117,22 @@ impl<'a> TriggerExecutionDAL<'a> {
         )
     }
 
+    /// Lists executions for a trigger with pagination.
+    pub async fn list_by_trigger(
+        &self,
+        trigger_name: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerExecution>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_by_trigger_postgres(trigger_name, limit, offset)
+                .await,
+            self.list_by_trigger_sqlite(trigger_name, limit, offset)
+                .await
+        )
+    }
+
     /// Marks all incomplete executions for a pipeline as completed.
     /// Used when a pipeline completes to ensure trigger execution tracking is updated.
     pub async fn complete_by_pipeline(

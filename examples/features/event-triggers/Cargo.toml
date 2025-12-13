@@ -1,0 +1,17 @@
+[package]
+name = "event-triggers-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina", features = ["sqlite", "macros"] }
+tokio = { version = "1.0", features = ["full"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+chrono = "0.4"
+ctor = "0.2"

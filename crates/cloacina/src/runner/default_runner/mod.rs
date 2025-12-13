@@ -243,6 +243,23 @@ impl DefaultRunner {
         Ok(default_runner)
     }
 
+    /// Returns a reference to the database.
+    pub fn database(&self) -> &Database {
+        &self.database
+    }
+
+    /// Returns the DAL for database operations.
+    pub fn dal(&self) -> DAL {
+        DAL::new(self.database.clone())
+    }
+
+    /// Returns the trigger scheduler if enabled.
+    ///
+    /// Returns `None` if trigger scheduling is disabled or not yet initialized.
+    pub async fn trigger_scheduler(&self) -> Option<Arc<crate::TriggerScheduler>> {
+        self.trigger_scheduler.read().await.clone()
+    }
+
     /// Gracefully shuts down the executor and its background services
     ///
     /// This method:

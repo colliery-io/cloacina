@@ -256,6 +256,60 @@ impl<'a> TriggerScheduleDAL<'a> {
     }
 
     #[cfg(feature = "postgres")]
+    pub(super) async fn list_postgres(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerSchedule>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let results: Vec<UnifiedTriggerSchedule> = conn
+            .interact(move |conn| {
+                trigger_schedules::table
+                    .order(trigger_schedules::created_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn list_sqlite(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerSchedule>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let results: Vec<UnifiedTriggerSchedule> = conn
+            .interact(move |conn| {
+                trigger_schedules::table
+                    .order(trigger_schedules::created_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    #[cfg(feature = "postgres")]
     pub(super) async fn update_last_poll_postgres(
         &self,
         id: UniversalUuid,

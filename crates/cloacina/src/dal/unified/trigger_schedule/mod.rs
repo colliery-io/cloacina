@@ -81,6 +81,19 @@ impl<'a> TriggerScheduleDAL<'a> {
         )
     }
 
+    /// Lists trigger schedules with pagination.
+    pub async fn list(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerSchedule>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_postgres(limit, offset).await,
+            self.list_sqlite(limit, offset).await
+        )
+    }
+
     /// Updates the last poll time for a trigger schedule.
     pub async fn update_last_poll(
         &self,

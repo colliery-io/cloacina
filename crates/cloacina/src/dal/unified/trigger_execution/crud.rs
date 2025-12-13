@@ -364,6 +364,66 @@ impl<'a> TriggerExecutionDAL<'a> {
     }
 
     #[cfg(feature = "postgres")]
+    pub(super) async fn list_by_trigger_postgres(
+        &self,
+        trigger_name: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerExecution>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let trigger_name = trigger_name.to_string();
+        let results: Vec<UnifiedTriggerExecution> = conn
+            .interact(move |conn| {
+                trigger_executions::table
+                    .filter(trigger_executions::trigger_name.eq(&trigger_name))
+                    .order(trigger_executions::started_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn list_by_trigger_sqlite(
+        &self,
+        trigger_name: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<TriggerExecution>, ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let trigger_name = trigger_name.to_string();
+        let results: Vec<UnifiedTriggerExecution> = conn
+            .interact(move |conn| {
+                trigger_executions::table
+                    .filter(trigger_executions::trigger_name.eq(&trigger_name))
+                    .order(trigger_executions::started_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(results.into_iter().map(Into::into).collect())
+    }
+
+    #[cfg(feature = "postgres")]
     pub(super) async fn complete_by_pipeline_postgres(
         &self,
         pipeline_execution_id: UniversalUuid,

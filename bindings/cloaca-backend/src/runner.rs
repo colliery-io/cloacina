@@ -112,6 +112,43 @@ enum RuntimeMessage {
             Result<cloacina::dal::CronExecutionStats, cloacina::executor::PipelineError>,
         >,
     },
+    // Trigger management messages
+    ListTriggerSchedules {
+        enabled_only: bool,
+        limit: i64,
+        offset: i64,
+        response_tx: oneshot::Sender<
+            Result<
+                Vec<cloacina::models::trigger_schedule::TriggerSchedule>,
+                cloacina::executor::PipelineError,
+            >,
+        >,
+    },
+    GetTriggerSchedule {
+        trigger_name: String,
+        response_tx: oneshot::Sender<
+            Result<
+                Option<cloacina::models::trigger_schedule::TriggerSchedule>,
+                cloacina::executor::PipelineError,
+            >,
+        >,
+    },
+    SetTriggerEnabled {
+        trigger_name: String,
+        enabled: bool,
+        response_tx: oneshot::Sender<Result<(), cloacina::executor::PipelineError>>,
+    },
+    GetTriggerExecutionHistory {
+        trigger_name: String,
+        limit: i64,
+        offset: i64,
+        response_tx: oneshot::Sender<
+            Result<
+                Vec<cloacina::models::trigger_execution::TriggerExecution>,
+                cloacina::executor::PipelineError,
+            >,
+        >,
+    },
     Shutdown,
 }
 
@@ -518,6 +555,113 @@ impl PyDefaultRunner {
                                 let _ = response_tx.send(result);
                             });
                         }
+                        // Trigger management messages
+                        RuntimeMessage::ListTriggerSchedules {
+                            enabled_only,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received list trigger schedules request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = if enabled_only {
+                                    dal.trigger_schedule().get_enabled().await
+                                } else {
+                                    dal.trigger_schedule().list(limit, offset).await
+                                };
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerSchedule {
+                            trigger_name,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger schedule request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result =
+                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::SetTriggerEnabled {
+                            trigger_name,
+                            enabled,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received set trigger enabled request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = async {
+                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    {
+                                        if enabled {
+                                            scheduler.enable_trigger(&trigger_name).await
+                                        } else {
+                                            scheduler.disable_trigger(&trigger_name).await
+                                        }
+                                    } else {
+                                        // No trigger scheduler, use DAL directly
+                                        let dal = runner_clone.dal();
+                                        if let Some(schedule) = dal
+                                            .trigger_schedule()
+                                            .get_by_name(&trigger_name)
+                                            .await?
+                                        {
+                                            if enabled {
+                                                dal.trigger_schedule().enable(schedule.id).await
+                                            } else {
+                                                dal.trigger_schedule().disable(schedule.id).await
+                                            }
+                                        } else {
+                                            Ok(())
+                                        }
+                                    }
+                                }
+                                .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerExecutionHistory {
+                            trigger_name,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger execution history request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = dal
+                                    .trigger_execution()
+                                    .list_by_trigger(&trigger_name, limit, offset)
+                                    .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
                         RuntimeMessage::Shutdown => {
                             eprintln!("THREAD: Received shutdown signal");
                             break;
@@ -784,6 +928,113 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
                                 let _ = response_tx.send(result);
+                            });
+                        }
+                        // Trigger management messages
+                        RuntimeMessage::ListTriggerSchedules {
+                            enabled_only,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received list trigger schedules request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = if enabled_only {
+                                    dal.trigger_schedule().get_enabled().await
+                                } else {
+                                    dal.trigger_schedule().list(limit, offset).await
+                                };
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerSchedule {
+                            trigger_name,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger schedule request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result =
+                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::SetTriggerEnabled {
+                            trigger_name,
+                            enabled,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received set trigger enabled request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = async {
+                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    {
+                                        if enabled {
+                                            scheduler.enable_trigger(&trigger_name).await
+                                        } else {
+                                            scheduler.disable_trigger(&trigger_name).await
+                                        }
+                                    } else {
+                                        // No trigger scheduler, use DAL directly
+                                        let dal = runner_clone.dal();
+                                        if let Some(schedule) = dal
+                                            .trigger_schedule()
+                                            .get_by_name(&trigger_name)
+                                            .await?
+                                        {
+                                            if enabled {
+                                                dal.trigger_schedule().enable(schedule.id).await
+                                            } else {
+                                                dal.trigger_schedule().disable(schedule.id).await
+                                            }
+                                        } else {
+                                            Ok(())
+                                        }
+                                    }
+                                }
+                                .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerExecutionHistory {
+                            trigger_name,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger execution history request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = dal
+                                    .trigger_execution()
+                                    .list_by_trigger(&trigger_name, limit, offset)
+                                    .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -1116,6 +1367,113 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
                                 let _ = response_tx.send(result);
+                            });
+                        }
+                        // Trigger management messages
+                        RuntimeMessage::ListTriggerSchedules {
+                            enabled_only,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received list trigger schedules request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = if enabled_only {
+                                    dal.trigger_schedule().get_enabled().await
+                                } else {
+                                    dal.trigger_schedule().list(limit, offset).await
+                                };
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerSchedule {
+                            trigger_name,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger schedule request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result =
+                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::SetTriggerEnabled {
+                            trigger_name,
+                            enabled,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received set trigger enabled request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let result = async {
+                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    {
+                                        if enabled {
+                                            scheduler.enable_trigger(&trigger_name).await
+                                        } else {
+                                            scheduler.disable_trigger(&trigger_name).await
+                                        }
+                                    } else {
+                                        // No trigger scheduler, use DAL directly
+                                        let dal = runner_clone.dal();
+                                        if let Some(schedule) = dal
+                                            .trigger_schedule()
+                                            .get_by_name(&trigger_name)
+                                            .await?
+                                        {
+                                            if enabled {
+                                                dal.trigger_schedule().enable(schedule.id).await
+                                            } else {
+                                                dal.trigger_schedule().disable(schedule.id).await
+                                            }
+                                        } else {
+                                            Ok(())
+                                        }
+                                    }
+                                }
+                                .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
+                            });
+                        }
+                        RuntimeMessage::GetTriggerExecutionHistory {
+                            trigger_name,
+                            limit,
+                            offset,
+                            response_tx,
+                        } => {
+                            eprintln!("THREAD: Received get trigger execution history request");
+
+                            let runner_clone = runner.clone();
+                            tokio::spawn(async move {
+                                let dal = runner_clone.dal();
+                                let result = dal
+                                    .trigger_execution()
+                                    .list_by_trigger(&trigger_name, limit, offset)
+                                    .await;
+                                let _ = response_tx.send(result.map_err(|e| {
+                                    cloacina::executor::PipelineError::Configuration {
+                                        message: e.to_string(),
+                                    }
+                                }));
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -1632,6 +1990,244 @@ impl PyDefaultRunner {
                 dict.set_item("success_rate", stats.success_rate)?;
                 Ok(dict.into())
             })
+        })
+    }
+
+    // ========================================================================
+    // Trigger Management Methods
+    // ========================================================================
+
+    /// List all trigger schedules
+    ///
+    /// # Arguments
+    /// * `enabled_only` - If True, only return enabled triggers
+    /// * `limit` - Maximum number of triggers to return (default: 100)
+    /// * `offset` - Number of triggers to skip (default: 0)
+    ///
+    /// # Returns
+    /// * List of dictionaries containing trigger schedule information
+    pub fn list_trigger_schedules(
+        &self,
+        enabled_only: Option<bool>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+        py: Python,
+    ) -> PyResult<Vec<PyObject>> {
+        let enabled_only = enabled_only.unwrap_or(false);
+        let limit = limit.unwrap_or(100);
+        let offset = offset.unwrap_or(0);
+
+        let (response_tx, response_rx) = oneshot::channel();
+
+        let message = RuntimeMessage::ListTriggerSchedules {
+            enabled_only,
+            limit,
+            offset,
+            response_tx,
+        };
+
+        py.allow_threads(|| {
+            self.runtime_handle
+                .lock()
+                .unwrap()
+                .tx
+                .send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+
+            let result = response_rx.blocking_recv().map_err(|_| {
+                PyValueError::new_err("Failed to receive response from runtime thread")
+            })?;
+
+            let schedules = result.map_err(|e| {
+                PyValueError::new_err(format!("Failed to list trigger schedules: {}", e))
+            })?;
+
+            // Convert schedules to Python dictionaries
+            let py_schedules: Result<Vec<PyObject>, PyErr> = schedules
+                .into_iter()
+                .map(|schedule| {
+                    Python::with_gil(|py| {
+                        let dict = pyo3::types::PyDict::new(py);
+                        dict.set_item("id", schedule.id.to_string())?;
+                        dict.set_item("trigger_name", schedule.trigger_name)?;
+                        dict.set_item("workflow_name", schedule.workflow_name)?;
+                        dict.set_item("poll_interval_ms", schedule.poll_interval_ms)?;
+                        dict.set_item("allow_concurrent", schedule.allow_concurrent.is_true())?;
+                        dict.set_item("enabled", schedule.enabled.is_true())?;
+                        dict.set_item(
+                            "last_poll_at",
+                            schedule.last_poll_at.map(|t| t.to_string()),
+                        )?;
+                        dict.set_item("created_at", schedule.created_at.to_string())?;
+                        dict.set_item("updated_at", schedule.updated_at.to_string())?;
+                        Ok(dict.into())
+                    })
+                })
+                .collect();
+
+            py_schedules
+        })
+    }
+
+    /// Get details of a specific trigger schedule
+    ///
+    /// # Arguments
+    /// * `trigger_name` - Name of the trigger to retrieve
+    ///
+    /// # Returns
+    /// * Dictionary containing trigger schedule information, or None if not found
+    pub fn get_trigger_schedule(
+        &self,
+        trigger_name: String,
+        py: Python,
+    ) -> PyResult<Option<PyObject>> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        let message = RuntimeMessage::GetTriggerSchedule {
+            trigger_name,
+            response_tx,
+        };
+
+        py.allow_threads(|| {
+            self.runtime_handle
+                .lock()
+                .unwrap()
+                .tx
+                .send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+
+            let result = response_rx.blocking_recv().map_err(|_| {
+                PyValueError::new_err("Failed to receive response from runtime thread")
+            })?;
+
+            let schedule_opt = result.map_err(|e| {
+                PyValueError::new_err(format!("Failed to get trigger schedule: {}", e))
+            })?;
+
+            // Convert schedule to Python dictionary if present
+            match schedule_opt {
+                Some(schedule) => Python::with_gil(|py| {
+                    let dict = pyo3::types::PyDict::new(py);
+                    dict.set_item("id", schedule.id.to_string())?;
+                    dict.set_item("trigger_name", schedule.trigger_name)?;
+                    dict.set_item("workflow_name", schedule.workflow_name)?;
+                    dict.set_item("poll_interval_ms", schedule.poll_interval_ms)?;
+                    dict.set_item("allow_concurrent", schedule.allow_concurrent.is_true())?;
+                    dict.set_item("enabled", schedule.enabled.is_true())?;
+                    dict.set_item("last_poll_at", schedule.last_poll_at.map(|t| t.to_string()))?;
+                    dict.set_item("created_at", schedule.created_at.to_string())?;
+                    dict.set_item("updated_at", schedule.updated_at.to_string())?;
+                    Ok(Some(dict.into()))
+                }),
+                None => Ok(None),
+            }
+        })
+    }
+
+    /// Enable or disable a trigger
+    ///
+    /// # Arguments
+    /// * `trigger_name` - Name of the trigger to modify
+    /// * `enabled` - True to enable, False to disable
+    pub fn set_trigger_enabled(
+        &self,
+        trigger_name: String,
+        enabled: bool,
+        py: Python,
+    ) -> PyResult<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        let message = RuntimeMessage::SetTriggerEnabled {
+            trigger_name,
+            enabled,
+            response_tx,
+        };
+
+        py.allow_threads(|| {
+            self.runtime_handle
+                .lock()
+                .unwrap()
+                .tx
+                .send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+
+            let result = response_rx.blocking_recv().map_err(|_| {
+                PyValueError::new_err("Failed to receive response from runtime thread")
+            })?;
+
+            result.map_err(|e| PyValueError::new_err(format!("Failed to update trigger: {}", e)))
+        })
+    }
+
+    /// Get execution history for a specific trigger
+    ///
+    /// # Arguments
+    /// * `trigger_name` - Name of the trigger to get history for
+    /// * `limit` - Maximum number of executions to return (default: 100)
+    /// * `offset` - Number of executions to skip (default: 0)
+    ///
+    /// # Returns
+    /// * List of dictionaries containing execution information
+    pub fn get_trigger_execution_history(
+        &self,
+        trigger_name: String,
+        limit: Option<i64>,
+        offset: Option<i64>,
+        py: Python,
+    ) -> PyResult<Vec<PyObject>> {
+        let limit = limit.unwrap_or(100);
+        let offset = offset.unwrap_or(0);
+
+        let (response_tx, response_rx) = oneshot::channel();
+
+        let message = RuntimeMessage::GetTriggerExecutionHistory {
+            trigger_name,
+            limit,
+            offset,
+            response_tx,
+        };
+
+        py.allow_threads(|| {
+            self.runtime_handle
+                .lock()
+                .unwrap()
+                .tx
+                .send(message)
+                .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
+
+            let result = response_rx.blocking_recv().map_err(|_| {
+                PyValueError::new_err("Failed to receive response from runtime thread")
+            })?;
+
+            let executions = result.map_err(|e| {
+                PyValueError::new_err(format!("Failed to get trigger execution history: {}", e))
+            })?;
+
+            // Convert executions to Python dictionaries
+            let py_executions: Result<Vec<PyObject>, PyErr> = executions
+                .into_iter()
+                .map(|execution| {
+                    Python::with_gil(|py| {
+                        let dict = pyo3::types::PyDict::new(py);
+                        dict.set_item("id", execution.id.to_string())?;
+                        dict.set_item("trigger_name", execution.trigger_name)?;
+                        dict.set_item("context_hash", execution.context_hash)?;
+                        dict.set_item(
+                            "pipeline_execution_id",
+                            execution.pipeline_execution_id.map(|id| id.to_string()),
+                        )?;
+                        dict.set_item("started_at", execution.started_at.to_string())?;
+                        dict.set_item(
+                            "completed_at",
+                            execution.completed_at.map(|t| t.to_string()),
+                        )?;
+                        dict.set_item("created_at", execution.created_at.to_string())?;
+                        Ok(dict.into())
+                    })
+                })
+                .collect();
+
+            py_executions
         })
     }
 
