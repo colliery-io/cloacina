@@ -90,9 +90,14 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
 
     # Use provided features or default to both backends
     cargo_features = features if features else "postgres,sqlite,macros"
+    is_default_features = cargo_features == "postgres,sqlite,macros"
 
     # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
-    build_test_packages()
+    # Only build for default features since examples depend on both backends
+    if is_default_features:
+        build_test_packages()
+    else:
+        print(f"Skipping test package builds for non-default features: {cargo_features}")
 
     if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL
