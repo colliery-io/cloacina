@@ -4,7 +4,7 @@ level: task
 title: "Callbacks - Add callback hooks for task and workflow state transitions"
 short_code: "CLOACI-T-0043"
 created_at: 2025-12-13T14:58:58.132159+00:00
-updated_at: 2025-12-13T15:23:40.018803+00:00
+updated_at: 2025-12-13T15:35:42.460469+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,6 +38,10 @@ Allow tasks and workflows to specify callback functions (already in scope) that 
 - **User Value**: Enables notifications on workflow failures/completions, external monitoring integration, and custom cleanup operations
 - **Business Value**: Better observability, faster incident response, extensible integration points
 - **Effort Estimate**: M
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

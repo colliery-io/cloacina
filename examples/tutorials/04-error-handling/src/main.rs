@@ -16,28 +16,84 @@
 
 //! # Tutorial 04: Error Handling and Retries
 //!
-//! This tutorial demonstrates error handling and retry patterns in Cloacina:
+//! This tutorial demonstrates error handling, retry patterns, and callbacks in Cloacina:
 //! - Basic retry policies with exponential backoff
 //! - Fallback strategies when external dependencies fail
 //! - Different approaches to handling task failures
+//! - Callback hooks for task success/failure notifications
 //! - Monitoring task execution outcomes
 
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::{task, workflow, Context, TaskError};
-use rand::Rng;
 use serde_json::json;
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{error, info};
+
+// ============================================================================
+// CALLBACK FUNCTIONS
+// ============================================================================
+// Callbacks are functions that get invoked automatically when a task succeeds
+// or fails. They're useful for alerting, monitoring, logging, and cleanup.
+// Callbacks are resolved at compile time - just reference any async function
+// that matches the expected signature.
+
+/// Called when a task completes successfully.
+/// Signature: async fn(task_id: &str, context: &Context<Value>) -> Result<...>
+async fn on_task_success(
+    task_id: &str,
+    _context: &Context<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("[CALLBACK] Task '{}' completed successfully", task_id);
+    // In a real application, you might:
+    // - Send a success notification to Slack/Teams
+    // - Update a monitoring dashboard
+    // - Record metrics
+    Ok(())
+}
+
+/// Called when a task fails (after all retries are exhausted).
+/// Signature: async fn(task_id: &str, error: &TaskError, context: &Context<Value>) -> Result<...>
+async fn on_task_failure(
+    task_id: &str,
+    error: &cloacina::cloacina_workflow::TaskError,
+    _context: &Context<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    error!(
+        "[CALLBACK] Task '{}' failed with error: {:?}",
+        task_id, error
+    );
+    // In a real application, you might:
+    // - Send an alert to PagerDuty/OpsGenie
+    // - Log to an error tracking service (Sentry, etc.)
+    // - Trigger cleanup operations
+    Ok(())
+}
+
+/// Specific callback for critical data operations
+async fn on_data_fetch_failure(
+    task_id: &str,
+    error: &cloacina::cloacina_workflow::TaskError,
+    _context: &Context<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    error!(
+        "[ALERT] Critical data fetch '{}' failed: {:?}",
+        task_id, error
+    );
+    // This could trigger a more urgent alert for data pipeline failures
+    Ok(())
+}
 
 // Task 1: Fetch data from external source with retries
+// Demonstrates: retry policies with exponential backoff AND on_failure callback
 #[task(
     id = "fetch_data",
     dependencies = [],
     retry_attempts = 3,
     retry_delay_ms = 1000,
-    retry_backoff = "exponential"
+    retry_backoff = "exponential",
+    on_failure = on_data_fetch_failure
 )]
 async fn fetch_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
     info!("Attempting to fetch data from external source");
@@ -103,9 +159,12 @@ async fn cached_data(context: &mut Context<serde_json::Value>) -> Result<(), Tas
 }
 
 // Task 3: Process the data and evaluate quality
+// Demonstrates: both on_success and on_failure callbacks on the same task
 #[task(
     id = "process_data",
-    dependencies = ["fetch_data", "cached_data"]
+    dependencies = ["fetch_data", "cached_data"],
+    on_success = on_task_success,
+    on_failure = on_task_failure
 )]
 async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
     info!("Processing data");
@@ -247,13 +306,15 @@ async fn failure_notification(context: &mut Context<serde_json::Value>) -> Resul
 }
 
 // Task 7: Final report generation
+// Demonstrates: on_success callback for completion notification
 #[task(
     id = "final_report",
     dependencies = ["high_quality_processing", "low_quality_processing"],
     trigger_rules = any(
         task_success("high_quality_processing"),
         task_success("low_quality_processing")
-    )
+    ),
+    on_success = on_task_success
 )]
 async fn final_report(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
     info!("Generating final execution report");

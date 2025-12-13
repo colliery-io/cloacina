@@ -9,6 +9,7 @@ This example demonstrates how to implement robust error handling, retry policies
 - Graceful degradation and fallback patterns
 - Non-critical task failure handling
 - Simulated failures for testing error handling
+- Callback hooks for task success and failure notifications
 
 ## Running the Example
 
@@ -35,6 +36,61 @@ The example includes simulated failures to demonstrate the error handling mechan
 - **Error Types**: External, Transient, and Non-Critical errors
 - **Fallback Mechanisms**: Graceful degradation when primary operations fail
 - **Failure Modes**: Configuring how task failures affect the overall pipeline
+- **Callbacks**: Hooks for task success and failure notifications
+
+## Callbacks
+
+Cloacina supports callback functions that are invoked when tasks succeed or fail. These are useful for:
+
+- Alerting (send notifications to Slack, PagerDuty, etc.)
+- Monitoring (update dashboards, record metrics)
+- Cleanup operations
+- Logging and audit trails
+
+### Callback Signatures
+
+```rust
+// Success callback - called when task completes successfully
+async fn on_task_success(
+    task_id: &str,
+    context: &Context<Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Handle success
+    Ok(())
+}
+
+// Failure callback - called when task fails (after all retries exhausted)
+async fn on_task_failure(
+    task_id: &str,
+    error: &TaskError,
+    context: &Context<Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Handle failure
+    Ok(())
+}
+```
+
+### Usage
+
+Add callbacks to your task definitions using the `on_success` and `on_failure` parameters:
+
+```rust
+#[task(
+    id = "critical_task",
+    dependencies = [],
+    on_success = log_completion,
+    on_failure = alert_team
+)]
+async fn critical_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Task implementation
+}
+```
+
+Key points:
+- Callbacks are resolved at compile time - just reference any async function in scope
+- Callback failures do not fail the task or workflow (errors are logged but isolated)
+- Use `on_failure` for critical tasks that need immediate attention when they fail
+- Use `on_success` for audit logging or triggering downstream processes
 
 ## Next Steps
 
