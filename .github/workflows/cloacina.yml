@@ -65,7 +65,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "cloacina -> target"
           shared-key: "cloacina-feature-${{ matrix.features.name }}"
 
       - name: Build cloacina (${{ matrix.features.name }})
