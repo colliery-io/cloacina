@@ -572,6 +572,147 @@ impl<'a> PipelineExecutionDAL<'a> {
         )
     }
 
+    /// Pauses a running pipeline execution.
+    ///
+    /// Sets the pipeline status to 'Paused', records the pause timestamp,
+    /// and optionally stores a reason for the pause.
+    pub async fn pause(
+        &self,
+        id: UniversalUuid,
+        reason: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.pause_postgres(id, reason).await,
+            self.pause_sqlite(id, reason).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn pause_postgres(
+        &self,
+        id: UniversalUuid,
+        reason: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let reason = reason.map(|r| r.to_string());
+        let now = UniversalTimestamp::now();
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id))
+                .set((
+                    pipeline_executions::status.eq("Paused"),
+                    pipeline_executions::paused_at.eq(Some(now)),
+                    pipeline_executions::pause_reason.eq(reason),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn pause_sqlite(
+        &self,
+        id: UniversalUuid,
+        reason: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let reason = reason.map(|r| r.to_string());
+        let now = UniversalTimestamp::now();
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id))
+                .set((
+                    pipeline_executions::status.eq("Paused"),
+                    pipeline_executions::paused_at.eq(Some(now)),
+                    pipeline_executions::pause_reason.eq(reason),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Resumes a paused pipeline execution.
+    ///
+    /// Sets the pipeline status back to 'Running' and clears the pause metadata.
+    pub async fn resume(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.resume_postgres(id).await,
+            self.resume_sqlite(id).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn resume_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id))
+                .set((
+                    pipeline_executions::status.eq("Running"),
+                    pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
+                    pipeline_executions::pause_reason.eq(None::<String>),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn resume_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        conn.interact(move |conn| {
+            diesel::update(pipeline_executions::table.find(id))
+                .set((
+                    pipeline_executions::status.eq("Running"),
+                    pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
+                    pipeline_executions::pause_reason.eq(None::<String>),
+                    pipeline_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
     #[cfg(feature = "postgres")]
     async fn cancel_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self

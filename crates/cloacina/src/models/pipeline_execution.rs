@@ -35,6 +35,8 @@ pub struct PipelineExecution {
     pub error_details: Option<String>,
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
+    pub paused_at: Option<UniversalTimestamp>,
+    pub pause_reason: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

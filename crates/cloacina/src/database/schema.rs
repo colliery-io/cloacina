@@ -50,6 +50,8 @@ mod unified_schema {
             error_details -> Nullable<Text>,
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<DbTimestamp>,
+            paused_at -> Nullable<DbTimestamp>,
+            pause_reason -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -226,6 +228,8 @@ mod postgres_schema {
             error_details -> Nullable<Text>,
             recovery_attempts -> Int4,
             last_recovery_at -> Nullable<Timestamp>,
+            paused_at -> Nullable<Timestamp>,
+            pause_reason -> Nullable<Text>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }
@@ -430,6 +434,8 @@ mod sqlite_schema {
             error_details -> Nullable<Text>,
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<Text>,
+            paused_at -> Nullable<Text>,
+            pause_reason -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
         }

@@ -66,6 +66,8 @@ pub struct UnifiedPipelineExecution {
     pub error_details: Option<String>,
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
+    pub paused_at: Option<UniversalTimestamp>,
+    pub pause_reason: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -341,6 +343,8 @@ impl From<UnifiedPipelineExecution> for PipelineExecution {
             error_details: u.error_details,
             recovery_attempts: u.recovery_attempts,
             last_recovery_at: u.last_recovery_at,
+            paused_at: u.paused_at,
+            pause_reason: u.pause_reason,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
