@@ -73,12 +73,14 @@ impl<'a> ContextDAL<'a> {
             return Ok(None);
         }
 
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(value).await,
-            BackendType::Sqlite => self.create_sqlite(value).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(value.clone()).await,
+            self.create_sqlite(value).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn create_postgres(&self, value: String) -> Result<Option<UniversalUuid>, ContextError> {
         use super::models::NewUnifiedDbContext;
         use crate::database::schema::unified::contexts;

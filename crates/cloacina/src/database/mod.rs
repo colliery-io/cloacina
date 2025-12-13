@@ -127,10 +127,12 @@ pub use universal_types::{
 };
 
 /// Embedded migrations for PostgreSQL.
+#[cfg(feature = "postgres")]
 pub const POSTGRES_MIGRATIONS: EmbeddedMigrations =
     embed_migrations!("src/database/migrations/postgres");
 
 /// Embedded migrations for SQLite.
+#[cfg(feature = "sqlite")]
 pub const SQLITE_MIGRATIONS: EmbeddedMigrations =
     embed_migrations!("src/database/migrations/sqlite");
 
@@ -139,7 +141,12 @@ pub const SQLITE_MIGRATIONS: EmbeddedMigrations =
 /// Contains all SQL migration files for setting up the database schema.
 /// Note: With dual-backend support, use POSTGRES_MIGRATIONS or SQLITE_MIGRATIONS
 /// directly based on your backend. This alias defaults to PostgreSQL.
+#[cfg(feature = "postgres")]
 pub const MIGRATIONS: EmbeddedMigrations = POSTGRES_MIGRATIONS;
+
+/// Embedded migrations alias (defaults to SQLite when postgres not enabled)
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub const MIGRATIONS: EmbeddedMigrations = SQLITE_MIGRATIONS;
 
 /// Runs pending database migrations.
 ///
@@ -193,6 +200,7 @@ pub fn run_migrations(conn: &mut DbConnection) -> Result<()> {
 ///
 /// * `Ok(())` - If migrations complete successfully
 /// * `Err(_)` - If migration fails
+#[cfg(feature = "postgres")]
 pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()> {
     conn.run_pending_migrations(POSTGRES_MIGRATIONS)
         .expect("Failed to run PostgreSQL migrations");
@@ -213,6 +221,7 @@ pub fn run_migrations_postgres(conn: &mut diesel::pg::PgConnection) -> Result<()
 ///
 /// * `Ok(())` - If migrations complete successfully
 /// * `Err(_)` - If migration fails
+#[cfg(feature = "sqlite")]
 pub fn run_migrations_sqlite(conn: &mut diesel::sqlite::SqliteConnection) -> Result<()> {
     conn.run_pending_migrations(SQLITE_MIGRATIONS)
         .expect("Failed to run SQLite migrations");

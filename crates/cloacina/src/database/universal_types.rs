@@ -134,6 +134,7 @@ impl From<&UniversalUuid> for Uuid {
 }
 
 // PostgreSQL FromSql/ToSql for UniversalUuid
+#[cfg(feature = "postgres")]
 impl FromSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
         let uuid =
@@ -142,6 +143,7 @@ impl FromSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl ToSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
         <uuid::Uuid as ToSql<diesel::sql_types::Uuid, diesel::pg::Pg>>::to_sql(&self.0, out)
@@ -149,6 +151,7 @@ impl ToSql<DbUuid, diesel::pg::Pg> for UniversalUuid {
 }
 
 // SQLite FromSql/ToSql for UniversalUuid
+#[cfg(feature = "sqlite")]
 impl FromSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
     fn from_sql(
         bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
@@ -159,6 +162,7 @@ impl FromSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl ToSql<DbUuid, diesel::sqlite::Sqlite> for UniversalUuid {
     fn to_sql<'b>(
         &'b self,
@@ -239,6 +243,7 @@ impl From<chrono::NaiveDateTime> for UniversalTimestamp {
 }
 
 // PostgreSQL FromSql/ToSql for UniversalTimestamp
+#[cfg(feature = "postgres")]
 impl FromSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
         let naive = <chrono::NaiveDateTime as FromSql<Timestamp, diesel::pg::Pg>>::from_sql(bytes)?;
@@ -246,6 +251,7 @@ impl FromSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl ToSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
         // Write NaiveDateTime directly - Diesel's PG impl writes timestamp as i64 microseconds
@@ -263,6 +269,7 @@ impl ToSql<DbTimestamp, diesel::pg::Pg> for UniversalTimestamp {
 }
 
 // SQLite FromSql/ToSql for UniversalTimestamp
+#[cfg(feature = "sqlite")]
 impl FromSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
     fn from_sql(
         bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
@@ -273,6 +280,7 @@ impl FromSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl ToSql<DbTimestamp, diesel::sqlite::Sqlite> for UniversalTimestamp {
     fn to_sql<'b>(
         &'b self,
@@ -345,6 +353,7 @@ impl fmt::Display for UniversalBool {
 }
 
 // PostgreSQL FromSql/ToSql for UniversalBool
+#[cfg(feature = "postgres")]
 impl FromSql<DbBool, diesel::pg::Pg> for UniversalBool {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
         let value = <bool as FromSql<Bool, diesel::pg::Pg>>::from_sql(bytes)?;
@@ -352,6 +361,7 @@ impl FromSql<DbBool, diesel::pg::Pg> for UniversalBool {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl ToSql<DbBool, diesel::pg::Pg> for UniversalBool {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
         <bool as ToSql<Bool, diesel::pg::Pg>>::to_sql(&self.0, out)
@@ -359,6 +369,7 @@ impl ToSql<DbBool, diesel::pg::Pg> for UniversalBool {
 }
 
 // SQLite FromSql/ToSql for UniversalBool
+#[cfg(feature = "sqlite")]
 impl FromSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
     fn from_sql(
         bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
@@ -368,6 +379,7 @@ impl FromSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl ToSql<DbBool, diesel::sqlite::Sqlite> for UniversalBool {
     fn to_sql<'b>(
         &'b self,
@@ -420,6 +432,7 @@ impl From<&[u8]> for UniversalBinary {
 }
 
 // PostgreSQL FromSql/ToSql for UniversalBinary
+#[cfg(feature = "postgres")]
 impl FromSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
     fn from_sql(bytes: diesel::pg::PgValue<'_>) -> diesel::deserialize::Result<Self> {
         let data =
@@ -428,6 +441,7 @@ impl FromSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
     }
 }
 
+#[cfg(feature = "postgres")]
 impl ToSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> diesel::serialize::Result {
         out.write_all(&self.0)?;
@@ -436,6 +450,7 @@ impl ToSql<DbBinary, diesel::pg::Pg> for UniversalBinary {
 }
 
 // SQLite FromSql/ToSql for UniversalBinary
+#[cfg(feature = "sqlite")]
 impl FromSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
     fn from_sql(
         bytes: diesel::sqlite::SqliteValue<'_, '_, '_>,
@@ -445,6 +460,7 @@ impl FromSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
     }
 }
 
+#[cfg(feature = "sqlite")]
 impl ToSql<DbBinary, diesel::sqlite::Sqlite> for UniversalBinary {
     fn to_sql<'b>(
         &'b self,
