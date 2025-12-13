@@ -15,5 +15,6 @@
  */
 
 pub mod basic;
+pub mod callback_test;
 pub mod macro_test;
 pub mod subgraph;

@@ -198,6 +198,8 @@ impl PipelineExecutor for DefaultRunner {
             "Running" => PipelineStatus::Running,
             "Completed" => PipelineStatus::Completed,
             "Failed" => PipelineStatus::Failed,
+            "Cancelled" => PipelineStatus::Cancelled,
+            "Paused" => PipelineStatus::Paused,
             _ => PipelineStatus::Failed,
         };
 
@@ -235,6 +237,95 @@ impl PipelineExecutor for DefaultRunner {
             .await
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Failed to cancel execution: {}", e),
+            })?;
+
+        Ok(())
+    }
+
+    /// Pauses a running pipeline execution
+    ///
+    /// When paused, no new tasks will be scheduled, but in-flight tasks will
+    /// complete normally. The pipeline can be resumed later.
+    ///
+    /// # Arguments
+    /// * `execution_id` - UUID of the pipeline execution to pause
+    /// * `reason` - Optional reason for pausing the execution
+    ///
+    /// # Returns
+    /// * `Result<(), PipelineError>` - Success or error status
+    async fn pause_execution(
+        &self,
+        execution_id: Uuid,
+        reason: Option<&str>,
+    ) -> Result<(), PipelineError> {
+        let dal = DAL::new(self.database.clone());
+
+        // Verify the pipeline is in a pausable state (Pending or Running)
+        let pipeline = dal
+            .pipeline_execution()
+            .get_by_id(UniversalUuid(execution_id))
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to get execution: {}", e),
+            })?;
+
+        // Allow pausing both Pending and Running pipelines
+        // Pending = waiting to start, Running = actively executing
+        if pipeline.status != "Running" && pipeline.status != "Pending" {
+            return Err(PipelineError::ExecutionFailed {
+                message: format!(
+                    "Cannot pause pipeline with status '{}'. Only 'Pending' or 'Running' pipelines can be paused.",
+                    pipeline.status
+                ),
+            });
+        }
+
+        dal.pipeline_execution()
+            .pause(execution_id.into(), reason)
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to pause execution: {}", e),
+            })?;
+
+        Ok(())
+    }
+
+    /// Resumes a paused pipeline execution
+    ///
+    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// poll cycle.
+    ///
+    /// # Arguments
+    /// * `execution_id` - UUID of the pipeline execution to resume
+    ///
+    /// # Returns
+    /// * `Result<(), PipelineError>` - Success or error status
+    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), PipelineError> {
+        let dal = DAL::new(self.database.clone());
+
+        // Verify the pipeline is in a resumable state (Paused)
+        let pipeline = dal
+            .pipeline_execution()
+            .get_by_id(UniversalUuid(execution_id))
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to get execution: {}", e),
+            })?;
+
+        if pipeline.status != "Paused" {
+            return Err(PipelineError::ExecutionFailed {
+                message: format!(
+                    "Cannot resume pipeline with status '{}'. Only 'Paused' pipelines can be resumed.",
+                    pipeline.status
+                ),
+            });
+        }
+
+        dal.pipeline_execution()
+            .resume(execution_id.into())
+            .await
+            .map_err(|e| PipelineError::ExecutionFailed {
+                message: format!("Failed to resume execution: {}", e),
             })?;
 
         Ok(())

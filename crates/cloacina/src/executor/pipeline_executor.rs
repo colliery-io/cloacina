@@ -123,6 +123,7 @@ pub enum PipelineError {
 ///
 /// The status transitions through these states during the lifecycle of a pipeline:
 /// Pending -> Running -> (Completed | Failed | Cancelled)
+///                    <-> Paused (can resume back to Running)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipelineStatus {
     /// Pipeline is queued but not yet started
@@ -135,6 +136,8 @@ pub enum PipelineStatus {
     Failed,
     /// Pipeline was cancelled before completion
     Cancelled,
+    /// Pipeline is paused and can be resumed
+    Paused,
 }
 
 impl PipelineStatus {
@@ -286,6 +289,38 @@ impl PipelineExecution {
     pub async fn cancel(&self) -> Result<(), PipelineError> {
         self.executor.cancel_execution(self.execution_id).await
     }
+
+    /// Pauses the pipeline execution.
+    ///
+    /// When paused, no new tasks will be scheduled, but in-flight tasks will
+    /// complete normally. The pipeline can be resumed later.
+    ///
+    /// # Arguments
+    ///
+    /// * `reason` - Optional reason for pausing the execution
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the pause was successful
+    /// * `Err(PipelineError)` - If the pause failed
+    pub async fn pause(&self, reason: Option<&str>) -> Result<(), PipelineError> {
+        self.executor
+            .pause_execution(self.execution_id, reason)
+            .await
+    }
+
+    /// Resumes a paused pipeline execution.
+    ///
+    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// poll cycle.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the resume was successful
+    /// * `Err(PipelineError)` - If the resume failed
+    pub async fn resume(&self) -> Result<(), PipelineError> {
+        self.executor.resume_execution(self.execution_id).await
+    }
 }
 
 /// Core trait defining the interface for pipeline execution engines.
@@ -374,6 +409,41 @@ pub trait PipelineExecutor: Send + Sync {
     /// * `Err(PipelineError)` - If the cancellation failed
     async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), PipelineError>;
 
+    /// Pauses a running pipeline execution.
+    ///
+    /// When paused, no new tasks will be scheduled, but in-flight tasks will
+    /// complete normally. The pipeline can be resumed later.
+    ///
+    /// # Arguments
+    ///
+    /// * `execution_id` - ID of the execution to pause
+    /// * `reason` - Optional reason for pausing the execution
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the pause was successful
+    /// * `Err(PipelineError)` - If the pause failed (e.g., pipeline not running)
+    async fn pause_execution(
+        &self,
+        execution_id: Uuid,
+        reason: Option<&str>,
+    ) -> Result<(), PipelineError>;
+
+    /// Resumes a paused pipeline execution.
+    ///
+    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// poll cycle.
+    ///
+    /// # Arguments
+    ///
+    /// * `execution_id` - ID of the execution to resume
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the resume was successful
+    /// * `Err(PipelineError)` - If the resume failed (e.g., pipeline not paused)
+    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), PipelineError>;
+
     /// Executes a workflow with status updates via callback.
     ///
     /// # Arguments
@@ -442,6 +512,7 @@ impl PipelineStatus {
             "Completed" => PipelineStatus::Completed,
             "Failed" => PipelineStatus::Failed,
             "Cancelled" => PipelineStatus::Cancelled,
+            "Paused" => PipelineStatus::Paused,
             _ => PipelineStatus::Failed,
         }
     }

@@ -1,13 +1,13 @@
 ---
-title: "04 - Error Handling"
-description: "Build resilient workflows with comprehensive error handling strategies"
+title: "04 - Error Handling and Callbacks"
+description: "Build resilient workflows with comprehensive error handling strategies and lifecycle callbacks"
 weight: 14
 reviewer: "dstorey"
 review_date: "2024-03-19"
 ---
 
 
-In this tutorial, you'll learn how to build sophisticated workflows that can handle failures gracefully, make intelligent decisions based on data quality, and maintain reliability through various fallback strategies. We'll explore how to create workflows that can adapt to different scenarios and ensure your data processing pipeline remains robust even when things go wrong.
+In this tutorial, you'll learn how to build sophisticated workflows that can handle failures gracefully, make intelligent decisions based on data quality, and maintain reliability through various fallback strategies. You'll also learn how to use callbacks to hook into task lifecycle events for alerting, monitoring, and cleanup operations. We'll explore how to create workflows that can adapt to different scenarios and ensure your data processing pipeline remains robust even when things go wrong.
 
 ## Prerequisites
 
@@ -70,7 +70,7 @@ Cloacina supports both PostgreSQL and SQLite backends. The backend is selected a
 
 ## Understanding Error Handling in Cloacina
 
-In Cloacina, error handling is primarily focused on retries and trigger rules. When a task fails, you can configure:
+In Cloacina, error handling is primarily focused on retries, trigger rules, and callbacks. When a task fails, you can configure:
 
 1. **Retry Configuration**:
    - `retry_attempts`: Number of times to retry a failed task (default: 3)
@@ -102,6 +102,27 @@ In Cloacina, error handling is primarily focused on retries and trigger rules. W
    1. The `validate_data` task succeeded
    2. The context value `data_quality_score` is greater than 80
 
+3. **Callbacks**:
+   Callbacks are functions that get invoked automatically when a task succeeds or fails. They're useful for alerting, monitoring, logging, and cleanup. Callbacks are resolved at compile time - just reference any async function that matches the expected signature.
+
+   - `on_success`: Called when a task completes successfully
+   - `on_failure`: Called when a task fails (after all retries are exhausted)
+
+   For example:
+   ```rust
+   #[task(
+       id = "critical_task",
+       dependencies = [],
+       on_success = log_completion,
+       on_failure = alert_team
+   )]
+   ```
+
+   Key points about callbacks:
+   - Callback failures do not fail the task or workflow (errors are logged but isolated)
+   - The `on_failure` callback receives the error for analysis
+   - Callbacks are async and non-blocking
+
 When a task fails:
 1. The system will retry the task up to the specified number of attempts
 2. Between each retry, it will wait for the specified delay, which increases according to the backoff strategy:
@@ -110,6 +131,8 @@ When a task fails:
    - Exponential: Delay increases exponentially with each attempt
 3. The delay is capped at the maximum delay
 4. If jitter is enabled, a random variation of ±25% is added to the delay to help spread out concurrent retry attempts
+5. If all retries are exhausted and the task still fails, the `on_failure` callback is invoked (if configured)
+6. If the task succeeds (either on the first attempt or after retries), the `on_success` callback is invoked (if configured)
 
 ## Building a Resilient Pipeline
 
@@ -592,6 +615,100 @@ Let's walk through the key components of our error handling workflow:
    - Generating summary reports
    - Handling different execution paths
 
+## Using Callbacks
+
+Callbacks provide hooks for task lifecycle events. They're useful for alerting, monitoring, logging, and cleanup operations.
+
+### Callback Signatures
+
+Callbacks are async functions that match specific signatures:
+
+```rust
+// Success callback - called when task completes successfully
+async fn on_task_success(
+    task_id: &str,
+    context: &Context<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("[CALLBACK] Task '{}' completed successfully", task_id);
+    // Send success notification, update metrics, etc.
+    Ok(())
+}
+
+// Failure callback - called when task fails (after all retries exhausted)
+async fn on_task_failure(
+    task_id: &str,
+    error: &TaskError,
+    context: &Context<serde_json::Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    error!("[CALLBACK] Task '{}' failed with error: {:?}", task_id, error);
+    // Send alert to PagerDuty, log to error tracking, etc.
+    Ok(())
+}
+```
+
+### Adding Callbacks to Tasks
+
+Add callbacks to your task definitions using `on_success` and `on_failure` parameters:
+
+```rust
+#[task(
+    id = "critical_task",
+    dependencies = [],
+    on_success = on_task_success,
+    on_failure = on_task_failure
+)]
+async fn critical_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Task implementation
+}
+
+// You can also use module paths
+#[task(
+    id = "api_call",
+    dependencies = [],
+    on_failure = alerts::notify_critical_failure
+)]
+async fn api_call(context: &mut Context<Value>) -> Result<(), TaskError> {
+    // Task implementation
+}
+```
+
+### Common Use Cases
+
+1. **Alerting**: Send notifications when critical tasks fail
+   ```rust
+   async fn alert_on_failure(task_id: &str, error: &TaskError, _ctx: &Context<Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+       // Send to Slack, PagerDuty, OpsGenie, etc.
+       send_slack_alert(&format!("Task {} failed: {:?}", task_id, error)).await?;
+       Ok(())
+   }
+   ```
+
+2. **Monitoring**: Update dashboards and record metrics
+   ```rust
+   async fn record_success_metric(task_id: &str, _ctx: &Context<Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+       metrics::counter!("task_success", "task" => task_id.to_string()).increment(1);
+       Ok(())
+   }
+   ```
+
+3. **Cleanup**: Perform cleanup operations on failure
+   ```rust
+   async fn cleanup_on_failure(task_id: &str, _error: &TaskError, ctx: &Context<Value>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+       // Clean up temporary files, release locks, etc.
+       if let Some(temp_file) = ctx.get("temp_file") {
+           std::fs::remove_file(temp_file.as_str().unwrap())?;
+       }
+       Ok(())
+   }
+   ```
+
+### Error Isolation
+
+Callback errors are isolated from the main task execution:
+- If a callback fails, the error is logged but does not affect the task's success/failure status
+- This ensures that monitoring/alerting failures don't cause cascading failures
+- Always design callbacks to be resilient and handle their own errors gracefully
+
 ## Running Your Workflow
 
 You can run this tutorial in two ways:
@@ -673,6 +790,7 @@ Congratulations! You've completed all four tutorials in the Cloacina series. You
 - Multi-task workflows with dependencies
 - Parallel processing patterns
 - Error handling and retry strategies
+- Callback hooks for task lifecycle events
 
 To continue your Cloacina journey, explore:
 - Advanced workflow patterns

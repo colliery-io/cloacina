@@ -39,6 +39,8 @@ use crate::registry::{get_registry, TaskInfo};
 /// * `retry_condition` - Condition for retrying: "never", "all", "transient", or error patterns
 /// * `retry_jitter` - Whether to add random jitter to retry delays (default: true)
 /// * `trigger_rules` - Rules that determine when the task should be executed
+/// * `on_success` - Function to call on successful task completion: `async fn(&str, &Context<Value>)`
+/// * `on_failure` - Function to call on task failure: `async fn(&str, &TaskError, &Context<Value>)`
 pub struct TaskAttributes {
     pub id: String,
     pub dependencies: Vec<String>, // Will need to convert to TaskNamespace during code generation
@@ -49,6 +51,8 @@ pub struct TaskAttributes {
     pub retry_condition: Option<String>,
     pub retry_jitter: Option<bool>,
     pub trigger_rules: Option<Expr>,
+    pub on_success: Option<Expr>,
+    pub on_failure: Option<Expr>,
 }
 
 impl Parse for TaskAttributes {
@@ -62,6 +66,8 @@ impl Parse for TaskAttributes {
         let mut retry_condition = None;
         let mut retry_jitter = None;
         let mut trigger_rules = None;
+        let mut on_success = None;
+        let mut on_failure = None;
 
         while !input.is_empty() {
             let name: Ident = input.parse()?;
@@ -114,6 +120,14 @@ impl Parse for TaskAttributes {
                     let expr: Expr = input.parse()?;
                     trigger_rules = Some(expr);
                 }
+                "on_success" => {
+                    let expr: Expr = input.parse()?;
+                    on_success = Some(expr);
+                }
+                "on_failure" => {
+                    let expr: Expr = input.parse()?;
+                    on_failure = Some(expr);
+                }
                 _ => {
                     return Err(syn::Error::new(
                         name.span(),
@@ -141,6 +155,8 @@ impl Parse for TaskAttributes {
             retry_condition,
             retry_jitter,
             trigger_rules,
+            on_success,
+            on_failure,
         })
     }
 }
@@ -647,6 +663,29 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
     // Create a task constructor function name
     let task_constructor_name = syn::Ident::new(&format!("{}_task", fn_name), fn_name.span());
 
+    // Generate callback invocation code
+    // on_success signature: async fn(task_id: &str, context: &Context<Value>)
+    let on_success_call = match &attrs.on_success {
+        Some(callback_fn) => quote! {
+            // Call on_success callback, isolating any errors
+            if let Err(callback_err) = #callback_fn(#task_id, &context).await {
+                eprintln!("[cloacina] on_success callback failed for task '{}': {:?}", #task_id, callback_err);
+            }
+        },
+        None => quote! {},
+    };
+
+    // on_failure signature: async fn(task_id: &str, error: &TaskError, context: &Context<Value>)
+    let on_failure_call = match &attrs.on_failure {
+        Some(callback_fn) => quote! {
+            // Call on_failure callback, isolating any errors
+            if let Err(callback_err) = #callback_fn(#task_id, &task_error, &context).await {
+                eprintln!("[cloacina] on_failure callback failed for task '{}': {:?}", #task_id, callback_err);
+            }
+        },
+        None => quote! {},
+    };
+
     quote! {
         // Keep the original function for testing
         #fn_vis #fn_asyncness fn #fn_name(#fn_inputs) #fn_output #fn_block
@@ -697,12 +736,19 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
                 // Convert the result to our expected format
                 match #execute_body {
-                    Ok(()) => Ok(context),
-                    Err(e) => Err(::cloacina::cloacina_workflow::TaskError::ExecutionFailed {
-                        message: format!("{:?}", e),
-                        task_id: #task_id.to_string(),
-                        timestamp: chrono::Utc::now(),
-                    }),
+                    Ok(()) => {
+                        #on_success_call
+                        Ok(context)
+                    },
+                    Err(e) => {
+                        let task_error = ::cloacina::cloacina_workflow::TaskError::ExecutionFailed {
+                            message: format!("{:?}", e),
+                            task_id: #task_id.to_string(),
+                            timestamp: chrono::Utc::now(),
+                        };
+                        #on_failure_call
+                        Err(task_error)
+                    },
                 }
             }
 
