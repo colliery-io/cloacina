@@ -17,6 +17,7 @@
 // Context tests run against both PostgreSQL and SQLite to verify consistent
 // behavior across backends. These tests use the DAL abstraction layer.
 
+#[cfg(feature = "postgres")]
 mod postgres_tests {
     use crate::fixtures::get_or_init_postgres_fixture;
     use cloacina::context::Context;
@@ -79,6 +80,7 @@ mod postgres_tests {
     }
 }
 
+#[cfg(feature = "sqlite")]
 mod sqlite_tests {
     use crate::fixtures::get_or_init_sqlite_fixture;
     use cloacina::context::Context;

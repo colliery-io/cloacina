@@ -17,6 +17,7 @@
 // Recovery tests run against both PostgreSQL and SQLite to verify consistent
 // behavior across backends.
 
+#[cfg(feature = "postgres")]
 mod postgres_tests {
     use crate::fixtures::get_or_init_postgres_fixture;
     use cloacina::dal::DAL;
@@ -145,7 +146,7 @@ mod postgres_tests {
 
         // Manually set recovery attempts to maximum (3)
         let task_id = task_with_max_retries.id;
-        let conn = dal.pool().expect_postgres().get().await.unwrap();
+        let conn = database.get_postgres_connection().await.unwrap();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id.0))
                 .set(task_executions::recovery_attempts.eq(3))
@@ -337,7 +338,7 @@ mod postgres_tests {
 
         // Set max retries on one task
         let task_id = max_retry_task.id;
-        let conn = dal.pool().expect_postgres().get().await.unwrap();
+        let conn = database.get_postgres_connection().await.unwrap();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.find(task_id.0))
                 .set(task_executions::recovery_attempts.eq(3))
@@ -600,6 +601,7 @@ mod postgres_tests {
     }
 }
 
+#[cfg(feature = "sqlite")]
 mod sqlite_tests {
     use crate::fixtures::get_or_init_sqlite_fixture;
     use cloacina::dal::DAL;
@@ -729,7 +731,7 @@ mod sqlite_tests {
         // Manually set recovery attempts to maximum (3)
         // For SQLite, we need to convert UUID to bytes (BLOB format)
         let task_id_bytes = task_with_max_retries.id.0.as_bytes().to_vec();
-        let conn = dal.pool().expect_sqlite().get().await.unwrap();
+        let conn = database.get_sqlite_connection().await.unwrap();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.filter(task_executions::id.eq(task_id_bytes)))
                 .set(task_executions::recovery_attempts.eq(3))
@@ -925,7 +927,7 @@ mod sqlite_tests {
         // Set max retries on one task
         // For SQLite, we need to convert UUID to bytes (BLOB format)
         let task_id_bytes = max_retry_task.id.0.as_bytes().to_vec();
-        let conn = dal.pool().expect_sqlite().get().await.unwrap();
+        let conn = database.get_sqlite_connection().await.unwrap();
         conn.interact(move |conn| {
             diesel::update(task_executions::table.filter(task_executions::id.eq(task_id_bytes)))
                 .set(task_executions::recovery_attempts.eq(3))
