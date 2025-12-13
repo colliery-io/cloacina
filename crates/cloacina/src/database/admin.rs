@@ -128,13 +128,16 @@ mod postgres_impl {
             let schema_name_result = schema_name.clone();
             let username_result = username.clone();
 
-            let pool = self.database.pool();
-            let conn = pool.expect_postgres().get().await?;
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
 
             // Execute all tenant setup SQL in a transaction
             let _ = conn
                 .interact(move |conn| {
-                    conn.transaction::<(), AdminError, _>(|conn| {
+                    conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
                         // 1. Create schema
                         let sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
                         diesel::sql_query(&sql).execute(conn).map_err(|e| {
@@ -228,14 +231,17 @@ mod postgres_impl {
             schema_name: &str,
             username: &str,
         ) -> Result<(), AdminError> {
-            let pool = self.database.pool();
-            let conn = pool.expect_postgres().get().await?;
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
             let schema_name = schema_name.to_string();
             let username = username.to_string();
 
             let _ = conn
                 .interact(move |conn| {
-                    conn.transaction::<(), AdminError, _>(|conn| {
+                    conn.transaction::<(), AdminError, _>(|conn: &mut diesel::PgConnection| {
                         // 1. Revoke permissions
                         let sqls = vec![
                             format!(

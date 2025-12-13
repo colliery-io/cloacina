@@ -27,6 +27,7 @@ use crate::error::ValidationError;
 use crate::models::cron_schedule::CronSchedule;
 
 impl<'a> CronScheduleDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_due_schedules_postgres(
         &self,
         now: DateTime<Utc>,
@@ -68,6 +69,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_due_schedules_sqlite(
         &self,
         now: DateTime<Utc>,
@@ -105,6 +107,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn list_postgres(
         &self,
         enabled_only: bool,
@@ -139,6 +142,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn list_sqlite(
         &self,
         enabled_only: bool,
@@ -173,6 +177,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn find_by_workflow_postgres(
         &self,
         workflow_name: &str,
@@ -198,6 +203,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn find_by_workflow_sqlite(
         &self,
         workflow_name: &str,
@@ -223,6 +229,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn count_postgres(&self, enabled_only: bool) -> Result<i64, ValidationError> {
         let conn = self
             .dal
@@ -248,6 +255,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(count)
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn count_sqlite(&self, enabled_only: bool) -> Result<i64, ValidationError> {
         let conn = self
             .dal

@@ -23,7 +23,6 @@
 use super::DAL;
 use crate::context::Context;
 use crate::database::universal_types::UniversalUuid;
-use crate::database::BackendType;
 use crate::error::ContextError;
 use diesel::prelude::*;
 use tracing::warn;
@@ -115,6 +114,7 @@ impl<'a> ContextDAL<'a> {
         Ok(Some(id))
     }
 
+    #[cfg(feature = "sqlite")]
     async fn create_sqlite(&self, value: String) -> Result<Option<UniversalUuid>, ContextError> {
         use super::models::NewUnifiedDbContext;
         use crate::database::schema::unified::contexts;
@@ -156,12 +156,14 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        match self.dal.backend() {
-            BackendType::Postgres => self.read_postgres(id).await,
-            BackendType::Sqlite => self.read_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.read_postgres(id).await,
+            self.read_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn read_postgres<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
@@ -184,6 +186,7 @@ impl<'a> ContextDAL<'a> {
         Ok(Context::<T>::from_json(db_context.value)?)
     }
 
+    #[cfg(feature = "sqlite")]
     async fn read_sqlite<T>(&self, id: UniversalUuid) -> Result<Context<T>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
@@ -217,12 +220,14 @@ impl<'a> ContextDAL<'a> {
     {
         let value = context.to_json()?;
 
-        match self.dal.backend() {
-            BackendType::Postgres => self.update_postgres(id, value).await,
-            BackendType::Sqlite => self.update_sqlite(id, value).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_postgres(id, value.clone()).await,
+            self.update_sqlite(id, value).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn update_postgres(&self, id: UniversalUuid, value: String) -> Result<(), ContextError> {
         use crate::database::schema::unified::contexts;
         use crate::database::universal_types::UniversalTimestamp;
@@ -246,6 +251,7 @@ impl<'a> ContextDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn update_sqlite(&self, id: UniversalUuid, value: String) -> Result<(), ContextError> {
         use crate::database::schema::unified::contexts;
         use crate::database::universal_types::UniversalTimestamp;
@@ -271,12 +277,14 @@ impl<'a> ContextDAL<'a> {
 
     /// Delete a context from the database.
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ContextError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.delete_postgres(id).await,
-            BackendType::Sqlite => self.delete_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.delete_postgres(id).await,
+            self.delete_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn delete_postgres(&self, id: UniversalUuid) -> Result<(), ContextError> {
         use crate::database::schema::unified::contexts;
 
@@ -294,6 +302,7 @@ impl<'a> ContextDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn delete_sqlite(&self, id: UniversalUuid) -> Result<(), ContextError> {
         use crate::database::schema::unified::contexts;
 
@@ -319,12 +328,14 @@ impl<'a> ContextDAL<'a> {
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,
     {
-        match self.dal.backend() {
-            BackendType::Postgres => self.list_postgres(limit, offset).await,
-            BackendType::Sqlite => self.list_sqlite(limit, offset).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_postgres(limit, offset).await,
+            self.list_sqlite(limit, offset).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn list_postgres<T>(
         &self,
         limit: i64,
@@ -363,6 +374,7 @@ impl<'a> ContextDAL<'a> {
         Ok(results)
     }
 
+    #[cfg(feature = "sqlite")]
     async fn list_sqlite<T>(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>
     where
         T: serde::Serialize + for<'de> serde::Deserialize<'de> + std::fmt::Debug + Send + 'static,

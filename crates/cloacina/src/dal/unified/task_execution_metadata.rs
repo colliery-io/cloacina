@@ -24,7 +24,6 @@ use super::models::{NewUnifiedTaskExecutionMetadata, UnifiedTaskExecutionMetadat
 use super::DAL;
 use crate::database::schema::unified::{contexts, task_execution_metadata};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::task_execution_metadata::{NewTaskExecutionMetadata, TaskExecutionMetadata};
 use crate::task::TaskNamespace;
@@ -47,12 +46,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_metadata).await,
-            BackendType::Sqlite => self.create_sqlite(new_metadata).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_metadata).await,
+            self.create_sqlite(new_metadata).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
         new_metadata: NewTaskExecutionMetadata,
@@ -93,6 +94,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
         new_metadata: NewTaskExecutionMetadata,
@@ -139,18 +141,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         task_namespace: &TaskNamespace,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_by_pipeline_and_task_postgres(pipeline_id, task_namespace)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_by_pipeline_and_task_sqlite(pipeline_id, task_namespace)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_pipeline_and_task_postgres(pipeline_id, task_namespace)
+                .await,
+            self.get_by_pipeline_and_task_sqlite(pipeline_id, task_namespace)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_pipeline_and_task_postgres(
         &self,
         pipeline_id: UniversalUuid,
@@ -177,6 +177,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_pipeline_and_task_sqlite(
         &self,
         pipeline_id: UniversalUuid,
@@ -208,12 +209,14 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_task_execution_postgres(task_execution_id).await,
-            BackendType::Sqlite => self.get_by_task_execution_sqlite(task_execution_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_task_execution_postgres(task_execution_id).await,
+            self.get_by_task_execution_sqlite(task_execution_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_task_execution_postgres(
         &self,
         task_execution_id: UniversalUuid,
@@ -237,6 +240,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_task_execution_sqlite(
         &self,
         task_execution_id: UniversalUuid,
@@ -266,18 +270,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         task_execution_id: UniversalUuid,
         context_id: Option<UniversalUuid>,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_context_id_postgres(task_execution_id, context_id)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.update_context_id_sqlite(task_execution_id, context_id)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_context_id_postgres(task_execution_id, context_id)
+                .await,
+            self.update_context_id_sqlite(task_execution_id, context_id)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn update_context_id_postgres(
         &self,
         task_execution_id: UniversalUuid,
@@ -306,6 +308,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn update_context_id_sqlite(
         &self,
         task_execution_id: UniversalUuid,
@@ -339,18 +342,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         &self,
         new_metadata: NewTaskExecutionMetadata,
     ) -> Result<TaskExecutionMetadata, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.upsert_task_execution_metadata_postgres(new_metadata)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.upsert_task_execution_metadata_sqlite(new_metadata)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.upsert_task_execution_metadata_postgres(new_metadata)
+                .await,
+            self.upsert_task_execution_metadata_sqlite(new_metadata)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn upsert_task_execution_metadata_postgres(
         &self,
         new_metadata: NewTaskExecutionMetadata,
@@ -401,6 +402,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn upsert_task_execution_metadata_sqlite(
         &self,
         new_metadata: NewTaskExecutionMetadata,
@@ -496,18 +498,16 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         pipeline_id: UniversalUuid,
         dependency_task_names: &[String],
     ) -> Result<Vec<TaskExecutionMetadata>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_dependency_metadata_postgres(pipeline_id, dependency_task_names)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_dependency_metadata_sqlite(pipeline_id, dependency_task_names)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_dependency_metadata_postgres(pipeline_id, dependency_task_names)
+                .await,
+            self.get_dependency_metadata_sqlite(pipeline_id, dependency_task_names)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_postgres(
         &self,
         pipeline_id: UniversalUuid,
@@ -534,6 +534,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_sqlite(
         &self,
         pipeline_id: UniversalUuid,
@@ -570,24 +571,22 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             return Ok(Vec::new());
         }
 
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_dependency_metadata_with_contexts_postgres(
-                    pipeline_id,
-                    dependency_task_namespaces,
-                )
-                .await
-            }
-            BackendType::Sqlite => {
-                self.get_dependency_metadata_with_contexts_sqlite(
-                    pipeline_id,
-                    dependency_task_namespaces,
-                )
-                .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_dependency_metadata_with_contexts_postgres(
+                pipeline_id,
+                dependency_task_namespaces
+            )
+            .await,
+            self.get_dependency_metadata_with_contexts_sqlite(
+                pipeline_id,
+                dependency_task_namespaces
+            )
+            .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_dependency_metadata_with_contexts_postgres(
         &self,
         pipeline_id: UniversalUuid,
@@ -626,6 +625,7 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
         Ok(results.into_iter().map(|(m, c)| (m.into(), c)).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_dependency_metadata_with_contexts_sqlite(
         &self,
         pipeline_id: UniversalUuid,

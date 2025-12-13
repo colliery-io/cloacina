@@ -27,6 +27,7 @@ use crate::error::ValidationError;
 use crate::models::cron_execution::{CronExecution, NewCronExecution};
 
 impl<'a> CronExecutionDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn create_postgres(
         &self,
         new_execution: NewCronExecution,
@@ -67,6 +68,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn create_sqlite(
         &self,
         new_execution: NewCronExecution,
@@ -107,6 +109,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn update_pipeline_execution_id_postgres(
         &self,
         cron_execution_id: UniversalUuid,
@@ -135,6 +138,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn update_pipeline_execution_id_sqlite(
         &self,
         cron_execution_id: UniversalUuid,
@@ -163,6 +167,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn delete_older_than_postgres(
         &self,
         older_than: DateTime<Utc>,
@@ -187,6 +192,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(deleted_count)
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn delete_older_than_sqlite(
         &self,
         older_than: DateTime<Utc>,

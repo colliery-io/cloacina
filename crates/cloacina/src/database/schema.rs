@@ -202,6 +202,7 @@ mod unified_schema {
 // Legacy Backend-Specific Schemas (to be removed after migration)
 // =============================================================================
 
+#[cfg(feature = "postgres")]
 mod postgres_schema {
     // PostgreSQL schema using native types
     diesel::table! {
@@ -405,6 +406,7 @@ mod postgres_schema {
     );
 }
 
+#[cfg(feature = "sqlite")]
 mod sqlite_schema {
     // SQLite schema with appropriate type mappings
     diesel::table! {
@@ -562,10 +564,12 @@ pub mod unified {
 
 // Legacy backend-specific modules (to be removed after migration)
 // Use schema::postgres::* or schema::sqlite::* for legacy code
+#[cfg(feature = "postgres")]
 pub mod postgres {
     pub use super::postgres_schema::*;
 }
 
+#[cfg(feature = "sqlite")]
 pub mod sqlite {
     pub use super::sqlite_schema::*;
 }

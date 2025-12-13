@@ -110,7 +110,7 @@ pub enum DatabaseError {
 ///
 /// The `Database` struct is `Clone` and can be safely shared between threads.
 /// Each clone references the same underlying connection pool.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Database {
     /// The connection pool (PostgreSQL or SQLite)
     pool: AnyPool,
@@ -118,6 +118,16 @@ pub struct Database {
     backend: BackendType,
     /// The PostgreSQL schema name for multi-tenant isolation (ignored for SQLite)
     schema: Option<String>,
+}
+
+impl std::fmt::Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database")
+            .field("backend", &self.backend)
+            .field("schema", &self.schema)
+            .field("pool", &"<connection pool>")
+            .finish()
+    }
 }
 
 impl Database {

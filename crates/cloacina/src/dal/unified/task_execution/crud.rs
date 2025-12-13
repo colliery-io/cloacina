@@ -20,7 +20,6 @@ use super::TaskExecutionDAL;
 use crate::dal::unified::models::{NewUnifiedTaskExecution, UnifiedTaskExecution};
 use crate::database::schema::unified::task_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use diesel::prelude::*;
@@ -31,12 +30,14 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         new_task: NewTaskExecution,
     ) -> Result<TaskExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_task).await,
-            BackendType::Sqlite => self.create_sqlite(new_task).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_task).await,
+            self.create_sqlite(new_task).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
         new_task: NewTaskExecution,
@@ -76,6 +77,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(task.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
         new_task: NewTaskExecution,
@@ -120,12 +122,14 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<TaskExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_id_postgres(task_id).await,
-            BackendType::Sqlite => self.get_by_id_sqlite(task_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_id_postgres(task_id).await,
+            self.get_by_id_sqlite(task_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_id_postgres(
         &self,
         task_id: UniversalUuid,
@@ -145,6 +149,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(task.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_id_sqlite(
         &self,
         task_id: UniversalUuid,
@@ -169,18 +174,16 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<TaskExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_all_tasks_for_pipeline_postgres(pipeline_execution_id)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_all_tasks_for_pipeline_sqlite(pipeline_execution_id)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_all_tasks_for_pipeline_postgres(pipeline_execution_id)
+                .await,
+            self.get_all_tasks_for_pipeline_sqlite(pipeline_execution_id)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_all_tasks_for_pipeline_postgres(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -204,6 +207,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(tasks.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_all_tasks_for_pipeline_sqlite(
         &self,
         pipeline_execution_id: UniversalUuid,

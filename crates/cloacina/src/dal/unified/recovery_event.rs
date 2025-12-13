@@ -24,7 +24,6 @@ use super::models::{NewUnifiedRecoveryEvent, UnifiedRecoveryEvent};
 use super::DAL;
 use crate::database::schema::unified::recovery_events;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryEvent, RecoveryType};
 use diesel::prelude::*;
@@ -49,12 +48,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         new_event: NewRecoveryEvent,
     ) -> Result<RecoveryEvent, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_event).await,
-            BackendType::Sqlite => self.create_sqlite(new_event).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_event).await,
+            self.create_sqlite(new_event).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
         new_event: NewRecoveryEvent,
@@ -96,6 +97,7 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
         new_event: NewRecoveryEvent,
@@ -142,12 +144,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_pipeline_postgres(pipeline_execution_id).await,
-            BackendType::Sqlite => self.get_by_pipeline_sqlite(pipeline_execution_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_pipeline_postgres(pipeline_execution_id).await,
+            self.get_by_pipeline_sqlite(pipeline_execution_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_pipeline_postgres(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -172,6 +176,7 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_pipeline_sqlite(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -201,12 +206,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         task_execution_id: UniversalUuid,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_task_postgres(task_execution_id).await,
-            BackendType::Sqlite => self.get_by_task_sqlite(task_execution_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_task_postgres(task_execution_id).await,
+            self.get_by_task_sqlite(task_execution_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_task_postgres(
         &self,
         task_execution_id: UniversalUuid,
@@ -231,6 +238,7 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_task_sqlite(
         &self,
         task_execution_id: UniversalUuid,
@@ -260,12 +268,14 @@ impl<'a> RecoveryEventDAL<'a> {
         &self,
         recovery_type: &str,
     ) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_type_postgres(recovery_type).await,
-            BackendType::Sqlite => self.get_by_type_sqlite(recovery_type).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_type_postgres(recovery_type).await,
+            self.get_by_type_sqlite(recovery_type).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_type_postgres(
         &self,
         recovery_type: &str,
@@ -291,6 +301,7 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_type_sqlite(
         &self,
         recovery_type: &str,
@@ -326,12 +337,14 @@ impl<'a> RecoveryEventDAL<'a> {
 
     /// Gets recent recovery events for monitoring purposes.
     pub async fn get_recent(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_recent_postgres(limit).await,
-            BackendType::Sqlite => self.get_recent_sqlite(limit).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_recent_postgres(limit).await,
+            self.get_recent_sqlite(limit).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_recent_postgres(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self
             .dal
@@ -353,6 +366,7 @@ impl<'a> RecoveryEventDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_recent_sqlite(&self, limit: i64) -> Result<Vec<RecoveryEvent>, ValidationError> {
         let conn = self
             .dal

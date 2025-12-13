@@ -27,7 +27,7 @@ use uuid::Uuid;
 use super::models::{NewUnifiedWorkflowRegistryEntry, UnifiedWorkflowRegistryEntry};
 use crate::database::schema::unified::workflow_registry;
 use crate::database::universal_types::{UniversalBinary, UniversalTimestamp, UniversalUuid};
-use crate::database::{BackendType, Database};
+use crate::database::Database;
 use crate::models::workflow_packages::StorageType;
 use crate::registry::error::StorageError;
 use crate::registry::traits::RegistryStorage;
@@ -48,34 +48,32 @@ impl UnifiedRegistryStorage {
     pub fn database(&self) -> &Database {
         &self.database
     }
-
-    /// Returns the current backend type.
-    fn backend(&self) -> BackendType {
-        self.database.backend()
-    }
 }
 
 #[async_trait]
 impl RegistryStorage for UnifiedRegistryStorage {
     async fn store_binary(&mut self, data: Vec<u8>) -> Result<String, StorageError> {
-        match self.backend() {
-            BackendType::Postgres => self.store_binary_postgres(data).await,
-            BackendType::Sqlite => self.store_binary_sqlite(data).await,
-        }
+        crate::dispatch_backend!(
+            self.database.backend(),
+            self.store_binary_postgres(data).await,
+            self.store_binary_sqlite(data).await
+        )
     }
 
     async fn retrieve_binary(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.backend() {
-            BackendType::Postgres => self.retrieve_binary_postgres(id).await,
-            BackendType::Sqlite => self.retrieve_binary_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.database.backend(),
+            self.retrieve_binary_postgres(id).await,
+            self.retrieve_binary_sqlite(id).await
+        )
     }
 
     async fn delete_binary(&mut self, id: &str) -> Result<(), StorageError> {
-        match self.backend() {
-            BackendType::Postgres => self.delete_binary_postgres(id).await,
-            BackendType::Sqlite => self.delete_binary_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.database.backend(),
+            self.delete_binary_postgres(id).await,
+            self.delete_binary_sqlite(id).await
+        )
     }
 
     fn storage_type(&self) -> StorageType {
@@ -84,6 +82,7 @@ impl RegistryStorage for UnifiedRegistryStorage {
 }
 
 impl UnifiedRegistryStorage {
+    #[cfg(feature = "postgres")]
     async fn store_binary_postgres(&self, data: Vec<u8>) -> Result<String, StorageError> {
         let conn = self.database.get_postgres_connection().await.map_err(|e| {
             StorageError::Backend(format!("Failed to get database connection: {}", e))
@@ -110,6 +109,7 @@ impl UnifiedRegistryStorage {
         Ok(id.0.to_string())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn store_binary_sqlite(&self, data: Vec<u8>) -> Result<String, StorageError> {
         let conn = self
             .database
@@ -138,6 +138,7 @@ impl UnifiedRegistryStorage {
         Ok(id.0.to_string())
     }
 
+    #[cfg(feature = "postgres")]
     async fn retrieve_binary_postgres(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
@@ -161,6 +162,7 @@ impl UnifiedRegistryStorage {
         Ok(entry.map(|e| e.data.into_inner()))
     }
 
+    #[cfg(feature = "sqlite")]
     async fn retrieve_binary_sqlite(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
         let uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
@@ -189,6 +191,7 @@ impl UnifiedRegistryStorage {
         }
     }
 
+    #[cfg(feature = "postgres")]
     async fn delete_binary_postgres(&self, id: &str) -> Result<(), StorageError> {
         let registry_uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;
@@ -209,6 +212,7 @@ impl UnifiedRegistryStorage {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn delete_binary_sqlite(&self, id: &str) -> Result<(), StorageError> {
         let uuid =
             Uuid::parse_str(id).map_err(|_| StorageError::InvalidId { id: id.to_string() })?;

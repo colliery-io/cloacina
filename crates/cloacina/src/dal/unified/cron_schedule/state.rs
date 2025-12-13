@@ -25,6 +25,7 @@ use crate::database::universal_types::{UniversalBool, UniversalTimestamp, Univer
 use crate::error::ValidationError;
 
 impl<'a> CronScheduleDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn update_schedule_times_postgres(
         &self,
         id: UniversalUuid,
@@ -57,6 +58,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn update_schedule_times_sqlite(
         &self,
         id: UniversalUuid,
@@ -89,6 +91,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn enable_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -114,6 +117,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn enable_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -139,6 +143,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn disable_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -164,6 +169,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn disable_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -189,6 +195,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn update_next_run_postgres(
         &self,
         id: UniversalUuid,
@@ -218,6 +225,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn update_next_run_sqlite(
         &self,
         id: UniversalUuid,
@@ -247,6 +255,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn claim_and_update_postgres(
         &self,
         id: UniversalUuid,
@@ -289,6 +298,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(updated_rows == 1)
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn claim_and_update_sqlite(
         &self,
         id: UniversalUuid,
@@ -327,6 +337,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(updated_rows == 1)
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn update_expression_and_timezone_postgres(
         &self,
         id: UniversalUuid,
@@ -389,6 +400,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn update_expression_and_timezone_sqlite(
         &self,
         id: UniversalUuid,

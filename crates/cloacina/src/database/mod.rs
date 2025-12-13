@@ -95,6 +95,7 @@
 //! Migrations are automatically applied when using `DefaultRunner`. For lower-level
 //! database access, migrations can be run manually using `run_migrations()`.
 
+#[cfg(feature = "postgres")]
 pub mod admin;
 pub mod connection;
 pub mod schema;
@@ -106,13 +107,14 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 pub use connection::{AnyConnection, AnyPool, BackendType, Database};
 
 // Legacy type aliases - only available when exactly one backend is enabled
-#[cfg(any(
-    all(feature = "postgres", not(feature = "sqlite")),
-    all(feature = "sqlite", not(feature = "postgres"))
-))]
+#[cfg(all(feature = "postgres", not(feature = "sqlite")))]
 pub use connection::{DbConnection, DbConnectionManager, DbPool};
 
-// Re-export admin types for tenant management
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub use connection::{DbConnection, DbPool};
+
+// Re-export admin types for tenant management (PostgreSQL only)
+#[cfg(feature = "postgres")]
 pub use admin::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 
 /// Type alias for database operation results.

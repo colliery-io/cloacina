@@ -85,12 +85,25 @@ pub use workflow_registry_storage::UnifiedRegistryStorage;
 /// ```
 #[macro_export]
 macro_rules! backend_dispatch {
-    ($backend:expr, $pg_block:block, $sqlite_block:block) => {
-        match $backend {
-            $crate::database::BackendType::Postgres => $pg_block,
-            $crate::database::BackendType::Sqlite => $sqlite_block,
+    ($backend:expr, $pg_block:block, $sqlite_block:block) => {{
+        #[cfg(all(feature = "postgres", feature = "sqlite"))]
+        {
+            match $backend {
+                $crate::database::BackendType::Postgres => $pg_block,
+                $crate::database::BackendType::Sqlite => $sqlite_block,
+            }
         }
-    };
+        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+        {
+            let _ = $backend;
+            $pg_block
+        }
+        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+        {
+            let _ = $backend;
+            $sqlite_block
+        }
+    }};
 }
 
 /// Helper macro for matching on AnyConnection variants.
@@ -111,12 +124,25 @@ macro_rules! backend_dispatch {
 /// ```
 #[macro_export]
 macro_rules! connection_match {
-    ($conn:expr, $pg_var:ident => $pg_block:block, $sqlite_var:ident => $sqlite_block:block) => {
-        match $conn {
-            $crate::database::AnyConnection::Postgres($pg_var) => $pg_block,
-            $crate::database::AnyConnection::Sqlite($sqlite_var) => $sqlite_block,
+    ($conn:expr, $pg_var:ident => $pg_block:block, $sqlite_var:ident => $sqlite_block:block) => {{
+        #[cfg(all(feature = "postgres", feature = "sqlite"))]
+        {
+            match $conn {
+                $crate::database::AnyConnection::Postgres($pg_var) => $pg_block,
+                $crate::database::AnyConnection::Sqlite($sqlite_var) => $sqlite_block,
+            }
         }
-    };
+        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+        {
+            let $pg_var = $conn;
+            $pg_block
+        }
+        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+        {
+            let $sqlite_var = $conn;
+            $sqlite_block
+        }
+    }};
 }
 
 /// The unified Data Access Layer struct.

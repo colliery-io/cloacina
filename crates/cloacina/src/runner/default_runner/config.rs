@@ -256,16 +256,28 @@ impl DefaultRunnerBuilder {
             self.schema.as_deref(),
         );
 
-        // Set up schema if specified
-        if let Some(ref schema) = self.schema {
-            database
-                .setup_schema(schema)
-                .await
-                .map_err(|e| PipelineError::Configuration {
-                    message: format!("Failed to set up schema '{}': {}", schema, e),
-                })?;
-        } else {
-            // Run migrations in public schema
+        // Set up schema if specified (PostgreSQL only)
+        #[cfg(feature = "postgres")]
+        {
+            if let Some(ref schema) = self.schema {
+                database
+                    .setup_schema(schema)
+                    .await
+                    .map_err(|e| PipelineError::Configuration {
+                        message: format!("Failed to set up schema '{}': {}", schema, e),
+                    })?;
+            } else {
+                // Run migrations in public schema
+                database
+                    .run_migrations()
+                    .await
+                    .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+            }
+        }
+
+        #[cfg(not(feature = "postgres"))]
+        {
+            // SQLite: just run migrations (schemas not supported)
             database
                 .run_migrations()
                 .await
