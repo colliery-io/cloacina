@@ -12,30 +12,39 @@ from .cloacina_utils import (
 )
 
 
-def build_test_packages():
+def build_test_packages(backend=None):
     """Pre-build test packages before running integration tests.
 
     This builds the example workflow packages separately from the test binary,
     avoiding the fork-after-OpenSSL-init issue on Linux that causes SIGSEGV.
     The packages are stored in target/test-packages/ and loaded at test runtime.
+
+    Args:
+        backend: Optional backend to build for ('postgres', 'sqlite', or None for both)
     """
     print_section_header("Pre-building test packages")
 
     # Create output directory
     os.makedirs("target/test-packages", exist_ok=True)
 
+    # Build feature flags for examples
+    if backend:
+        feature_args = ["--no-default-features", "--features", backend]
+    else:
+        feature_args = []
+
     # Build packaged-workflow-example
-    print("Building packaged-workflow-example...")
+    print(f"Building packaged-workflow-example{' (' + backend + ')' if backend else ''}...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
+        ["cargo", "build", "--release", "-p", "packaged-workflow-example"] + feature_args,
         check=True,
         cwd="examples/features/packaged-workflows"
     )
 
     # Build simple-packaged-demo
-    print("Building simple-packaged-demo...")
+    print(f"Building simple-packaged-demo{' (' + backend + ')' if backend else ''}...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
+        ["cargo", "build", "--release", "-p", "simple-packaged-demo"] + feature_args,
         check=True,
         cwd="examples/features/simple-packaged"
     )
@@ -93,11 +102,12 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
     is_default_features = cargo_features == "postgres,sqlite,macros"
 
     # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
-    # Only build for default features since examples depend on both backends
+    # Build with appropriate backend features
     if is_default_features:
         build_test_packages()
     else:
-        print(f"Skipping test package builds for non-default features: {cargo_features}")
+        # Build examples with single-backend features
+        build_test_packages(backend=backend)
 
     if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL
