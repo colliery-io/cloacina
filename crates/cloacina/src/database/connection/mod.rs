@@ -632,6 +632,7 @@ mod tests {
 
     #[test]
     fn test_backend_type_detection() {
+        #[cfg(feature = "postgres")]
         {
             assert_eq!(
                 BackendType::from_url("postgres://localhost/db"),
@@ -643,6 +644,7 @@ mod tests {
             );
         }
 
+        #[cfg(feature = "sqlite")]
         {
             assert_eq!(
                 BackendType::from_url("sqlite:///path/to/db"),
