@@ -14,18 +14,17 @@
  *  limitations under the License.
  */
 
-//! Unified Pipeline Execution DAL with runtime backend selection
+//! Unified Pipeline Execution DAL with compile-time backend selection
 
 use super::models::{NewUnifiedPipelineExecution, UnifiedPipelineExecution};
 use super::DAL;
 use crate::database::schema::unified::pipeline_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
 
-/// Data access layer for pipeline execution operations with runtime backend selection.
+/// Data access layer for pipeline execution operations with compile-time backend selection.
 #[derive(Clone)]
 pub struct PipelineExecutionDAL<'a> {
     dal: &'a DAL,
@@ -40,12 +39,14 @@ impl<'a> PipelineExecutionDAL<'a> {
         &self,
         new_execution: NewPipelineExecution,
     ) -> Result<PipelineExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_execution).await,
-            BackendType::Sqlite => self.create_sqlite(new_execution).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_execution).await,
+            self.create_sqlite(new_execution).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
         new_execution: NewPipelineExecution,
@@ -82,6 +83,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         self.get_by_id_postgres(id).await
     }
 
+    #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
         new_execution: NewPipelineExecution,
@@ -123,12 +125,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     }
 
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_id_postgres(id).await,
-            BackendType::Sqlite => self.get_by_id_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_id_postgres(id).await,
+            self.get_by_id_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_by_id_postgres(
         &self,
         id: UniversalUuid,
@@ -148,6 +152,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(execution.into())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_by_id_sqlite(
         &self,
         id: UniversalUuid,
@@ -168,12 +173,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     }
 
     pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_active_executions_postgres().await,
-            BackendType::Sqlite => self.get_active_executions_sqlite().await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_active_executions_postgres().await,
+            self.get_active_executions_sqlite().await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_active_executions_postgres(
         &self,
     ) -> Result<Vec<PipelineExecution>, ValidationError> {
@@ -196,6 +203,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(executions.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_active_executions_sqlite(
         &self,
     ) -> Result<Vec<PipelineExecution>, ValidationError> {
@@ -223,12 +231,14 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         status: &str,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.update_status_postgres(id, status).await,
-            BackendType::Sqlite => self.update_status_sqlite(id, status).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_status_postgres(id, status).await,
+            self.update_status_sqlite(id, status).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn update_status_postgres(
         &self,
         id: UniversalUuid,
@@ -257,6 +267,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn update_status_sqlite(
         &self,
         id: UniversalUuid,
@@ -286,12 +297,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     }
 
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.mark_completed_postgres(id).await,
-            BackendType::Sqlite => self.mark_completed_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.mark_completed_postgres(id).await,
+            self.mark_completed_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn mark_completed_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -316,6 +329,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn mark_completed_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -344,12 +358,14 @@ impl<'a> PipelineExecutionDAL<'a> {
         &self,
         pipeline_name: &str,
     ) -> Result<Option<String>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_last_version_postgres(pipeline_name).await,
-            BackendType::Sqlite => self.get_last_version_sqlite(pipeline_name).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_last_version_postgres(pipeline_name).await,
+            self.get_last_version_sqlite(pipeline_name).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_last_version_postgres(
         &self,
         pipeline_name: &str,
@@ -377,6 +393,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(version)
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_last_version_sqlite(
         &self,
         pipeline_name: &str,
@@ -409,12 +426,14 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.mark_failed_postgres(id, reason).await,
-            BackendType::Sqlite => self.mark_failed_sqlite(id, reason).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.mark_failed_postgres(id, reason).await,
+            self.mark_failed_sqlite(id, reason).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn mark_failed_postgres(
         &self,
         id: UniversalUuid,
@@ -445,6 +464,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn mark_failed_sqlite(
         &self,
         id: UniversalUuid,
@@ -479,12 +499,14 @@ impl<'a> PipelineExecutionDAL<'a> {
         &self,
         id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.increment_recovery_attempts_postgres(id).await,
-            BackendType::Sqlite => self.increment_recovery_attempts_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.increment_recovery_attempts_postgres(id).await,
+            self.increment_recovery_attempts_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn increment_recovery_attempts_postgres(
         &self,
         id: UniversalUuid,
@@ -513,6 +535,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn increment_recovery_attempts_sqlite(
         &self,
         id: UniversalUuid,
@@ -542,12 +565,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     }
 
     pub async fn cancel(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.cancel_postgres(id).await,
-            BackendType::Sqlite => self.cancel_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.cancel_postgres(id).await,
+            self.cancel_sqlite(id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn cancel_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -572,6 +597,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn cancel_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -601,15 +627,15 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         final_context_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_final_context_postgres(id, final_context_id)
-                    .await
-            }
-            BackendType::Sqlite => self.update_final_context_sqlite(id, final_context_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_final_context_postgres(id, final_context_id)
+                .await,
+            self.update_final_context_sqlite(id, final_context_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn update_final_context_postgres(
         &self,
         id: UniversalUuid,
@@ -637,6 +663,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn update_final_context_sqlite(
         &self,
         id: UniversalUuid,
@@ -665,12 +692,14 @@ impl<'a> PipelineExecutionDAL<'a> {
     }
 
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.list_recent_postgres(limit).await,
-            BackendType::Sqlite => self.list_recent_sqlite(limit).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_recent_postgres(limit).await,
+            self.list_recent_sqlite(limit).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn list_recent_postgres(
         &self,
         limit: i64,
@@ -695,6 +724,7 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(executions.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn list_recent_sqlite(
         &self,
         limit: i64,

@@ -39,6 +39,18 @@ serde_json = "1.0"    # Required for context data serialization
 
 Cloacina supports both PostgreSQL and SQLite backends. The backend is selected automatically at runtime based on your connection URL - no compile-time configuration needed.
 
+### Single-Backend Builds (Optional)
+
+For smaller binaries, you can compile with only the backend you need:
+
+```toml
+# PostgreSQL only
+cloacina = { version = "0.1.0", default-features = false, features = ["postgres", "macros"] }
+
+# SQLite only
+cloacina = { version = "0.1.0", default-features = false, features = ["sqlite", "macros"] }
+```
+
 ## Quick Start
 
 Here's a simple example that demonstrates the basic usage:

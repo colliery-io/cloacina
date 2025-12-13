@@ -8,8 +8,13 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["postgres", "sqlite"]
+postgres = ["cloacina/postgres"]
+sqlite = ["cloacina/sqlite"]
+
 [dependencies]
-cloacina = { path = "../../../crates/cloacina" }
+cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros"] }
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
 cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 serde_json = "1.0"

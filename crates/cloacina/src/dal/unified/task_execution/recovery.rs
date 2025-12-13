@@ -20,7 +20,6 @@ use super::{RetryStats, TaskExecutionDAL};
 use crate::dal::unified::models::UnifiedTaskExecution;
 use crate::database::schema::unified::task_executions;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use diesel::prelude::*;
@@ -28,12 +27,14 @@ use diesel::prelude::*;
 impl<'a> TaskExecutionDAL<'a> {
     /// Retrieves tasks that are stuck in "Running" state (orphaned tasks).
     pub async fn get_orphaned_tasks(&self) -> Result<Vec<TaskExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_orphaned_tasks_postgres().await,
-            BackendType::Sqlite => self.get_orphaned_tasks_sqlite().await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_orphaned_tasks_postgres().await,
+            self.get_orphaned_tasks_sqlite().await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn get_orphaned_tasks_postgres(&self) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self
             .dal
@@ -54,6 +55,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(orphaned_tasks.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn get_orphaned_tasks_sqlite(&self) -> Result<Vec<TaskExecution>, ValidationError> {
         let conn = self
             .dal
@@ -79,12 +81,14 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         task_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.reset_task_for_recovery_postgres(task_id).await,
-            BackendType::Sqlite => self.reset_task_for_recovery_sqlite(task_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.reset_task_for_recovery_postgres(task_id).await,
+            self.reset_task_for_recovery_sqlite(task_id).await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn reset_task_for_recovery_postgres(
         &self,
         task_id: UniversalUuid,
@@ -114,6 +118,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     async fn reset_task_for_recovery_sqlite(
         &self,
         task_id: UniversalUuid,
@@ -148,18 +153,16 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<bool, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.check_pipeline_failure_postgres(pipeline_execution_id)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.check_pipeline_failure_sqlite(pipeline_execution_id)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.check_pipeline_failure_postgres(pipeline_execution_id)
+                .await,
+            self.check_pipeline_failure_sqlite(pipeline_execution_id)
+                .await
+        )
     }
 
+    #[cfg(feature = "postgres")]
     async fn check_pipeline_failure_postgres(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -186,6 +189,7 @@ impl<'a> TaskExecutionDAL<'a> {
         Ok(failed_count > 0)
     }
 
+    #[cfg(feature = "sqlite")]
     async fn check_pipeline_failure_sqlite(
         &self,
         pipeline_execution_id: UniversalUuid,

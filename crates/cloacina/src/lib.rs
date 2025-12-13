@@ -515,6 +515,7 @@ pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
 pub use cron_scheduler::{CronScheduler, CronSchedulerConfig};
+#[cfg(feature = "postgres")]
 pub use database::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub use database::{UniversalBool, UniversalTimestamp, UniversalUuid};
 pub use dispatcher::{

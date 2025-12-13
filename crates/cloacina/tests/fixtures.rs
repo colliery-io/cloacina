@@ -39,14 +39,18 @@ use tracing::info;
 use uuid;
 
 static INIT: Once = Once::new();
+#[cfg(feature = "postgres")]
 static POSTGRES_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
+#[cfg(feature = "sqlite")]
 static SQLITE_FIXTURE: OnceCell<Arc<Mutex<TestFixture>>> = OnceCell::new();
 
 /// Default PostgreSQL connection URL
+#[cfg(feature = "postgres")]
 const DEFAULT_POSTGRES_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
 
 /// Get the test schema name from environment variable or generate a unique one
 /// This allows CI jobs to isolate their tests using different schemas
+#[cfg(feature = "postgres")]
 fn get_test_schema() -> String {
     std::env::var("CLOACINA_TEST_SCHEMA").unwrap_or_else(|_| {
         format!(
@@ -57,6 +61,7 @@ fn get_test_schema() -> String {
 }
 
 /// Default SQLite connection URL (in-memory with shared cache for testing)
+#[cfg(feature = "sqlite")]
 const DEFAULT_SQLITE_URL: &str = "file:cloacina_test?mode=memory&cache=shared";
 
 /// Gets or initializes the PostgreSQL test fixture singleton
@@ -72,6 +77,7 @@ const DEFAULT_SQLITE_URL: &str = "file:cloacina_test?mode=memory&cache=shared";
 ///
 /// # Returns
 /// An Arc<Mutex<TestFixture>> pointing to the shared PostgreSQL test fixture instance
+#[cfg(feature = "postgres")]
 pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
     POSTGRES_FIXTURE
         .get_or_init(|| {
@@ -106,6 +112,7 @@ pub async fn get_or_init_postgres_fixture() -> Arc<Mutex<TestFixture>> {
 ///
 /// # Returns
 /// An Arc<Mutex<TestFixture>> pointing to the shared SQLite test fixture instance
+#[cfg(feature = "sqlite")]
 pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
     SQLITE_FIXTURE
         .get_or_init(|| {
@@ -119,9 +126,18 @@ pub async fn get_or_init_sqlite_fixture() -> Arc<Mutex<TestFixture>> {
         .clone()
 }
 
-/// Legacy alias for get_or_init_postgres_fixture (for backward compatibility)
+/// Get the default fixture for the current backend configuration.
+/// Returns PostgreSQL fixture when postgres is enabled, SQLite when only sqlite is enabled.
+#[cfg(feature = "postgres")]
 pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
     get_or_init_postgres_fixture().await
+}
+
+/// Get the default fixture for the current backend configuration.
+/// Returns SQLite fixture when only sqlite is enabled.
+#[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
+    get_or_init_sqlite_fixture().await
 }
 
 /// Represents a test fixture for the Cloacina project.
@@ -148,6 +164,7 @@ impl TestFixture {
     ///
     /// Uses only the connection pool (no raw connection) to avoid interaction
     /// issues that caused SIGSEGV on Ubuntu CI.
+    #[cfg(feature = "postgres")]
     pub fn new_postgres(db: Database, db_url: String, schema: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
@@ -169,6 +186,7 @@ impl TestFixture {
     /// Creates a new TestFixture instance for SQLite
     ///
     /// SQLite fixtures use a single-connection pool to avoid lock contention.
+    #[cfg(feature = "sqlite")]
     pub fn new_sqlite(db: Database, db_url: String) -> Self {
         INIT.call_once(|| {
             cloacina::init_logging(None);
@@ -206,9 +224,20 @@ impl TestFixture {
 
     /// Get the name of the current backend (postgres or sqlite)
     pub fn get_current_backend(&self) -> &'static str {
-        match self.db.backend() {
-            BackendType::Postgres => "postgres",
-            BackendType::Sqlite => "sqlite",
+        #[cfg(all(feature = "postgres", feature = "sqlite"))]
+        {
+            match self.db.backend() {
+                BackendType::Postgres => "postgres",
+                BackendType::Sqlite => "sqlite",
+            }
+        }
+        #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
+        {
+            "postgres"
+        }
+        #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
+        {
+            "sqlite"
         }
     }
 
@@ -238,6 +267,7 @@ impl TestFixture {
     /// Initialize the fixture with additional setup
     pub async fn initialize(&mut self) {
         // Initialize the database schema based on the backend
+        #[cfg(feature = "postgres")]
         if self.db.backend() == BackendType::Postgres {
             // Use setup_schema which creates schema, sets search_path, and runs migrations
             self.db
@@ -249,6 +279,7 @@ impl TestFixture {
         }
 
         // For SQLite, run migrations through the pool connection
+        #[cfg(feature = "sqlite")]
         if self.db.backend() == BackendType::Sqlite {
             let conn = self
                 .db
@@ -269,6 +300,7 @@ impl TestFixture {
     pub async fn reset_database(&mut self) {
         // Use the pool for PostgreSQL reset operations to avoid interaction issues
         // between raw connections and pool connections (fixes SIGSEGV on Ubuntu CI)
+        #[cfg(feature = "postgres")]
         if self.db.backend() == BackendType::Postgres {
             let schema = self.schema.clone();
             let conn = self
@@ -313,6 +345,7 @@ impl TestFixture {
         }
 
         // For SQLite, use the pool connection
+        #[cfg(feature = "sqlite")]
         if self.db.backend() == BackendType::Sqlite {
             let conn = self
                 .db
@@ -371,6 +404,7 @@ pub mod fixtures {
     use super::*;
     use serial_test::serial;
 
+    #[cfg(feature = "postgres")]
     #[tokio::test]
     #[serial]
     async fn test_migration_function_postgres() {
@@ -402,6 +436,7 @@ pub mod fixtures {
         );
     }
 
+    #[cfg(feature = "sqlite")]
     #[tokio::test]
     #[serial]
     async fn test_migration_function_sqlite() {

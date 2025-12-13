@@ -26,7 +26,6 @@ mod tracking;
 
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::cron_execution::{CronExecution, NewCronExecution};
 use chrono::{DateTime, Utc};
@@ -61,10 +60,11 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         new_execution: NewCronExecution,
     ) -> Result<CronExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_execution).await,
-            BackendType::Sqlite => self.create_sqlite(new_execution).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_execution).await,
+            self.create_sqlite(new_execution).await
+        )
     }
 
     /// Updates the pipeline execution ID for an existing cron execution record.
@@ -73,16 +73,13 @@ impl<'a> CronExecutionDAL<'a> {
         cron_execution_id: UniversalUuid,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_pipeline_execution_id_postgres(cron_execution_id, pipeline_execution_id)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.update_pipeline_execution_id_sqlite(cron_execution_id, pipeline_execution_id)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_pipeline_execution_id_postgres(cron_execution_id, pipeline_execution_id)
+                .await,
+            self.update_pipeline_execution_id_sqlite(cron_execution_id, pipeline_execution_id)
+                .await
+        )
     }
 
     /// Finds "lost" executions that need recovery.
@@ -90,18 +87,20 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than_minutes: i32,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.find_lost_executions_postgres(older_than_minutes).await,
-            BackendType::Sqlite => self.find_lost_executions_sqlite(older_than_minutes).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.find_lost_executions_postgres(older_than_minutes).await,
+            self.find_lost_executions_sqlite(older_than_minutes).await
+        )
     }
 
     /// Retrieves a cron execution record by its ID.
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_id_postgres(id).await,
-            BackendType::Sqlite => self.get_by_id_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_id_postgres(id).await,
+            self.get_by_id_sqlite(id).await
+        )
     }
 
     /// Retrieves all cron execution records for a specific schedule.
@@ -111,16 +110,13 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_by_schedule_id_postgres(schedule_id, limit, offset)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_by_schedule_id_sqlite(schedule_id, limit, offset)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_schedule_id_postgres(schedule_id, limit, offset)
+                .await,
+            self.get_by_schedule_id_sqlite(schedule_id, limit, offset)
+                .await
+        )
     }
 
     /// Retrieves the cron execution record for a specific pipeline execution.
@@ -128,16 +124,13 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         pipeline_execution_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_by_pipeline_execution_id_postgres(pipeline_execution_id)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_by_pipeline_execution_id_sqlite(pipeline_execution_id)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_pipeline_execution_id_postgres(pipeline_execution_id)
+                .await,
+            self.get_by_pipeline_execution_id_sqlite(pipeline_execution_id)
+                .await
+        )
     }
 
     /// Retrieves cron execution records within a time range.
@@ -148,16 +141,13 @@ impl<'a> CronExecutionDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.get_by_time_range_postgres(start_time, end_time, limit, offset)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.get_by_time_range_sqlite(start_time, end_time, limit, offset)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_time_range_postgres(start_time, end_time, limit, offset)
+                .await,
+            self.get_by_time_range_sqlite(start_time, end_time, limit, offset)
+                .await
+        )
     }
 
     /// Counts the total number of executions for a specific schedule.
@@ -165,10 +155,11 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<i64, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.count_by_schedule_postgres(schedule_id).await,
-            BackendType::Sqlite => self.count_by_schedule_sqlite(schedule_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.count_by_schedule_postgres(schedule_id).await,
+            self.count_by_schedule_sqlite(schedule_id).await
+        )
     }
 
     /// Checks if an execution already exists for a specific schedule and time.
@@ -177,16 +168,13 @@ impl<'a> CronExecutionDAL<'a> {
         schedule_id: UniversalUuid,
         scheduled_time: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.execution_exists_postgres(schedule_id, scheduled_time)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.execution_exists_sqlite(schedule_id, scheduled_time)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.execution_exists_postgres(schedule_id, scheduled_time)
+                .await,
+            self.execution_exists_sqlite(schedule_id, scheduled_time)
+                .await
+        )
     }
 
     /// Retrieves the most recent execution for a specific schedule.
@@ -194,10 +182,11 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<Option<CronExecution>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_latest_by_schedule_postgres(schedule_id).await,
-            BackendType::Sqlite => self.get_latest_by_schedule_sqlite(schedule_id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_latest_by_schedule_postgres(schedule_id).await,
+            self.get_latest_by_schedule_sqlite(schedule_id).await
+        )
     }
 
     /// Deletes old execution records beyond a certain age.
@@ -205,10 +194,11 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<usize, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.delete_older_than_postgres(older_than).await,
-            BackendType::Sqlite => self.delete_older_than_sqlite(older_than).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.delete_older_than_postgres(older_than).await,
+            self.delete_older_than_sqlite(older_than).await
+        )
     }
 
     /// Gets execution statistics for monitoring and alerting.
@@ -216,9 +206,10 @@ impl<'a> CronExecutionDAL<'a> {
         &self,
         since: DateTime<Utc>,
     ) -> Result<CronExecutionStats, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_execution_stats_postgres(since).await,
-            BackendType::Sqlite => self.get_execution_stats_sqlite(since).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_execution_stats_postgres(since).await,
+            self.get_execution_stats_sqlite(since).await
+        )
     }
 }

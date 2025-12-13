@@ -27,6 +27,7 @@ use crate::error::ValidationError;
 use crate::models::cron_execution::CronExecution;
 
 impl<'a> CronExecutionDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_id_postgres(
         &self,
         id: UniversalUuid,
@@ -46,6 +47,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_by_id_sqlite(
         &self,
         id: UniversalUuid,
@@ -65,6 +67,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_schedule_id_postgres(
         &self,
         schedule_id: UniversalUuid,
@@ -93,6 +96,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_by_schedule_id_sqlite(
         &self,
         schedule_id: UniversalUuid,
@@ -121,6 +125,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_pipeline_execution_id_postgres(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -145,6 +150,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.map(Into::into))
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_by_pipeline_execution_id_sqlite(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -169,6 +175,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.map(Into::into))
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_time_range_postgres(
         &self,
         start_time: DateTime<Utc>,
@@ -202,6 +209,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_by_time_range_sqlite(
         &self,
         start_time: DateTime<Utc>,
@@ -235,6 +243,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_latest_by_schedule_postgres(
         &self,
         schedule_id: UniversalUuid,
@@ -260,6 +269,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(result.map(Into::into))
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_latest_by_schedule_sqlite(
         &self,
         schedule_id: UniversalUuid,

@@ -26,7 +26,6 @@ mod state;
 
 use super::DAL;
 use crate::database::universal_types::UniversalUuid;
-use crate::database::BackendType;
 use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
 use chrono::{DateTime, Utc};
@@ -48,18 +47,20 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         new_schedule: NewCronSchedule,
     ) -> Result<CronSchedule, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.create_postgres(new_schedule).await,
-            BackendType::Sqlite => self.create_sqlite(new_schedule).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_schedule).await,
+            self.create_sqlite(new_schedule).await
+        )
     }
 
     /// Retrieves a cron schedule by its ID.
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<CronSchedule, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_by_id_postgres(id).await,
-            BackendType::Sqlite => self.get_by_id_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_id_postgres(id).await,
+            self.get_by_id_sqlite(id).await
+        )
     }
 
     /// Retrieves all enabled cron schedules that are due for execution.
@@ -67,10 +68,11 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.get_due_schedules_postgres(now).await,
-            BackendType::Sqlite => self.get_due_schedules_sqlite(now).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_due_schedules_postgres(now).await,
+            self.get_due_schedules_sqlite(now).await
+        )
     }
 
     /// Updates the last run and next run times for a cron schedule.
@@ -80,40 +82,40 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_schedule_times_postgres(id, last_run, next_run)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.update_schedule_times_sqlite(id, last_run, next_run)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_schedule_times_postgres(id, last_run, next_run)
+                .await,
+            self.update_schedule_times_sqlite(id, last_run, next_run)
+                .await
+        )
     }
 
     /// Enables a cron schedule.
     pub async fn enable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.enable_postgres(id).await,
-            BackendType::Sqlite => self.enable_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.enable_postgres(id).await,
+            self.enable_sqlite(id).await
+        )
     }
 
     /// Disables a cron schedule.
     pub async fn disable(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.disable_postgres(id).await,
-            BackendType::Sqlite => self.disable_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.disable_postgres(id).await,
+            self.disable_sqlite(id).await
+        )
     }
 
     /// Deletes a cron schedule from the database.
     pub async fn delete(&self, id: UniversalUuid) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.delete_postgres(id).await,
-            BackendType::Sqlite => self.delete_sqlite(id).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.delete_postgres(id).await,
+            self.delete_sqlite(id).await
+        )
     }
 
     /// Lists all cron schedules with optional filtering.
@@ -123,10 +125,11 @@ impl<'a> CronScheduleDAL<'a> {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.list_postgres(enabled_only, limit, offset).await,
-            BackendType::Sqlite => self.list_sqlite(enabled_only, limit, offset).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_postgres(enabled_only, limit, offset).await,
+            self.list_sqlite(enabled_only, limit, offset).await
+        )
     }
 
     /// Finds cron schedules by workflow name.
@@ -134,10 +137,11 @@ impl<'a> CronScheduleDAL<'a> {
         &self,
         workflow_name: &str,
     ) -> Result<Vec<CronSchedule>, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.find_by_workflow_postgres(workflow_name).await,
-            BackendType::Sqlite => self.find_by_workflow_sqlite(workflow_name).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.find_by_workflow_postgres(workflow_name).await,
+            self.find_by_workflow_sqlite(workflow_name).await
+        )
     }
 
     /// Updates the next run time for a cron schedule.
@@ -146,10 +150,11 @@ impl<'a> CronScheduleDAL<'a> {
         id: UniversalUuid,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.update_next_run_postgres(id, next_run).await,
-            BackendType::Sqlite => self.update_next_run_sqlite(id, next_run).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_next_run_postgres(id, next_run).await,
+            self.update_next_run_sqlite(id, next_run).await
+        )
     }
 
     /// Atomically claims and updates a cron schedule's timing.
@@ -160,24 +165,22 @@ impl<'a> CronScheduleDAL<'a> {
         last_run: DateTime<Utc>,
         next_run: DateTime<Utc>,
     ) -> Result<bool, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.claim_and_update_postgres(id, current_time, last_run, next_run)
-                    .await
-            }
-            BackendType::Sqlite => {
-                self.claim_and_update_sqlite(id, current_time, last_run, next_run)
-                    .await
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.claim_and_update_postgres(id, current_time, last_run, next_run)
+                .await,
+            self.claim_and_update_sqlite(id, current_time, last_run, next_run)
+                .await
+        )
     }
 
     /// Counts the total number of cron schedules.
     pub async fn count(&self, enabled_only: bool) -> Result<i64, ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => self.count_postgres(enabled_only).await,
-            BackendType::Sqlite => self.count_sqlite(enabled_only).await,
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.count_postgres(enabled_only).await,
+            self.count_sqlite(enabled_only).await
+        )
     }
 
     /// Updates the cron expression, timezone, and next run time for a schedule.
@@ -188,20 +191,12 @@ impl<'a> CronScheduleDAL<'a> {
         timezone: Option<&str>,
         next_run: DateTime<Utc>,
     ) -> Result<(), ValidationError> {
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.update_expression_and_timezone_postgres(
-                    id,
-                    cron_expression,
-                    timezone,
-                    next_run,
-                )
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_expression_and_timezone_postgres(id, cron_expression, timezone, next_run)
+                .await,
+            self.update_expression_and_timezone_sqlite(id, cron_expression, timezone, next_run)
                 .await
-            }
-            BackendType::Sqlite => {
-                self.update_expression_and_timezone_sqlite(id, cron_expression, timezone, next_run)
-                    .await
-            }
-        }
+        )
     }
 }

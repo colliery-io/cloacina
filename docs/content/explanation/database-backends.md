@@ -54,6 +54,39 @@ cloacina = "0.1.0"
 
 Both backends are included by default. No feature flags needed.
 
+## Compile-Time Backend Selection
+
+While Cloacina includes both backends by default for runtime flexibility, you can optionally compile with only the backend you need. This reduces binary size and dependencies.
+
+### Single Backend Builds
+
+**PostgreSQL only:**
+```toml
+[dependencies]
+cloacina = { version = "0.1.0", default-features = false, features = ["postgres", "macros"] }
+```
+
+**SQLite only:**
+```toml
+[dependencies]
+cloacina = { version = "0.1.0", default-features = false, features = ["sqlite", "macros"] }
+```
+
+### When to Use Single-Backend Builds
+
+Consider compiling with a single backend when:
+- **Deploying to production** where you know the target database
+- **Reducing binary size** is important (embedded systems, serverless)
+- **Minimizing dependencies** for security or compliance reasons
+- **Faster compile times** during development with a known backend
+
+### Limitations
+
+When using single-backend builds:
+- **Schema isolation** (multi-tenancy via PostgreSQL schemas) is only available with the `postgres` feature
+- Connection URLs must match the compiled backend or the application will panic
+- You cannot switch backends at runtime without recompiling
+
 ## Key Differences
 
 ### Connection Strings

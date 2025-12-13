@@ -12,30 +12,39 @@ from .cloacina_utils import (
 )
 
 
-def build_test_packages():
+def build_test_packages(backend=None):
     """Pre-build test packages before running integration tests.
 
     This builds the example workflow packages separately from the test binary,
     avoiding the fork-after-OpenSSL-init issue on Linux that causes SIGSEGV.
     The packages are stored in target/test-packages/ and loaded at test runtime.
+
+    Args:
+        backend: Optional backend to build for ('postgres', 'sqlite', or None for both)
     """
     print_section_header("Pre-building test packages")
 
     # Create output directory
     os.makedirs("target/test-packages", exist_ok=True)
 
+    # Build feature flags for examples
+    if backend:
+        feature_args = ["--no-default-features", "--features", backend]
+    else:
+        feature_args = []
+
     # Build packaged-workflow-example
-    print("Building packaged-workflow-example...")
+    print(f"Building packaged-workflow-example{' (' + backend + ')' if backend else ''}...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
+        ["cargo", "build", "--release", "-p", "packaged-workflow-example"] + feature_args,
         check=True,
         cwd="examples/features/packaged-workflows"
     )
 
     # Build simple-packaged-demo
-    print("Building simple-packaged-demo...")
+    print(f"Building simple-packaged-demo{' (' + backend + ')' if backend else ''}...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
+        ["cargo", "build", "--release", "-p", "simple-packaged-demo"] + feature_args,
         check=True,
         cwd="examples/features/simple-packaged"
     )
@@ -71,7 +80,13 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     required=False,
     help="run tests for specific backend: 'postgres', 'sqlite', or both if not specified"
 )
-def integration(filter=None, skip_docker=False, backend=None):
+@angreal.argument(
+    name="features",
+    long="features",
+    required=False,
+    help="cargo features to use (default: 'postgres,sqlite,macros')"
+)
+def integration(filter=None, skip_docker=False, backend=None, features=None):
     """Run integration tests against PostgreSQL and/or SQLite databases.
 
     Tests are compiled once with both backends enabled. By default, PostgreSQL
@@ -82,8 +97,17 @@ def integration(filter=None, skip_docker=False, backend=None):
     run_postgres = backend is None or backend == "postgres"
     run_sqlite = backend is None or backend == "sqlite"
 
+    # Use provided features or default to both backends
+    cargo_features = features if features else "postgres,sqlite,macros"
+    is_default_features = cargo_features == "postgres,sqlite,macros"
+
     # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
-    build_test_packages()
+    # Build with appropriate backend features
+    if is_default_features:
+        build_test_packages()
+    else:
+        # Build examples with single-backend features
+        build_test_packages(backend=backend)
 
     if not skip_docker and run_postgres:
         # Start Docker services for PostgreSQL
@@ -98,12 +122,16 @@ def integration(filter=None, skip_docker=False, backend=None):
         time.sleep(30)
 
     try:
+        # Build feature flags - use --no-default-features for non-default feature sets
+        feature_args = ["--features", cargo_features]
+        if not is_default_features:
+            feature_args = ["--no-default-features"] + feature_args
+
         if run_postgres:
             # Run PostgreSQL tests (exclude sqlite tests)
             print_section_header("Running PostgreSQL integration tests")
-            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                           "--features", "postgres,sqlite,macros", "--",
-                           "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
+                           "--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
             if filter:
                 postgres_cmd.append(filter)
             subprocess.run(postgres_cmd, check=True)
@@ -111,9 +139,8 @@ def integration(filter=None, skip_docker=False, backend=None):
         if run_sqlite:
             # Run SQLite tests
             print_section_header("Running SQLite integration tests")
-            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                         "--features", "postgres,sqlite,macros", "--",
-                         "--test-threads=1", "--nocapture", "sqlite"]
+            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
+                         "--", "--test-threads=1", "--nocapture", "sqlite"]
             if filter:
                 sqlite_cmd.append(filter)
             subprocess.run(sqlite_cmd, check=True)

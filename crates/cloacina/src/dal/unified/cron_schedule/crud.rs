@@ -26,6 +26,7 @@ use crate::error::ValidationError;
 use crate::models::cron_schedule::{CronSchedule, NewCronSchedule};
 
 impl<'a> CronScheduleDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn create_postgres(
         &self,
         new_schedule: NewCronSchedule,
@@ -72,6 +73,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn create_sqlite(
         &self,
         new_schedule: NewCronSchedule,
@@ -118,6 +120,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_by_id_postgres(
         &self,
         id: UniversalUuid,
@@ -137,6 +140,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_by_id_sqlite(
         &self,
         id: UniversalUuid,
@@ -156,6 +160,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(result.into())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn delete_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal
@@ -171,6 +176,7 @@ impl<'a> CronScheduleDAL<'a> {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn delete_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         let conn = self
             .dal

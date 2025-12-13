@@ -134,7 +134,6 @@ use crate::dal::unified::models::{NewUnifiedPipelineExecution, NewUnifiedTaskExe
 use crate::dal::DAL;
 use crate::database::schema::unified::{pipeline_executions, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
-use crate::database::BackendType;
 use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
 use crate::task::TaskNamespace;
@@ -393,36 +392,34 @@ impl TaskScheduler {
 
         // Create pipeline AND tasks in a single atomic transaction
         // This prevents the race condition where the scheduler sees a pipeline before tasks exist
-        match self.dal.backend() {
-            BackendType::Postgres => {
-                self.create_pipeline_postgres(
-                    pipeline_id,
-                    now,
-                    pipeline_name,
-                    pipeline_version,
-                    stored_context,
-                    task_data,
-                )
-                .await?;
-            }
-            BackendType::Sqlite => {
-                self.create_pipeline_sqlite(
-                    pipeline_id,
-                    now,
-                    pipeline_name,
-                    pipeline_version,
-                    stored_context,
-                    task_data,
-                )
-                .await?;
-            }
-        }
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_pipeline_postgres(
+                pipeline_id,
+                now,
+                pipeline_name,
+                pipeline_version,
+                stored_context,
+                task_data,
+            )
+            .await?,
+            self.create_pipeline_sqlite(
+                pipeline_id,
+                now,
+                pipeline_name,
+                pipeline_version,
+                stored_context,
+                task_data,
+            )
+            .await?
+        );
 
         info!("Workflow execution scheduled: {}", pipeline_id);
         Ok(pipeline_id.into())
     }
 
     /// Creates pipeline and tasks in PostgreSQL.
+    #[cfg(feature = "postgres")]
     async fn create_pipeline_postgres(
         &self,
         pipeline_id: UniversalUuid,
@@ -483,6 +480,7 @@ impl TaskScheduler {
     }
 
     /// Creates pipeline and tasks in SQLite.
+    #[cfg(feature = "sqlite")]
     async fn create_pipeline_sqlite(
         &self,
         pipeline_id: UniversalUuid,

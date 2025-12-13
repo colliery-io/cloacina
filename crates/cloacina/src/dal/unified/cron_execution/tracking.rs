@@ -27,6 +27,7 @@ use crate::error::ValidationError;
 use crate::models::cron_execution::CronExecution;
 
 impl<'a> CronExecutionDAL<'a> {
+    #[cfg(feature = "postgres")]
     pub(super) async fn find_lost_executions_postgres(
         &self,
         older_than_minutes: i32,
@@ -60,6 +61,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn find_lost_executions_sqlite(
         &self,
         older_than_minutes: i32,
@@ -93,6 +95,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(results.into_iter().map(Into::into).collect())
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn count_by_schedule_postgres(
         &self,
         schedule_id: UniversalUuid,
@@ -117,6 +120,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(count)
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn count_by_schedule_sqlite(
         &self,
         schedule_id: UniversalUuid,
@@ -141,6 +145,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(count)
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn execution_exists_postgres(
         &self,
         schedule_id: UniversalUuid,
@@ -169,6 +174,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(count > 0)
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn execution_exists_sqlite(
         &self,
         schedule_id: UniversalUuid,
@@ -197,6 +203,7 @@ impl<'a> CronExecutionDAL<'a> {
         Ok(count > 0)
     }
 
+    #[cfg(feature = "postgres")]
     pub(super) async fn get_execution_stats_postgres(
         &self,
         since: DateTime<Utc>,
@@ -256,6 +263,7 @@ impl<'a> CronExecutionDAL<'a> {
         })
     }
 
+    #[cfg(feature = "sqlite")]
     pub(super) async fn get_execution_stats_sqlite(
         &self,
         since: DateTime<Utc>,
