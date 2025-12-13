@@ -112,12 +112,16 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
         time.sleep(30)
 
     try:
+        # Build feature flags - use --no-default-features for non-default feature sets
+        feature_args = ["--features", cargo_features]
+        if not is_default_features:
+            feature_args = ["--no-default-features"] + feature_args
+
         if run_postgres:
             # Run PostgreSQL tests (exclude sqlite tests)
             print_section_header("Running PostgreSQL integration tests")
-            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                           "--features", cargo_features, "--",
-                           "--test-threads=1", "--nocapture", "--skip", "sqlite"]
+            postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
+                           "--", "--test-threads=1", "--nocapture", "--skip", "sqlite"]
             if filter:
                 postgres_cmd.append(filter)
             subprocess.run(postgres_cmd, check=True)
@@ -125,9 +129,8 @@ def integration(filter=None, skip_docker=False, backend=None, features=None):
         if run_sqlite:
             # Run SQLite tests
             print_section_header("Running SQLite integration tests")
-            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                         "--features", cargo_features, "--",
-                         "--test-threads=1", "--nocapture", "sqlite"]
+            sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration"] + feature_args + [
+                         "--", "--test-threads=1", "--nocapture", "sqlite"]
             if filter:
                 sqlite_cmd.append(filter)
             subprocess.run(sqlite_cmd, check=True)
