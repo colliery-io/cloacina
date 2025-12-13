@@ -9,6 +9,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Feature builds - verify compile-time database backend selection works
+  feature-builds:
+    name: Feature Build (${{ matrix.features.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - name: postgres-only
+            flags: --no-default-features --features postgres,macros
+          - name: sqlite-only
+            flags: --no-default-features --features sqlite,macros
+          - name: both-backends
+            flags: ""  # default features
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Install PostgreSQL dev libraries
+        if: matrix.features.name != 'sqlite-only'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-feature-${{ matrix.features.name }}"
+
+      - name: Build cloacina (${{ matrix.features.name }})
+        run: cargo build -p cloacina ${{ matrix.features.flags }}
+
+      - name: Run unit tests (${{ matrix.features.name }})
+        run: cargo test -p cloacina --lib ${{ matrix.features.flags }}
+
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
     name: Unit Tests (${{ matrix.os }})
