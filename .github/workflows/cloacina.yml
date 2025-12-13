@@ -74,7 +74,10 @@ jobs:
       - name: Run unit tests (${{ matrix.features.name }})
         run: cargo test -p cloacina --lib ${{ matrix.features.flags }}
 
+      # Integration tests skipped for sqlite-only: angreal compiles with default features,
+      # which requires libpq. Integration tests are already covered by separate job.
       - name: Run integration tests (${{ matrix.features.name }})
+        if: matrix.features.backend == 'postgres'
         run: angreal cloacina integration --backend ${{ matrix.features.backend }}
 
   # Unit tests - fast, fail-fast enabled, cross-platform
