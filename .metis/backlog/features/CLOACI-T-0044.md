@@ -4,7 +4,7 @@ level: task
 title: "Workflow Pause/Resume - Add ability to pause and resume workflow execution"
 short_code: "CLOACI-T-0044"
 created_at: 2025-12-13T14:58:58.198896+00:00
-updated_at: 2025-12-13T16:03:55.043631+00:00
+updated_at: 2025-12-13T16:37:01.687467+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -38,6 +38,8 @@ Provide manual and programmatic control to pause workflow execution mid-flight a
 - **User Value**: Enables maintenance windows, manual approval gates, resource constraint handling, debugging, and cost optimization (pause expensive workflows overnight)
 - **Business Value**: Operational flexibility, cost savings, safer deployments with manual intervention points
 - **Effort Estimate**: L
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

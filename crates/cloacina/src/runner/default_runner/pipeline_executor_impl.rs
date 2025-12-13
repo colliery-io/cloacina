@@ -260,7 +260,7 @@ impl PipelineExecutor for DefaultRunner {
     ) -> Result<(), PipelineError> {
         let dal = DAL::new(self.database.clone());
 
-        // Verify the pipeline is in a pausable state (Running)
+        // Verify the pipeline is in a pausable state (Pending or Running)
         let pipeline = dal
             .pipeline_execution()
             .get_by_id(UniversalUuid(execution_id))
@@ -269,10 +269,12 @@ impl PipelineExecutor for DefaultRunner {
                 message: format!("Failed to get execution: {}", e),
             })?;
 
-        if pipeline.status != "Running" {
+        // Allow pausing both Pending and Running pipelines
+        // Pending = waiting to start, Running = actively executing
+        if pipeline.status != "Running" && pipeline.status != "Pending" {
             return Err(PipelineError::ExecutionFailed {
                 message: format!(
-                    "Cannot pause pipeline with status '{}'. Only 'Running' pipelines can be paused.",
+                    "Cannot pause pipeline with status '{}'. Only 'Pending' or 'Running' pipelines can be paused.",
                     pipeline.status
                 ),
             });
