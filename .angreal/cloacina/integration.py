@@ -71,7 +71,13 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
     required=False,
     help="run tests for specific backend: 'postgres', 'sqlite', or both if not specified"
 )
-def integration(filter=None, skip_docker=False, backend=None):
+@angreal.argument(
+    name="features",
+    long="features",
+    required=False,
+    help="cargo features to use (default: 'postgres,sqlite,macros')"
+)
+def integration(filter=None, skip_docker=False, backend=None, features=None):
     """Run integration tests against PostgreSQL and/or SQLite databases.
 
     Tests are compiled once with both backends enabled. By default, PostgreSQL
@@ -81,6 +87,9 @@ def integration(filter=None, skip_docker=False, backend=None):
 
     run_postgres = backend is None or backend == "postgres"
     run_sqlite = backend is None or backend == "sqlite"
+
+    # Use provided features or default to both backends
+    cargo_features = features if features else "postgres,sqlite,macros"
 
     # Pre-build test packages to avoid fork-after-OpenSSL-init SIGSEGV on Linux
     build_test_packages()
@@ -102,7 +111,7 @@ def integration(filter=None, skip_docker=False, backend=None):
             # Run PostgreSQL tests (exclude sqlite tests)
             print_section_header("Running PostgreSQL integration tests")
             postgres_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                           "--features", "postgres,sqlite,macros", "--",
+                           "--features", cargo_features, "--",
                            "--test-threads=1", "--nocapture", "--skip", "sqlite"]
             if filter:
                 postgres_cmd.append(filter)
@@ -112,7 +121,7 @@ def integration(filter=None, skip_docker=False, backend=None):
             # Run SQLite tests
             print_section_header("Running SQLite integration tests")
             sqlite_cmd = ["cargo", "test", "-p", "cloacina", "--test", "integration",
-                         "--features", "postgres,sqlite,macros", "--",
+                         "--features", cargo_features, "--",
                          "--test-threads=1", "--nocapture", "sqlite"]
             if filter:
                 sqlite_cmd.append(filter)
