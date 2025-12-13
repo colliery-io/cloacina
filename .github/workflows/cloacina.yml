@@ -18,10 +18,10 @@ jobs:
         features:
           - name: postgres-only
             flags: --no-default-features --features postgres,macros
+            backend: postgres
           - name: sqlite-only
             flags: --no-default-features --features sqlite,macros
-          - name: both-backends
-            flags: ""  # default features
+            backend: sqlite
     runs-on: ubuntu-latest
 
     steps:
@@ -30,11 +30,27 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
       - name: Install PostgreSQL dev libraries
-        if: matrix.features.name != 'sqlite-only'
+        if: matrix.features.backend == 'postgres'
         run: |
           sudo apt-get update
           sudo apt-get install -y libpq-dev
+
+      - name: Start PostgreSQL services
+        if: matrix.features.backend == 'postgres'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -50,6 +66,9 @@ jobs:
 
       - name: Run unit tests (${{ matrix.features.name }})
         run: cargo test -p cloacina --lib ${{ matrix.features.flags }}
+
+      - name: Run integration tests (${{ matrix.features.name }})
+        run: angreal cloacina integration --backend ${{ matrix.features.backend }}
 
   # Unit tests - fast, fail-fast enabled, cross-platform
   unit-tests:
