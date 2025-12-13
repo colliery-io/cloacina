@@ -500,6 +500,7 @@ pub mod runner;
 pub mod task;
 pub mod task_scheduler;
 pub mod trigger;
+pub mod trigger_scheduler;
 pub mod workflow;
 
 pub use logging::init_logging;
@@ -549,6 +550,7 @@ pub use trigger::{
     get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor, Trigger,
     TriggerConfig, TriggerError, TriggerResult,
 };
+pub use trigger_scheduler::{TriggerScheduler, TriggerSchedulerConfig};
 pub use workflow::{
     get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
     Workflow, WorkflowBuilder, WorkflowMetadata,
