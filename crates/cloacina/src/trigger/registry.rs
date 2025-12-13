@@ -183,67 +183,88 @@ mod tests {
         }
     }
 
+    // Note: Tests use unique names to avoid interference when running in parallel
+    // since they share the same global registry.
+
     #[test]
     fn test_register_and_get_trigger() {
-        clear_triggers();
-
-        let trigger = TestTrigger::new("test_registry_trigger");
+        // Use unique name to avoid conflicts with parallel tests
+        let name = "test_register_and_get_trigger_unique_12345";
+        let trigger = TestTrigger::new(name);
         register_trigger(trigger);
 
-        assert!(is_trigger_registered("test_registry_trigger"));
-        assert!(!is_trigger_registered("nonexistent"));
+        assert!(is_trigger_registered(name));
+        assert!(!is_trigger_registered("definitely_nonexistent_trigger_xyz"));
 
-        let retrieved = get_trigger("test_registry_trigger");
+        let retrieved = get_trigger(name);
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().name(), "test_registry_trigger");
+        assert_eq!(retrieved.unwrap().name(), name);
     }
 
     #[test]
     fn test_register_constructor() {
-        clear_triggers();
+        let name = "test_register_constructor_unique_12345";
+        register_trigger_constructor(name, move || Arc::new(TestTrigger::new(name)));
 
-        register_trigger_constructor("constructor_trigger", || {
-            Arc::new(TestTrigger::new("constructor_trigger"))
-        });
-
-        let trigger = get_trigger("constructor_trigger");
+        let trigger = get_trigger(name);
         assert!(trigger.is_some());
-        assert_eq!(trigger.unwrap().name(), "constructor_trigger");
+        assert_eq!(trigger.unwrap().name(), name);
     }
 
     #[test]
     fn test_list_triggers() {
-        clear_triggers();
+        // Register triggers with unique names
+        let name_a = "test_list_triggers_a_unique_12345";
+        let name_b = "test_list_triggers_b_unique_12345";
 
-        register_trigger(TestTrigger::new("trigger_a"));
-        register_trigger(TestTrigger::new("trigger_b"));
+        register_trigger(TestTrigger::new(name_a));
+        register_trigger(TestTrigger::new(name_b));
 
         let names = list_triggers();
-        assert_eq!(names.len(), 2);
-        assert!(names.contains(&"trigger_a".to_string()));
-        assert!(names.contains(&"trigger_b".to_string()));
+        // Just verify our triggers are in the list (other tests may have added more)
+        assert!(names.contains(&name_a.to_string()));
+        assert!(names.contains(&name_b.to_string()));
     }
 
     #[test]
     fn test_get_all_triggers() {
-        clear_triggers();
+        // Register triggers with unique names
+        let name_1 = "test_get_all_triggers_1_unique_12345";
+        let name_2 = "test_get_all_triggers_2_unique_12345";
 
-        register_trigger(TestTrigger::new("all_trigger_1"));
-        register_trigger(TestTrigger::new("all_trigger_2"));
+        register_trigger(TestTrigger::new(name_1));
+        register_trigger(TestTrigger::new(name_2));
 
         let triggers = get_all_triggers();
-        assert_eq!(triggers.len(), 2);
+        // Verify our triggers are in the list
+        let trigger_names: Vec<_> = triggers.iter().map(|t| t.name()).collect();
+        assert!(trigger_names.contains(&name_1));
+        assert!(trigger_names.contains(&name_2));
     }
 
     #[test]
     fn test_clear_triggers() {
+        // This test verifies clear_triggers works, but must be careful about
+        // parallel test interference. We use a unique name and verify the
+        // specific trigger we registered is cleared.
+        let name = "test_clear_triggers_unique_12345";
+
+        // Register our trigger
+        register_trigger(TestTrigger::new(name));
+
+        // Verify it's registered
+        assert!(
+            is_trigger_registered(name),
+            "Trigger should be registered after register_trigger"
+        );
+
+        // Clear all triggers
         clear_triggers();
 
-        register_trigger(TestTrigger::new("to_clear"));
-        assert!(is_trigger_registered("to_clear"));
-
-        clear_triggers();
-        assert!(!is_trigger_registered("to_clear"));
-        assert!(list_triggers().is_empty());
+        // Verify our trigger is no longer registered
+        assert!(
+            !is_trigger_registered(name),
+            "Trigger should not be registered after clear_triggers"
+        );
     }
 }
