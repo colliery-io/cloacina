@@ -4,14 +4,14 @@ level: initiative
 title: "Introduce Dispatcher Layer for Executor Decoupling"
 short_code: "CLOACI-I-0002"
 created_at: 2025-11-28T15:27:33.310692+00:00
-updated_at: 2025-12-10T16:44:23.281489+00:00
+updated_at: 2025-12-13T00:15:36.307149+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/ready"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
