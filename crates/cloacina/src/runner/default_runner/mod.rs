@@ -47,6 +47,7 @@ use crate::registry::RegistryReconciler;
 use crate::CronScheduler;
 use crate::Database;
 use crate::TaskScheduler;
+use crate::TriggerScheduler;
 
 /// Default runner that coordinates workflow scheduling and task execution
 ///
@@ -76,6 +77,8 @@ pub struct DefaultRunner {
     pub(super) workflow_registry: Arc<RwLock<Option<Arc<dyn WorkflowRegistry>>>>,
     /// Optional registry reconciler for packaged workflows
     pub(super) registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
+    /// Optional trigger scheduler for event-based workflow execution
+    pub(super) trigger_scheduler: Arc<RwLock<Option<Arc<TriggerScheduler>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -93,6 +96,8 @@ pub(super) struct RuntimeHandles {
     pub(super) cron_recovery_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the registry reconciler background task (if enabled)
     pub(super) registry_reconciler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the trigger scheduler background task (if enabled)
+    pub(super) trigger_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Channel sender for broadcasting shutdown signals
     pub(super) shutdown_sender: Option<broadcast::Sender<()>>,
 }
@@ -222,12 +227,14 @@ impl DefaultRunner {
                 cron_scheduler_handle: None,
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
+                trigger_scheduler_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
             cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
+            trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -278,6 +285,11 @@ impl DefaultRunner {
             let _ = handle.await;
         }
 
+        // Wait for trigger scheduler to finish (if enabled)
+        if let Some(handle) = handles.trigger_scheduler_handle.take() {
+            let _ = handle.await;
+        }
+
         Ok(())
     }
 }
@@ -293,6 +305,7 @@ impl Clone for DefaultRunner {
             cron_recovery: self.cron_recovery.clone(),
             workflow_registry: self.workflow_registry.clone(),
             registry_reconciler: self.registry_reconciler.clone(),
+            trigger_scheduler: self.trigger_scheduler.clone(),
         }
     }
 }

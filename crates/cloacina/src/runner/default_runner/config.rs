@@ -87,6 +87,15 @@ pub struct DefaultRunnerConfig {
     /// Maximum number of recovery attempts per execution
     pub cron_max_recovery_attempts: usize,
 
+    /// Whether to enable trigger scheduling functionality
+    pub enable_trigger_scheduling: bool,
+
+    /// Base poll interval for checking trigger readiness
+    pub trigger_base_poll_interval: Duration,
+
+    /// Maximum time to wait for a trigger poll operation
+    pub trigger_poll_timeout: Duration,
+
     /// Whether to enable the registry reconciler for packaged workflows
     pub enable_registry_reconciler: bool,
 
@@ -133,6 +142,9 @@ impl Default for DefaultRunnerConfig {
             cron_lost_threshold_minutes: 10,
             cron_max_recovery_age: Duration::from_secs(86400), // 24 hours
             cron_max_recovery_attempts: 3,
+            enable_trigger_scheduling: true, // Opt-out (enabled by default)
+            trigger_base_poll_interval: Duration::from_secs(1),
+            trigger_poll_timeout: Duration::from_secs(30),
             enable_registry_reconciler: true, // Opt-out
             registry_reconcile_interval: Duration::from_secs(60), // Every minute
             registry_enable_startup_reconciliation: true,
@@ -327,12 +339,14 @@ impl DefaultRunnerBuilder {
                 cron_scheduler_handle: None,
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
+                trigger_scheduler_handle: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
             cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
+            trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately

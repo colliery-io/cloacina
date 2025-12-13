@@ -31,6 +31,7 @@ use crate::executor::pipeline_executor::PipelineError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::{CronScheduler, CronSchedulerConfig};
+use crate::{TriggerScheduler, TriggerSchedulerConfig};
 
 use super::DefaultRunner;
 
@@ -116,6 +117,12 @@ impl DefaultRunner {
         // Start registry reconciler if enabled
         if self.config.enable_registry_reconciler {
             self.start_registry_reconciler(&mut handles, &shutdown_tx)
+                .await?;
+        }
+
+        // Start trigger scheduler if enabled
+        if self.config.enable_trigger_scheduling {
+            self.start_trigger_services(&mut handles, &shutdown_tx)
                 .await?;
         }
 
@@ -338,6 +345,63 @@ impl DefaultRunner {
                 tracing::error!("Failed to create workflow registry: {}", e);
             }
         }
+
+        Ok(())
+    }
+
+    /// Starts the trigger scheduler service
+    async fn start_trigger_services(
+        &self,
+        handles: &mut super::RuntimeHandles,
+        shutdown_tx: &broadcast::Sender<()>,
+    ) -> Result<(), PipelineError> {
+        tracing::info!("Starting trigger scheduler");
+
+        // Create watch channel for trigger scheduler shutdown
+        let (trigger_shutdown_tx, trigger_shutdown_rx) = watch::channel(false);
+
+        // Create trigger scheduler config
+        let trigger_config = TriggerSchedulerConfig {
+            base_poll_interval: self.config.trigger_base_poll_interval,
+            poll_timeout: self.config.trigger_poll_timeout,
+        };
+
+        // Create TriggerScheduler with DefaultRunner as PipelineExecutor
+        let dal = DAL::new(self.database.clone());
+        let trigger_scheduler = TriggerScheduler::new(
+            Arc::new(dal),
+            Arc::new(self.clone()), // self implements PipelineExecutor!
+            trigger_config,
+            trigger_shutdown_rx,
+        );
+
+        // Start trigger scheduler background service
+        let mut trigger_scheduler_clone = trigger_scheduler.clone();
+        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+        let trigger_span = self.create_runner_span("trigger_scheduler");
+        let trigger_handle = tokio::spawn(
+            async move {
+                tokio::select! {
+                    result = trigger_scheduler_clone.run_polling_loop() => {
+                        if let Err(e) = result {
+                            tracing::error!("Trigger scheduler failed: {}", e);
+                        } else {
+                            tracing::info!("Trigger scheduler completed");
+                        }
+                    }
+                    _ = broadcast_shutdown_rx.recv() => {
+                        tracing::info!("Trigger scheduler shutdown requested via broadcast");
+                        // Send shutdown signal to trigger scheduler
+                        let _ = trigger_shutdown_tx.send(true);
+                    }
+                }
+            }
+            .instrument(trigger_span),
+        );
+
+        // Store trigger scheduler and handle
+        *self.trigger_scheduler.write().await = Some(Arc::new(trigger_scheduler));
+        handles.trigger_scheduler_handle = Some(trigger_handle);
 
         Ok(())
     }
