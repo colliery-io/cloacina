@@ -453,6 +453,9 @@ pub mod prelude {
     pub use crate::task::{Task, TaskRegistry, TaskState};
     pub use crate::workflow::{DependencyGraph, Workflow, WorkflowBuilder, WorkflowMetadata};
 
+    // Trigger types
+    pub use crate::trigger::{Trigger, TriggerConfig, TriggerError, TriggerResult};
+
     // Error types
     pub use crate::error::{ExecutorError, TaskError, WorkflowError};
 
@@ -496,6 +499,7 @@ pub mod retry;
 pub mod runner;
 pub mod task;
 pub mod task_scheduler;
+pub mod trigger;
 pub mod workflow;
 
 pub use logging::init_logging;
@@ -541,6 +545,10 @@ pub use task::{
     global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
 };
 pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
+pub use trigger::{
+    get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor, Trigger,
+    TriggerConfig, TriggerError, TriggerResult,
+};
 pub use workflow::{
     get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
     Workflow, WorkflowBuilder, WorkflowMetadata,

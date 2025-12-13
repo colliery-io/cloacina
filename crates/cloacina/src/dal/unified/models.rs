@@ -250,6 +250,66 @@ pub struct NewUnifiedCronExecution {
 }
 
 // ============================================================================
+// Trigger Schedule Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = trigger_schedules)]
+pub struct UnifiedTriggerSchedule {
+    pub id: UniversalUuid,
+    pub trigger_name: String,
+    pub workflow_name: String,
+    pub poll_interval_ms: i32,
+    pub allow_concurrent: UniversalBool,
+    pub enabled: UniversalBool,
+    pub last_poll_at: Option<UniversalTimestamp>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = trigger_schedules)]
+pub struct NewUnifiedTriggerSchedule {
+    pub id: UniversalUuid,
+    pub trigger_name: String,
+    pub workflow_name: String,
+    pub poll_interval_ms: i32,
+    pub allow_concurrent: UniversalBool,
+    pub enabled: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Trigger Execution Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = trigger_executions)]
+pub struct UnifiedTriggerExecution {
+    pub id: UniversalUuid,
+    pub trigger_name: String,
+    pub context_hash: String,
+    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub started_at: UniversalTimestamp,
+    pub completed_at: Option<UniversalTimestamp>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = trigger_executions)]
+pub struct NewUnifiedTriggerExecution {
+    pub id: UniversalUuid,
+    pub trigger_name: String,
+    pub context_hash: String,
+    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub started_at: UniversalTimestamp,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
 // Workflow Registry Models
 // ============================================================================
 
@@ -316,6 +376,8 @@ use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
+use crate::models::trigger_execution::TriggerExecution;
+use crate::models::trigger_schedule::TriggerSchedule;
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
 
@@ -458,6 +520,37 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             author: u.author,
             metadata: u.metadata,
             storage_type: u.storage_type.parse().unwrap(),
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedTriggerSchedule> for TriggerSchedule {
+    fn from(u: UnifiedTriggerSchedule) -> Self {
+        TriggerSchedule {
+            id: u.id,
+            trigger_name: u.trigger_name,
+            workflow_name: u.workflow_name,
+            poll_interval_ms: u.poll_interval_ms,
+            allow_concurrent: u.allow_concurrent,
+            enabled: u.enabled,
+            last_poll_at: u.last_poll_at,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedTriggerExecution> for TriggerExecution {
+    fn from(u: UnifiedTriggerExecution) -> Self {
+        TriggerExecution {
+            id: u.id,
+            trigger_name: u.trigger_name,
+            context_hash: u.context_hash,
+            pipeline_execution_id: u.pipeline_execution_id,
+            started_at: u.started_at,
+            completed_at: u.completed_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

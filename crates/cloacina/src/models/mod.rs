@@ -76,5 +76,7 @@ pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod trigger_execution;
+pub mod trigger_schedule;
 pub mod workflow_packages;
 pub mod workflow_registry;
