@@ -4,14 +4,14 @@ level: task
 title: "Split workflow_registry.rs into modules"
 short_code: "CLOACI-T-0030"
 created_at: 2025-12-07T01:16:45.336258+00:00
-updated_at: 2025-12-07T01:16:45.336258+00:00
+updated_at: 2025-12-13T14:52:00.434152+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,10 @@ src/registry/
     storage.rs    (~300 lines - storage operations)
     validation.rs (~200 lines - workflow validation)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

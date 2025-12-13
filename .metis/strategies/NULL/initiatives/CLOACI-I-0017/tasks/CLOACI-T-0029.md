@@ -4,14 +4,14 @@ level: task
 title: "Split database/connection.rs into modules"
 short_code: "CLOACI-T-0029"
 created_at: 2025-12-07T01:16:45.179901+00:00
-updated_at: 2025-12-07T01:16:45.179901+00:00
+updated_at: 2025-12-13T14:51:59.683367+00:00
 parent: CLOACI-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,6 +41,10 @@ src/database/
   backend.rs           (~150 lines - BackendType enum, detection)
   connection_builder.rs (~200 lines - connection setup, migrations)
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
