@@ -2006,6 +2006,7 @@ impl PyDefaultRunner {
     ///
     /// # Returns
     /// * List of dictionaries containing trigger schedule information
+    #[pyo3(signature = (enabled_only=None, limit=None, offset=None))]
     pub fn list_trigger_schedules(
         &self,
         enabled_only: Option<bool>,
@@ -2168,6 +2169,7 @@ impl PyDefaultRunner {
     ///
     /// # Returns
     /// * List of dictionaries containing execution information
+    #[pyo3(signature = (trigger_name, limit=None, offset=None))]
     pub fn get_trigger_execution_history(
         &self,
         trigger_name: String,
