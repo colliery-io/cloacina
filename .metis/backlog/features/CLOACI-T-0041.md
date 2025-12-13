@@ -65,6 +65,22 @@ The codebase uses runtime backend selection via:
 - [ ] CI matrix tests all three modes: postgres-only, sqlite-only, both
 - [ ] Documentation updated with feature flag usage
 
+## CI Build Matrix Requirements
+
+Each feature combination must have dedicated CI jobs:
+
+| Mode | Features | Build Test | Unit Tests | Integration Tests |
+|------|----------|------------|------------|-------------------|
+| PostgreSQL only | `--no-default-features --features postgres` | Required | Required | Required (postgres) |
+| SQLite only | `--no-default-features --features sqlite` | Required | Required | Required (sqlite) |
+| Both (default) | default features | Required | Required | Required (both) |
+
+### CI Workflow Changes
+- Add build matrix in `cloacina.yml` for feature combinations
+- Each matrix entry runs: `cargo build`, `cargo test --lib`, integration tests
+- Fail fast disabled to catch all feature-specific issues
+- Binary size reporting for each build mode (optional but useful)
+
 ## Implementation Notes
 
 ### Technical Approach
