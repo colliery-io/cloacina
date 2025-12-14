@@ -8,7 +8,7 @@ review_date: "2025-01-07"
 
 # Multi-Tenancy
 
-Welcome to the final tutorial in our Python Cloacina series! In this tutorial, you'll learn how to deploy workflows for multiple tenants with complete data isolation. We'll explore schema-based multi-tenancy using PostgreSQL, tenant management patterns, security considerations, and scaling strategies for SaaS applications.
+In this tutorial, you'll learn how to deploy workflows for multiple tenants with complete data isolation. We'll explore schema-based multi-tenancy using PostgreSQL, tenant management patterns, security considerations, and scaling strategies for SaaS applications.
 
 ## Learning Objectives
 
@@ -1181,7 +1181,7 @@ if __name__ == "__main__":
 
 ## What You've Learned
 
-Congratulations! You've completed the comprehensive Cloacina Python tutorial series. You now understand:
+In this tutorial, you learned:
 
 - **Multi-tenant architecture** with PostgreSQL schema isolation
 - **Tenant management patterns** for SaaS applications
@@ -1192,16 +1192,20 @@ Congratulations! You've completed the comprehensive Cloacina Python tutorial ser
 
 ## Next Steps
 
-With this foundation, you're ready to:
+Continue to the next tutorial to learn about event-driven workflows:
+
+{{< button relref="/python-bindings/tutorials/07-event-triggers/" >}}Tutorial 07: Event Triggers{{< /button >}}
+
+Or explore these resources:
 
 {{< button relref="/python-bindings/how-to-guides/" >}}Explore How-to Guides{{< /button >}}
 {{< button relref="/python-bindings/api-reference/" >}}Browse API Reference{{< /button >}}
-{{< button relref="/python-bindings/examples/" >}}See More Examples{{< /button >}}
 
 ### Recommended Learning Path
 
-1. **[How-to: Backend Selection]({{< ref "/python-bindings/how-to-guides/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
-2. **[How-to: Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}})** - Scale your workflows
+1. **[Tutorial 07: Event Triggers]({{< ref "/python-bindings/tutorials/07-event-triggers/" >}})** - Event-driven workflow execution
+2. **[How-to: Backend Selection]({{< ref "/python-bindings/how-to-guides/backend-selection/" >}})** - Choose between SQLite and PostgreSQL
+3. **[How-to: Performance Optimization]({{< ref "/python-bindings/how-to-guides/performance-optimization/" >}})** - Scale your workflows
 
 ## Related Resources
 

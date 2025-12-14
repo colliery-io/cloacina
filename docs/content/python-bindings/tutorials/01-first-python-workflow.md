@@ -156,7 +156,7 @@ if __name__ == "__main__":
     print("Tutorial 01 completed!")
     print()
     print("Next steps:")
-    print("- Try python_tutorial_02_context_handling.py for advanced context usage")
+    print("- Try 02_context_handling.py for advanced context usage")
     print("- Modify this example to add validation or parallel processing")
     print("- Explore the API reference documentation")
 ```
@@ -310,7 +310,7 @@ Cleaning up...
 Tutorial 01 completed!
 
 Next steps:
-- Try python_tutorial_02_context_handling.py for advanced context usage
+- Try 02_context_handling.py for advanced context usage
 - Modify this example to add validation or parallel processing
 - Explore the API reference documentation
 ```

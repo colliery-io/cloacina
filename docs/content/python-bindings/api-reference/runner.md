@@ -294,6 +294,99 @@ print(f"Successful: {stats['successful_executions']}")
 print(f"Success rate: {stats['success_rate']:.2%}")
 ```
 
+## Trigger Management
+
+Event triggers poll custom conditions and fire workflows when conditions are met. See [Trigger Decorator]({{< ref "/python-bindings/api-reference/trigger/" >}}) for defining triggers.
+
+### `list_trigger_schedules(enabled_only=None, limit=None, offset=None)`
+
+List all registered trigger schedules.
+
+**Parameters:**
+- `enabled_only` (bool, optional): Filter by enabled status
+- `limit` (int, optional): Maximum number of results
+- `offset` (int, optional): Number of results to skip
+
+**Returns:** List[dict] - List of trigger schedule dictionaries
+
+**Example:**
+```python
+# List all triggers
+triggers = runner.list_trigger_schedules()
+
+# List only enabled triggers
+enabled_triggers = runner.list_trigger_schedules(enabled_only=True)
+
+# Paginated results
+recent_triggers = runner.list_trigger_schedules(limit=10, offset=0)
+
+for trigger in triggers:
+    print(f"Trigger: {trigger['trigger_name']} -> {trigger['workflow_name']}")
+    print(f"  Poll interval: {trigger['poll_interval_ms']}ms")
+    print(f"  Enabled: {trigger['enabled']}")
+```
+
+### `get_trigger_schedule(trigger_name)`
+
+Get details of a specific trigger schedule.
+
+**Parameters:**
+- `trigger_name` (str): Name of the trigger
+
+**Returns:** dict - Trigger schedule details
+
+**Example:**
+```python
+schedule = runner.get_trigger_schedule("file_watcher")
+
+print(f"Trigger: {schedule['trigger_name']}")
+print(f"Workflow: {schedule['workflow_name']}")
+print(f"Poll interval: {schedule['poll_interval_ms']}ms")
+print(f"Allow concurrent: {schedule['allow_concurrent']}")
+print(f"Enabled: {schedule['enabled']}")
+print(f"Last poll: {schedule['last_poll_at']}")
+```
+
+### `set_trigger_enabled(trigger_name, enabled)`
+
+Enable or disable a trigger.
+
+**Parameters:**
+- `trigger_name` (str): Name of the trigger
+- `enabled` (bool): Whether trigger should be enabled
+
+**Example:**
+```python
+# Disable trigger during maintenance
+runner.set_trigger_enabled("file_watcher", False)
+
+# Re-enable trigger
+runner.set_trigger_enabled("file_watcher", True)
+```
+
+### `get_trigger_execution_history(trigger_name, limit=None, offset=None)`
+
+Get execution history for a trigger.
+
+**Parameters:**
+- `trigger_name` (str): Name of the trigger
+- `limit` (int, optional): Maximum number of results
+- `offset` (int, optional): Number of results to skip
+
+**Returns:** List[dict] - List of execution records
+
+**Example:**
+```python
+# Get recent trigger executions
+history = runner.get_trigger_execution_history("file_watcher", limit=20)
+
+for execution in history:
+    print(f"Started: {execution['started_at']}")
+    print(f"Completed: {execution['completed_at']}")
+    print(f"Context hash: {execution['context_hash']}")
+    print(f"Pipeline ID: {execution['pipeline_execution_id']}")
+```
+
 ## Lifecycle Management
 
 ### `shutdown()`

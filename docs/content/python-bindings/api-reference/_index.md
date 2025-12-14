@@ -75,7 +75,6 @@ runner = cloaca.DefaultRunner(credentials.connection_string)
 - **`cloaca.task()`** - Decorator for defining workflow tasks
 - **`cloaca.trigger()`** - Decorator for defining event-driven triggers
 - **`cloaca.register_workflow_constructor()`** - Register workflow constructor
-- **`cloaca.get_backend()`** - Get compiled backend ("sqlite" or "postgres")
 
 ## Admin Classes (PostgreSQL only)
 
