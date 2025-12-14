@@ -41,7 +41,10 @@ jobs:
 
       - name: Publish to crates.io
         run: |
-          cargo publish -p cloacina-macros
+          # Publish in dependency order, allowing already-published versions to pass
+          cargo publish -p cloacina-macros || echo "cloacina-macros may already be published"
+          sleep 30  # Wait for crates.io to propagate
+          cargo publish -p cloacina-workflow || echo "cloacina-workflow may already be published"
           sleep 30  # Wait for crates.io to propagate
           cargo publish -p cloacina
         env:
