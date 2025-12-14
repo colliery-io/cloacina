@@ -46,7 +46,7 @@ jobs:
           sleep 30  # Wait for crates.io to propagate
           cargo publish -p cloacina-workflow || echo "cloacina-workflow may already be published"
           sleep 30  # Wait for crates.io to propagate
-          cargo publish -p cloacina
+          cargo publish -p cloacina || echo "cloacina may already be published"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
