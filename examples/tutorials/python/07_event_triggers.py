@@ -1,38 +1,100 @@
 #!/usr/bin/env python3
 """
-Cloaca Tutorial 07: Event Triggers
+Cloaca Tutorial 07: Event Triggers and Task Callbacks
 
-This tutorial demonstrates how to manage event-based workflow triggers using
-the Python bindings. Event triggers poll user-defined conditions and fire
-workflows when those conditions are met.
+This tutorial demonstrates:
+1. Defining event-based workflow triggers using the @trigger decorator
+2. Using task callbacks (on_success, on_failure) for monitoring
+3. Managing triggers through the Python API
 
-Note: Trigger definitions are currently created in Rust. This tutorial shows
-how to manage triggers through the Python API, including:
-- Listing trigger schedules
-- Enabling/disabling triggers
-- Viewing trigger execution history
-- Understanding trigger-workflow relationships
-
-For defining custom triggers, see the Rust event-triggers example.
+Event triggers poll user-defined conditions and fire workflows when
+those conditions are met, unlike cron scheduling which is time-based.
 """
 
 import cloaca
 from datetime import datetime
+import random
 
 
-# Create simple workflows that could be triggered by events
+# =============================================================================
+# Part 1: Task Callbacks
+# =============================================================================
+
+def on_task_success(task_id, context):
+    """Callback called when a task completes successfully."""
+    print(f"  [SUCCESS] Task '{task_id}' completed successfully")
+
+
+def on_task_failure(task_id, error, context):
+    """Callback called when a task fails."""
+    print(f"  [FAILURE] Task '{task_id}' failed: {error}")
+
+
+# Create a workflow with callbacks
 with cloaca.WorkflowBuilder("file_processor") as builder:
-    builder.description("Process incoming files")
+    builder.description("Process incoming files with monitoring")
 
-    @cloaca.task(id="process_file")
-    def process_file(context):
-        """Process an incoming file."""
+    @cloaca.task(
+        id="validate_file",
+        on_success=on_task_success,
+        on_failure=on_task_failure
+    )
+    def validate_file(context):
+        """Validate an incoming file."""
         filename = context.get("filename", "unknown")
-        print(f"Processing file: {filename}")
+        print(f"  Validating file: {filename}")
+        context.set("validated", True)
+        return context
+
+    @cloaca.task(
+        id="process_file",
+        dependencies=["validate_file"],
+        on_success=on_task_success,
+        on_failure=on_task_failure
+    )
+    def process_file(context):
+        """Process the validated file."""
+        filename = context.get("filename", "unknown")
+        print(f"  Processing file: {filename}")
         context.set("processed_at", datetime.now().isoformat())
         return context
 
 
+# =============================================================================
+# Part 2: Defining Triggers with @trigger Decorator
+# =============================================================================
+
+# Simulated state for demo purposes
+file_counter = 0
+
+
+@cloaca.trigger(
+    workflow="file_processor",
+    name="file_watcher",
+    poll_interval="2s",
+    allow_concurrent=False
+)
+def file_watcher():
+    """
+    Poll for new files in a directory.
+
+    This trigger fires when a new file is detected, passing the
+    filename to the workflow via context.
+    """
+    global file_counter
+    file_counter += 1
+
+    # Simulate finding a new file every 5th poll
+    if file_counter % 5 == 0:
+        filename = f"data_{datetime.now().strftime('%H%M%S')}.csv"
+        print(f"  [TRIGGER] Found new file: {filename}")
+        ctx = cloaca.Context({"filename": filename})
+        return cloaca.TriggerResult.fire(ctx)
+
+    return cloaca.TriggerResult.skip()
+
+
+# Another workflow for queue processing
 with cloaca.WorkflowBuilder("queue_handler") as builder:
     builder.description("Handle queue overflow")
 
@@ -40,212 +102,188 @@ with cloaca.WorkflowBuilder("queue_handler") as builder:
     def drain_queue(context):
         """Drain and process queue messages."""
         queue_depth = context.get("queue_depth", 0)
-        print(f"Draining {queue_depth} messages from queue")
+        print(f"  Draining {queue_depth} messages from queue")
         context.set("messages_processed", queue_depth)
         return context
 
 
-with cloaca.WorkflowBuilder("alert_handler") as builder:
-    builder.description("Handle system alerts")
+@cloaca.trigger(
+    workflow="queue_handler",
+    poll_interval="5s",
+    allow_concurrent=True  # Allow parallel queue draining
+)
+def queue_depth_trigger():
+    """
+    Fire when queue depth exceeds threshold.
 
-    @cloaca.task(id="send_alert")
-    def send_alert(context):
-        """Send an alert notification."""
-        alert_type = context.get("alert_type", "info")
-        message = context.get("message", "System notification")
-        print(f"[{alert_type.upper()}] {message}")
-        context.set("alert_sent_at", datetime.now().isoformat())
-        return context
+    With allow_concurrent=True, multiple workflow executions can
+    run in parallel for better throughput.
+    """
+    # Simulate queue depth check
+    queue_depth = random.randint(0, 150)
+
+    if queue_depth > 100:
+        print(f"  [TRIGGER] Queue depth {queue_depth} exceeds threshold")
+        ctx = cloaca.Context({"queue_depth": queue_depth})
+        return cloaca.TriggerResult.fire(ctx)
+
+    return cloaca.TriggerResult.skip()
 
 
-def trigger_management_demo():
-    """Demonstrate trigger management through Python API."""
-    print("\n=== Event Triggers Management Demo ===\n")
+# =============================================================================
+# Part 3: Demonstrations
+# =============================================================================
 
-    # Create runner
+def demo_callbacks():
+    """Demonstrate task callbacks."""
+    print("\n" + "=" * 60)
+    print("Part 1: Task Callbacks Demo")
+    print("=" * 60)
+
     runner = cloaca.DefaultRunner(":memory:")
 
     try:
-        # Note: In a real scenario, triggers would be registered from Rust code
-        # or through a trigger registration API. The Python bindings provide
-        # management capabilities for existing triggers.
-
-        print("Event triggers enable condition-based workflow execution.")
-        print("Unlike cron (time-based), triggers poll custom conditions.\n")
-
-        # List all trigger schedules
-        print("1. Listing Trigger Schedules")
+        print("\nExecuting workflow with on_success/on_failure callbacks...")
         print("-" * 40)
 
-        schedules = runner.list_trigger_schedules()
-        if schedules:
-            for schedule in schedules:
-                print(f"  Trigger: {schedule['trigger_name']}")
-                print(f"  Workflow: {schedule['workflow_name']}")
-                print(f"  Poll Interval: {schedule['poll_interval_ms']}ms")
-                print(f"  Enabled: {schedule['enabled']}")
-                print(f"  Allow Concurrent: {schedule['allow_concurrent']}")
-                print()
-        else:
-            print("  No triggers registered (triggers are defined in Rust)")
-            print("  See: examples/features/event-triggers/ for Rust examples")
-        print()
+        context = cloaca.Context({"filename": "report_2024.csv"})
+        result = runner.execute("file_processor", context)
 
-        # Demonstrate trigger management API
-        print("2. Trigger Management API")
         print("-" * 40)
-        print("Available methods:")
-        print("  - list_trigger_schedules(enabled_only=False, limit=100, offset=0)")
-        print("  - get_trigger_schedule(trigger_name)")
-        print("  - set_trigger_enabled(trigger_name, enabled)")
-        print("  - get_trigger_execution_history(trigger_name, limit=100, offset=0)")
-        print()
-
-        # Show how to query a specific trigger
-        print("3. Querying Trigger Status")
-        print("-" * 40)
-        print("Example: runner.get_trigger_schedule('file_watcher')")
-        print("Returns: Trigger configuration including poll interval,")
-        print("         workflow association, and enabled status")
-        print()
-
-        # Show execution history query
-        print("4. Trigger Execution History")
-        print("-" * 40)
-        print("Example: runner.get_trigger_execution_history('file_watcher')")
-        print("Returns: List of executions with timestamps, context hash,")
-        print("         and linked pipeline execution IDs")
-        print()
-
-        # Demonstrate enable/disable
-        print("5. Enabling/Disabling Triggers")
-        print("-" * 40)
-        print("Example: runner.set_trigger_enabled('file_watcher', False)")
-        print("Disabled triggers stop polling but retain configuration")
-        print("for later re-enablement.")
-        print()
+        print(f"Workflow status: {result.status}")
 
     finally:
         runner.shutdown()
 
 
-def trigger_concepts():
-    """Explain key trigger concepts."""
-    print("\n=== Event Trigger Concepts ===\n")
+def demo_trigger_definition():
+    """Demonstrate trigger definition and TriggerResult usage."""
+    print("\n" + "=" * 60)
+    print("Part 2: Trigger Definition Demo")
+    print("=" * 60)
+
+    print("\nTriggers are defined using the @trigger decorator:")
+    print("""
+    @cloaca.trigger(
+        workflow="my_workflow",    # Workflow to trigger
+        name="my_trigger",         # Optional: defaults to function name
+        poll_interval="5s",        # How often to poll (e.g., "5s", "100ms", "1m")
+        allow_concurrent=False     # Prevent duplicate executions
+    )
+    def my_trigger():
+        if some_condition():
+            ctx = cloaca.Context({"key": "value"})
+            return cloaca.TriggerResult.fire(ctx)
+        return cloaca.TriggerResult.skip()
+    """)
+
+    print("\nTriggerResult has two methods:")
+    print("  - TriggerResult.skip()       - Condition not met, continue polling")
+    print("  - TriggerResult.fire(ctx)    - Condition met, trigger the workflow")
+
+    print("\nSimulating trigger polls:")
+    print("-" * 40)
+
+    # Simulate a few polls
+    for i in range(7):
+        result = file_watcher()
+        if result.is_fire_result():
+            print(f"  Poll {i+1}: FIRE - workflow will execute")
+        else:
+            print(f"  Poll {i+1}: SKIP - waiting...")
+
+
+def demo_trigger_management():
+    """Demonstrate trigger management through Python API."""
+    print("\n" + "=" * 60)
+    print("Part 3: Trigger Management API")
+    print("=" * 60)
+
+    runner = cloaca.DefaultRunner(":memory:")
+
+    try:
+        print("\nAvailable trigger management methods:")
+        print("-" * 40)
+        print("  runner.list_trigger_schedules()")
+        print("  runner.get_trigger_schedule('trigger_name')")
+        print("  runner.set_trigger_enabled('trigger_name', False)")
+        print("  runner.get_trigger_execution_history('trigger_name')")
+
+        print("\nListing registered triggers...")
+        schedules = runner.list_trigger_schedules()
+        if schedules:
+            for schedule in schedules:
+                print(f"  - {schedule['trigger_name']} -> {schedule['workflow_name']}")
+        else:
+            print("  (No triggers registered in this demo database)")
+
+    finally:
+        runner.shutdown()
+
+
+def demo_concepts():
+    """Explain key concepts."""
+    print("\n" + "=" * 60)
+    print("Key Concepts")
+    print("=" * 60)
 
     concepts = [
-        ("Trigger Trait", """
-        Triggers implement the Trigger trait in Rust:
-        - name(): Unique identifier for the trigger
-        - poll_interval(): How often to check the condition
-        - allow_concurrent(): Whether to allow concurrent executions
-        - poll(): Check condition, return Fire or Skip
-        """),
-
-        ("TriggerResult", """
-        The poll() function returns:
-        - TriggerResult::Skip - Condition not met, continue polling
-        - TriggerResult::Fire(Some(context)) - Fire workflow with context
-        - TriggerResult::Fire(None) - Fire workflow without context
+        ("Triggers vs Cron", """
+        - Triggers: Poll custom conditions, fire when true
+        - Cron: Fire at specific times regardless of conditions
+        - Use together for comprehensive scheduling
         """),
 
         ("Deduplication", """
-        Triggers prevent duplicate executions by:
-        - Hashing the context passed with TriggerResult::Fire
-        - Tracking active executions per (trigger, context_hash)
-        - allow_concurrent=false blocks duplicates until completion
+        When allow_concurrent=False:
+        - Context is hashed on TriggerResult.fire()
+        - Same (trigger_name, context_hash) won't run twice
+        - Prevents duplicate processing of same item
         """),
 
-        ("Polling vs Cron", """
-        Event Triggers vs Cron Scheduling:
-        - Triggers: Poll custom conditions, fire when true
-        - Cron: Fire at specific times regardless of conditions
-        - Both can be used together for comprehensive scheduling
+        ("Callbacks", """
+        Task callbacks for monitoring:
+        - on_success(task_id, context) - called on success
+        - on_failure(task_id, error, context) - called on failure
+        - Errors in callbacks are isolated (don't fail the task)
         """),
     ]
 
     for title, description in concepts:
-        print(f"{title}")
+        print(f"\n{title}")
         print("-" * 40)
         for line in description.strip().split('\n'):
             print(f"  {line.strip()}")
-        print()
-
-
-def trigger_examples():
-    """Show common trigger patterns."""
-    print("\n=== Common Trigger Patterns ===\n")
-
-    patterns = [
-        ("File Watcher", """
-        Poll for new files in a directory:
-        - Check directory for unprocessed files
-        - Fire with filename in context
-        - Mark files as processing to prevent duplicates
-        """),
-
-        ("Queue Monitor", """
-        Fire when queue depth exceeds threshold:
-        - Query message queue depth
-        - Fire when depth > threshold
-        - Pass queue depth in context for processing
-        """),
-
-        ("Health Check", """
-        Trigger recovery after consecutive failures:
-        - Check service health endpoint
-        - Track consecutive failures
-        - Fire recovery workflow after N failures
-        """),
-
-        ("Database Poller", """
-        Process new records as they appear:
-        - Query for records with status='pending'
-        - Fire with record IDs in context
-        - Use deduplication to avoid reprocessing
-        """),
-
-        ("Metrics Threshold", """
-        Alert when metrics exceed limits:
-        - Poll metrics endpoint
-        - Check against configured thresholds
-        - Fire alert workflow with metric data
-        """),
-    ]
-
-    for pattern_name, description in patterns:
-        print(f"{pattern_name}")
-        print("-" * 40)
-        for line in description.strip().split('\n'):
-            print(f"  {line.strip()}")
-        print()
 
 
 def main():
     """Main tutorial demonstration."""
-    print("Cloaca Event Triggers Tutorial")
-    print("=" * 50)
+    print("Cloaca Tutorial 07: Event Triggers and Task Callbacks")
+    print("=" * 60)
+
+    # Demonstrate callbacks
+    demo_callbacks()
+
+    # Demonstrate trigger definition
+    demo_trigger_definition()
+
+    # Demonstrate trigger management
+    demo_trigger_management()
 
     # Explain concepts
-    trigger_concepts()
+    demo_concepts()
 
-    # Show common patterns
-    trigger_examples()
-
-    # Demonstrate management API
-    trigger_management_demo()
-
-    print("\nTutorial completed successfully!")
+    print("\n" + "=" * 60)
+    print("Tutorial Complete!")
+    print("=" * 60)
     print("\nWhat you learned:")
-    print("- Event triggers poll conditions and fire workflows")
-    print("- Triggers are defined in Rust, managed via Python API")
-    print("- Deduplication prevents duplicate concurrent executions")
-    print("- Common patterns: file watching, queue monitoring, health checks")
-
+    print("  - Define triggers with @cloaca.trigger decorator")
+    print("  - Use TriggerResult.fire() and TriggerResult.skip()")
+    print("  - Add on_success/on_failure callbacks to tasks")
+    print("  - Manage triggers via the runner API")
     print("\nNext Steps:")
-    print("- See examples/features/event-triggers/ for Rust trigger examples")
-    print("- Explore the Trigger trait for custom implementations")
-    print("- Combine triggers with cron for comprehensive scheduling")
+    print("  - See examples/features/event-triggers/ for more examples")
+    print("  - Combine triggers with cron for comprehensive scheduling")
 
 
 if __name__ == "__main__":
