@@ -51,6 +51,8 @@ pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod trigger_execution;
+pub mod trigger_schedule;
 pub mod workflow_packages;
 pub mod workflow_registry;
 pub mod workflow_registry_storage;
@@ -63,6 +65,8 @@ pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
+pub use trigger_execution::TriggerExecutionDAL;
+pub use trigger_schedule::TriggerScheduleDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
 pub use workflow_registry::WorkflowRegistryDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
@@ -222,6 +226,16 @@ impl DAL {
     /// Returns a cron execution DAL for cron execution operations.
     pub fn cron_execution(&self) -> CronExecutionDAL<'_> {
         CronExecutionDAL::new(self)
+    }
+
+    /// Returns a trigger schedule DAL for trigger schedule operations.
+    pub fn trigger_schedule(&self) -> TriggerScheduleDAL<'_> {
+        TriggerScheduleDAL::new(self)
+    }
+
+    /// Returns a trigger execution DAL for trigger execution operations.
+    pub fn trigger_execution(&self) -> TriggerExecutionDAL<'_> {
+        TriggerExecutionDAL::new(self)
     }
 
     /// Returns a workflow packages DAL for package operations.

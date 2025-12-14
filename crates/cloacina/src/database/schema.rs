@@ -177,6 +177,39 @@ mod unified_schema {
         }
     }
 
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        trigger_schedules (id) {
+            id -> DbUuid,
+            trigger_name -> Text,
+            workflow_name -> Text,
+            poll_interval_ms -> Integer,
+            allow_concurrent -> DbBool,
+            enabled -> DbBool,
+            last_poll_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        trigger_executions (id) {
+            id -> DbUuid,
+            trigger_name -> Text,
+            context_hash -> Text,
+            pipeline_execution_id -> Nullable<DbUuid>,
+            started_at -> DbTimestamp,
+            completed_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -186,6 +219,7 @@ mod unified_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
@@ -195,6 +229,8 @@ mod unified_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
+        trigger_executions,
+        trigger_schedules,
         workflow_packages,
         workflow_registry,
     );
@@ -334,6 +370,33 @@ mod postgres_schema {
         }
     }
 
+    diesel::table! {
+        trigger_schedules (id) {
+            id -> Uuid,
+            trigger_name -> Varchar,
+            workflow_name -> Varchar,
+            poll_interval_ms -> Int4,
+            allow_concurrent -> Bool,
+            enabled -> Bool,
+            last_poll_at -> Nullable<Timestamp>,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        trigger_executions (id) {
+            id -> Uuid,
+            trigger_name -> Varchar,
+            context_hash -> Varchar,
+            pipeline_execution_id -> Nullable<Uuid>,
+            started_at -> Timestamp,
+            completed_at -> Nullable<Timestamp>,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
     #[cfg(feature = "auth")]
     diesel::table! {
         auth_tokens (token_id) {
@@ -375,6 +438,7 @@ mod postgres_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
 
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
@@ -390,6 +454,8 @@ mod postgres_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
+        trigger_executions,
+        trigger_schedules,
         workflow_packages,
         workflow_registry,
     );
@@ -405,6 +471,8 @@ mod postgres_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
+        trigger_executions,
+        trigger_schedules,
         workflow_packages,
         workflow_registry,
     );
@@ -540,6 +608,33 @@ mod sqlite_schema {
         }
     }
 
+    diesel::table! {
+        trigger_schedules (id) {
+            id -> Binary,
+            trigger_name -> Text,
+            workflow_name -> Text,
+            poll_interval_ms -> Integer,
+            allow_concurrent -> Integer,
+            enabled -> Integer,
+            last_poll_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        trigger_executions (id) {
+            id -> Binary,
+            trigger_name -> Text,
+            context_hash -> Text,
+            pipeline_execution_id -> Nullable<Binary>,
+            started_at -> Text,
+            completed_at -> Nullable<Text>,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -549,6 +644,7 @@ mod sqlite_schema {
     diesel::joinable!(recovery_events -> task_executions (task_execution_id));
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
@@ -558,6 +654,8 @@ mod sqlite_schema {
         recovery_events,
         task_executions,
         task_execution_metadata,
+        trigger_executions,
+        trigger_schedules,
     );
 }
 

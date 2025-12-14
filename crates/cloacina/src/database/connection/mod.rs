@@ -330,6 +330,25 @@ impl Database {
         self.pool.clone()
     }
 
+    /// Closes the connection pool, releasing all database connections.
+    ///
+    /// After calling this method, all current and future attempts to get
+    /// connections from the pool will fail immediately. This should be called
+    /// when shutting down to ensure connections are properly released back to
+    /// the database server.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let db = Database::new("postgres://localhost/mydb", "mydb", 10)?;
+    /// // ... use database ...
+    /// db.close(); // Release all connections
+    /// ```
+    pub fn close(&self) {
+        tracing::info!("Closing database connection pool");
+        self.pool.close();
+    }
+
     /// Builds a PostgreSQL connection URL.
     fn build_postgres_url(base_url: &str, database_name: &str) -> Result<String, url::ParseError> {
         let mut url = Url::parse(base_url)?;

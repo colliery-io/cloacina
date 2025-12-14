@@ -20,6 +20,7 @@ mod admin;
 mod context;
 mod runner;
 mod task;
+mod trigger;
 mod value_objects;
 mod workflow;
 
@@ -27,6 +28,7 @@ use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 use context::{PyContext, PyDefaultRunnerConfig};
 use runner::{PyDefaultRunner, PyPipelineResult};
 use task::task as task_decorator;
+use trigger::PyTriggerResult;
 use value_objects::{
     PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder, PyTaskNamespace,
     PyWorkflowContext,
@@ -81,6 +83,10 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Task decorator function
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
+
+    // Trigger decorator and result class
+    m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
+    m.add_class::<PyTriggerResult>()?;
 
     // Workflow classes and functions
     m.add_class::<PyWorkflowBuilder>()?;

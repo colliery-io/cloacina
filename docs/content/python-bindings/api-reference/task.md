@@ -30,8 +30,14 @@ def my_task(context):
 ### Optional Parameters
 
 - `dependencies` (list): List of task IDs that must complete before this task runs
-- `retry_policy` (dict): Retry configuration for handling failures
-- `timeout` (int): Maximum execution time in seconds
+- `retry_attempts` (int): Number of retry attempts on failure
+- `retry_backoff` (str): Backoff strategy: "fixed", "linear", or "exponential"
+- `retry_delay_ms` (int): Initial delay between retries in milliseconds
+- `retry_max_delay_ms` (int): Maximum delay between retries
+- `retry_condition` (str): When to retry: "never", "transient", or "all"
+- `retry_jitter` (bool): Add random jitter to retry delays
+- `on_success` (callable): Callback function called when task succeeds
+- `on_failure` (callable): Callback function called when task fails
 
 ## Example with Dependencies
 
@@ -85,6 +91,85 @@ def safe_task(context):
         context.set("error", str(e))
 
     return context
+```
+
+## Task Callbacks
+
+Use `on_success` and `on_failure` callbacks for monitoring, alerting, or cleanup:
+
+### Callback Signatures
+
+```python
+def on_success_callback(task_id: str, context: Context) -> None:
+    """Called when the task completes successfully."""
+    pass
+
+def on_failure_callback(task_id: str, error: str, context: Context) -> None:
+    """Called when the task fails."""
+    pass
+```
+
+### Example with Callbacks
+
+```python
+import cloaca
+
+def log_success(task_id, context):
+    """Log successful task completion."""
+    print(f"Task '{task_id}' completed successfully")
+    # Send metrics, update monitoring, etc.
+
+def alert_failure(task_id, error, context):
+    """Alert on task failure."""
+    print(f"ALERT: Task '{task_id}' failed: {error}")
+    # Send to Slack, PagerDuty, etc.
+
+@cloaca.task(
+    id="monitored_task",
+    on_success=log_success,
+    on_failure=alert_failure
+)
+def monitored_task(context):
+    """Task with monitoring callbacks."""
+    result = perform_operation()
+    context.set("result", result)
+    return context
+```
+
+### Callback Error Isolation
+
+Errors in callbacks are isolated and logged - they don't affect task execution:
+
+```python
+def buggy_callback(task_id, context):
+    raise Exception("Callback error!")  # Won't fail the task
+
+@cloaca.task(id="resilient_task", on_success=buggy_callback)
+def resilient_task(context):
+    """Task completes even if callback fails."""
+    return context
+```
+
+### Common Callback Patterns
+
+```python
+# Alerting pattern
+def slack_alert(task_id, error, context):
+    webhook_url = os.environ.get("SLACK_WEBHOOK")
+    requests.post(webhook_url, json={
+        "text": f"Task {task_id} failed: {error}"
+    })
+
+# Metrics pattern
+def record_metrics(task_id, context):
+    duration = context.get("duration_ms", 0)
+    statsd.timing(f"task.{task_id}.duration", duration)
+
+# Cleanup pattern
+def cleanup_temp_files(task_id, error, context):
+    temp_dir = context.get("temp_dir")
+    if temp_dir and os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
 ```
 
 ## Context Usage

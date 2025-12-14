@@ -17,6 +17,7 @@ Complete reference documentation for all Cloaca classes, methods, and functions.
 - **[WorkflowBuilder](workflow-builder/)** - Build complex workflows with dependencies
 - **[Workflow](workflow/)** - Executable workflow objects
 - **[Task Decorator](task/)** - Define workflow tasks
+- **[Trigger Decorator](trigger/)** - Define event-driven workflow triggers
 - **[Configuration](configuration/)** - Runner and system configuration
 - **[PipelineResult](pipeline-result/)** - Workflow execution results
 - **[Exceptions](exceptions/)** - Error handling and exception types
@@ -72,8 +73,8 @@ runner = cloaca.DefaultRunner(credentials.connection_string)
 ## Module Functions
 
 - **`cloaca.task()`** - Decorator for defining workflow tasks
+- **`cloaca.trigger()`** - Decorator for defining event-driven triggers
 - **`cloaca.register_workflow_constructor()`** - Register workflow constructor
-- **`cloaca.get_backend()`** - Get compiled backend ("sqlite" or "postgres")
 
 ## Admin Classes (PostgreSQL only)
 

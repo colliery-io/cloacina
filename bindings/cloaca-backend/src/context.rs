@@ -286,6 +286,11 @@ impl PyContext {
     pub(crate) fn clone_inner(&self) -> cloacina::Context<serde_json::Value> {
         self.inner.clone_data()
     }
+
+    /// Get a clone of the context data as a HashMap (for internal use)
+    pub(crate) fn get_data_clone(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        self.inner.data().clone()
+    }
 }
 
 /// Manual implementation of Clone since Context<T> doesn't implement Clone

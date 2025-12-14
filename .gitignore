@@ -49,3 +49,4 @@ dist/
 
 # Packaged workflow files
 *.cloacina
+test-quick/

@@ -194,6 +194,17 @@ impl AnyPool {
             _ => panic!("Expected SQLite pool but got PostgreSQL"),
         }
     }
+
+    /// Closes the connection pool, releasing all connections.
+    ///
+    /// After calling this method, all current and future attempts to get
+    /// connections from the pool will fail immediately.
+    pub fn close(&self) {
+        match self {
+            AnyPool::Postgres(pool) => pool.close(),
+            AnyPool::Sqlite(pool) => pool.close(),
+        }
+    }
 }
 
 /// When only PostgreSQL is enabled, AnyPool is just a PgPool.
