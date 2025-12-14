@@ -24,11 +24,11 @@ Before starting this tutorial, you should:
 
 ## What You'll Learn
 
-- How to implement the `Trigger` trait for custom conditions
-- Registering triggers with workflows
+- How to implement the `Trigger` trait for custom conditions in Rust
+- How to define triggers in Python using the `@trigger` decorator
+- Using `TriggerResult` to control trigger behavior
 - Context passing from triggers to workflows
 - Deduplication strategies for concurrent executions
-- Combining triggers with cron scheduling
 - Best practices for trigger implementations
 
 ## Understanding Event Triggers
@@ -437,9 +437,64 @@ async fn poll(&self) -> Result<TriggerResult, TriggerError> {
 }
 ```
 
-## Python Management
+## Python Triggers
 
-From Python, you can manage triggers (though definition requires Rust):
+You can define triggers entirely in Python using the `@trigger` decorator:
+
+```python
+import cloaca
+import random
+
+# Create a workflow for the trigger to activate
+with cloaca.WorkflowBuilder("data_processor") as builder:
+    builder.description("Process incoming data")
+
+    @cloaca.task(id="process_data")
+    def process_data(context):
+        filename = context.get("filename", "unknown")
+        print(f"Processing: {filename}")
+        context.set("processed", True)
+        return context
+
+# Define a trigger using the @trigger decorator
+@cloaca.trigger(
+    workflow="data_processor",
+    name="file_watcher",
+    poll_interval="5s",
+    allow_concurrent=False
+)
+def file_watcher():
+    # Check for new files (simulated)
+    if random.randint(1, 10) == 5:
+        ctx = cloaca.Context({"filename": "data_123.csv"})
+        return cloaca.TriggerResult.fire(ctx)
+    return cloaca.TriggerResult.skip()
+```
+
+### TriggerResult Class
+
+The `TriggerResult` class has two static methods:
+
+- `TriggerResult.skip()` - Condition not met, continue polling
+- `TriggerResult.fire(context=None)` - Condition met, trigger the workflow
+
+```python
+# Skip - don't fire, continue polling
+result = cloaca.TriggerResult.skip()
+assert result.is_skip_result() == True
+
+# Fire without context
+result = cloaca.TriggerResult.fire()
+assert result.is_fire_result() == True
+
+# Fire with context
+ctx = cloaca.Context({"key": "value"})
+result = cloaca.TriggerResult.fire(ctx)
+```
+
+### Managing Triggers
+
+You can also manage triggers programmatically:
 
 ```python
 import cloaca
@@ -464,12 +519,13 @@ for execution in history:
 
 You've learned how to:
 
-1. Implement the `Trigger` trait for custom conditions
-2. Register triggers with workflows
-3. Pass context from triggers to workflows
-4. Use deduplication to prevent duplicate executions
-5. Apply common trigger patterns
-6. Manage triggers from Python
+1. Implement the `Trigger` trait for custom conditions in Rust
+2. Define triggers in Python using the `@trigger` decorator
+3. Use `TriggerResult.skip()` and `TriggerResult.fire()` to control trigger behavior
+4. Pass context from triggers to workflows
+5. Use deduplication to prevent duplicate executions
+6. Apply common trigger patterns
+7. Manage triggers programmatically from Python
 
 ## Next Steps
 
