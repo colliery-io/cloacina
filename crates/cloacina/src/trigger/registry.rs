@@ -149,6 +149,7 @@ mod tests {
     use super::*;
     use crate::trigger::{TriggerError, TriggerResult};
     use async_trait::async_trait;
+    use serial_test::serial;
     use std::time::Duration;
 
     #[derive(Debug, Clone)]
@@ -183,10 +184,11 @@ mod tests {
         }
     }
 
-    // Note: Tests use unique names to avoid interference when running in parallel
-    // since they share the same global registry.
+    // Tests that access the global registry should run serially
+    // to avoid interference with each other.
 
     #[test]
+    #[serial]
     fn test_register_and_get_trigger() {
         // Use unique name to avoid conflicts with parallel tests
         let name = "test_register_and_get_trigger_unique_12345";
@@ -202,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_register_constructor() {
         let name = "test_register_constructor_unique_12345";
         register_trigger_constructor(name, move || Arc::new(TestTrigger::new(name)));
@@ -212,6 +215,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_list_triggers() {
         // Register triggers with unique names
         let name_a = "test_list_triggers_a_unique_12345";
@@ -227,6 +231,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_all_triggers() {
         // Register triggers with unique names
         let name_1 = "test_get_all_triggers_1_unique_12345";
@@ -243,10 +248,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_clear_triggers() {
-        // This test verifies clear_triggers works, but must be careful about
-        // parallel test interference. We use a unique name and verify the
-        // specific trigger we registered is cleared.
+        // This test verifies clear_triggers works. We run it serially
+        // to avoid interference with other tests that use the global registry.
         let name = "test_clear_triggers_unique_12345";
 
         // Register our trigger

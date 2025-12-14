@@ -17,6 +17,9 @@ from cloaca.cloaca import (
     PipelineResult,
     # Task decorator
     task,
+    # Trigger decorator and result class
+    trigger,
+    TriggerResult,
     # Workflow classes
     WorkflowBuilder,
     Workflow,
@@ -45,6 +48,9 @@ __all__ = [
     "PipelineResult",
     # Task decorator
     "task",
+    # Trigger decorator and result class
+    "trigger",
+    "TriggerResult",
     # Workflow classes
     "WorkflowBuilder",
     "Workflow",

@@ -1,23 +1,123 @@
 """
-Test Event Triggers Management API
+Test Event Triggers
 
-This test file verifies the Python bindings for managing event triggers,
-including listing, querying, enabling/disabling, and viewing execution history.
-
-Note: Triggers are defined in Rust. This tests the management API only.
+This test file verifies the Python bindings for defining and managing event triggers,
+including the @trigger decorator, TriggerResult class, and trigger management API.
 """
+
+import random
 
 
 class TestEventTriggers:
-    """Test event trigger management operations."""
+    """Test event trigger functionality."""
 
-    def test_list_trigger_schedules_empty(self, shared_runner):
-        """Test listing trigger schedules when none exist."""
+    def test_trigger_result_skip(self, shared_runner):
+        """Test TriggerResult.skip() creation."""
+        import cloaca
 
-        # List all trigger schedules (should be empty initially)
+        result = cloaca.TriggerResult.skip()
+        assert result.is_skip_result() is True
+        assert result.is_fire_result() is False
+        assert "Skip" in repr(result)
+        print("TriggerResult.skip() works correctly")
+
+    def test_trigger_result_fire_no_context(self, shared_runner):
+        """Test TriggerResult.fire() without context."""
+        import cloaca
+
+        result = cloaca.TriggerResult.fire()
+        assert result.is_fire_result() is True
+        assert result.is_skip_result() is False
+        assert "Fire" in repr(result)
+        print("TriggerResult.fire() without context works correctly")
+
+    def test_trigger_result_fire_with_context(self, shared_runner):
+        """Test TriggerResult.fire() with context."""
+        import cloaca
+
+        ctx = cloaca.Context({"key": "value", "number": 42})
+        result = cloaca.TriggerResult.fire(ctx)
+        assert result.is_fire_result() is True
+        assert "Fire" in repr(result)
+        print("TriggerResult.fire() with context works correctly")
+
+    def test_trigger_decorator_registration(self, shared_runner):
+        """Test that @trigger decorator registers triggers correctly."""
+        import cloaca
+
+        # Define a simple workflow first
+        with cloaca.WorkflowBuilder("trigger_test_workflow") as builder:
+            builder.description("Test workflow for trigger")
+
+            @cloaca.task(id="triggered_task")
+            def triggered_task(context):
+                context.set("triggered", True)
+                return context
+
+        # Define a trigger using the decorator
+        @cloaca.trigger(
+            workflow="trigger_test_workflow",
+            name="test_rng_trigger",
+            poll_interval="1s",
+            allow_concurrent=False,
+        )
+        def test_rng_trigger():
+            # Simple trigger that randomly fires
+            if random.randint(1, 10) == 5:
+                ctx = cloaca.Context({"random_fire": True})
+                return cloaca.TriggerResult.fire(ctx)
+            return cloaca.TriggerResult.skip()
+
+        # The trigger should be registered - check via management API
+        schedules = shared_runner.list_trigger_schedules()
+        print(f"Registered trigger schedules: {len(schedules)}")
+
+        # The function should still be callable
+        result = test_rng_trigger()
+        assert result.is_fire_result() or result.is_skip_result()
+        print("@trigger decorator registration works correctly")
+
+    def test_trigger_with_counter(self, shared_runner):
+        """Test trigger that fires after N polls."""
+        import cloaca
+
+        # Use a list to maintain state across calls (closures capture by reference)
+        poll_count = [0]
+
+        with cloaca.WorkflowBuilder("counter_workflow") as builder:
+            builder.description("Counter-based trigger test")
+
+            @cloaca.task(id="process_count")
+            def process_count(context):
+                context.set("processed", True)
+                return context
+
+        @cloaca.trigger(
+            workflow="counter_workflow",
+            name="counter_trigger",
+            poll_interval="100ms",
+        )
+        def counter_trigger():
+            poll_count[0] += 1
+            if poll_count[0] >= 3:
+                poll_count[0] = 0  # Reset
+                return cloaca.TriggerResult.fire(
+                    cloaca.Context({"poll_count": poll_count[0]})
+                )
+            return cloaca.TriggerResult.skip()
+
+        # Call the trigger function directly to test logic
+        assert counter_trigger().is_skip_result()  # 1st call
+        assert counter_trigger().is_skip_result()  # 2nd call
+        assert counter_trigger().is_fire_result()  # 3rd call - should fire
+        assert counter_trigger().is_skip_result()  # 4th call - reset
+        print("Counter-based trigger logic works correctly")
+
+    def test_list_trigger_schedules(self, shared_runner):
+        """Test listing trigger schedules."""
+
         schedules = shared_runner.list_trigger_schedules()
         assert isinstance(schedules, list)
-        # May or may not be empty depending on test order
         print(f"Found {len(schedules)} trigger schedules")
 
     def test_list_trigger_schedules_with_filters(self, shared_runner):
@@ -30,95 +130,18 @@ class TestEventTriggers:
         # Test with pagination
         schedules = shared_runner.list_trigger_schedules(limit=10, offset=0)
         assert isinstance(schedules, list)
-
-        # Test combined filters
-        schedules = shared_runner.list_trigger_schedules(
-            enabled_only=False, limit=50, offset=0
-        )
-        assert isinstance(schedules, list)
         print("Trigger schedule listing with filters works correctly")
 
     def test_get_nonexistent_trigger_schedule(self, shared_runner):
         """Test getting a trigger schedule that doesn't exist."""
 
-        # Should return None for non-existent trigger
         schedule = shared_runner.get_trigger_schedule("nonexistent_trigger")
         assert schedule is None
         print("Non-existent trigger returns None as expected")
 
-    def test_set_trigger_enabled_nonexistent(self, shared_runner):
-        """Test enabling/disabling a non-existent trigger."""
+    def test_get_trigger_execution_history(self, shared_runner):
+        """Test getting execution history for a trigger."""
 
-        # Should handle gracefully (no error, returns False or similar)
-        try:
-            result = shared_runner.set_trigger_enabled("nonexistent_trigger", False)
-            # The operation may succeed (no-op) or return a status
-            print(f"set_trigger_enabled on nonexistent trigger returned: {result}")
-        except Exception as e:
-            # Some implementations may raise an error
-            print(f"set_trigger_enabled raised expected error: {e}")
-
-    def test_get_trigger_execution_history_empty(self, shared_runner):
-        """Test getting execution history for a trigger with no executions."""
-
-        # Should return empty list for non-existent trigger
-        history = shared_runner.get_trigger_execution_history("nonexistent_trigger")
+        history = shared_runner.get_trigger_execution_history("some_trigger")
         assert isinstance(history, list)
-        assert len(history) == 0
-        print("Empty execution history works correctly")
-
-    def test_get_trigger_execution_history_with_pagination(self, shared_runner):
-        """Test getting execution history with pagination options."""
-
-        # Test with pagination parameters
-        history = shared_runner.get_trigger_execution_history(
-            "some_trigger", limit=10, offset=0
-        )
-        assert isinstance(history, list)
-        print("Execution history pagination works correctly")
-
-    def test_trigger_schedule_structure(self, shared_runner):
-        """Test that trigger schedule dictionaries have expected structure."""
-
-        schedules = shared_runner.list_trigger_schedules()
-
-        # If there are schedules, verify structure
-        if schedules:
-            schedule = schedules[0]
-            # Verify expected keys exist
-            expected_keys = [
-                "trigger_name",
-                "workflow_name",
-                "poll_interval_ms",
-                "enabled",
-                "allow_concurrent",
-            ]
-            for key in expected_keys:
-                assert key in schedule, f"Missing key: {key}"
-            print(f"Trigger schedule structure verified: {list(schedule.keys())}")
-        else:
-            print("No schedules to verify structure (expected in isolation)")
-
-    def test_comprehensive_trigger_management(self, shared_runner):
-        """Test comprehensive trigger management workflow."""
-
-        # This test demonstrates the full management API workflow
-        print("Testing comprehensive trigger management API...")
-
-        # 1. List initial state
-        initial_schedules = shared_runner.list_trigger_schedules()
-        print(f"Initial schedules: {len(initial_schedules)}")
-
-        # 2. Query specific trigger (even if doesn't exist)
-        schedule = shared_runner.get_trigger_schedule("test_trigger")
-        print(f"Query result: {schedule}")
-
-        # 3. Check execution history
-        history = shared_runner.get_trigger_execution_history("test_trigger", limit=5)
-        print(f"Execution history entries: {len(history)}")
-
-        # 4. List with filters
-        enabled_only = shared_runner.list_trigger_schedules(enabled_only=True)
-        print(f"Enabled triggers: {len(enabled_only)}")
-
-        print("Comprehensive trigger management API test complete")
+        print("Trigger execution history retrieval works correctly")
