@@ -266,6 +266,7 @@ impl DefaultRunner {
     /// 1. Sends shutdown signals to background services
     /// 2. Waits for services to complete
     /// 3. Cleans up runtime handles
+    /// 4. Closes the database connection pool
     ///
     /// # Returns
     /// * `Result<(), PipelineError>` - Success or error status
@@ -306,6 +307,9 @@ impl DefaultRunner {
         if let Some(handle) = handles.trigger_scheduler_handle.take() {
             let _ = handle.await;
         }
+
+        // Close the database connection pool to release all connections
+        self.database.close();
 
         Ok(())
     }
