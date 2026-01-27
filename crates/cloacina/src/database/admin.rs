@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,7 +24,10 @@
 pub use postgres_impl::*;
 
 mod postgres_impl {
-    use crate::database::connection::Database;
+    use crate::database::connection::{
+        escape_password, validate_schema_name, validate_username, Database, SchemaError,
+        UsernameError,
+    };
     use diesel::connection::Connection;
     use diesel::prelude::*;
     use rand::Rng;
@@ -71,6 +74,12 @@ mod postgres_impl {
 
         #[error("Invalid configuration: {message}")]
         InvalidConfig { message: String },
+
+        #[error("Invalid schema name: {0}")]
+        InvalidSchema(#[from] SchemaError),
+
+        #[error("Invalid username: {0}")]
+        InvalidUsername(#[from] UsernameError),
     }
 
     impl From<deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>> for AdminError {
@@ -100,29 +109,30 @@ mod postgres_impl {
             &self,
             tenant_config: TenantConfig,
         ) -> Result<TenantCredentials, AdminError> {
-            // Validate configuration
-            if tenant_config.schema_name.is_empty() {
-                return Err(AdminError::InvalidConfig {
-                    message: "Schema name cannot be empty".to_string(),
-                });
-            }
-            if tenant_config.username.is_empty() {
-                return Err(AdminError::InvalidConfig {
-                    message: "Username cannot be empty".to_string(),
-                });
-            }
+            // Validate schema name to prevent SQL injection
+            // This also checks for empty strings and invalid characters
+            validate_schema_name(&tenant_config.schema_name)?;
+
+            // Validate username to prevent SQL injection
+            // This also checks for empty strings, invalid characters, and reserved names
+            validate_username(&tenant_config.username)?;
 
             // Password logic: use provided password or generate secure one
+            // Generated passwords use only safe alphanumeric characters
             let final_password = if tenant_config.password.is_empty() {
                 generate_secure_password(32) // Auto-generate if none provided
             } else {
                 tenant_config.password.clone() // Use admin-provided password
             };
 
+            // Escape the password for safe SQL embedding
+            // This doubles any single quotes to prevent SQL injection
+            let escaped_password = escape_password(&final_password);
+
             // Clone values needed in the closure
             let schema_name = tenant_config.schema_name.clone();
             let username = tenant_config.username.clone();
-            let final_password_clone = final_password.clone();
+            let escaped_password_clone = escaped_password.clone();
 
             // Clone again for use after the closure
             let schema_name_result = schema_name.clone();
@@ -149,10 +159,12 @@ mod postgres_impl {
                             }
                         })?;
 
-                        // 2. Create user with determined password
+                        // 2. Create user with escaped password
+                        // Note: username and schema_name are pre-validated as safe identifiers
+                        // Password is escaped (single quotes doubled) to prevent injection
                         let sql = format!(
                             "CREATE USER {} WITH PASSWORD '{}'",
-                            username, final_password_clone
+                            username, escaped_password_clone
                         );
                         diesel::sql_query(&sql).execute(conn).map_err(|e| {
                             AdminError::SqlExecution {
@@ -231,6 +243,10 @@ mod postgres_impl {
             schema_name: &str,
             username: &str,
         ) -> Result<(), AdminError> {
+            // Validate inputs to prevent SQL injection
+            validate_schema_name(schema_name)?;
+            validate_username(username)?;
+
             let conn = self
                 .database
                 .get_postgres_connection()
@@ -345,6 +361,74 @@ mod postgres_impl {
             assert_eq!(config.schema_name, "test_tenant");
             assert_eq!(config.username, "test_user");
             assert_eq!(config.password, "");
+        }
+
+        #[test]
+        fn test_username_validation_rejects_sql_injection() {
+            // Verify that SQL injection attempts in usernames are rejected
+            assert!(matches!(
+                validate_username("admin'; DROP TABLE users; --"),
+                Err(UsernameError::InvalidCharacters(_))
+            ));
+
+            assert!(matches!(
+                validate_username("user' OR '1'='1"),
+                Err(UsernameError::InvalidCharacters(_))
+            ));
+
+            // Spaces are not allowed
+            assert!(matches!(
+                validate_username("admin user"),
+                Err(UsernameError::InvalidCharacters(_))
+            ));
+
+            // Valid username should pass
+            assert!(validate_username("valid_user_123").is_ok());
+        }
+
+        #[test]
+        fn test_schema_validation_rejects_sql_injection() {
+            // Verify that SQL injection attempts in schema names are rejected
+            assert!(matches!(
+                validate_schema_name("tenant; DROP SCHEMA public; --"),
+                Err(SchemaError::InvalidCharacters(_))
+            ));
+
+            assert!(matches!(
+                validate_schema_name("schema' OR '1'='1"),
+                Err(SchemaError::InvalidCharacters(_))
+            ));
+
+            // Valid schema should pass
+            assert!(validate_schema_name("valid_schema_123").is_ok());
+        }
+
+        #[test]
+        fn test_reserved_usernames_rejected() {
+            // PostgreSQL superuser
+            assert!(matches!(
+                validate_username("postgres"),
+                Err(UsernameError::ReservedName(_))
+            ));
+
+            // System roles
+            assert!(matches!(
+                validate_username("pg_read_all_data"),
+                Err(UsernameError::ReservedName(_))
+            ));
+        }
+
+        #[test]
+        fn test_password_escaping() {
+            // Test that passwords with single quotes are properly escaped
+            assert_eq!(escape_password("simple"), "simple");
+            assert_eq!(escape_password("pass'word"), "pass''word");
+            assert_eq!(escape_password("it's a test"), "it''s a test");
+
+            // SQL injection attempt in password should be safely escaped
+            let dangerous = "'; DROP TABLE users; --";
+            let escaped = escape_password(dangerous);
+            assert_eq!(escaped, "''; DROP TABLE users; --");
         }
     }
 }

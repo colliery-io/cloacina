@@ -1,0 +1,3 @@
+2025-12-30T14:22:26.456385Z  INFO metis_mcp_server: Starting Metis MCP Server
+2025-12-30T14:22:26.458007Z  INFO metis_mcp_server::server: Initializing Metis MCP Server
+2025-12-30T14:22:26.458028Z  INFO metis_mcp_server: MCP Server starting on stdio transport

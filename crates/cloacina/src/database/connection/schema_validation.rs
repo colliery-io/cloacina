@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,7 +14,10 @@
  *  limitations under the License.
  */
 
-//! PostgreSQL schema validation to prevent SQL injection.
+//! PostgreSQL identifier validation to prevent SQL injection.
+//!
+//! This module provides validation functions for PostgreSQL identifiers
+//! (schema names, usernames, etc.) to ensure they cannot be used for SQL injection.
 
 use thiserror::Error;
 
@@ -105,6 +108,133 @@ pub fn validate_schema_name(name: &str) -> Result<&str, SchemaError> {
     }
 
     Ok(name)
+}
+
+// =============================================================================
+// Username Validation
+// =============================================================================
+
+/// Reserved PostgreSQL role names that cannot be used as tenant usernames.
+const RESERVED_USERNAMES: &[&str] = &[
+    "postgres",
+    "pg_database_owner",
+    "pg_read_all_data",
+    "pg_write_all_data",
+    "pg_read_all_settings",
+    "pg_read_all_stats",
+    "pg_stat_scan_tables",
+    "pg_monitor",
+    "pg_read_server_files",
+    "pg_write_server_files",
+    "pg_execute_server_program",
+    "pg_signal_backend",
+    "pg_checkpoint",
+];
+
+/// Errors that can occur during username validation.
+///
+/// These errors are returned when a username fails validation checks
+/// designed to prevent SQL injection attacks.
+#[derive(Debug, Error)]
+pub enum UsernameError {
+    /// Username is empty or exceeds the maximum length.
+    #[error("Username length invalid: '{name}' (must be 1-{max} characters)")]
+    InvalidLength { name: String, max: usize },
+
+    /// Username does not start with a letter or underscore.
+    #[error("Username must start with a letter or underscore: '{0}'")]
+    InvalidStart(String),
+
+    /// Username contains characters other than alphanumeric or underscore.
+    #[error(
+        "Username contains invalid characters (only alphanumeric and underscore allowed): '{0}'"
+    )]
+    InvalidCharacters(String),
+
+    /// Username is a reserved PostgreSQL role name.
+    #[error("Username is reserved: '{0}'")]
+    ReservedName(String),
+}
+
+/// Validates a PostgreSQL username to prevent SQL injection.
+///
+/// This function enforces PostgreSQL identifier naming rules:
+/// - Length must be between 1 and 63 characters
+/// - Must start with a letter (a-z, A-Z) or underscore
+/// - Subsequent characters must be alphanumeric or underscore
+/// - Cannot be a reserved PostgreSQL role name
+///
+/// # Arguments
+/// * `name` - The username to validate
+///
+/// # Returns
+/// * `Ok(&str)` - The validated username (zero-copy)
+/// * `Err(UsernameError)` - Description of the validation failure
+///
+/// # Example
+/// ```
+/// use cloacina::database::connection::validate_username;
+///
+/// assert!(validate_username("tenant_user").is_ok());
+/// assert!(validate_username("acme_admin").is_ok());
+/// assert!(validate_username("postgres").is_err()); // Reserved
+/// assert!(validate_username("123user").is_err()); // Starts with number
+/// assert!(validate_username("user; DROP TABLE users; --").is_err()); // SQL injection
+/// ```
+pub fn validate_username(name: &str) -> Result<&str, UsernameError> {
+    // Check length (same as schema names - PostgreSQL NAMEDATALEN)
+    if name.is_empty() || name.len() > MAX_SCHEMA_NAME_LENGTH {
+        return Err(UsernameError::InvalidLength {
+            name: name.to_string(),
+            max: MAX_SCHEMA_NAME_LENGTH,
+        });
+    }
+
+    // Must start with letter or underscore
+    let first_char = name.chars().next().unwrap(); // Safe: we checked non-empty above
+    if !first_char.is_ascii_alphabetic() && first_char != '_' {
+        return Err(UsernameError::InvalidStart(name.to_string()));
+    }
+
+    // Only allow alphanumeric and underscore
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(UsernameError::InvalidCharacters(name.to_string()));
+    }
+
+    // Reject reserved names (case-insensitive)
+    let lower_name = name.to_lowercase();
+    if RESERVED_USERNAMES.contains(&lower_name.as_str()) {
+        return Err(UsernameError::ReservedName(name.to_string()));
+    }
+
+    Ok(name)
+}
+
+// =============================================================================
+// Password Escaping
+// =============================================================================
+
+/// Escapes a password string for safe use in PostgreSQL SQL statements.
+///
+/// This function escapes single quotes by doubling them, which is the
+/// standard PostgreSQL escaping mechanism for string literals.
+///
+/// # Arguments
+/// * `password` - The password to escape
+///
+/// # Returns
+/// A new String with all single quotes escaped
+///
+/// # Example
+/// ```
+/// use cloacina::database::connection::escape_password;
+///
+/// assert_eq!(escape_password("simple"), "simple");
+/// assert_eq!(escape_password("pass'word"), "pass''word");
+/// assert_eq!(escape_password("it's a test"), "it''s a test");
+/// ```
+pub fn escape_password(password: &str) -> String {
+    password.replace('\'', "''")
 }
 
 #[cfg(test)]
@@ -336,5 +466,125 @@ mod tests {
             validate_schema_name("schema_\u{4E2D}"),
             Err(SchemaError::InvalidCharacters(_))
         ));
+    }
+
+    // =========================================================================
+    // Username Validation Tests
+    // =========================================================================
+
+    #[test]
+    fn test_valid_usernames() {
+        assert!(validate_username("tenant_user").is_ok());
+        assert!(validate_username("acme_admin").is_ok());
+        assert!(validate_username("user123").is_ok());
+        assert!(validate_username("_private_user").is_ok());
+        assert!(validate_username("a").is_ok());
+    }
+
+    #[test]
+    fn test_username_sql_injection_rejected() {
+        // Command injection with semicolon
+        assert!(matches!(
+            validate_username("admin'; DROP TABLE users; --"),
+            Err(UsernameError::InvalidCharacters(_))
+        ));
+
+        // Quote injection
+        assert!(matches!(
+            validate_username("user' OR '1'='1"),
+            Err(UsernameError::InvalidCharacters(_))
+        ));
+
+        // Comment injection
+        assert!(matches!(
+            validate_username("admin--"),
+            Err(UsernameError::InvalidCharacters(_))
+        ));
+
+        // Parentheses
+        assert!(matches!(
+            validate_username("user()"),
+            Err(UsernameError::InvalidCharacters(_))
+        ));
+
+        // Space
+        assert!(matches!(
+            validate_username("admin user"),
+            Err(UsernameError::InvalidCharacters(_))
+        ));
+    }
+
+    #[test]
+    fn test_reserved_usernames() {
+        assert!(matches!(
+            validate_username("postgres"),
+            Err(UsernameError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_username("POSTGRES"),
+            Err(UsernameError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_username("pg_read_all_data"),
+            Err(UsernameError::ReservedName(_))
+        ));
+        assert!(matches!(
+            validate_username("pg_monitor"),
+            Err(UsernameError::ReservedName(_))
+        ));
+    }
+
+    #[test]
+    fn test_username_invalid_length() {
+        assert!(matches!(
+            validate_username(""),
+            Err(UsernameError::InvalidLength { .. })
+        ));
+
+        let too_long = "a".repeat(64);
+        assert!(matches!(
+            validate_username(&too_long),
+            Err(UsernameError::InvalidLength { .. })
+        ));
+    }
+
+    #[test]
+    fn test_username_invalid_start() {
+        assert!(matches!(
+            validate_username("123user"),
+            Err(UsernameError::InvalidStart(_))
+        ));
+        assert!(matches!(
+            validate_username("-user"),
+            Err(UsernameError::InvalidStart(_))
+        ));
+    }
+
+    // =========================================================================
+    // Password Escaping Tests
+    // =========================================================================
+
+    #[test]
+    fn test_escape_password_no_quotes() {
+        assert_eq!(escape_password("simple"), "simple");
+        assert_eq!(escape_password("Password123"), "Password123");
+        assert_eq!(escape_password(""), "");
+    }
+
+    #[test]
+    fn test_escape_password_with_quotes() {
+        assert_eq!(escape_password("pass'word"), "pass''word");
+        assert_eq!(escape_password("it's a test"), "it''s a test");
+        assert_eq!(escape_password("'quoted'"), "''quoted''");
+        assert_eq!(escape_password("'''"), "''''''");
+    }
+
+    #[test]
+    fn test_escape_password_sql_injection_safe() {
+        // These would be dangerous without escaping
+        let dangerous = "'; DROP TABLE users; --";
+        let escaped = escape_password(dangerous);
+        assert_eq!(escaped, "''; DROP TABLE users; --");
+        // The doubled quote prevents the injection from working
     }
 }

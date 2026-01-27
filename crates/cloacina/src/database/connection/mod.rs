@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -53,7 +53,9 @@ mod schema_validation;
 
 // Re-export all public types
 pub use backend::{AnyConnection, AnyPool, BackendType};
-pub use schema_validation::{validate_schema_name, SchemaError};
+pub use schema_validation::{
+    escape_password, validate_schema_name, validate_username, SchemaError, UsernameError,
+};
 
 // Legacy type aliases - conditional on features
 #[cfg(feature = "postgres")]
