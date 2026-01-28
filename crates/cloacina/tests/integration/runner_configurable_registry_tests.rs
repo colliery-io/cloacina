@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -51,19 +51,17 @@ fn create_test_package() -> Vec<u8> {
 
 /// Helper to create a test runner config with the specified storage backend
 fn create_test_config(storage_backend: &str, temp_dir: Option<&TempDir>) -> DefaultRunnerConfig {
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_registry_reconciler = true;
-    config.registry_storage_backend = storage_backend.to_string();
+    let mut builder = DefaultRunnerConfig::builder()
+        .enable_registry_reconciler(true)
+        .registry_storage_backend(storage_backend)
+        .registry_reconcile_interval(Duration::from_millis(100))
+        .registry_enable_startup_reconciliation(false); // Disable for faster tests
 
     if let Some(dir) = temp_dir {
-        config.registry_storage_path = Some(dir.path().to_path_buf());
+        builder = builder.registry_storage_path(Some(dir.path().to_path_buf()));
     }
 
-    // Shorter timeouts for testing
-    config.registry_reconcile_interval = Duration::from_millis(100);
-    config.registry_enable_startup_reconciliation = false; // Disable for faster tests
-
-    config
+    builder.build()
 }
 
 /// Helper to get the appropriate database URL for testing
@@ -190,8 +188,13 @@ mod filesystem_tests {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let custom_registry_path = temp_dir.path().join("custom_registry");
 
-        let mut config = create_test_config("filesystem", None);
-        config.registry_storage_path = Some(custom_registry_path.clone());
+        let config = DefaultRunnerConfig::builder()
+            .enable_registry_reconciler(true)
+            .registry_storage_backend("filesystem")
+            .registry_storage_path(Some(custom_registry_path.clone()))
+            .registry_reconcile_interval(Duration::from_millis(100))
+            .registry_enable_startup_reconciliation(false)
+            .build();
 
         let db_url = get_database_url_for_test().await;
 
@@ -337,9 +340,9 @@ mod error_tests {
 
     #[tokio::test]
     async fn test_registry_disabled() {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let mut config = create_test_config("filesystem", Some(&temp_dir));
-        config.enable_registry_reconciler = false; // Disable registry
+        let config = DefaultRunnerConfig::builder()
+            .enable_registry_reconciler(false) // Disable registry
+            .build();
 
         let db_url = get_database_url_for_test().await;
 

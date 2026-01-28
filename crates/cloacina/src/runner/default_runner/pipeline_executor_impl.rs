@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -71,7 +71,7 @@ impl PipelineExecutor for DefaultRunner {
 
         loop {
             // Check timeout
-            if let Some(timeout) = self.config.pipeline_timeout {
+            if let Some(timeout) = self.config.pipeline_timeout() {
                 if start_time.elapsed() > timeout {
                     return Err(PipelineError::Timeout {
                         timeout_seconds: timeout.as_secs(),

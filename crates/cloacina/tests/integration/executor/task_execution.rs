@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -366,8 +366,9 @@ async fn test_task_executor_timeout_handling() {
     });
 
     // Create runner with short timeout and proper schema isolation
-    let mut config = DefaultRunnerConfig::default();
-    config.task_timeout = Duration::from_millis(500);
+    let config = DefaultRunnerConfig::builder()
+        .task_timeout(Duration::from_millis(500))
+        .build();
     let schema = fixture.get_schema();
     let runner = DefaultRunner::builder()
         .database_url(&database_url)

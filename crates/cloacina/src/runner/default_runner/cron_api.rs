@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ impl DefaultRunner {
         cron_expression: &str,
         timezone: &str,
     ) -> Result<UniversalUuid, PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled. Use enable_cron_scheduling(true) in config."
                     .to_string(),
@@ -127,7 +127,7 @@ impl DefaultRunner {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<crate::models::cron_schedule::CronSchedule>, PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -155,7 +155,7 @@ impl DefaultRunner {
         schedule_id: UniversalUuid,
         enabled: bool,
     ) -> Result<(), PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -184,7 +184,7 @@ impl DefaultRunner {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<(), PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -210,7 +210,7 @@ impl DefaultRunner {
         &self,
         schedule_id: UniversalUuid,
     ) -> Result<crate::models::cron_schedule::CronSchedule, PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -240,7 +240,7 @@ impl DefaultRunner {
         cron_expression: Option<&str>,
         timezone: Option<&str>,
     ) -> Result<(), PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -315,7 +315,7 @@ impl DefaultRunner {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<crate::models::cron_execution::CronExecution>, PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -341,7 +341,7 @@ impl DefaultRunner {
         &self,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<crate::dal::CronExecutionStats, PipelineError> {
-        if !self.config.enable_cron_scheduling {
+        if !self.config.enable_cron_scheduling() {
             return Err(PipelineError::Configuration {
                 message: "Cron scheduling not enabled.".to_string(),
             });
@@ -384,6 +384,6 @@ impl DefaultRunner {
 
     /// Check if the registry reconciler is enabled in the configuration
     pub fn is_registry_reconciler_enabled(&self) -> bool {
-        self.config.enable_registry_reconciler
+        self.config.enable_registry_reconciler()
     }
 }

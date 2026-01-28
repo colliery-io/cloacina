@@ -185,7 +185,7 @@ impl DefaultRunner {
         config: DefaultRunnerConfig,
     ) -> Result<Self, PipelineError> {
         // Initialize database
-        let database = Database::new(database_url, "cloacina", config.db_pool_size);
+        let database = Database::new(database_url, "cloacina", config.db_pool_size());
 
         // Run migrations
         database
@@ -195,14 +195,14 @@ impl DefaultRunner {
 
         // Create scheduler with global workflow registry (always dynamic)
         let scheduler =
-            TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval)
+            TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval())
                 .await
                 .map_err(|e| PipelineError::Executor(e.into()))?;
 
         // Create task executor
         let executor_config = ExecutorConfig {
-            max_concurrent_tasks: config.max_concurrent_tasks,
-            task_timeout: config.task_timeout,
+            max_concurrent_tasks: config.max_concurrent_tasks(),
+            task_timeout: config.task_timeout(),
         };
 
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
@@ -213,8 +213,8 @@ impl DefaultRunner {
         // Configure dispatcher for push-based task execution
         let dal = DAL::new(database.clone());
         let routing_config = config
-            .routing_config
-            .clone()
+            .routing_config()
+            .cloned()
             .unwrap_or_else(RoutingConfig::default);
         let dispatcher = DefaultDispatcher::new(dal, routing_config);
 

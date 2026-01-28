@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ impl DefaultRunner {
     /// Creates a tracing span for this runner instance with proper context
     pub(super) fn create_runner_span(&self, operation: &str) -> tracing::Span {
         if let (Some(runner_id), Some(runner_name)) =
-            (&self.config.runner_id, &self.config.runner_name)
+            (self.config.runner_id(), self.config.runner_name())
         {
             tracing::info_span!(
                 "runner_task",
@@ -110,18 +110,18 @@ impl DefaultRunner {
         handles.shutdown_sender = Some(shutdown_tx.clone());
 
         // Start cron services if enabled
-        if self.config.enable_cron_scheduling {
+        if self.config.enable_cron_scheduling() {
             self.start_cron_services(&mut handles, &shutdown_tx).await?;
         }
 
         // Start registry reconciler if enabled
-        if self.config.enable_registry_reconciler {
+        if self.config.enable_registry_reconciler() {
             self.start_registry_reconciler(&mut handles, &shutdown_tx)
                 .await?;
         }
 
         // Start trigger scheduler if enabled
-        if self.config.enable_trigger_scheduling {
+        if self.config.enable_trigger_scheduling() {
             self.start_trigger_services(&mut handles, &shutdown_tx)
                 .await?;
         }
@@ -142,8 +142,8 @@ impl DefaultRunner {
 
         // Create cron scheduler config
         let cron_config = CronSchedulerConfig {
-            poll_interval: self.config.cron_poll_interval,
-            max_catchup_executions: self.config.cron_max_catchup_executions,
+            poll_interval: self.config.cron_poll_interval(),
+            max_catchup_executions: self.config.cron_max_catchup_executions(),
             max_acceptable_delay: Duration::from_secs(300), // 5 minutes
         };
 
@@ -185,7 +185,7 @@ impl DefaultRunner {
         handles.cron_scheduler_handle = Some(cron_handle);
 
         // Start cron recovery service if enabled
-        if self.config.cron_enable_recovery {
+        if self.config.cron_enable_recovery() {
             self.start_cron_recovery(handles, shutdown_tx).await?;
         }
 
@@ -205,10 +205,10 @@ impl DefaultRunner {
 
         // Create recovery config
         let recovery_config = crate::CronRecoveryConfig {
-            check_interval: self.config.cron_recovery_interval,
-            lost_threshold_minutes: self.config.cron_lost_threshold_minutes,
-            max_recovery_age: self.config.cron_max_recovery_age,
-            max_recovery_attempts: self.config.cron_max_recovery_attempts,
+            check_interval: self.config.cron_recovery_interval(),
+            lost_threshold_minutes: self.config.cron_lost_threshold_minutes(),
+            max_recovery_age: self.config.cron_max_recovery_age(),
+            max_recovery_attempts: self.config.cron_max_recovery_attempts(),
             recover_disabled_schedules: false,
         };
 
@@ -265,20 +265,20 @@ impl DefaultRunner {
 
         // Create reconciler config
         let reconciler_config = ReconcilerConfig {
-            reconcile_interval: self.config.registry_reconcile_interval,
-            enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation,
+            reconcile_interval: self.config.registry_reconcile_interval(),
+            enable_startup_reconciliation: self.config.registry_enable_startup_reconciliation(),
             package_operation_timeout: Duration::from_secs(30),
             continue_on_package_error: true,
             default_tenant_id: "public".to_string(),
         };
 
         // Create storage backend based on configuration
-        let workflow_registry_result = match self.config.registry_storage_backend.as_str() {
+        let workflow_registry_result = match self.config.registry_storage_backend() {
             "filesystem" => {
                 let storage_path = self
                     .config
-                    .registry_storage_path
-                    .clone()
+                    .registry_storage_path()
+                    .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| std::env::temp_dir().join("cloacina_registry"));
 
                 match FilesystemRegistryStorage::new(storage_path) {
@@ -362,8 +362,8 @@ impl DefaultRunner {
 
         // Create trigger scheduler config
         let trigger_config = TriggerSchedulerConfig {
-            base_poll_interval: self.config.trigger_base_poll_interval,
-            poll_timeout: self.config.trigger_poll_timeout,
+            base_poll_interval: self.config.trigger_base_poll_interval(),
+            poll_timeout: self.config.trigger_poll_timeout(),
         };
 
         // Create TriggerScheduler with DefaultRunner as PipelineExecutor

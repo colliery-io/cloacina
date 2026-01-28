@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -78,8 +78,9 @@ async fn test_default_runner_cron_integration() {
     let database_url = fixture.get_database_url();
 
     // Create a runner with cron enabled
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_cron_scheduling = true;
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .build();
     let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
@@ -118,8 +119,9 @@ async fn test_cron_scheduler_startup_shutdown() {
     drop(fixture);
 
     // Create and start a runner with cron enabled
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_cron_scheduling = true;
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .build();
     let runner = DefaultRunner::with_config(&database_url, config)
         .await
         .unwrap();
