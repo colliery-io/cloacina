@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -1218,15 +1218,11 @@ pub fn generate_packaged_workflow_impl(
                     let registry = task_registry.read();
                     tracing::debug!("Task registry has {} entries", registry.len());
                     tracing::debug!("Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
-                    eprintln!("DEBUG: Task registry has {} entries", registry.len());
-                    eprintln!("DEBUG: Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
 
                     let mut found_tasks = 0;
                     for (namespace, task_constructor) in registry.iter() {
                         tracing::debug!("Found task: tenant={}, package={}, workflow={}, task={}",
                                        namespace.tenant_id, namespace.package_name, namespace.workflow_id, namespace.task_id);
-                        eprintln!("DEBUG: Found task: tenant={}, package={}, workflow={}, task={}",
-                                 namespace.tenant_id, namespace.package_name, namespace.workflow_id, namespace.task_id);
 
                         // Only include tasks from this package and tenant
                         if namespace.package_name == #package_name
@@ -1234,18 +1230,15 @@ pub fn generate_packaged_workflow_impl(
                             && namespace.tenant_id == tenant_id
                         {
                             tracing::debug!("Adding task {} to workflow", namespace.task_id);
-                            eprintln!("DEBUG: Adding task {} to workflow", namespace.task_id);
                             let task = task_constructor();
                             if let Err(e) = workflow.add_task(task) {
                                 tracing::warn!("Failed to add task {} to workflow: {:?}", namespace.task_id, e);
-                                eprintln!("Warning: Failed to add task {} to workflow: {:?}", namespace.task_id, e);
                             } else {
                                 found_tasks += 1;
                             }
                         }
                     }
                     tracing::debug!("Added {} tasks to workflow", found_tasks);
-                    eprintln!("DEBUG: Added {} tasks to workflow", found_tasks);
                 }
 
                 // Validate and finalize the workflow (following workflow! macro pattern)
