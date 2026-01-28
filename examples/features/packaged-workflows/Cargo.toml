@@ -6,19 +6,19 @@ edition = "2021"
 [workspace]
 
 [lib]
-crate-type = ["cdylib"]
-
-[features]
-default = ["postgres", "sqlite"]
-postgres = ["cloacina/postgres"]
-sqlite = ["cloacina/sqlite"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros"] }
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
 cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 serde_json = "1.0"
 async-trait = "0.1"
+futures = "0.3"  # Lightweight async executor for macro-generated code
+# User workflow dependencies:
 chrono = "0.4"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["time"] }
 ctor = "0.2"
 tracing = "0.1"
+
+[dev-dependencies]
+cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros", "sqlite"] }

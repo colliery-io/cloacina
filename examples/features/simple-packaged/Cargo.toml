@@ -6,21 +6,20 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
-
-[features]
-default = ["postgres", "sqlite"]
-postgres = ["cloacina/postgres"]
-sqlite = ["cloacina/sqlite"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros"] }
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
 cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["full"] }
-chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"  # Lightweight async executor for macro-generated code
+# User workflow dependencies (optional - only needed because this example uses them):
+tokio = { version = "1.0", features = ["time"] }  # For tokio::time::sleep in workflow
+chrono = { version = "0.4", features = ["serde"] }  # For timestamps in workflow data
 async-trait = "0.1"
-tempfile = "3.0"
 uuid = { version = "1.0", features = ["v4"] }
 tracing = "0.1"
+
+[dev-dependencies]
+cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros", "sqlite"] }
+tempfile = "3.0"

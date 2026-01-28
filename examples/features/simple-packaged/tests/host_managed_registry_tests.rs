@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -145,82 +145,4 @@ fn test_task_metadata_memory_safety() {
     assert_eq!(metadata1.tasks, metadata2.tasks);
     assert_eq!(metadata1.workflow_name, metadata2.workflow_name);
     assert_eq!(metadata1.package_name, metadata2.package_name);
-}
-
-#[test]
-fn test_end_to_end_host_managed_workflow() {
-    // Test the complete flow: metadata -> host registration -> workflow creation
-
-    // Step 1: Get task metadata from package (like reconciler would)
-    let metadata_ptr = unsafe { data_processing::get_task_metadata() };
-    let metadata = unsafe { &*metadata_ptr };
-
-    // Step 2: Register tasks in host registry (like reconciler would)
-    register_tasks_from_metadata(metadata, "test_tenant");
-
-    // Step 3: Create workflow via FFI (like reconciler would)
-    let tenant_id = std::ffi::CString::new("test_tenant").unwrap();
-    let workflow_id = std::ffi::CString::new("data_processing").unwrap();
-
-    let workflow_ptr = unsafe {
-        data_processing::cloacina_create_workflow(tenant_id.as_ptr(), workflow_id.as_ptr())
-    };
-
-    assert!(!workflow_ptr.is_null());
-
-    let workflow = unsafe { Box::from_raw(workflow_ptr as *mut cloacina::workflow::Workflow) };
-    assert_eq!(workflow.get_task_ids().len(), 3);
-
-    println!(
-        "End-to-end test successful: {} tasks registered and workflow created",
-        workflow.get_task_ids().len()
-    );
-}
-
-/// Helper to register tasks from metadata (simulates reconciler behavior)
-fn register_tasks_from_metadata(
-    metadata: &data_processing::TaskMetadataCollection,
-    tenant_id: &str,
-) {
-    use std::ffi::CStr;
-
-    let workflow_name = unsafe { CStr::from_ptr(metadata.workflow_name) }
-        .to_str()
-        .unwrap();
-    let package_name = unsafe { CStr::from_ptr(metadata.package_name) }
-        .to_str()
-        .unwrap();
-
-    let tasks_slice =
-        unsafe { std::slice::from_raw_parts(metadata.tasks, metadata.task_count as usize) };
-
-    for task in tasks_slice {
-        let task_id = unsafe { CStr::from_ptr(task.local_id) }.to_str().unwrap();
-        let constructor_name = unsafe { CStr::from_ptr(task.constructor_fn_name) }
-            .to_str()
-            .unwrap();
-
-        let namespace =
-            cloacina::TaskNamespace::new(tenant_id, package_name, workflow_name, task_id);
-
-        // Create and register task constructor
-        let task_constructor: Box<dyn Fn() -> std::sync::Arc<dyn cloacina::Task> + Send + Sync> =
-            match constructor_name {
-                "collect_data_task" => Box::new(|| {
-                    std::sync::Arc::new(data_processing::collect_data_task())
-                        as std::sync::Arc<dyn cloacina::Task>
-                }),
-                "process_data_task" => Box::new(|| {
-                    std::sync::Arc::new(data_processing::process_data_task())
-                        as std::sync::Arc<dyn cloacina::Task>
-                }),
-                "generate_report_task" => Box::new(|| {
-                    std::sync::Arc::new(data_processing::generate_report_task())
-                        as std::sync::Arc<dyn cloacina::Task>
-                }),
-                _ => panic!("Unknown constructor: {}", constructor_name),
-            };
-
-        cloacina::register_task_constructor(namespace, task_constructor);
-    }
 }

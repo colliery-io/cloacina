@@ -864,22 +864,15 @@ pub fn generate_packaged_workflow_impl(
                 };
 
                 // Execute the actual task by creating context from JSON
-                let mut context = match cloacina::Context::from_json(context_str.to_string()) {
+                let mut context = match cloacina_workflow::Context::from_json(context_str.to_string()) {
                     Ok(ctx) => ctx,
                     Err(e) => {
                         return write_error_result(&format!("Failed to create context from JSON: {}", e), result_buffer, result_capacity, result_len);
                     }
                 };
 
-                // Use an async runtime for task execution
-                let runtime = match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        return write_error_result(&format!("Failed to create async runtime: {}", e), result_buffer, result_capacity, result_len);
-                    }
-                };
-
-                let task_result = runtime.block_on(async {
+                // Use futures executor for async task execution (lighter than tokio)
+                let task_result = futures::executor::block_on(async {
                     match task_name_str {
                         #(#task_execution_cases)*
                         _ => Err(format!("Unknown task: {}", task_name_str))
@@ -1174,84 +1167,6 @@ pub fn generate_packaged_workflow_impl(
             #[no_mangle]
             pub extern "C" fn #metadata_abi_name() -> *const #metadata_struct_name {
                 Box::leak(Box::new(get_package_metadata()))
-            }
-
-            /// Create a workflow instance from this package
-            ///
-            /// This function is called by the registry reconciler to create
-            /// a workflow instance that can be executed by the scheduler.
-            #[no_mangle]
-            pub extern "C" fn cloacina_create_workflow(
-                tenant_id: *const std::os::raw::c_char,
-                workflow_id: *const std::os::raw::c_char,
-            ) -> *const cloacina::workflow::Workflow {
-                use std::ffi::CStr;
-
-                // Validate input pointers
-                if tenant_id.is_null() || workflow_id.is_null() {
-                    return std::ptr::null();
-                }
-
-                // Convert C strings to Rust strings
-                let tenant_id = unsafe {
-                    match CStr::from_ptr(tenant_id).to_str() {
-                        Ok(s) => s,
-                        Err(_) => return std::ptr::null(),
-                    }
-                };
-
-                let workflow_id = unsafe {
-                    match CStr::from_ptr(workflow_id).to_str() {
-                        Ok(s) => s,
-                        Err(_) => return std::ptr::null(),
-                    }
-                };
-
-                // Create workflow and add registered tasks (following workflow! macro pattern)
-                let mut workflow = cloacina::workflow::Workflow::new(#workflow_name);
-                workflow.set_tenant(tenant_id);
-                workflow.set_package(#package_name);
-
-                // Add tasks from the task registry to the workflow
-                let task_registry = cloacina::task::global_task_registry();
-                {
-                    let registry = task_registry.read();
-                    tracing::debug!("Task registry has {} entries", registry.len());
-                    tracing::debug!("Looking for tasks with package={}, workflow={}, tenant={}", #package_name, #workflow_name, tenant_id);
-
-                    let mut found_tasks = 0;
-                    for (namespace, task_constructor) in registry.iter() {
-                        tracing::debug!("Found task: tenant={}, package={}, workflow={}, task={}",
-                                       namespace.tenant_id, namespace.package_name, namespace.workflow_id, namespace.task_id);
-
-                        // Only include tasks from this package and tenant
-                        if namespace.package_name == #package_name
-                            && namespace.workflow_id == #workflow_name
-                            && namespace.tenant_id == tenant_id
-                        {
-                            tracing::debug!("Adding task {} to workflow", namespace.task_id);
-                            let task = task_constructor();
-                            if let Err(e) = workflow.add_task(task) {
-                                tracing::warn!("Failed to add task {} to workflow: {:?}", namespace.task_id, e);
-                            } else {
-                                found_tasks += 1;
-                            }
-                        }
-                    }
-                    tracing::debug!("Added {} tasks to workflow", found_tasks);
-                }
-
-                // Validate and finalize the workflow (following workflow! macro pattern)
-                match workflow.validate() {
-                    Ok(_) => {
-                        let finalized_workflow = workflow.finalize();
-                        Box::into_raw(Box::new(finalized_workflow))
-                    }
-                    Err(_) => {
-                        // If validation fails, return null
-                        std::ptr::null()
-                    }
-                }
             }
         }
     }

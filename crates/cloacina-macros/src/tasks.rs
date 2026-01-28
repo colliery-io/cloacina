@@ -218,18 +218,18 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     // and indirect dependencies through cloacina's re-export
     let backoff_strategy = match attrs.retry_backoff.as_deref() {
         Some("fixed") => quote! {
-            ::cloacina::cloacina_workflow::BackoffStrategy::Fixed
+            ::cloacina_workflow::BackoffStrategy::Fixed
         },
         Some("linear") => quote! {
-            ::cloacina::cloacina_workflow::BackoffStrategy::Linear { multiplier: 1.0 }
+            ::cloacina_workflow::BackoffStrategy::Linear { multiplier: 1.0 }
         },
         Some("exponential") | None => quote! {
-            ::cloacina::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
+            ::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
         },
         Some(_other) => {
             // Custom backoff - for now, default to exponential
             quote! {
-                ::cloacina::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
+                ::cloacina_workflow::BackoffStrategy::Exponential { base: 2.0, multiplier: 1.0 }
             }
         }
     };
@@ -237,19 +237,19 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     // Generate retry condition
     let retry_condition = match attrs.retry_condition.as_deref() {
         Some("never") => quote! {
-            vec![::cloacina::cloacina_workflow::RetryCondition::Never]
+            vec![::cloacina_workflow::RetryCondition::Never]
         },
         Some("all") | None => quote! {
-            vec![::cloacina::cloacina_workflow::RetryCondition::AllErrors]
+            vec![::cloacina_workflow::RetryCondition::AllErrors]
         },
         Some("transient") => quote! {
-            vec![::cloacina::cloacina_workflow::RetryCondition::TransientOnly]
+            vec![::cloacina_workflow::RetryCondition::TransientOnly]
         },
         Some(patterns) => {
             // Parse comma-separated patterns
             let pattern_list: Vec<&str> = patterns.split(',').map(|s| s.trim()).collect();
             quote! {
-                vec![::cloacina::cloacina_workflow::RetryCondition::ErrorPattern {
+                vec![::cloacina_workflow::RetryCondition::ErrorPattern {
                     patterns: vec![#(#pattern_list.to_string()),*]
                 }]
             }
@@ -257,7 +257,7 @@ pub fn generate_retry_policy_code(attrs: &TaskAttributes) -> TokenStream2 {
     };
 
     quote! {
-        ::cloacina::cloacina_workflow::RetryPolicy {
+        ::cloacina_workflow::RetryPolicy {
             max_attempts: #max_attempts,
             initial_delay: std::time::Duration::from_millis(#initial_delay_ms as u64),
             max_delay: std::time::Duration::from_millis(#max_delay_ms as u64),
@@ -669,7 +669,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         // Generate the task struct
         #[derive(Debug)]
         #fn_vis struct #task_struct_name {
-            dependencies: Vec<::cloacina::cloacina_workflow::TaskNamespace>,
+            dependencies: Vec<::cloacina_workflow::TaskNamespace>,
         }
 
         impl #task_struct_name {
@@ -679,7 +679,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 }
             }
 
-            pub fn with_dependencies(mut self, dependencies: Vec<::cloacina::cloacina_workflow::TaskNamespace>) -> Self {
+            pub fn with_dependencies(mut self, dependencies: Vec<::cloacina_workflow::TaskNamespace>) -> Self {
                 self.dependencies = dependencies;
                 self
             }
@@ -694,7 +694,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
             }
 
             /// Create the retry policy based on macro attributes
-            pub fn create_retry_policy(&self) -> ::cloacina::cloacina_workflow::RetryPolicy {
+            pub fn create_retry_policy(&self) -> ::cloacina_workflow::RetryPolicy {
                 #generate_retry_policy
             }
 
@@ -706,9 +706,9 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
 
         #[async_trait::async_trait]
-        impl ::cloacina::cloacina_workflow::Task for #task_struct_name {
-            async fn execute(&self, mut context: ::cloacina::cloacina_workflow::Context<serde_json::Value>)
-                -> Result<::cloacina::cloacina_workflow::Context<serde_json::Value>, ::cloacina::cloacina_workflow::TaskError> {
+        impl ::cloacina_workflow::Task for #task_struct_name {
+            async fn execute(&self, mut context: ::cloacina_workflow::Context<serde_json::Value>)
+                -> Result<::cloacina_workflow::Context<serde_json::Value>, ::cloacina_workflow::TaskError> {
 
                 // Convert the result to our expected format
                 match #execute_body {
@@ -717,7 +717,7 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                         Ok(context)
                     },
                     Err(e) => {
-                        let task_error = ::cloacina::cloacina_workflow::TaskError::ExecutionFailed {
+                        let task_error = ::cloacina_workflow::TaskError::ExecutionFailed {
                             message: format!("{:?}", e),
                             task_id: #task_id.to_string(),
                             timestamp: chrono::Utc::now(),
@@ -732,11 +732,11 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
                 #task_id
             }
 
-            fn dependencies(&self) -> &[::cloacina::cloacina_workflow::TaskNamespace] {
+            fn dependencies(&self) -> &[::cloacina_workflow::TaskNamespace] {
                 &self.dependencies
             }
 
-            fn retry_policy(&self) -> ::cloacina::cloacina_workflow::RetryPolicy {
+            fn retry_policy(&self) -> ::cloacina_workflow::RetryPolicy {
                 self.create_retry_policy()
             }
 
