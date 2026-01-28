@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -299,28 +299,35 @@ impl TaskDecorator {
         let (tenant_id, package_name, workflow_id) = context.as_components();
         let namespace =
             cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
-        cloacina::register_task_constructor(namespace.clone(), {
-            let task_id_clone = task_id.clone();
-            let deps_clone = deps.clone();
-            let policy_clone = policy.clone();
-            let function_arc = shared_function.clone();
-            let on_success_arc = shared_on_success.clone();
-            let on_failure_arc = shared_on_failure.clone();
-            move || {
-                let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
-                let on_success_clone =
-                    Python::with_gil(|py| on_success_arc.as_ref().map(|f| f.clone_ref(py)));
-                let on_failure_clone =
-                    Python::with_gil(|py| on_failure_arc.as_ref().map(|f| f.clone_ref(py)));
-                Arc::new(PythonTaskWrapper {
-                    id: task_id_clone.clone(),
-                    dependencies: deps_clone.clone(),
-                    retry_policy: policy_clone.clone(),
-                    python_function: function_clone,
-                    on_success_callback: on_success_clone,
-                    on_failure_callback: on_failure_clone,
-                }) as Arc<dyn cloacina::Task>
-            }
+
+        // Release GIL before acquiring Rust locks to prevent deadlock.
+        // Without this, a deadlock can occur:
+        //   Thread A (here): holds GIL -> wants registry write lock
+        //   Thread B (executor): holds registry read lock -> wants GIL (in constructor)
+        py.allow_threads(|| {
+            cloacina::register_task_constructor(namespace.clone(), {
+                let task_id_clone = task_id.clone();
+                let deps_clone = deps.clone();
+                let policy_clone = policy.clone();
+                let function_arc = shared_function.clone();
+                let on_success_arc = shared_on_success.clone();
+                let on_failure_arc = shared_on_failure.clone();
+                move || {
+                    let function_clone = Python::with_gil(|py| function_arc.clone_ref(py));
+                    let on_success_clone =
+                        Python::with_gil(|py| on_success_arc.as_ref().map(|f| f.clone_ref(py)));
+                    let on_failure_clone =
+                        Python::with_gil(|py| on_failure_arc.as_ref().map(|f| f.clone_ref(py)));
+                    Arc::new(PythonTaskWrapper {
+                        id: task_id_clone.clone(),
+                        dependencies: deps_clone.clone(),
+                        retry_policy: policy_clone.clone(),
+                        python_function: function_clone,
+                        on_success_callback: on_success_clone,
+                        on_failure_callback: on_failure_clone,
+                    }) as Arc<dyn cloacina::Task>
+                }
+            });
         });
 
         // Store task ID for the current workflow to add later
