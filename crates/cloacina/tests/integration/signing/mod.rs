@@ -14,26 +14,15 @@
  *  limitations under the License.
  */
 
-// This file is intentionally left empty.
-// It serves as the entry point for integration tests in this directory.
+//! Integration tests for package signing and verification.
+//!
+//! These tests verify the complete signing workflow including:
+//! - Sign and verify packages
+//! - Trust chain resolution via ACLs
+//! - Key rotation workflows
+//! - Security failure cases (tampered packages, untrusted signers, revoked keys)
 
-pub mod context;
-pub mod dal;
-pub mod database;
-pub mod error;
-pub mod executor;
-pub mod logging;
-pub mod models;
-pub mod packaging;
-pub mod packaging_inspection;
-pub mod registry_simple_functional_test;
-pub mod registry_storage_tests;
-pub mod registry_workflow_registry_tests;
-pub mod runner_configurable_registry_tests;
-pub mod scheduler;
-pub mod signing;
-pub mod task;
-pub mod workflow;
-
-#[path = "../fixtures.rs"]
-mod fixtures;
+mod key_rotation;
+mod security_failures;
+mod sign_and_verify;
+mod trust_chain;

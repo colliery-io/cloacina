@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -485,6 +485,7 @@ pub mod context;
 pub mod cron_evaluator;
 pub mod cron_recovery;
 pub mod cron_scheduler;
+pub mod crypto;
 pub mod dal;
 pub mod database;
 pub mod dispatcher;
@@ -497,6 +498,7 @@ pub mod packaging;
 pub mod registry;
 pub mod retry;
 pub mod runner;
+pub mod security;
 pub mod task;
 pub mod task_scheduler;
 pub mod trigger;

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -19,7 +19,11 @@
 //! These models use the unified schema with DbUuid, DbTimestamp, DbBool custom
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
-use crate::database::schema::unified::*;
+use crate::database::schema::unified::{
+    contexts, cron_executions, cron_schedules, key_trust_acls, package_signatures,
+    pipeline_executions, recovery_events, signing_keys, task_execution_metadata, task_executions,
+    trigger_executions, trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
+};
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
 };
@@ -364,6 +368,109 @@ pub struct NewUnifiedWorkflowPackage {
 }
 
 // ============================================================================
+// Signing Key Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = signing_keys)]
+pub struct UnifiedSigningKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub key_name: String,
+    pub encrypted_private_key: UniversalBinary,
+    pub public_key: UniversalBinary,
+    pub key_fingerprint: String,
+    pub created_at: UniversalTimestamp,
+    pub revoked_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = signing_keys)]
+pub struct NewUnifiedSigningKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub key_name: String,
+    pub encrypted_private_key: UniversalBinary,
+    pub public_key: UniversalBinary,
+    pub key_fingerprint: String,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Trusted Key Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = trusted_keys)]
+pub struct UnifiedTrustedKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub key_fingerprint: String,
+    pub public_key: UniversalBinary,
+    pub key_name: Option<String>,
+    pub trusted_at: UniversalTimestamp,
+    pub revoked_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = trusted_keys)]
+pub struct NewUnifiedTrustedKey {
+    pub id: UniversalUuid,
+    pub org_id: UniversalUuid,
+    pub key_fingerprint: String,
+    pub public_key: UniversalBinary,
+    pub key_name: Option<String>,
+    pub trusted_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Key Trust ACL Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = key_trust_acls)]
+pub struct UnifiedKeyTrustAcl {
+    pub id: UniversalUuid,
+    pub parent_org_id: UniversalUuid,
+    pub child_org_id: UniversalUuid,
+    pub granted_at: UniversalTimestamp,
+    pub revoked_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = key_trust_acls)]
+pub struct NewUnifiedKeyTrustAcl {
+    pub id: UniversalUuid,
+    pub parent_org_id: UniversalUuid,
+    pub child_org_id: UniversalUuid,
+    pub granted_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Package Signature Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = package_signatures)]
+pub struct UnifiedPackageSignature {
+    pub id: UniversalUuid,
+    pub package_hash: String,
+    pub key_fingerprint: String,
+    pub signature: UniversalBinary,
+    pub signed_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = package_signatures)]
+pub struct NewUnifiedPackageSignature {
+    pub id: UniversalUuid,
+    pub package_hash: String,
+    pub key_fingerprint: String,
+    pub signature: UniversalBinary,
+    pub signed_at: UniversalTimestamp,
+}
+
+// ============================================================================
 // Conversion to Domain Models
 // ============================================================================
 // Since unified models use Universal* types directly, conversion to domain
@@ -372,12 +479,16 @@ pub struct NewUnifiedWorkflowPackage {
 use crate::models::context::DbContext;
 use crate::models::cron_execution::CronExecution;
 use crate::models::cron_schedule::CronSchedule;
+use crate::models::key_trust_acl::KeyTrustAcl;
+use crate::models::package_signature::PackageSignature;
 use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::RecoveryEvent;
+use crate::models::signing_key::SigningKey;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
 use crate::models::trigger_execution::TriggerExecution;
 use crate::models::trigger_schedule::TriggerSchedule;
+use crate::models::trusted_key::TrustedKey;
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
 
@@ -553,6 +664,59 @@ impl From<UnifiedTriggerExecution> for TriggerExecution {
             completed_at: u.completed_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedSigningKey> for SigningKey {
+    fn from(u: UnifiedSigningKey) -> Self {
+        SigningKey {
+            id: u.id,
+            org_id: u.org_id,
+            key_name: u.key_name,
+            encrypted_private_key: u.encrypted_private_key.into_inner(),
+            public_key: u.public_key.into_inner(),
+            key_fingerprint: u.key_fingerprint,
+            created_at: u.created_at,
+            revoked_at: u.revoked_at,
+        }
+    }
+}
+
+impl From<UnifiedTrustedKey> for TrustedKey {
+    fn from(u: UnifiedTrustedKey) -> Self {
+        TrustedKey {
+            id: u.id,
+            org_id: u.org_id,
+            key_fingerprint: u.key_fingerprint,
+            public_key: u.public_key.into_inner(),
+            key_name: u.key_name,
+            trusted_at: u.trusted_at,
+            revoked_at: u.revoked_at,
+        }
+    }
+}
+
+impl From<UnifiedKeyTrustAcl> for KeyTrustAcl {
+    fn from(u: UnifiedKeyTrustAcl) -> Self {
+        KeyTrustAcl {
+            id: u.id,
+            parent_org_id: u.parent_org_id,
+            child_org_id: u.child_org_id,
+            granted_at: u.granted_at,
+            revoked_at: u.revoked_at,
+        }
+    }
+}
+
+impl From<UnifiedPackageSignature> for PackageSignature {
+    fn from(u: UnifiedPackageSignature) -> Self {
+        PackageSignature {
+            id: u.id,
+            package_hash: u.package_hash,
+            key_fingerprint: u.key_fingerprint,
+            signature: u.signature.into_inner(),
+            signed_at: u.signed_at,
         }
     }
 }

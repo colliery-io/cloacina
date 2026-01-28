@@ -14,26 +14,18 @@
  *  limitations under the License.
  */
 
-// This file is intentionally left empty.
-// It serves as the entry point for integration tests in this directory.
+//! Cryptographic utilities for package signing.
+//!
+//! This module provides:
+//! - Ed25519 key generation and signing
+//! - AES-256-GCM encryption for private key storage at rest
+//! - Key fingerprint computation
 
-pub mod context;
-pub mod dal;
-pub mod database;
-pub mod error;
-pub mod executor;
-pub mod logging;
-pub mod models;
-pub mod packaging;
-pub mod packaging_inspection;
-pub mod registry_simple_functional_test;
-pub mod registry_storage_tests;
-pub mod registry_workflow_registry_tests;
-pub mod runner_configurable_registry_tests;
-pub mod scheduler;
-pub mod signing;
-pub mod task;
-pub mod workflow;
+mod key_encryption;
+mod signing;
 
-#[path = "../fixtures.rs"]
-mod fixtures;
+pub use key_encryption::{decrypt_private_key, encrypt_private_key, KeyEncryptionError};
+pub use signing::{
+    compute_key_fingerprint, generate_signing_keypair, sign_package, verify_signature,
+    GeneratedKeypair, SigningError,
+};

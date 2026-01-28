@@ -1,3 +1,5 @@
 crate
+keypair
+keypairs
 TE
 ser

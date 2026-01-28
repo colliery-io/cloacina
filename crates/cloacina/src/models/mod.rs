@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -80,3 +80,9 @@ pub mod trigger_execution;
 pub mod trigger_schedule;
 pub mod workflow_packages;
 pub mod workflow_registry;
+
+// Package signing models
+pub mod key_trust_acl;
+pub mod package_signature;
+pub mod signing_key;
+pub mod trusted_key;

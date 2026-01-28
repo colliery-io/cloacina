@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -210,6 +210,67 @@ mod unified_schema {
         }
     }
 
+    // =========================================================================
+    // Package Signing Tables
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        signing_keys (id) {
+            id -> DbUuid,
+            org_id -> DbUuid,
+            key_name -> Text,
+            encrypted_private_key -> DbBinary,
+            public_key -> DbBinary,
+            key_fingerprint -> Text,
+            created_at -> DbTimestamp,
+            revoked_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        trusted_keys (id) {
+            id -> DbUuid,
+            org_id -> DbUuid,
+            key_fingerprint -> Text,
+            public_key -> DbBinary,
+            key_name -> Nullable<Text>,
+            trusted_at -> DbTimestamp,
+            revoked_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        key_trust_acls (id) {
+            id -> DbUuid,
+            parent_org_id -> DbUuid,
+            child_org_id -> DbUuid,
+            granted_at -> DbTimestamp,
+            revoked_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        package_signatures (id) {
+            id -> DbUuid,
+            package_hash -> Text,
+            key_fingerprint -> Text,
+            signature -> DbBinary,
+            signed_at -> DbTimestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -225,12 +286,16 @@ mod unified_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        key_trust_acls,
+        package_signatures,
         pipeline_executions,
         recovery_events,
+        signing_keys,
         task_executions,
         task_execution_metadata,
         trigger_executions,
         trigger_schedules,
+        trusted_keys,
         workflow_packages,
         workflow_registry,
     );
@@ -397,6 +462,52 @@ mod postgres_schema {
         }
     }
 
+    // Package Signing Tables
+    diesel::table! {
+        signing_keys (id) {
+            id -> Uuid,
+            org_id -> Uuid,
+            key_name -> Varchar,
+            encrypted_private_key -> Bytea,
+            public_key -> Bytea,
+            key_fingerprint -> Varchar,
+            created_at -> Timestamp,
+            revoked_at -> Nullable<Timestamp>,
+        }
+    }
+
+    diesel::table! {
+        trusted_keys (id) {
+            id -> Uuid,
+            org_id -> Uuid,
+            key_fingerprint -> Varchar,
+            public_key -> Bytea,
+            key_name -> Nullable<Varchar>,
+            trusted_at -> Timestamp,
+            revoked_at -> Nullable<Timestamp>,
+        }
+    }
+
+    diesel::table! {
+        key_trust_acls (id) {
+            id -> Uuid,
+            parent_org_id -> Uuid,
+            child_org_id -> Uuid,
+            granted_at -> Timestamp,
+            revoked_at -> Nullable<Timestamp>,
+        }
+    }
+
+    diesel::table! {
+        package_signatures (id) {
+            id -> Uuid,
+            package_hash -> Varchar,
+            key_fingerprint -> Varchar,
+            signature -> Bytea,
+            signed_at -> Timestamp,
+        }
+    }
+
     #[cfg(feature = "auth")]
     diesel::table! {
         auth_tokens (token_id) {
@@ -450,12 +561,16 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        key_trust_acls,
+        package_signatures,
         pipeline_executions,
         recovery_events,
+        signing_keys,
         task_executions,
         task_execution_metadata,
         trigger_executions,
         trigger_schedules,
+        trusted_keys,
         workflow_packages,
         workflow_registry,
     );
@@ -467,12 +582,16 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        key_trust_acls,
+        package_signatures,
         pipeline_executions,
         recovery_events,
+        signing_keys,
         task_executions,
         task_execution_metadata,
         trigger_executions,
         trigger_schedules,
+        trusted_keys,
         workflow_packages,
         workflow_registry,
     );
@@ -635,6 +754,52 @@ mod sqlite_schema {
         }
     }
 
+    // Package Signing Tables
+    diesel::table! {
+        signing_keys (id) {
+            id -> Binary,
+            org_id -> Binary,
+            key_name -> Text,
+            encrypted_private_key -> Binary,
+            public_key -> Binary,
+            key_fingerprint -> Text,
+            created_at -> Text,
+            revoked_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        trusted_keys (id) {
+            id -> Binary,
+            org_id -> Binary,
+            key_fingerprint -> Text,
+            public_key -> Binary,
+            key_name -> Nullable<Text>,
+            trusted_at -> Text,
+            revoked_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        key_trust_acls (id) {
+            id -> Binary,
+            parent_org_id -> Binary,
+            child_org_id -> Binary,
+            granted_at -> Text,
+            revoked_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        package_signatures (id) {
+            id -> Binary,
+            package_hash -> Text,
+            key_fingerprint -> Text,
+            signature -> Binary,
+            signed_at -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -650,12 +815,16 @@ mod sqlite_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        key_trust_acls,
+        package_signatures,
         pipeline_executions,
         recovery_events,
+        signing_keys,
         task_executions,
         task_execution_metadata,
         trigger_executions,
         trigger_schedules,
+        trusted_keys,
     );
 }
 
