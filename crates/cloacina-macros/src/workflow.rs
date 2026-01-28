@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -210,30 +210,26 @@ pub fn generate_workflow_impl(attrs: WorkflowAttributes) -> TokenStream2 {
 
     // PHASE 1: Validate all tasks exist and detect cycles
     let validation_result = {
-        // Try to acquire the lock with a timeout approach to avoid hanging
-        match get_registry().try_lock() {
-            Ok(registry) => {
-                // Check that all referenced tasks exist - collect all errors first
-                let mut validation_errors = Vec::new();
-                for task_name in &task_strings {
-                    if let Err(e) = registry.validate_dependencies(task_name) {
-                        validation_errors.push(e);
-                    }
-                }
+        // Use blocking lock - validation is fast, so brief contention is acceptable.
+        // This ensures validation always runs, even during parallel compilation.
+        let registry = get_registry()
+            .lock()
+            .expect("compile-time task registry lock poisoned");
 
-                // Return first validation error if any
-                if let Some(first_error) = validation_errors.into_iter().next() {
-                    Err(first_error)
-                } else {
-                    // Run cycle detection on the entire graph
-                    registry.detect_cycles()
-                }
+        // Check that all referenced tasks exist - collect all errors first
+        let mut validation_errors = Vec::new();
+        for task_name in &task_strings {
+            if let Err(e) = registry.validate_dependencies(task_name) {
+                validation_errors.push(e);
             }
-            Err(_) => {
-                // If we can't acquire the lock, skip validation to avoid hanging
-                // This can happen during parallel compilation
-                Ok(())
-            }
+        }
+
+        // Return first validation error if any
+        if let Some(first_error) = validation_errors.into_iter().next() {
+            Err(first_error)
+        } else {
+            // Run cycle detection on the entire graph
+            registry.detect_cycles()
         }
     };
 
