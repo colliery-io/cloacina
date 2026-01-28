@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 //! Integration tests for workflow pause/resume functionality.
 
 use async_trait::async_trait;
-use cloacina::executor::pipeline_executor::PipelineStatus;
+use cloacina::executor::pipeline_executor::{PipelineExecution, PipelineStatus};
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::DefaultRunner;
 use cloacina::*;
@@ -27,6 +27,40 @@ use std::time::Duration;
 use tokio::time;
 
 use crate::fixtures::get_or_init_fixture;
+
+/// Helper to wait for a specific pipeline status without consuming the execution handle.
+/// Useful when you need to keep using the handle after waiting (e.g., to call pause/resume).
+async fn wait_for_status(
+    execution: &PipelineExecution,
+    target: impl Fn(&PipelineStatus) -> bool,
+    timeout: Duration,
+) -> Result<PipelineStatus, String> {
+    let start = std::time::Instant::now();
+    loop {
+        let status = execution
+            .get_status()
+            .await
+            .map_err(|e| format!("Failed to get status: {}", e))?;
+        if target(&status) {
+            return Ok(status);
+        }
+        if start.elapsed() > timeout {
+            return Err(format!(
+                "Timeout waiting for target status, current status: {:?}",
+                status
+            ));
+        }
+        time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Wait for the pipeline to reach a terminal state (Completed, Failed, or Cancelled)
+async fn wait_for_terminal(
+    execution: &PipelineExecution,
+    timeout: Duration,
+) -> Result<PipelineStatus, String> {
+    wait_for_status(execution, |s| s.is_terminal(), timeout).await
+}
 
 // Simple task for workflow construction
 #[derive(Debug)]
@@ -317,8 +351,10 @@ async fn test_resume_paused_pipeline() {
         "pause_reason should be cleared after resume"
     );
 
-    // Wait for completion
-    time::sleep(Duration::from_secs(1)).await;
+    // Wait for completion using event-based polling instead of arbitrary sleep
+    wait_for_terminal(&execution, Duration::from_secs(30))
+        .await
+        .expect("Pipeline should complete after resume");
 
     // Cleanup
     runner.shutdown().await.unwrap();
@@ -381,8 +417,10 @@ async fn test_pause_non_running_pipeline_fails() {
         .await
         .unwrap();
 
-    // Wait for pipeline to complete
-    time::sleep(Duration::from_secs(2)).await;
+    // Wait for pipeline to complete using event-based polling
+    wait_for_terminal(&execution, Duration::from_secs(30))
+        .await
+        .expect("Pipeline should complete");
 
     // Try to pause a completed pipeline - should fail
     let result = execution.pause(None).await;
@@ -449,8 +487,15 @@ async fn test_resume_non_paused_pipeline_fails() {
         .await
         .unwrap();
 
-    // Wait for pipeline to start running
-    time::sleep(Duration::from_millis(300)).await;
+    // Wait for pipeline to be picked up by scheduler (status becomes Running or stays Pending)
+    // We just need it to be non-Paused for the test
+    wait_for_status(
+        &execution,
+        |s| *s == PipelineStatus::Running || *s == PipelineStatus::Pending,
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("Pipeline should be scheduled");
 
     // Try to resume a running pipeline (not paused) - should fail
     let result = execution.resume().await;

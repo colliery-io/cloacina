@@ -27,7 +27,6 @@ mod postgres_multi_tenant_tests {
     use serde_json::Value;
     use std::env;
     use std::sync::Arc;
-    use std::time::Duration;
 
     /// Simple task that marks its tenant in the context
     #[task(id = "tenant_marker_task", dependencies = [])]
@@ -85,9 +84,10 @@ mod postgres_multi_tenant_tests {
         // Execute workflow in tenant A
         let context_a = Context::new();
         let execution_a = runner_a.execute_async(workflow_a.name(), context_a).await?;
+        let execution_a_id = execution_a.execution_id;
 
         // Wait for execution to complete
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        execution_a.wait_for_completion().await?;
 
         // Get DALs for each tenant to verify isolation
         let dal_a = DAL::new(runner_a.database().clone());
@@ -98,7 +98,7 @@ mod postgres_multi_tenant_tests {
         assert!(
             executions_a
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant A should see their own execution"
         );
 
@@ -107,16 +107,17 @@ mod postgres_multi_tenant_tests {
         assert!(
             !executions_b
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant B should NOT see tenant A's execution - isolation violated!"
         );
 
         // Now execute in tenant B
         let context_b = Context::new();
         let execution_b = runner_b.execute_async(workflow_b.name(), context_b).await?;
+        let execution_b_id = execution_b.execution_id;
 
         // Wait for execution to complete
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        execution_b.wait_for_completion().await?;
 
         // Refresh execution lists
         let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
@@ -126,13 +127,13 @@ mod postgres_multi_tenant_tests {
         assert!(
             executions_a
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant A should still see their own execution"
         );
         assert!(
             !executions_a
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_b.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_b_id)),
             "Tenant A should NOT see tenant B's execution"
         );
 
@@ -140,13 +141,13 @@ mod postgres_multi_tenant_tests {
         assert!(
             executions_b
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_b.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_b_id)),
             "Tenant B should see their own execution"
         );
         assert!(
             !executions_b
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant B should NOT see tenant A's execution"
         );
 
@@ -183,15 +184,22 @@ mod postgres_multi_tenant_tests {
 
         let execution_a = execution_a?;
         let execution_b = execution_b?;
+        let execution_a_id = execution_a.execution_id;
+        let execution_b_id = execution_b.execution_id;
 
         // Verify both executions have different IDs
         assert_ne!(
-            execution_a.execution_id, execution_b.execution_id,
+            execution_a_id, execution_b_id,
             "Each tenant should have unique execution IDs"
         );
 
-        // Wait for executions
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for executions to complete
+        let (result_a, result_b) = tokio::join!(
+            execution_a.wait_for_completion(),
+            execution_b.wait_for_completion()
+        );
+        result_a?;
+        result_b?;
 
         // Verify each tenant has exactly one execution
         let dal_a = DAL::new(runner_a.database().clone());
@@ -291,7 +299,6 @@ mod sqlite_multi_tenant_tests {
     use cloacina::{register_task_constructor, register_workflow_constructor};
     use serde_json::Value;
     use std::sync::Arc;
-    use std::time::Duration;
 
     /// Simple task for SQLite tests
     #[task(id = "sqlite_tenant_task", dependencies = [])]
@@ -350,9 +357,10 @@ mod sqlite_multi_tenant_tests {
         // Execute workflow in tenant A
         let context_a = Context::new();
         let execution_a = runner_a.execute_async(workflow_a.name(), context_a).await?;
+        let execution_a_id = execution_a.execution_id;
 
-        // Wait for execution
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for execution to complete
+        execution_a.wait_for_completion().await?;
 
         // Get DALs
         let dal_a = DAL::new(runner_a.database().clone());
@@ -363,7 +371,7 @@ mod sqlite_multi_tenant_tests {
         assert!(
             executions_a
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant A should see their own execution"
         );
 
@@ -372,15 +380,17 @@ mod sqlite_multi_tenant_tests {
         assert!(
             !executions_b
                 .iter()
-                .any(|e| e.id == UniversalUuid(execution_a.execution_id)),
+                .any(|e| e.id == UniversalUuid(execution_a_id)),
             "Tenant B should NOT see tenant A's execution - file isolation"
         );
 
         // Execute in tenant B
         let context_b = Context::new();
         let execution_b = runner_b.execute_async(workflow_b.name(), context_b).await?;
+        let execution_b_id = execution_b.execution_id;
 
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Wait for execution to complete
+        execution_b.wait_for_completion().await?;
 
         // Verify isolation after both execute
         let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
@@ -389,18 +399,18 @@ mod sqlite_multi_tenant_tests {
         // Tenant A only sees A's execution
         assert!(executions_a
             .iter()
-            .any(|e| e.id == UniversalUuid(execution_a.execution_id)));
+            .any(|e| e.id == UniversalUuid(execution_a_id)));
         assert!(!executions_a
             .iter()
-            .any(|e| e.id == UniversalUuid(execution_b.execution_id)));
+            .any(|e| e.id == UniversalUuid(execution_b_id)));
 
         // Tenant B only sees B's execution
         assert!(executions_b
             .iter()
-            .any(|e| e.id == UniversalUuid(execution_b.execution_id)));
+            .any(|e| e.id == UniversalUuid(execution_b_id)));
         assert!(!executions_b
             .iter()
-            .any(|e| e.id == UniversalUuid(execution_a.execution_id)));
+            .any(|e| e.id == UniversalUuid(execution_a_id)));
 
         // Shutdown executors
         runner_a.shutdown().await?;

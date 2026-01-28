@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use serde_json::Value;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::fixtures::get_or_init_fixture;
 
@@ -220,8 +219,8 @@ async fn test_context_merging_latest_wins() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for all tasks to execute
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Wait for workflow completion
+    execution.wait_for_completion().await.unwrap();
 
     // Check merger task results
     let dal = cloacina::dal::DAL::new(database.clone());
@@ -336,8 +335,8 @@ async fn test_execution_scope_context_setup() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for execution
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for workflow completion
+    execution.wait_for_completion().await.unwrap();
 
     // Check that scope information was captured
     let dal = cloacina::dal::DAL::new(database.clone());
