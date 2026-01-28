@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -60,6 +60,12 @@ use crate::TriggerScheduler;
 ///
 /// The runner maintains its own runtime state and manages the lifecycle of
 /// background services for scheduling and task execution.
+///
+/// # Shutdown
+///
+/// Call [`shutdown()`](Self::shutdown) before dropping to gracefully stop
+/// background tasks and release database connections.
+#[must_use = "DefaultRunner runs background tasks; call shutdown() before dropping"]
 pub struct DefaultRunner {
     /// Database connection for persistence and state management
     pub(super) database: Database,
