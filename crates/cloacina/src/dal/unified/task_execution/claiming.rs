@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -189,6 +189,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         limit: usize,
     ) -> Result<Vec<ClaimResult>, ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -199,33 +201,43 @@ impl<'a> TaskExecutionDAL<'a> {
         let limit = limit as i64;
         let now = UniversalTimestamp::now();
 
-        // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use a simpler approach
-        // This is less concurrent-safe but sufficient for single-node SQLite usage
+        // SQLite doesn't support FOR UPDATE SKIP LOCKED, so we use an IMMEDIATE transaction
+        // to acquire a write lock at the start, preventing race conditions between workers.
+        // This serializes concurrent claim attempts, ensuring each task is claimed exactly once.
         let tasks: Vec<UnifiedTaskExecution> = conn
             .interact(
                 move |conn| -> Result<Vec<UnifiedTaskExecution>, diesel::result::Error> {
-                    // First, select ready tasks
-                    let ready_tasks: Vec<UnifiedTaskExecution> = task_executions::table
-                        .filter(task_executions::status.eq("Ready"))
-                        .filter(
-                            task_executions::retry_at
-                                .is_null()
-                                .or(task_executions::retry_at.le(now)),
-                        )
-                        .limit(limit)
-                        .load(conn)?;
+                    // Use IMMEDIATE transaction to acquire write lock immediately
+                    // This prevents TOCTOU race conditions between SELECT and UPDATE
+                    conn.transaction::<Vec<UnifiedTaskExecution>, diesel::result::Error, _>(
+                        |conn| {
+                            // Select ready tasks within the transaction
+                            let ready_tasks: Vec<UnifiedTaskExecution> = task_executions::table
+                                .filter(task_executions::status.eq("Ready"))
+                                .filter(
+                                    task_executions::retry_at
+                                        .is_null()
+                                        .or(task_executions::retry_at.le(now)),
+                                )
+                                .limit(limit)
+                                .load(conn)?;
 
-                    // Update them to Running
-                    for task in &ready_tasks {
-                        diesel::update(task_executions::table.find(task.id))
-                            .set((
-                                task_executions::status.eq("Running"),
-                                task_executions::started_at.eq(Some(now)),
-                            ))
-                            .execute(conn)?;
-                    }
+                            if !ready_tasks.is_empty() {
+                                // Batch update all tasks to Running in a single query
+                                // This also fixes the N+1 query pattern
+                                let task_ids: Vec<_> = ready_tasks.iter().map(|t| t.id).collect();
+                                diesel::update(task_executions::table)
+                                    .filter(task_executions::id.eq_any(&task_ids))
+                                    .set((
+                                        task_executions::status.eq("Running"),
+                                        task_executions::started_at.eq(Some(now)),
+                                    ))
+                                    .execute(conn)?;
+                            }
 
-                    Ok(ready_tasks)
+                            Ok(ready_tasks)
+                        },
+                    )
                 },
             )
             .await

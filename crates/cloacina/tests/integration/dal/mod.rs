@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 
 pub mod context;
+pub mod task_claiming;
 pub mod workflow_packages;
 pub mod workflow_registry;
 pub mod workflow_registry_reconciler_integration;
