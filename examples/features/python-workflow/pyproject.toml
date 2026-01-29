@@ -1,0 +1,14 @@
+[project]
+name = "data-pipeline-example"
+version = "1.0.0"
+description = "Example Python workflow for Cloacina"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.cloaca]
+entry_module = "data_pipeline.tasks"

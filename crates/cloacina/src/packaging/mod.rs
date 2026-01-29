@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,6 +24,8 @@ pub mod archive;
 pub mod compile;
 pub mod debug;
 pub mod manifest;
+pub mod manifest_v2;
+pub mod platform;
 pub mod types;
 pub mod validation;
 
@@ -34,6 +36,11 @@ pub use archive::create_package_archive;
 pub use compile::compile_workflow;
 pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
 pub use manifest::generate_manifest;
+pub use manifest_v2::{
+    ManifestV2, ManifestValidationError, PackageInfoV2, PackageLanguage, PythonRuntime,
+    RustRuntime, TaskDefinitionV2,
+};
+pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
 pub use types::CompileOptions;
 pub use types::{CargoToml, CompileResult, PackageManifest};
 

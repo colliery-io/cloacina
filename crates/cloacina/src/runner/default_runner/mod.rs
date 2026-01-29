@@ -32,7 +32,7 @@ mod pipeline_executor_impl;
 mod pipeline_result;
 mod services;
 
-pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig};
+pub use config::{DefaultRunnerBuilder, DefaultRunnerConfig, DefaultRunnerConfigBuilder};
 
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};

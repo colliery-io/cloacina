@@ -27,7 +27,7 @@ def get_rust_feature_directories():
         return []
     # Exclude validation-failures as it has multiple binaries and is not meant to be executed directly
     # Exclude packaged workflow examples as they are libraries, not runnable binaries
-    excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged"}
+    excluded = {"validation-failures", "complex-dag", "packaged-workflows", "simple-packaged", "python-workflow"}
     return [
         d.name for d in features_dir.iterdir()
         if d.is_dir() and d.name not in excluded

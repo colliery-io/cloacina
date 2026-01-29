@@ -14,20 +14,13 @@
  *  limitations under the License.
  */
 
-//! Package loader module for workflow registry.
+//! Python task execution interface for workflow packages.
 //!
-//! This module provides functionality to load workflow packages (.so files),
-//! extract metadata, validate package integrity, and register tasks with the
-//! global task registry.
+//! This module defines the trait and types used to execute Python tasks
+//! from extracted `.cloacina` packages. The actual PyO3 implementation
+//! lives in the `cloaca-backend` crate; this module provides the
+//! contract that the backend must satisfy.
 
-pub mod package_loader;
-pub mod python_loader;
-pub mod task_registrar;
-pub mod validator;
+pub mod executor;
 
-pub use package_loader::PackageLoader;
-pub use python_loader::{
-    detect_package_kind, extract_python_package, peek_manifest, ExtractedPythonPackage, PackageKind,
-};
-pub use task_registrar::TaskRegistrar;
-pub use validator::PackageValidator;
+pub use executor::{PythonExecutionError, PythonTaskExecutor, PythonTaskResult};

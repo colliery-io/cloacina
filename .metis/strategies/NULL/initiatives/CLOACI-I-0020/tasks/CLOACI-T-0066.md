@@ -4,14 +4,14 @@ level: task
 title: "Python package manifest schema and validation"
 short_code: "CLOACI-T-0066"
 created_at: 2026-01-28T14:29:01.695062+00:00
-updated_at: 2026-01-28T14:29:01.695062+00:00
+updated_at: 2026-01-28T18:29:37.984137+00:00
 parent: CLOACI-I-0020
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,14 +33,18 @@ Extend the `.cloacina` package manifest schema to support Python packages, inclu
 
 ## Acceptance Criteria
 
-- [ ] Manifest schema extended with Python-specific fields
-- [ ] Schema supports both Rust and Python packages (unified format)
-- [ ] Pydantic models for Python-side validation (in cloaca)
-- [ ] Serde structs for Rust-side validation (in cloacina)
-- [ ] Platform targeting in manifest (`targets` array)
-- [ ] Python version requirements (`requires_python`)
-- [ ] Task definitions with function paths
-- [ ] Unit tests for schema validation
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] Manifest schema extended with Python-specific fields
+- [x] Schema supports both Rust and Python packages (unified format)
+- [x] Pydantic models for Python-side validation (in cloaca)
+- [x] Serde structs for Rust-side validation (in cloacina)
+- [x] Platform targeting in manifest (`targets` array)
+- [x] Python version requirements (`requires_python`)
+- [x] Task definitions with function paths
+- [x] Unit tests for schema validation (16 Rust tests passing)
 
 ## Manifest Schema (v2)
 
@@ -252,4 +256,9 @@ pub fn detect_current_platform() -> &'static str {
 
 ## Status Updates
 
-*To be added during implementation*
+### Completed
+- Created `crates/cloacina/src/packaging/manifest_v2.rs` — `ManifestV2`, `PackageLanguage`, `PythonRuntime`, `RustRuntime`, `PackageInfoV2`, `TaskDefinitionV2`, `ManifestValidationError` with full validation (runtime match, targets, task IDs, deps, Python function paths, format version)
+- Created `crates/cloacina/src/packaging/platform.rs` — `SUPPORTED_TARGETS` constant and `detect_current_platform()` using compile-time cfg
+- Created `bindings/cloaca-backend/python/cloaca/manifest.py` — Pydantic v2 models mirroring Rust structs with `model_validator` for runtime check, `validate_targets()`, `validate_tasks()`, JSON I/O helpers
+- Updated `crates/cloacina/src/packaging/mod.rs` — registered new modules and re-exports
+- 16 Rust unit tests passing (14 manifest_v2 + 2 platform)

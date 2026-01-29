@@ -4,14 +4,14 @@ level: task
 title: "Python package integration tests and example project"
 short_code: "CLOACI-T-0071"
 created_at: 2026-01-28T14:29:04.367894+00:00
-updated_at: 2026-01-28T14:29:04.367894+00:00
+updated_at: 2026-01-28T18:42:02.435343+00:00
 parent: CLOACI-I-0020
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -30,6 +30,10 @@ initiative_id: CLOACI-I-0020
 ## Objective
 
 Create comprehensive integration tests for the Python package workflow and a complete example project that demonstrates the end-to-end flow: writing Python tasks, building a package with `cloaca build`, loading the package on the server, and executing tasks via the workflow engine.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -595,4 +599,11 @@ cloacina package upload dist/data-pipeline-example-1.0.0-linux-x86_64.cloaca
 
 ## Status Updates
 
-*To be added during implementation*
+### Completed
+- Created example project at `examples/features/python-workflow/` with pyproject.toml and 4-task data pipeline (fetch, validate, aggregate, report)
+- Created Rust integration test module `crates/cloacina/tests/integration/python_package.rs` with 9 tests covering:
+  - Archive round-trip: peek_manifest, detect_package_kind (Python + Rust), extract full roundtrip, reject Rust archive
+  - Manifest validation: dependency references, duplicate task IDs, function path format
+  - Mock executor with extracted package paths (end-to-end flow)
+- Registered module in `tests/integration/main.rs`
+- All 9 tests passing

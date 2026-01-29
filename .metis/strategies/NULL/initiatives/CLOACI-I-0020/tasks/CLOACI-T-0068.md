@@ -4,14 +4,14 @@ level: task
 title: "Dependency vendoring with uv and platform wheel selection"
 short_code: "CLOACI-T-0068"
 created_at: 2026-01-28T14:29:02.749424+00:00
-updated_at: 2026-01-28T14:29:02.749424+00:00
+updated_at: 2026-01-28T18:32:47.548253+00:00
 parent: CLOACI-I-0020
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,13 +33,17 @@ Implement dependency resolution and vendoring using `uv`. Download platform-spec
 
 ## Acceptance Criteria
 
-- [ ] `uv` CLI invocation resolves dependencies from pyproject.toml
-- [ ] Platform-specific wheels downloaded for target architecture
-- [ ] Wheels extracted to `vendor/` directory with correct structure
-- [ ] `requirements.lock` generated with pinned versions and hashes
-- [ ] Cross-platform builds work (build linux wheels on macos)
-- [ ] Pure-python wheels handled correctly (no platform suffix)
-- [ ] Source distributions (sdist) rejected with clear error
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] `uv` CLI invocation resolves dependencies from pyproject.toml
+- [x] Platform-specific wheels downloaded for target architecture
+- [x] Wheels extracted to `vendor/` directory with correct structure
+- [x] `requirements.lock` generated with pinned versions and hashes
+- [x] Cross-platform builds work (uv --python-platform with target triple mapping)
+- [x] Pure-python wheels handled correctly (uv resolves these automatically)
+- [x] Source distributions (sdist) rejected with clear error (--only-binary :all:)
 
 ## Implementation Notes
 
@@ -353,4 +357,9 @@ def check_uv_available() -> None:
 
 ## Status Updates
 
-*To be added during implementation*
+### Completed
+- Created `bindings/cloaca-backend/python/cloaca/vendoring.py` — full vendoring pipeline: `check_uv_available()`, `vendor_dependencies()`, `_resolve_dependencies()` (uv pip compile), `_download_wheels()` (uv pip download --only-binary), `_extract_wheels()` (zipfile), `_generate_lock_file()`
+- Platform mapping uses uv target triples (e.g. `x86_64-unknown-linux-gnu`)
+- Lock file parser handles pip-compile output with hashes
+- Error hierarchy: `VendoringError` → `DependencyResolutionError`, `SdistOnlyError`, `DownloadError`
+- Updated `cli/build.py` to use real vendoring and include lock file in archive

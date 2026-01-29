@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -22,6 +22,6 @@
 
 pub mod default_runner;
 
-pub use default_runner::{DefaultRunner, DefaultRunnerConfig};
+pub use default_runner::{DefaultRunner, DefaultRunnerConfig, DefaultRunnerConfigBuilder};
 
 pub use default_runner::DefaultRunnerBuilder;
