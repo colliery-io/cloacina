@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -358,6 +358,79 @@ impl<'a> TaskExecutionDAL<'a> {
                     task_executions::status.eq("Failed"),
                     task_executions::completed_at.eq(Some(now)),
                     task_executions::error_details.eq(format!("ABANDONED: {}", reason_owned)),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Updates the sub_status of a running task execution.
+    ///
+    /// Valid values: `Some("Active")`, `Some("Deferred")`, or `None` to clear.
+    pub async fn set_sub_status(
+        &self,
+        task_id: UniversalUuid,
+        sub_status: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.set_sub_status_postgres(task_id, sub_status).await,
+            self.set_sub_status_sqlite(task_id, sub_status).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn set_sub_status_postgres(
+        &self,
+        task_id: UniversalUuid,
+        sub_status: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let sub_status_owned = sub_status.map(|s| s.to_string());
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id))
+                .set((
+                    task_executions::sub_status.eq(sub_status_owned),
+                    task_executions::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn set_sub_status_sqlite(
+        &self,
+        task_id: UniversalUuid,
+        sub_status: Option<&str>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let now = UniversalTimestamp::now();
+        let sub_status_owned = sub_status.map(|s| s.to_string());
+        conn.interact(move |conn| {
+            diesel::update(task_executions::table.find(task_id))
+                .set((
+                    task_executions::sub_status.eq(sub_status_owned),
                     task_executions::updated_at.eq(now),
                 ))
                 .execute(conn)

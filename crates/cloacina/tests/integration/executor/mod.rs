@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 
 pub mod context_merging;
+pub mod defer_until;
 pub mod multi_tenant;
 pub mod pause_resume;
 pub mod task_execution;

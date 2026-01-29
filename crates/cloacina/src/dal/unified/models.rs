@@ -111,6 +111,7 @@ pub struct UnifiedTaskExecution {
     pub last_error: Option<String>,
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
+    pub sub_status: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -542,6 +543,7 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             last_error: u.last_error,
             recovery_attempts: u.recovery_attempts,
             last_recovery_at: u.last_recovery_at,
+            sub_status: u.sub_status,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }

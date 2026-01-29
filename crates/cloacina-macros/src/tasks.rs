@@ -610,6 +610,17 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
         };
     }
 
+    // Detect optional TaskHandle parameter (second parameter named "handle" or "task_handle")
+    let has_handle_param = fn_inputs.iter().any(|arg| {
+        if let FnArg::Typed(pat_type) = arg {
+            if let Pat::Ident(pat_ident) = &*pat_type.pat {
+                let param_name = pat_ident.ident.to_string();
+                return param_name == "handle" || param_name == "task_handle";
+            }
+        }
+        false
+    });
+
     let task_struct_name = syn::Ident::new(
         &format!("{}Task", to_pascal_case(&fn_name.to_string())),
         fn_name.span(),
@@ -624,16 +635,29 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
     // Generate trigger rules JSON code
     let generate_trigger_rules = generate_trigger_rules_code(&attrs);
 
-    let execute_body = if fn_asyncness.is_some() {
-        // Async function - pass mutable reference to context
-        quote! {
+    let execute_body = match (fn_asyncness.is_some(), has_handle_param) {
+        (true, true) => quote! {
+            {
+                let mut handle = ::cloacina::take_task_handle();
+                let result = #fn_name(&mut context, &mut handle).await;
+                ::cloacina::return_task_handle(handle);
+                result
+            }
+        },
+        (true, false) => quote! {
             #fn_name(&mut context).await
-        }
-    } else {
-        // Sync function - pass mutable reference to context
-        quote! {
+        },
+        (false, true) => quote! {
+            {
+                let mut handle = ::cloacina::take_task_handle();
+                let result = #fn_name(&mut context, &mut handle);
+                ::cloacina::return_task_handle(handle);
+                result
+            }
+        },
+        (false, false) => quote! {
             #fn_name(&mut context)
-        }
+        },
     };
 
     // Create a task constructor function name
@@ -746,6 +770,10 @@ pub fn generate_task_impl(attrs: TaskAttributes, input: ItemFn) -> TokenStream2 
 
             fn code_fingerprint(&self) -> Option<String> {
                 Some(Self::code_fingerprint().to_string())
+            }
+
+            fn requires_handle(&self) -> bool {
+                #has_handle_param
             }
         }
 

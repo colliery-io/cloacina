@@ -77,6 +77,7 @@ mod unified_schema {
             last_error -> Nullable<Text>,
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<DbTimestamp>,
+            sub_status -> Nullable<Text>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -353,6 +354,7 @@ mod postgres_schema {
             last_error -> Nullable<Text>,
             recovery_attempts -> Int4,
             last_recovery_at -> Nullable<Timestamp>,
+            sub_status -> Nullable<Varchar>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }
@@ -645,6 +647,7 @@ mod sqlite_schema {
             last_error -> Nullable<Text>,
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<Text>,
+            sub_status -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
         }

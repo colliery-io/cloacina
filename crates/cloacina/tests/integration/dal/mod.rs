@@ -15,6 +15,7 @@
  */
 
 pub mod context;
+pub mod sub_status;
 pub mod task_claiming;
 pub mod workflow_packages;
 pub mod workflow_registry;

@@ -15,8 +15,9 @@ from cloaca.cloaca import (
     DefaultRunnerConfig,
     DefaultRunner,
     PipelineResult,
-    # Task decorator
+    # Task decorator and handle
     task,
+    TaskHandle,
     # Trigger decorator and result class
     trigger,
     TriggerResult,
@@ -46,8 +47,9 @@ __all__ = [
     "DefaultRunnerConfig",
     "DefaultRunner",
     "PipelineResult",
-    # Task decorator
+    # Task decorator and handle
     "task",
+    "TaskHandle",
     # Trigger decorator and result class
     "trigger",
     "TriggerResult",

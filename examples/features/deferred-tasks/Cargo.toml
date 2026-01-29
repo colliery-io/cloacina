@@ -1,0 +1,16 @@
+[package]
+name = "deferred-tasks"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina" }
+tokio = { version = "1.0", features = ["full"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+ctor = "0.2"
+chrono = "0.4"

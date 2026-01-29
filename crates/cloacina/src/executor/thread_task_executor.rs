@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -32,11 +32,14 @@
 //! to the executor based on routing rules.
 
 use chrono::Utc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
+use super::slot_token::SlotToken;
+use super::task_handle::{with_task_handle, TaskHandle};
 use super::types::{ClaimedTask, ExecutionScope, ExecutorConfig};
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
@@ -76,8 +79,8 @@ pub struct ThreadTaskExecutor {
     instance_id: UniversalUuid,
     /// Configuration parameters for executor behavior
     config: ExecutorConfig,
-    /// Metrics: current number of active (in-flight) tasks
-    active_tasks: AtomicUsize,
+    /// Semaphore controlling concurrent task execution slots
+    semaphore: Arc<Semaphore>,
     /// Metrics: total tasks executed
     total_executed: AtomicU64,
     /// Metrics: total tasks failed
@@ -100,6 +103,7 @@ impl ThreadTaskExecutor {
         config: ExecutorConfig,
     ) -> Self {
         let dal = DAL::new(database.clone());
+        let max_concurrent = config.max_concurrent_tasks;
 
         Self {
             database,
@@ -107,7 +111,7 @@ impl ThreadTaskExecutor {
             task_registry,
             instance_id: UniversalUuid::new_v4(),
             config,
-            active_tasks: AtomicUsize::new(0),
+            semaphore: Arc::new(Semaphore::new(max_concurrent)),
             total_executed: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
         }
@@ -138,6 +142,14 @@ impl ThreadTaskExecutor {
         }
 
         Ok(Self::new(database, Arc::new(registry), config))
+    }
+
+    /// Returns a reference to the concurrency semaphore.
+    ///
+    /// Used by TaskHandle to release and reclaim concurrency slots
+    /// during deferred execution.
+    pub fn semaphore(&self) -> &Arc<Semaphore> {
+        &self.semaphore
     }
 
     /// Builds the execution context for a task by loading its dependencies.
@@ -655,8 +667,8 @@ impl Clone for ThreadTaskExecutor {
             task_registry: Arc::clone(&self.task_registry),
             instance_id: self.instance_id,
             config: self.config.clone(),
-            // Clone metrics by copying current values (each clone gets independent counters)
-            active_tasks: AtomicUsize::new(self.active_tasks.load(Ordering::SeqCst)),
+            // Shared semaphore — clones coordinate on the same concurrency limit
+            semaphore: Arc::clone(&self.semaphore),
             total_executed: AtomicU64::new(self.total_executed.load(Ordering::SeqCst)),
             total_failed: AtomicU64::new(self.total_failed.load(Ordering::SeqCst)),
         }
@@ -671,7 +683,14 @@ impl Clone for ThreadTaskExecutor {
 impl TaskExecutor for ThreadTaskExecutor {
     async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         let start = Instant::now();
-        self.active_tasks.fetch_add(1, Ordering::SeqCst);
+
+        // Acquire a concurrency slot — held for the duration of execution.
+        let permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
         // Convert TaskReadyEvent to ClaimedTask format
         let claimed_task = ClaimedTask {
@@ -685,7 +704,6 @@ impl TaskExecutor for ThreadTaskExecutor {
         let namespace = match parse_namespace(&claimed_task.task_name) {
             Ok(ns) => ns,
             Err(e) => {
-                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -698,7 +716,6 @@ impl TaskExecutor for ThreadTaskExecutor {
         let task = match get_task(&namespace) {
             Some(t) => t,
             None => {
-                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -713,7 +730,6 @@ impl TaskExecutor for ThreadTaskExecutor {
         let context = match self.build_task_context(&claimed_task, dependencies).await {
             Ok(ctx) => ctx,
             Err(e) => {
-                self.active_tasks.fetch_sub(1, Ordering::SeqCst);
                 self.total_failed.fetch_add(1, Ordering::SeqCst);
                 return Ok(ExecutionResult::failure(
                     event.task_execution_id,
@@ -723,11 +739,53 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         };
 
-        // Execute the task
-        let execution_result = self.execute_with_timeout(task.as_ref(), context).await;
-        let duration = start.elapsed();
+        // Execute the task — if it requires a handle, wrap execution with
+        // task-local storage so the macro-generated code can access it.
+        let execution_result = if task.requires_handle() {
+            let slot_token = SlotToken::new(permit, self.semaphore.clone());
+            let handle =
+                TaskHandle::with_dal(slot_token, event.task_execution_id, self.dal.clone());
 
-        self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+            // Set initial sub_status to Active
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .set_sub_status(event.task_execution_id, Some("Active"))
+                .await
+            {
+                tracing::warn!(
+                    task_execution_id = %event.task_execution_id,
+                    error = %e,
+                    "Failed to set initial sub_status to Active"
+                );
+            }
+
+            let (result, _returned_handle) =
+                with_task_handle(handle, self.execute_with_timeout(task.as_ref(), context)).await;
+
+            // Clear sub_status when task completes
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .set_sub_status(event.task_execution_id, None)
+                .await
+            {
+                tracing::warn!(
+                    task_execution_id = %event.task_execution_id,
+                    error = %e,
+                    "Failed to clear sub_status after execution"
+                );
+            }
+
+            // The returned handle (and its slot token) is dropped here,
+            // releasing the permit if still held.
+            result
+        } else {
+            // No handle needed — permit is held as _permit for the duration.
+            let _permit = permit;
+            self.execute_with_timeout(task.as_ref(), context).await
+        };
+        let duration = start.elapsed();
 
         match execution_result {
             Ok(result_context) => {
@@ -792,12 +850,14 @@ impl TaskExecutor for ThreadTaskExecutor {
     }
 
     fn has_capacity(&self) -> bool {
-        self.active_tasks.load(Ordering::SeqCst) < self.config.max_concurrent_tasks
+        self.semaphore.available_permits() > 0
     }
 
     fn metrics(&self) -> ExecutorMetrics {
+        let available = self.semaphore.available_permits();
+        let active = self.config.max_concurrent_tasks.saturating_sub(available);
         ExecutorMetrics {
-            active_tasks: self.active_tasks.load(Ordering::SeqCst),
+            active_tasks: active,
             max_concurrent: self.config.max_concurrent_tasks,
             total_executed: self.total_executed.load(Ordering::SeqCst),
             total_failed: self.total_failed.load(Ordering::SeqCst),

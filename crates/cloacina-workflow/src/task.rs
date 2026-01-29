@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -207,5 +207,16 @@ pub trait Task: Send + Sync {
     /// - `None` - Task doesn't support code fingerprinting
     fn code_fingerprint(&self) -> Option<String> {
         None
+    }
+
+    /// Returns whether this task requires a `TaskHandle` for execution control.
+    ///
+    /// Tasks that accept a `TaskHandle` parameter (detected by the `#[task]` macro)
+    /// return `true`, signalling the executor to provide a handle via task-local
+    /// storage before calling `execute()`.
+    ///
+    /// The default implementation returns `false`.
+    fn requires_handle(&self) -> bool {
+        false
     }
 }

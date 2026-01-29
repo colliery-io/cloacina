@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -45,11 +45,15 @@
 //! All components are thread-safe and can be used in concurrent environments.
 
 pub mod pipeline_executor;
+pub mod slot_token;
+pub mod task_handle;
 pub mod thread_task_executor;
 pub mod types;
 
 pub use pipeline_executor::{
     PipelineError, PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus, TaskResult,
 };
+pub use slot_token::SlotToken;
+pub use task_handle::{return_task_handle, take_task_handle, with_task_handle, TaskHandle};
 pub use thread_task_executor::ThreadTaskExecutor;
 pub use types::{ClaimedTask, DependencyLoader, ExecutorConfig};
