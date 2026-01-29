@@ -90,7 +90,7 @@ This command will:
 
 Performance test results and graphs are generated when running the tests. The following visualization shows comprehensive performance results for the **pipeline performance test** with SQLite backend across various configuration settings:
 
-![SQLite Pipeline Runner Performance Graph](/cloacina/pipeline-performnace.png)
+![SQLite Pipeline Runner Performance Graph](/cloacina/pipeline-performance.png)
 
 *Performance characteristics of the pipeline performance test with SQLite backend across different concurrency levels and workflow complexities*
 
@@ -107,7 +107,7 @@ The visualization shows performance characteristics including concurrency levels
 
 The following visualization shows performance results for the **parallel performance test** with SQLite backend:
 
-![SQLite Parallel Performance Graph](/cloacina/parallel-performnance.png)
+![SQLite Parallel Performance Graph](/cloacina/parallel-performance.png)
 
 *Performance characteristics of the parallel performance test with SQLite backend*
 
@@ -124,4 +124,4 @@ The parallel performance test measures execution of workflows with multiple inde
 
 - [Explanation: Task Execution Sequence]({{< ref "/explanation/task-execution-sequence/" >}})
 - [Explanation: Database Backends]({{< ref "/explanation/database-backends/" >}})
-- [Examples: Performance Tests](https://github.com/colliery/cloacina/tree/main/examples#performance-examples)
+- [Examples: Performance Tests](https://github.com/colliery-io/cloacina/tree/main/examples#performance-examples)

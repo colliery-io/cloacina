@@ -50,13 +50,13 @@ For this tutorial, we'll work with the example project that's already set up in 
 
 ```bash
 # Navigate to the Cloacina repository
-cd cloacina/examples/simple-packaged-demo
+cd cloacina/examples/features/simple-packaged
 ls -la
 ```
 
 Your directory structure should look like this:
 ```
-examples/simple-packaged-demo/
+examples/features/simple-packaged/
 ├── Cargo.toml
 ├── src/
 │   └── lib.rs           # Note: lib.rs, not main.rs!
@@ -433,4 +433,4 @@ Congratulations! You've created and tested your first packaged workflow. Next, y
 
 ## Download the Example
 
-You can find the complete example code in our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/simple-packaged-demo).
+You can find the complete example code in our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/features/simple-packaged).

@@ -23,7 +23,7 @@ The macro system is the preferred way to use Cloacina for several key reasons:
 
 4. **Developer Experience**: The declarative syntax makes it easier to understand and maintain your pipelines, with clear visualization of dependencies and execution flow.
 
-5. **Pipeline Versioning**: The system automatically generates and tracks versions for your workflows based on their content and dependencies, making it easier to manage changes and track pipeline evolution. For a detailed explanation of how versioning works, see [Pipeline Versioning](pipeline-versioning.md).
+5. **Pipeline Versioning**: The system automatically generates and tracks versions for your workflows based on their content and dependencies, making it easier to manage changes and track pipeline evolution. For a detailed explanation of how versioning works, see [Workflow Versioning](workflow-versioning.md).
 
 While Cloacina can be used without macros, the macro system provides these benefits with minimal additional complexity, making it the recommended approach for most use cases.
 
@@ -36,7 +36,7 @@ At its heart, Cloacina's macro system revolves around two main concepts:
 1. **Tasks**: Individual units of work that can be executed independently
 2. **Workflows**: Compositions of tasks that define execution order and dependencies
 
-The macro system ensures these concepts are properly structured and validated at compile time. It also handles automatic versioning of workflows based on their content and dependencies. For a detailed explanation of how versioning works, see [Pipeline Versioning](pipeline-versioning.md).
+The macro system ensures these concepts are properly structured and validated at compile time. It also handles automatic versioning of workflows based on their content and dependencies. For a detailed explanation of how versioning works, see [Workflow Versioning](workflow-versioning.md).
 
 ### Compile-Time Validation
 

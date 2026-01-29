@@ -806,4 +806,4 @@ To continue your Cloacina journey, explore:
 
 ## Download the Example
 
-You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorial-04).
+You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/04-error-handling).

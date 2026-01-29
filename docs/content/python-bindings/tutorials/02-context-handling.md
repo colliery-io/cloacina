@@ -644,5 +644,5 @@ Excellent work! You now understand how to manage complex data flows through Cloa
 - [How-to: Testing Workflows]({{< ref "/python-bindings/how-to-guides/testing-workflows/" >}}) - Testing with context data
 
 {{< hint type="info" title="Reference Implementation" >}}
-This tutorial is based on patterns from [`test_scenario_09_context_propagation.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_09_context_propagation.py) and data processing examples from the Cloacina test suite.
+This tutorial is based on patterns from [`test_scenario_09_context_propagation.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_09_context_propagation.py) and data processing examples from the Cloacina test suite.
 {{< /hint >}}

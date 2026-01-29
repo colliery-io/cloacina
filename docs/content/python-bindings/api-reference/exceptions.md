@@ -13,7 +13,6 @@ Cloaca provides a hierarchy of exception classes for handling different types of
 ```
 CloacaException (base)
 ├── WorkflowError
-│   ├── WorkflowValidationError
 │   ├── WorkflowExecutionError
 │   └── WorkflowTimeoutError
 ├── TaskError
@@ -55,37 +54,6 @@ try:
 except cloaca.WorkflowError as e:
     print(f"Workflow error: {e}")
 ```
-
-### WorkflowValidationError
-
-Raised when workflow validation fails during build.
-
-```python
-import cloaca
-
-@cloaca.task(id="task_a")
-def task_a(context):
-    return context
-
-@cloaca.task(id="task_b", dependencies=["non_existent_task"])
-def task_b(context):
-    return context
-
-try:
-    builder = cloaca.WorkflowBuilder("invalid_workflow")
-    builder.add_task("task_a")
-    builder.add_task("task_b")
-    workflow = builder.build()  # Raises WorkflowValidationError
-except cloaca.WorkflowValidationError as e:
-    print(f"Validation failed: {e}")
-    # Handle missing dependency error
-```
-
-Common validation errors:
-- Missing task dependencies
-- Circular dependencies
-- Duplicate task IDs
-- Invalid task references
 
 ### WorkflowExecutionError
 
@@ -270,16 +238,12 @@ def execute_workflow_safely(runner, workflow_name, context):
     try:
         result = runner.execute(workflow_name, context)
 
-        if result.status == cloaca.PipelineStatus.COMPLETED:
+        if result.status == "Completed":
             return result.final_context
         else:
             raise cloaca.WorkflowExecutionError(
                 f"Workflow failed with status: {result.status}"
             )
-
-    except cloaca.WorkflowValidationError as e:
-        print(f"Workflow validation failed: {e}")
-        return None
 
     except cloaca.TaskTimeoutError as e:
         print(f"Task {e.task_id} timed out")
@@ -331,7 +295,7 @@ def execute_with_retry(runner, workflow_name, context, max_attempts=3):
             else:
                 raise
 
-        except (cloaca.WorkflowValidationError, cloaca.ConfigurationError):
+        except cloaca.ConfigurationError:
             # Don't retry validation or configuration errors
             raise
 

@@ -233,9 +233,7 @@ The method performs these operations in a single transaction:
    ```
 
 ## Integration with DefaultRunner
-## Integration with DefaultRunner
 
-The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 The credentials returned by `DatabaseAdmin` are designed to work seamlessly with `DefaultRunner`:
 
 ```rust
@@ -288,4 +286,4 @@ runner = cloaca.DefaultRunner(credentials.connection_string)
 - [Multi-Tenancy Architecture]({{< ref "/explanation/multi-tenancy" >}})
 - [Multi-Tenant Setup Guide]({{< ref "/how-to-guides/multi-tenant-setup" >}})
 - [Python Multi-Tenancy Tutorial]({{< ref "/python-bindings/tutorials/06-multi-tenancy" >}})
-- [Per-Tenant Credentials Example](https://github.com/your-repo/cloacina/tree/main/examples/per_tenant_credentials)
+- [Per-Tenant Credentials Example](https://github.com/colliery-io/cloacina/tree/main/examples/per_tenant_credentials)

@@ -31,19 +31,9 @@ Each tutorial is designed to be followed in sequence. They build upon each other
 
 For all tutorials, you'll need to install Cloaca:
 
-{{< tabs "tutorial-install" >}}
-{{< tab "SQLite (Recommended for tutorials)" >}}
 ```bash
-pip install cloaca[sqlite]
+pip install cloaca
 ```
-{{< /tab >}}
-
-{{< tab "PostgreSQL (Production)" >}}
-```bash
-pip install cloaca[postgres]
-```
-{{< /tab >}}
-{{< /tabs >}}
 
 {{< hint type="tip" title="Virtual Environment" >}}
 We recommend using a virtual environment for the tutorials:
@@ -51,7 +41,7 @@ We recommend using a virtual environment for the tutorials:
 ```bash
 python -m venv tutorial-env
 source tutorial-env/bin/activate  # On Windows: tutorial-env\Scripts\activate
-pip install cloaca[sqlite]
+pip install cloaca
 ```
 {{< /hint >}}
 
@@ -77,4 +67,4 @@ If you encounter issues:
 
 ## Sample Code Repository
 
-All tutorial code examples are available in the [examples directory](https://github.com/dstorey/cloacina/tree/main/examples) of the Cloacina repository.
+All tutorial code examples are available in the [examples directory](https://github.com/colliery-io/cloacina/tree/main/examples) of the Cloacina repository.

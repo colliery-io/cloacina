@@ -58,10 +58,10 @@ Choose the right backend for your use case:
 - Low-complexity applications
 - Embedded applications
 
-**Package:** `cloaca[sqlite]`
+**Package:** `cloaca`
 
 ```bash
-pip install cloaca[sqlite]
+pip install cloaca
 ```
 {{< /tab >}}
 
@@ -72,10 +72,10 @@ pip install cloaca[sqlite]
 - High-concurrency workloads
 - Distributed systems
 
-**Package:** `cloaca[postgres]`
+**Package:** `cloaca`
 
 ```bash
-pip install cloaca[postgres]
+pip install cloaca
 ```
 {{< /tab >}}
 {{< /tabs >}}

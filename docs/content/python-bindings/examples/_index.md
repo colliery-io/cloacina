@@ -55,9 +55,6 @@ Each example includes:
 ```bash
 # Install Python bindings
 pip install cloaca
-
-# For PostgreSQL examples
-pip install cloaca[postgres]
 ```
 
 ### Basic Setup
@@ -167,4 +164,4 @@ We welcome contributions of new examples! Each example should:
 - **[Tutorials]({{< ref "/python-bindings/tutorials/" >}})** - Step-by-step learning guides
 - **[How-to Guides]({{< ref "/python-bindings/how-to-guides/" >}})** - Problem-solving guides
 - **[API Reference]({{< ref "/python-bindings/api-reference/" >}})** - Complete API documentation
-- **[GitHub Examples](https://github.com/dstorey/cloacina/tree/main/examples)** - Source code repository
+- **[GitHub Examples](https://github.com/colliery-io/cloacina/tree/main/examples)** - Source code repository

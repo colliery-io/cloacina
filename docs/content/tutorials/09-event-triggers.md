@@ -529,6 +529,5 @@ You've learned how to:
 
 ## Next Steps
 
-- Explore [Tutorial 10 - Advanced Patterns]({{< ref "/tutorials/10-advanced-patterns/" >}}) for combining triggers with other features
-- See the [Trigger API Reference]({{< ref "/reference/triggers/" >}}) for complete documentation
+- Review the [Trigger Rules]({{< ref "/explanation/trigger-rules/" >}}) explanation for deeper understanding
 - Check `examples/features/event-triggers/` for a full working example

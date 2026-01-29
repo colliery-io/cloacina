@@ -12,7 +12,7 @@ The `PipelineResult` class contains the outcome and metadata from a workflow exe
 
 ### Basic Properties
 
-- `status` (PipelineStatus): The final execution status
+- `status` (str): The final execution status (e.g., `"Completed"`, `"Failed"`)
 - `workflow_name` (str): Name of the executed workflow
 - `execution_id` (str): Unique identifier for this execution
 - `final_context` (Context): The context after all tasks completed
@@ -36,32 +36,25 @@ print(f"Execution ID: {result.execution_id}")
 print(f"Duration: {result.duration}")
 ```
 
-## PipelineStatus Enum
+## Status Values
 
-The status indicates the outcome of workflow execution:
+The `status` property is a string indicating the outcome of workflow execution:
 
-- `PENDING`: Execution is queued but not started
-- `RUNNING`: Execution is currently in progress
-- `COMPLETED`: All tasks completed successfully
-- `FAILED`: One or more tasks failed
-- `CANCELLED`: Execution was cancelled before completion
+- `"Completed"`: All tasks completed successfully
+- `"Failed"`: One or more tasks failed
 
 ### Status Checking
 
 ```python
-if result.status == cloaca.PipelineStatus.COMPLETED:
+if result.status == "Completed":
     print("Workflow completed successfully!")
     # Process successful result
     final_data = result.final_context.get("output_data")
 
-elif result.status == cloaca.PipelineStatus.FAILED:
+elif result.status == "Failed":
     print("Workflow failed!")
     # Handle failure
     error_info = result.final_context.get("error")
-
-elif result.status == cloaca.PipelineStatus.CANCELLED:
-    print("Workflow was cancelled")
-    # Handle cancellation
 ```
 
 ## Context Access
@@ -73,7 +66,7 @@ Access the final context state after execution:
 final_context = result.final_context
 
 # Extract specific results
-if result.status == cloaca.PipelineStatus.COMPLETED:
+if result.status == "Completed":
     output_data = final_context.get("processed_data")
     record_count = final_context.get("records_processed", 0)
 
@@ -86,7 +79,7 @@ if result.status == cloaca.PipelineStatus.COMPLETED:
 When workflows fail, error information is available:
 
 ```python
-if result.status == cloaca.PipelineStatus.FAILED:
+if result.status == "Failed":
     # Check for error information in context
     error_message = result.final_context.get("error_message")
     failed_task = result.final_context.get("failed_task")
@@ -179,7 +172,7 @@ def analyze_result(result):
         duration = result.end_time - result.start_time
         print(f"Duration: {duration.total_seconds():.2f} seconds")
 
-    if result.status == cloaca.PipelineStatus.COMPLETED:
+    if result.status == "Completed":
         print("\n=== Successful Execution ===")
         records = result.final_context.get("records_processed", 0)
         processed_data = result.final_context.get("processed_data")
@@ -187,36 +180,17 @@ def analyze_result(result):
         print(f"Records processed: {records}")
         print(f"Output data: {processed_data}")
 
-    elif result.status == cloaca.PipelineStatus.FAILED:
+    elif result.status == "Failed":
         print("\n=== Failed Execution ===")
         error = result.final_context.get("error_message")
         if error:
             print(f"Error: {error}")
 
-    return result.status == cloaca.PipelineStatus.COMPLETED
+    return result.status == "Completed"
 
 # Analyze the result
 success = analyze_result(result)
 print(f"\nExecution successful: {success}")
-```
-
-## Async Results
-
-For long-running workflows, you can check status asynchronously:
-
-```python
-import time
-
-# Start workflow execution
-result = runner.execute_async("long_workflow", context)
-
-# Poll for completion
-while result.status == cloaca.PipelineStatus.RUNNING:
-    print(f"Workflow still running... (ID: {result.execution_id})")
-    time.sleep(5)
-    result = runner.get_execution_status(result.execution_id)
-
-print(f"Final status: {result.status}")
 ```
 
 ## Best Practices
@@ -228,7 +202,7 @@ Always check the execution status before processing results:
 ```python
 def process_workflow_result(result):
     """Safely process workflow result."""
-    if result.status != cloaca.PipelineStatus.COMPLETED:
+    if result.status != "Completed":
         raise RuntimeError(f"Workflow failed with status: {result.status}")
 
     # Safe to process successful result
@@ -243,12 +217,10 @@ Implement comprehensive error handling:
 def handle_workflow_result(result):
     """Handle workflow result with proper error handling."""
     try:
-        if result.status == cloaca.PipelineStatus.COMPLETED:
+        if result.status == "Completed":
             return process_successful_result(result)
-        elif result.status == cloaca.PipelineStatus.FAILED:
+        elif result.status == "Failed":
             return handle_failed_result(result)
-        elif result.status == cloaca.PipelineStatus.CANCELLED:
-            return handle_cancelled_result(result)
         else:
             raise ValueError(f"Unexpected status: {result.status}")
 

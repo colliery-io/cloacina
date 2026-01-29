@@ -1,6 +1,6 @@
 # Cloaca - Python bindings for Cloacina
 
-**Cloaca** provides Python bindings for [Cloacina](https://github.com/dstorey/cloacina), a high-performance workflow orchestration engine written in Rust.
+**Cloaca** provides Python bindings for [Cloacina](https://github.com/colliery-io/cloacina), a high-performance workflow orchestration engine written in Rust.
 
 ## Quick Start
 
@@ -54,7 +54,7 @@ This design ensures you only install the dependencies you need while providing a
 
 - [Full Documentation](https://cloacina.dev)
 - [API Reference](https://docs.rs/cloacina)
-- [Examples](https://github.com/dstorey/cloacina/tree/main/examples)
+- [Examples](https://github.com/colliery-io/cloacina/tree/main/examples)
 - [Tutorial](https://cloacina.dev/tutorials)
 
 ## License

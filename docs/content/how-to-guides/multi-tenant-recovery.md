@@ -88,4 +88,4 @@ let prod_tenant = DefaultRunner::builder()
 - Avoid special characters, spaces, or hyphens
 
 
-See the [multi-tenant example](https://github.com/your-repo/cloacina/tree/main/examples/multi_tenant) for a working demonstration of these concepts.
+See the [multi-tenant example](https://github.com/colliery-io/cloacina/tree/main/examples/multi_tenant) for a working demonstration of these concepts.

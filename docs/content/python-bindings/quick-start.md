@@ -14,19 +14,9 @@ This guide walks you through creating a simple workflow that demonstrates the co
 
 Install Cloaca using pip:
 
-{{< tabs "installation" >}}
-{{< tab "SQLite (Development)" >}}
 ```bash
-pip install cloaca[sqlite]
+pip install cloaca
 ```
-{{< /tab >}}
-
-{{< tab "PostgreSQL (Production)" >}}
-```bash
-pip install cloaca[postgres]
-```
-{{< /tab >}}
-{{< /tabs >}}
 
 {{< hint type="important" title="Platform Support" >}}
 Cloaca provides pre-built wheels for **Linux** and **macOS** on Python 3.9-3.12.
