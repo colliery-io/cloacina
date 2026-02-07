@@ -25,6 +25,7 @@ use cloacina::models::pipeline_execution::NewPipelineExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use serde_json::json;
 
+#[cfg(feature = "sqlite")]
 use crate::fixtures::get_or_init_sqlite_fixture;
 
 /// Tests all sub_status operations in a single test to avoid fixture contention.
@@ -34,6 +35,7 @@ use crate::fixtures::get_or_init_sqlite_fixture;
 /// - Setting sub_status to "Deferred"
 /// - Clearing sub_status to None
 /// - Full lifecycle: None → Active → Deferred → Active → None
+#[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_sub_status_crud_operations() {
     let fixture = get_or_init_sqlite_fixture().await;

@@ -27,9 +27,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Barrier;
 
+#[cfg(feature = "sqlite")]
 use crate::fixtures::get_or_init_sqlite_fixture;
 
 /// Test that concurrent task claiming doesn't produce duplicate claims.
+#[cfg(feature = "sqlite")]
 ///
 /// This test creates multiple ready tasks and spawns several concurrent workers
 /// that all attempt to claim tasks at the same time. It verifies that:
@@ -188,6 +190,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
 }
 
 /// Test that claimed tasks have their status properly updated to Running.
+#[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_claimed_tasks_marked_running() {
     let fixture = get_or_init_sqlite_fixture().await;
@@ -259,6 +262,7 @@ async fn test_claimed_tasks_marked_running() {
 }
 
 /// Test that already-running tasks cannot be claimed again.
+#[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_running_tasks_not_claimable() {
     let fixture = get_or_init_sqlite_fixture().await;
