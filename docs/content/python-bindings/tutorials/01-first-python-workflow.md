@@ -32,7 +32,7 @@ Welcome to your first Cloacina Python tutorial! In this guide, you'll learn how 
 First, install the Python bindings:
 
 ```bash
-pip install cloaca[sqlite]
+pip install cloaca
 ```
 
 ## Creating Your First Workflow
@@ -438,5 +438,5 @@ Congratulations! You've created and executed your first Python workflow. In the 
 - [Examples]({{< ref "/python-bindings/examples/" >}}) - More code examples
 
 {{< hint type="info" title="Reference Implementation" >}}
-This tutorial is based on the test patterns found in [`test_scenario_02_single_task_workflow_execution.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_02_single_task_workflow_execution.py) and [`test_scenario_08_multi_task_workflow_execution.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_08_multi_task_workflow_execution.py) from the Cloacina test suite.
+This tutorial is based on the test patterns found in [`test_scenario_02_single_task_workflow_execution.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_02_single_task_workflow_execution.py) and [`test_scenario_08_multi_task_workflow_execution.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_08_multi_task_workflow_execution.py) from the Cloacina test suite.
 {{< /hint >}}

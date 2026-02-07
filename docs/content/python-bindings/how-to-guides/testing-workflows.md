@@ -131,7 +131,7 @@ def test_workflow_execution(in_memory_runner, sample_context):
     result = in_memory_runner.execute("test_workflow", context)
 
     # Verify result
-    assert result.status == cloaca.PipelineStatus.COMPLETED
+    assert result.status == "Completed"
     assert result.final_context.get("doubled_numbers") == [2, 4, 6]
 ```
 
@@ -170,7 +170,7 @@ def test_dependency_workflow(in_memory_runner):
     context = cloaca.Context({})
     result = in_memory_runner.execute("dependency_workflow", context)
 
-    assert result.status == cloaca.PipelineStatus.COMPLETED
+    assert result.status == "Completed"
 
     processed = result.final_context.get("processed_data")
     assert processed["total_users"] == 100
@@ -284,7 +284,7 @@ def test_workflow_failure(in_memory_runner):
     result = in_memory_runner.execute("failing_workflow", context)
 
     # Should handle failure gracefully
-    assert result.status == cloaca.PipelineStatus.FAILED
+    assert result.status == "Failed"
 ```
 
 ### Testing Validation Errors
@@ -292,7 +292,7 @@ def test_workflow_failure(in_memory_runner):
 ```python
 def test_invalid_workflow_validation():
     """Test workflow validation errors."""
-    with pytest.raises(cloaca.WorkflowValidationError):
+    with pytest.raises(Exception):
         builder = cloaca.WorkflowBuilder("invalid_workflow")
         builder.add_task("non_existent_task")  # Should fail validation
         builder.build()
@@ -315,7 +315,7 @@ def test_workflow_performance(in_memory_runner):
     result = in_memory_runner.execute("test_workflow", context)
     execution_time = time.time() - start_time
 
-    assert result.status == cloaca.PipelineStatus.COMPLETED
+    assert result.status == "Completed"
     assert execution_time < 1.0  # Should complete in less than 1 second
 ```
 
@@ -336,7 +336,7 @@ def test_workflow_memory_usage(in_memory_runner):
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    assert result.status == cloaca.PipelineStatus.COMPLETED
+    assert result.status == "Completed"
     assert peak < 10 * 1024 * 1024  # Less than 10MB peak usage
 ```
 
@@ -367,7 +367,7 @@ def test_database_persistence(temp_db_runner):
     context = cloaca.Context({"numbers": [1, 2, 3]})
     result = temp_db_runner.execute("test_workflow", context)
 
-    assert result.status == cloaca.PipelineStatus.COMPLETED
+    assert result.status == "Completed"
     # Additional database state verification could be added here
 ```
 
@@ -399,16 +399,11 @@ def test_runner():
     runner.shutdown()
 
 @pytest.fixture
-def clean_registry():
-    """Clean workflow registry between tests."""
-    # Store original registry
-    original_registry = cloaca._workflow_registry.copy()
-
-    yield
-
-    # Restore original registry
-    cloaca._workflow_registry.clear()
-    cloaca._workflow_registry.update(original_registry)
+def clean_runner():
+    """Create a fresh runner for each test."""
+    runner = cloaca.DefaultRunner("sqlite:///:memory:")
+    yield runner
+    runner.shutdown()
 ```
 
 ## Best Practices

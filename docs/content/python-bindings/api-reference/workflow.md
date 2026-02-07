@@ -85,7 +85,7 @@ Workflows are automatically validated during the build process:
 try:
     workflow = builder.build()
     print("Workflow is valid")
-except cloaca.WorkflowValidationError as e:
+except Exception as e:
     print(f"Validation failed: {e}")
 ```
 

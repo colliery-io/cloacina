@@ -7,7 +7,7 @@ created_at: 2025-12-13T20:18:24.754380+00:00
 updated_at: 2025-12-13T20:18:24.754380+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -120,6 +120,8 @@ impl TaskHandle {
 2. **Opt-in via signature** - backwards compatible, only tasks that need it add the parameter
 3. **Clean separation** - Context is for data, TaskHandle is for execution control
 4. **Re-acquire may wait** - if slots are full when condition fires, task waits for availability
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

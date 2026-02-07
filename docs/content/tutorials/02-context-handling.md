@@ -415,4 +415,4 @@ Congratulations! You've created a multi-task workflow with dependencies and data
 
 ## Download the Example
 
-You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorial-02).
+You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/02-multi-task).

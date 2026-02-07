@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -375,53 +375,54 @@ impl PyDefaultRunnerConfig {
     ) -> Self {
         use std::time::Duration;
 
-        let mut config = cloacina::runner::DefaultRunnerConfig::default();
+        let mut builder = cloacina::runner::DefaultRunnerConfig::builder();
 
-        // Apply any provided overrides
         if let Some(val) = max_concurrent_tasks {
-            config.max_concurrent_tasks = val;
+            builder = builder.max_concurrent_tasks(val);
         }
         if let Some(val) = scheduler_poll_interval_ms {
-            config.scheduler_poll_interval = Duration::from_millis(val);
+            builder = builder.scheduler_poll_interval(Duration::from_millis(val));
         }
         if let Some(val) = task_timeout_seconds {
-            config.task_timeout = Duration::from_secs(val);
+            builder = builder.task_timeout(Duration::from_secs(val));
         }
         if let Some(val) = pipeline_timeout_seconds {
-            config.pipeline_timeout = Some(Duration::from_secs(val));
+            builder = builder.pipeline_timeout(Some(Duration::from_secs(val)));
         }
         if let Some(val) = db_pool_size {
-            config.db_pool_size = val;
+            builder = builder.db_pool_size(val);
         }
         if let Some(val) = enable_recovery {
-            config.enable_recovery = val;
+            builder = builder.enable_recovery(val);
         }
         if let Some(val) = enable_cron_scheduling {
-            config.enable_cron_scheduling = val;
+            builder = builder.enable_cron_scheduling(val);
         }
         if let Some(val) = cron_poll_interval_seconds {
-            config.cron_poll_interval = Duration::from_secs(val);
+            builder = builder.cron_poll_interval(Duration::from_secs(val));
         }
         if let Some(val) = cron_max_catchup_executions {
-            config.cron_max_catchup_executions = val;
+            builder = builder.cron_max_catchup_executions(val);
         }
         if let Some(val) = cron_enable_recovery {
-            config.cron_enable_recovery = val;
+            builder = builder.cron_enable_recovery(val);
         }
         if let Some(val) = cron_recovery_interval_seconds {
-            config.cron_recovery_interval = Duration::from_secs(val);
+            builder = builder.cron_recovery_interval(Duration::from_secs(val));
         }
         if let Some(val) = cron_lost_threshold_minutes {
-            config.cron_lost_threshold_minutes = val;
+            builder = builder.cron_lost_threshold_minutes(val);
         }
         if let Some(val) = cron_max_recovery_age_seconds {
-            config.cron_max_recovery_age = Duration::from_secs(val);
+            builder = builder.cron_max_recovery_age(Duration::from_secs(val));
         }
         if let Some(val) = cron_max_recovery_attempts {
-            config.cron_max_recovery_attempts = val;
+            builder = builder.cron_max_recovery_attempts(val);
         }
 
-        PyDefaultRunnerConfig { inner: config }
+        PyDefaultRunnerConfig {
+            inner: builder.build(),
+        }
     }
 
     /// Creates a DefaultRunnerConfig with all default values
@@ -439,144 +440,149 @@ impl PyDefaultRunnerConfig {
 
     #[getter]
     pub fn max_concurrent_tasks(&self) -> usize {
-        self.inner.max_concurrent_tasks
+        self.inner.max_concurrent_tasks()
     }
 
     #[getter]
     pub fn scheduler_poll_interval_ms(&self) -> u64 {
-        self.inner.scheduler_poll_interval.as_millis() as u64
+        self.inner.scheduler_poll_interval().as_millis() as u64
     }
 
     #[getter]
     pub fn task_timeout_seconds(&self) -> u64 {
-        self.inner.task_timeout.as_secs()
+        self.inner.task_timeout().as_secs()
     }
 
     #[getter]
     pub fn pipeline_timeout_seconds(&self) -> Option<u64> {
-        self.inner.pipeline_timeout.map(|d| d.as_secs())
+        self.inner.pipeline_timeout().map(|d| d.as_secs())
     }
 
     #[getter]
     pub fn db_pool_size(&self) -> u32 {
-        self.inner.db_pool_size
+        self.inner.db_pool_size()
     }
 
     #[getter]
     pub fn enable_recovery(&self) -> bool {
-        self.inner.enable_recovery
+        self.inner.enable_recovery()
     }
 
     #[getter]
     pub fn enable_cron_scheduling(&self) -> bool {
-        self.inner.enable_cron_scheduling
+        self.inner.enable_cron_scheduling()
     }
 
     #[getter]
     pub fn cron_poll_interval_seconds(&self) -> u64 {
-        self.inner.cron_poll_interval.as_secs()
+        self.inner.cron_poll_interval().as_secs()
     }
 
     #[getter]
     pub fn cron_max_catchup_executions(&self) -> usize {
-        self.inner.cron_max_catchup_executions
+        self.inner.cron_max_catchup_executions()
     }
 
     #[getter]
     pub fn cron_enable_recovery(&self) -> bool {
-        self.inner.cron_enable_recovery
+        self.inner.cron_enable_recovery()
     }
 
     #[getter]
     pub fn cron_recovery_interval_seconds(&self) -> u64 {
-        self.inner.cron_recovery_interval.as_secs()
+        self.inner.cron_recovery_interval().as_secs()
     }
 
     #[getter]
     pub fn cron_lost_threshold_minutes(&self) -> i32 {
-        self.inner.cron_lost_threshold_minutes
+        self.inner.cron_lost_threshold_minutes()
     }
 
     #[getter]
     pub fn cron_max_recovery_age_seconds(&self) -> u64 {
-        self.inner.cron_max_recovery_age.as_secs()
+        self.inner.cron_max_recovery_age().as_secs()
     }
 
     #[getter]
     pub fn cron_max_recovery_attempts(&self) -> usize {
-        self.inner.cron_max_recovery_attempts
+        self.inner.cron_max_recovery_attempts()
     }
 
-    // Setters for all fields
+    // Setters — each rebuilds the inner config via the builder,
+    // copying all current values and overriding the target field.
 
     #[setter]
     pub fn set_max_concurrent_tasks(&mut self, value: usize) {
-        self.inner.max_concurrent_tasks = value;
+        self.inner = self.rebuild(|b| b.max_concurrent_tasks(value));
     }
 
     #[setter]
     pub fn set_scheduler_poll_interval_ms(&mut self, value: u64) {
-        self.inner.scheduler_poll_interval = std::time::Duration::from_millis(value);
+        self.inner =
+            self.rebuild(|b| b.scheduler_poll_interval(std::time::Duration::from_millis(value)));
     }
 
     #[setter]
     pub fn set_task_timeout_seconds(&mut self, value: u64) {
-        self.inner.task_timeout = std::time::Duration::from_secs(value);
+        self.inner = self.rebuild(|b| b.task_timeout(std::time::Duration::from_secs(value)));
     }
 
     #[setter]
     pub fn set_pipeline_timeout_seconds(&mut self, value: Option<u64>) {
-        self.inner.pipeline_timeout = value.map(std::time::Duration::from_secs);
+        self.inner =
+            self.rebuild(|b| b.pipeline_timeout(value.map(std::time::Duration::from_secs)));
     }
 
     #[setter]
     pub fn set_db_pool_size(&mut self, value: u32) {
-        self.inner.db_pool_size = value;
+        self.inner = self.rebuild(|b| b.db_pool_size(value));
     }
 
     #[setter]
     pub fn set_enable_recovery(&mut self, value: bool) {
-        self.inner.enable_recovery = value;
+        self.inner = self.rebuild(|b| b.enable_recovery(value));
     }
 
     #[setter]
     pub fn set_enable_cron_scheduling(&mut self, value: bool) {
-        self.inner.enable_cron_scheduling = value;
+        self.inner = self.rebuild(|b| b.enable_cron_scheduling(value));
     }
 
     #[setter]
     pub fn set_cron_poll_interval_seconds(&mut self, value: u64) {
-        self.inner.cron_poll_interval = std::time::Duration::from_secs(value);
+        self.inner = self.rebuild(|b| b.cron_poll_interval(std::time::Duration::from_secs(value)));
     }
 
     #[setter]
     pub fn set_cron_max_catchup_executions(&mut self, value: usize) {
-        self.inner.cron_max_catchup_executions = value;
+        self.inner = self.rebuild(|b| b.cron_max_catchup_executions(value));
     }
 
     #[setter]
     pub fn set_cron_enable_recovery(&mut self, value: bool) {
-        self.inner.cron_enable_recovery = value;
+        self.inner = self.rebuild(|b| b.cron_enable_recovery(value));
     }
 
     #[setter]
     pub fn set_cron_recovery_interval_seconds(&mut self, value: u64) {
-        self.inner.cron_recovery_interval = std::time::Duration::from_secs(value);
+        self.inner =
+            self.rebuild(|b| b.cron_recovery_interval(std::time::Duration::from_secs(value)));
     }
 
     #[setter]
     pub fn set_cron_lost_threshold_minutes(&mut self, value: i32) {
-        self.inner.cron_lost_threshold_minutes = value;
+        self.inner = self.rebuild(|b| b.cron_lost_threshold_minutes(value));
     }
 
     #[setter]
     pub fn set_cron_max_recovery_age_seconds(&mut self, value: u64) {
-        self.inner.cron_max_recovery_age = std::time::Duration::from_secs(value);
+        self.inner =
+            self.rebuild(|b| b.cron_max_recovery_age(std::time::Duration::from_secs(value)));
     }
 
     #[setter]
     pub fn set_cron_max_recovery_attempts(&mut self, value: usize) {
-        self.inner.cron_max_recovery_attempts = value;
+        self.inner = self.rebuild(|b| b.cron_max_recovery_attempts(value));
     }
 
     /// Returns a dictionary representation of the configuration
@@ -586,43 +592,46 @@ impl PyDefaultRunnerConfig {
     pub fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
         let dict = pyo3::types::PyDict::new(py);
 
-        dict.set_item("max_concurrent_tasks", self.inner.max_concurrent_tasks)?;
+        dict.set_item("max_concurrent_tasks", self.inner.max_concurrent_tasks())?;
         dict.set_item(
             "scheduler_poll_interval_ms",
-            self.inner.scheduler_poll_interval.as_millis(),
+            self.inner.scheduler_poll_interval().as_millis() as u64,
         )?;
-        dict.set_item("task_timeout_seconds", self.inner.task_timeout.as_secs())?;
+        dict.set_item("task_timeout_seconds", self.inner.task_timeout().as_secs())?;
         dict.set_item(
             "pipeline_timeout_seconds",
-            self.inner.pipeline_timeout.map(|d| d.as_secs()),
+            self.inner.pipeline_timeout().map(|d| d.as_secs()),
         )?;
-        dict.set_item("db_pool_size", self.inner.db_pool_size)?;
-        dict.set_item("enable_recovery", self.inner.enable_recovery)?;
-        dict.set_item("enable_cron_scheduling", self.inner.enable_cron_scheduling)?;
+        dict.set_item("db_pool_size", self.inner.db_pool_size())?;
+        dict.set_item("enable_recovery", self.inner.enable_recovery())?;
+        dict.set_item(
+            "enable_cron_scheduling",
+            self.inner.enable_cron_scheduling(),
+        )?;
         dict.set_item(
             "cron_poll_interval_seconds",
-            self.inner.cron_poll_interval.as_secs(),
+            self.inner.cron_poll_interval().as_secs(),
         )?;
         dict.set_item(
             "cron_max_catchup_executions",
-            self.inner.cron_max_catchup_executions,
+            self.inner.cron_max_catchup_executions(),
         )?;
-        dict.set_item("cron_enable_recovery", self.inner.cron_enable_recovery)?;
+        dict.set_item("cron_enable_recovery", self.inner.cron_enable_recovery())?;
         dict.set_item(
             "cron_recovery_interval_seconds",
-            self.inner.cron_recovery_interval.as_secs(),
+            self.inner.cron_recovery_interval().as_secs(),
         )?;
         dict.set_item(
             "cron_lost_threshold_minutes",
-            self.inner.cron_lost_threshold_minutes,
+            self.inner.cron_lost_threshold_minutes(),
         )?;
         dict.set_item(
             "cron_max_recovery_age_seconds",
-            self.inner.cron_max_recovery_age.as_secs(),
+            self.inner.cron_max_recovery_age().as_secs(),
         )?;
         dict.set_item(
             "cron_max_recovery_attempts",
-            self.inner.cron_max_recovery_attempts,
+            self.inner.cron_max_recovery_attempts(),
         )?;
 
         Ok(dict.into())
@@ -632,9 +641,9 @@ impl PyDefaultRunnerConfig {
     pub fn __repr__(&self) -> String {
         format!(
             "DefaultRunnerConfig(max_concurrent_tasks={}, enable_cron_scheduling={}, db_pool_size={})",
-            self.inner.max_concurrent_tasks,
-            self.inner.enable_cron_scheduling,
-            self.inner.db_pool_size
+            self.inner.max_concurrent_tasks(),
+            self.inner.enable_cron_scheduling(),
+            self.inner.db_pool_size()
         )
     }
 }
@@ -643,5 +652,32 @@ impl PyDefaultRunnerConfig {
     /// Get the inner Rust config (for internal use)
     pub(crate) fn to_rust_config(&self) -> cloacina::runner::DefaultRunnerConfig {
         self.inner.clone()
+    }
+
+    /// Rebuild the inner config by snapshotting current values into a builder,
+    /// applying an override, and building a new config.
+    fn rebuild(
+        &self,
+        apply: impl FnOnce(
+            cloacina::runner::DefaultRunnerConfigBuilder,
+        ) -> cloacina::runner::DefaultRunnerConfigBuilder,
+    ) -> cloacina::runner::DefaultRunnerConfig {
+        let c = &self.inner;
+        let builder = cloacina::runner::DefaultRunnerConfig::builder()
+            .max_concurrent_tasks(c.max_concurrent_tasks())
+            .scheduler_poll_interval(c.scheduler_poll_interval())
+            .task_timeout(c.task_timeout())
+            .pipeline_timeout(c.pipeline_timeout())
+            .db_pool_size(c.db_pool_size())
+            .enable_recovery(c.enable_recovery())
+            .enable_cron_scheduling(c.enable_cron_scheduling())
+            .cron_poll_interval(c.cron_poll_interval())
+            .cron_max_catchup_executions(c.cron_max_catchup_executions())
+            .cron_enable_recovery(c.cron_enable_recovery())
+            .cron_recovery_interval(c.cron_recovery_interval())
+            .cron_lost_threshold_minutes(c.cron_lost_threshold_minutes())
+            .cron_max_recovery_age(c.cron_max_recovery_age())
+            .cron_max_recovery_attempts(c.cron_max_recovery_attempts());
+        apply(builder).build()
     }
 }

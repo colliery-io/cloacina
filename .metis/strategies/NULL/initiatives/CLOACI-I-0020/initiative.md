@@ -4,14 +4,14 @@ level: initiative
 title: "Cloaca Workflow Package Format"
 short_code: "CLOACI-I-0020"
 created_at: 2026-01-28T05:21:08.781117+00:00
-updated_at: 2026-01-28T14:28:49.976801+00:00
+updated_at: 2026-01-28T18:42:06.484436+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,5 +16,6 @@
 
 pub mod checkpoint;
 pub mod debug_macro;
+pub mod handle_macro;
 pub mod macro_test;
 pub mod simple_macro;

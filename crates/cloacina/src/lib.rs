@@ -495,6 +495,7 @@ pub mod graph;
 pub mod logging;
 pub mod models;
 pub mod packaging;
+pub mod python;
 pub mod registry;
 pub mod retry;
 pub mod runner;
@@ -534,8 +535,9 @@ pub use error::{
     ValidationError, WorkflowError,
 };
 pub use executor::{
-    ExecutorConfig, PipelineError, PipelineExecution, PipelineExecutor, PipelineResult,
-    PipelineStatus, TaskResult, ThreadTaskExecutor,
+    return_task_handle, take_task_handle, with_task_handle, ExecutorConfig, PipelineError,
+    PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus, TaskHandle, TaskResult,
+    ThreadTaskExecutor,
 };
 pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,

@@ -19,32 +19,26 @@ def build_test_packages(backend=None):
     avoiding the fork-after-OpenSSL-init issue on Linux that causes SIGSEGV.
     The packages are stored in target/test-packages/ and loaded at test runtime.
 
-    Args:
-        backend: Optional backend to build for ('postgres', 'sqlite', or None for both)
+    Note: Example packages are backend-agnostic (they only use cloacina-macros
+    and cloacina-workflow), so we don't pass backend features to them.
     """
     print_section_header("Pre-building test packages")
 
     # Create output directory
     os.makedirs("target/test-packages", exist_ok=True)
 
-    # Build feature flags for examples
-    if backend:
-        feature_args = ["--no-default-features", "--features", backend]
-    else:
-        feature_args = []
-
-    # Build packaged-workflow-example
-    print(f"Building packaged-workflow-example{' (' + backend + ')' if backend else ''}...")
+    # Build packaged-workflow-example (no backend features needed - it's backend-agnostic)
+    print("Building packaged-workflow-example...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "packaged-workflow-example"] + feature_args,
+        ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
         check=True,
         cwd="examples/features/packaged-workflows"
     )
 
-    # Build simple-packaged-demo
-    print(f"Building simple-packaged-demo{' (' + backend + ')' if backend else ''}...")
+    # Build simple-packaged-demo (no backend features needed - it's backend-agnostic)
+    print("Building simple-packaged-demo...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "simple-packaged-demo"] + feature_args,
+        ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
         check=True,
         cwd="examples/features/simple-packaged"
     )

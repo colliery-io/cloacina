@@ -4,14 +4,14 @@ level: task
 title: "Server-side Python package loader"
 short_code: "CLOACI-T-0069"
 created_at: 2026-01-28T14:29:03.277373+00:00
-updated_at: 2026-01-28T14:29:03.277373+00:00
+updated_at: 2026-01-28T18:35:20.296059+00:00
 parent: CLOACI-I-0020
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,12 +33,16 @@ Extend the Rust server-side package loading infrastructure to recognize and extr
 
 ## Acceptance Criteria
 
-- [ ] Package loader detects `language: python` in manifest
-- [ ] Python package archive extracted to staging directory
-- [ ] Vendor directory preserved with correct structure
-- [ ] Python source modules extracted and importable
-- [ ] Manifest v2 format parsed with Python-specific fields
-- [ ] Integration with existing `PackageLoader` trait
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] Package loader detects `language: python` in manifest
+- [x] Python package archive extracted to staging directory
+- [x] Vendor directory preserved with correct structure
+- [x] Python source modules extracted and importable
+- [x] Manifest v2 format parsed with Python-specific fields
+- [x] Integration with existing loader module (new python_loader alongside package_loader)
 
 ## Implementation Notes
 
@@ -377,4 +381,8 @@ pub enum LoaderError {
 
 ## Status Updates
 
-*To be added during implementation*
+### Completed
+- Created `crates/cloacina/src/registry/loader/python_loader.rs` — `ExtractedPythonPackage` struct, `peek_manifest()`, `detect_package_kind()`, `extract_python_package()` with full archive extraction, manifest validation, language check
+- Extended `crates/cloacina/src/registry/error.rs` — added `WrongLanguage`, `MissingPythonConfig`, `MissingManifest`, `ManifestParse`, `MissingSourceDir` variants to `LoaderError`
+- Updated `crates/cloacina/src/registry/loader/mod.rs` — registered `python_loader` module and re-exports
+- 6 unit tests: peek manifest, detect kind, extract package, missing workflow dir, missing manifest, wrong language

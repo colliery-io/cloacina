@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ pub struct TaskExecution {
     pub last_error: Option<String>,
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
+    pub sub_status: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,12 +15,18 @@
  */
 
 //! Unified Pipeline Execution DAL with compile-time backend selection
+//!
+//! All state transitions are transactional: the status update and execution event
+//! are written atomically. If either fails, both are rolled back.
 
-use super::models::{NewUnifiedPipelineExecution, UnifiedPipelineExecution};
+use super::models::{
+    NewUnifiedExecutionEvent, NewUnifiedPipelineExecution, UnifiedPipelineExecution,
+};
 use super::DAL;
-use crate::database::schema::unified::pipeline_executions;
+use crate::database::schema::unified::{execution_events, pipeline_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
+use crate::models::execution_event::ExecutionEventType;
 use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
 use diesel::prelude::*;
 
@@ -35,6 +41,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         Self { dal }
     }
 
+    /// Creates a new pipeline execution record in the database.
+    ///
+    /// This operation is transactional: the pipeline record and execution event
+    /// are written atomically.
     pub async fn create(
         &self,
         new_execution: NewPipelineExecution,
@@ -51,6 +61,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         &self,
         new_execution: NewPipelineExecution,
     ) -> Result<PipelineExecution, ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -58,29 +70,53 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
+        let execution: UnifiedPipelineExecution = conn
+            .interact(move |conn| {
+                conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                    let id = UniversalUuid::new_v4();
+                    let now = UniversalTimestamp::now();
 
-        let unified_new = NewUnifiedPipelineExecution {
-            id,
-            pipeline_name: new_execution.pipeline_name,
-            pipeline_version: new_execution.pipeline_version,
-            status: new_execution.status,
-            context_id: new_execution.context_id,
-            started_at: now,
-            created_at: now,
-            updated_at: now,
-        };
+                    let unified_new = NewUnifiedPipelineExecution {
+                        id,
+                        pipeline_name: new_execution.pipeline_name,
+                        pipeline_version: new_execution.pipeline_version,
+                        status: new_execution.status,
+                        context_id: new_execution.context_id,
+                        started_at: now,
+                        created_at: now,
+                        updated_at: now,
+                    };
 
-        conn.interact(move |conn| {
-            diesel::insert_into(pipeline_executions::table)
-                .values(&unified_new)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                    // Insert pipeline record
+                    diesel::insert_into(pipeline_executions::table)
+                        .values(&unified_new)
+                        .execute(conn)?;
 
-        self.get_by_id_postgres(id).await
+                    // Retrieve the created record
+                    let execution: UnifiedPipelineExecution =
+                        pipeline_executions::table.find(id).first(conn)?;
+
+                    // Insert execution event for pipeline start
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: execution.id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+
+                    Ok(execution)
+                })
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(execution.into())
     }
 
     #[cfg(feature = "sqlite")]
@@ -88,6 +124,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         &self,
         new_execution: NewPipelineExecution,
     ) -> Result<PipelineExecution, ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -95,33 +133,53 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
+        let execution: UnifiedPipelineExecution = conn
+            .interact(move |conn| {
+                conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                    let id = UniversalUuid::new_v4();
+                    let now = UniversalTimestamp::now();
 
-        let unified_new = NewUnifiedPipelineExecution {
-            id,
-            pipeline_name: new_execution.pipeline_name,
-            pipeline_version: new_execution.pipeline_version,
-            status: new_execution.status,
-            context_id: new_execution.context_id,
-            started_at: now,
-            created_at: now,
-            updated_at: now,
-        };
+                    let unified_new = NewUnifiedPipelineExecution {
+                        id,
+                        pipeline_name: new_execution.pipeline_name,
+                        pipeline_version: new_execution.pipeline_version,
+                        status: new_execution.status,
+                        context_id: new_execution.context_id,
+                        started_at: now,
+                        created_at: now,
+                        updated_at: now,
+                    };
 
-        conn.interact(move |conn| {
-            diesel::insert_into(pipeline_executions::table)
-                .values(&unified_new)
-                .execute(conn)
-        })
-        .await
-        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+                    // Insert pipeline record
+                    diesel::insert_into(pipeline_executions::table)
+                        .values(&unified_new)
+                        .execute(conn)?;
 
-        // IMPORTANT: Drop connection before calling get_by_id_sqlite to avoid deadlock
-        // SQLite pool has size 1, so we must return this connection before acquiring another
-        drop(conn);
+                    // Retrieve the created record
+                    let execution: UnifiedPipelineExecution =
+                        pipeline_executions::table.find(id).first(conn)?;
 
-        self.get_by_id_sqlite(id).await
+                    // Insert execution event for pipeline start
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: execution.id,
+                        task_execution_id: None,
+                        event_type: ExecutionEventType::PipelineStarted.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+
+                    Ok(execution)
+                })
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(execution.into())
     }
 
     pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
@@ -296,6 +354,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
+    /// Marks a pipeline execution as completed.
+    ///
+    /// This operation is transactional: the status update and execution event
+    /// are written atomically.
     pub async fn mark_completed(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
@@ -306,6 +368,8 @@ impl<'a> PipelineExecutionDAL<'a> {
 
     #[cfg(feature = "postgres")]
     async fn mark_completed_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -313,15 +377,35 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Completed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Completed"),
+                        pipeline_executions::completed_at.eq(Some(now)),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                    event_data: None,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -331,6 +415,8 @@ impl<'a> PipelineExecutionDAL<'a> {
 
     #[cfg(feature = "sqlite")]
     async fn mark_completed_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -338,15 +424,35 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Completed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Completed"),
+                        pipeline_executions::completed_at.eq(Some(now)),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineCompleted.as_str().to_string(),
+                    event_data: None,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -421,6 +527,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(version)
     }
 
+    /// Marks a pipeline execution as failed with an error reason.
+    ///
+    /// This operation is transactional: the status update and execution event
+    /// are written atomically.
     pub async fn mark_failed(
         &self,
         id: UniversalUuid,
@@ -439,6 +549,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -447,16 +559,37 @@ impl<'a> PipelineExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason = reason.to_string();
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Failed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::error_details.eq(reason),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Failed"),
+                        pipeline_executions::completed_at.eq(Some(now)),
+                        pipeline_executions::error_details.eq(&reason),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event with error details
+                let event_data = serde_json::json!({ "reason": reason }).to_string();
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                    event_data: Some(event_data),
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -470,6 +603,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         reason: &str,
     ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -478,16 +613,37 @@ impl<'a> PipelineExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason = reason.to_string();
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Failed"),
-                    pipeline_executions::completed_at.eq(Some(now)),
-                    pipeline_executions::error_details.eq(reason),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Failed"),
+                        pipeline_executions::completed_at.eq(Some(now)),
+                        pipeline_executions::error_details.eq(&reason),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event with error details
+                let event_data = serde_json::json!({ "reason": reason }).to_string();
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineFailed.as_str().to_string(),
+                    event_data: Some(event_data),
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -576,6 +732,9 @@ impl<'a> PipelineExecutionDAL<'a> {
     ///
     /// Sets the pipeline status to 'Paused', records the pause timestamp,
     /// and optionally stores a reason for the pause.
+    ///
+    /// This operation is transactional: the status update and execution event
+    /// are written atomically.
     pub async fn pause(
         &self,
         id: UniversalUuid,
@@ -594,6 +753,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         reason: Option<&str>,
     ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -602,16 +763,37 @@ impl<'a> PipelineExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason = reason.map(|r| r.to_string());
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Paused"),
-                    pipeline_executions::paused_at.eq(Some(now)),
-                    pipeline_executions::pause_reason.eq(reason),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Paused"),
+                        pipeline_executions::paused_at.eq(Some(now)),
+                        pipeline_executions::pause_reason.eq(&reason),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event with pause reason
+                let event_data = reason.map(|r| serde_json::json!({ "reason": r }).to_string());
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
+                    event_data,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -625,6 +807,8 @@ impl<'a> PipelineExecutionDAL<'a> {
         id: UniversalUuid,
         reason: Option<&str>,
     ) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -633,16 +817,37 @@ impl<'a> PipelineExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
         let reason = reason.map(|r| r.to_string());
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Paused"),
-                    pipeline_executions::paused_at.eq(Some(now)),
-                    pipeline_executions::pause_reason.eq(reason),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Paused"),
+                        pipeline_executions::paused_at.eq(Some(now)),
+                        pipeline_executions::pause_reason.eq(&reason),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event with pause reason
+                let event_data = reason.map(|r| serde_json::json!({ "reason": r }).to_string());
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelinePaused.as_str().to_string(),
+                    event_data,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -653,6 +858,9 @@ impl<'a> PipelineExecutionDAL<'a> {
     /// Resumes a paused pipeline execution.
     ///
     /// Sets the pipeline status back to 'Running' and clears the pause metadata.
+    ///
+    /// This operation is transactional: the status update and execution event
+    /// are written atomically.
     pub async fn resume(&self, id: UniversalUuid) -> Result<(), ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
@@ -663,6 +871,8 @@ impl<'a> PipelineExecutionDAL<'a> {
 
     #[cfg(feature = "postgres")]
     async fn resume_postgres(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -670,16 +880,36 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Running"),
-                    pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
-                    pipeline_executions::pause_reason.eq(None::<String>),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Running"),
+                        pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
+                        pipeline_executions::pause_reason.eq(None::<String>),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
+                    event_data: None,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -689,6 +919,8 @@ impl<'a> PipelineExecutionDAL<'a> {
 
     #[cfg(feature = "sqlite")]
     async fn resume_sqlite(&self, id: UniversalUuid) -> Result<(), ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -696,16 +928,36 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let now = UniversalTimestamp::now();
         conn.interact(move |conn| {
-            diesel::update(pipeline_executions::table.find(id))
-                .set((
-                    pipeline_executions::status.eq("Running"),
-                    pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
-                    pipeline_executions::pause_reason.eq(None::<String>),
-                    pipeline_executions::updated_at.eq(now),
-                ))
-                .execute(conn)
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                let now = UniversalTimestamp::now();
+
+                // Update pipeline status
+                diesel::update(pipeline_executions::table.find(id))
+                    .set((
+                        pipeline_executions::status.eq("Running"),
+                        pipeline_executions::paused_at.eq(None::<UniversalTimestamp>),
+                        pipeline_executions::pause_reason.eq(None::<String>),
+                        pipeline_executions::updated_at.eq(now),
+                    ))
+                    .execute(conn)?;
+
+                // Insert execution event
+                let event = NewUnifiedExecutionEvent {
+                    id: UniversalUuid::new_v4(),
+                    pipeline_execution_id: id,
+                    task_execution_id: None,
+                    event_type: ExecutionEventType::PipelineResumed.as_str().to_string(),
+                    event_data: None,
+                    worker_id: None,
+                    created_at: now,
+                };
+                diesel::insert_into(execution_events::table)
+                    .values(&event)
+                    .execute(conn)?;
+
+                Ok(())
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;

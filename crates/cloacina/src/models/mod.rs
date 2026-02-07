@@ -72,10 +72,12 @@
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
+pub mod execution_event;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod task_outbox;
 pub mod trigger_execution;
 pub mod trigger_schedule;
 pub mod workflow_packages;

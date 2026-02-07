@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ mod workflow;
 use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 use context::{PyContext, PyDefaultRunnerConfig};
 use runner::{PyDefaultRunner, PyPipelineResult};
-use task::task as task_decorator;
+use task::{task as task_decorator, PyTaskHandle};
 use trigger::PyTriggerResult;
 use value_objects::{
     PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder, PyTaskNamespace,
@@ -81,8 +81,9 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Configuration class
     m.add_class::<PyDefaultRunnerConfig>()?;
 
-    // Task decorator function
+    // Task decorator function and handle
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
+    m.add_class::<PyTaskHandle>()?;
 
     // Trigger decorator and result class
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;

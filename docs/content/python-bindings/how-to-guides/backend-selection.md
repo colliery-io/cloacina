@@ -80,7 +80,7 @@ runner = cloaca.DefaultRunner("sqlite:///workflows.db?_busy_timeout=5000")
 ### Installation
 
 ```bash
-pip install cloaca[postgres]
+pip install cloaca
 ```
 
 ### Basic Usage

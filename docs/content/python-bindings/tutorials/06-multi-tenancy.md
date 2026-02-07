@@ -954,8 +954,8 @@ if __name__ == "__main__":
 To run:
 
 ```bash
-# Install PostgreSQL extras for Python
-pip install cloaca[postgres]
+# Install Python bindings
+pip install cloaca
 
 # Run the demo
 python multi_tenant_demo.py
@@ -1214,5 +1214,5 @@ Or explore these resources:
 - [How-to: Multi-tenant Recovery]({{< ref "/how-to-guides/multi-tenant-recovery/" >}}) - Recovery strategies
 
 {{< hint type="info" title="Reference Implementation" >}}
-This tutorial demonstrates patterns from the [`examples/multi_tenant/`](https://github.com/dstorey/cloacina/tree/main/examples/multi_tenant) and [`examples/per_tenant_credentials/`](https://github.com/dstorey/cloacina/tree/main/examples/per_tenant_credentials) directories in the Cloacina repository.
+This tutorial demonstrates patterns from the [`examples/multi_tenant/`](https://github.com/colliery-io/cloacina/tree/main/examples/multi_tenant) and [`examples/per_tenant_credentials/`](https://github.com/colliery-io/cloacina/tree/main/examples/per_tenant_credentials) directories in the Cloacina repository.
 {{< /hint >}}

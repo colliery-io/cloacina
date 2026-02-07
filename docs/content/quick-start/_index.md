@@ -22,7 +22,7 @@ Cloacina is an embedded pipeline framework for Rust that helps you build resilie
 ## Prerequisites
 
 - Rust (latest stable version)
-- PostgreSQL database
+- SQLite or PostgreSQL database
 - Basic understanding of async Rust
 
 ## Installation
@@ -159,4 +159,4 @@ Workflows are expressive and can:
 
 ## Need Help?
 
-- Open an [issue](https://github.com/collier-io/cloacina/issues) for bug reports
+- Open an [issue](https://github.com/colliery-io/cloacina/issues) for bug reports

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,9 +21,13 @@
 //! global task registry.
 
 pub mod package_loader;
+pub mod python_loader;
 pub mod task_registrar;
 pub mod validator;
 
 pub use package_loader::PackageLoader;
+pub use python_loader::{
+    detect_package_kind, extract_python_package, peek_manifest, ExtractedPythonPackage, PackageKind,
+};
 pub use task_registrar::TaskRegistrar;
 pub use validator::PackageValidator;

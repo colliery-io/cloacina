@@ -184,3 +184,82 @@ def create_python_tutorial_command(tutorial_file):
 python_tutorial_commands = {}
 for tutorial_file in get_python_tutorial_files():
     python_tutorial_commands[tutorial_file] = create_python_tutorial_command(tutorial_file)
+
+
+# --------------------------------------------------------------------------
+# Python workflow feature example
+# --------------------------------------------------------------------------
+
+@demos()
+@angreal.command(
+    name="python-workflow",
+    about="run Python Workflow Example",
+    when_to_use=[
+        "Testing Python workflow packaging end-to-end",
+        "Validating data pipeline task execution",
+        "Verifying cloaca Context API with real tasks",
+    ],
+    when_not_to_use=[
+        "Production deployment",
+        "Performance benchmarking",
+    ],
+)
+def python_workflow_demo():
+    """Run the Python workflow feature example end-to-end."""
+    project_root = PROJECT_ROOT
+    example_dir = project_root / "examples" / "features" / "python-workflow"
+    runner_script = example_dir / "run_pipeline.py"
+
+    if not runner_script.exists():
+        print(f"ERROR: Runner script not found: {runner_script}")
+        return 1
+
+    venv_name = "python-workflow-demo"
+    venv_path = project_root / venv_name
+
+    try:
+        print("Step 1: Setting up demo environment...")
+        venv, python_exe, pip_exe = _build_and_install_cloaca_unified(venv_name)
+
+        print("Step 2: Executing python-workflow example...")
+        cmd = [str(python_exe), str(runner_script)]
+        print(f"  Running: {' '.join(cmd)}")
+
+        result = subprocess.run(
+            cmd,
+            cwd=str(example_dir),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode == 0:
+            print("SUCCESS: Python workflow example completed!")
+            print("\nOutput:")
+            print("-" * 30)
+            # Only print the assertion lines, skip noisy runtime logs
+            for line in result.stdout.splitlines():
+                if not line.strip().startswith("[") and not line.startswith("THREAD:") and not line.startswith("TASK:") and not line.startswith("THREADS:"):
+                    print(line)
+            return 0
+        else:
+            print("FAILED: Python workflow example failed!")
+            print("\nStderr:")
+            print(result.stderr)
+            if result.stdout:
+                print("\nStdout:")
+                print(result.stdout)
+            return 1
+
+    except subprocess.TimeoutExpired:
+        print("TIMEOUT: Python workflow example timed out after 2 minutes")
+        return 1
+
+    except Exception as e:
+        print(f"ERROR: Setup failed: {e}")
+        return 1
+
+    finally:
+        print("Cleaning up demo environment...")
+        if venv_path.exists():
+            shutil.rmtree(venv_path)

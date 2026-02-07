@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -46,11 +46,13 @@ use crate::database::{AnyPool, BackendType, Database};
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
+pub mod execution_event;
 pub mod models;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
+pub mod task_outbox;
 pub mod trigger_execution;
 pub mod trigger_schedule;
 pub mod workflow_packages;
@@ -61,10 +63,12 @@ pub mod workflow_registry_storage;
 pub use context::ContextDAL;
 pub use cron_execution::CronExecutionDAL;
 pub use cron_schedule::CronScheduleDAL;
+pub use execution_event::ExecutionEventDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
+pub use task_outbox::TaskOutboxDAL;
 pub use trigger_execution::TriggerExecutionDAL;
 pub use trigger_schedule::TriggerScheduleDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
@@ -213,9 +217,19 @@ impl DAL {
         TaskExecutionMetadataDAL::new(self)
     }
 
+    /// Returns a task outbox DAL for work distribution operations.
+    pub fn task_outbox(&self) -> TaskOutboxDAL<'_> {
+        TaskOutboxDAL::new(self)
+    }
+
     /// Returns a recovery event DAL for recovery operations.
     pub fn recovery_event(&self) -> RecoveryEventDAL<'_> {
         RecoveryEventDAL::new(self)
+    }
+
+    /// Returns an execution event DAL for execution event operations.
+    pub fn execution_event(&self) -> ExecutionEventDAL<'_> {
+        ExecutionEventDAL::new(self)
     }
 
     /// Returns a cron schedule DAL for schedule operations.

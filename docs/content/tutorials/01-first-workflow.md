@@ -280,4 +280,4 @@ Congratulations! You've created and executed your first Cloacina workflow. In th
 
 ## Download the Example
 
-You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorial-01).
+You can download the complete example code from our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/01-basic-workflow).

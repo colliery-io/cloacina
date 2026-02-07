@@ -317,7 +317,7 @@ let new_tenant = DefaultRunner::with_schema(
 - **Connection Pools**: Each tenant gets their own connection pool
 - **Not a Complete Solution**: Still requires application-level auth/authz
 
-See the [per-tenant credentials example](https://github.com/your-repo/cloacina/tree/main/examples/per_tenant_credentials) for a complete working demonstration.
+See the [per-tenant credentials example](https://github.com/colliery-io/cloacina/tree/main/examples/per_tenant_credentials) for a complete working demonstration.
 
 ## PostgreSQL Schema-Based Multi-Tenancy
 
@@ -476,7 +476,6 @@ let legacy_executor = DefaultRunner::with_schema(db_url, "legacy_tenant").await?
 
 // New tenants use their own schemas
 let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
-let new_tenant = DefaultRunner::with_schema(db_url, "new_customer").await?;
 ```
 
 #### Option 2: Run Side-by-Side
@@ -515,7 +514,6 @@ let tenant_b = DefaultRunner::with_schema(db_url, "tenant_b").await?;
 async fn create_tenant_runner(
     db_url: &str,
     tenant_id: &str
-) -> Result<DefaultRunner, AppError> {
 ) -> Result<DefaultRunner, AppError> {
     // Validate tenant ID comes from trusted source
     validate_tenant_id(tenant_id)?;

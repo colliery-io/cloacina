@@ -4,14 +4,14 @@ level: task
 title: "cloaca build CLI command implementation"
 short_code: "CLOACI-T-0067"
 created_at: 2026-01-28T14:29:02.217522+00:00
-updated_at: 2026-01-28T14:29:02.217522+00:00
+updated_at: 2026-01-28T18:31:16.703113+00:00
 parent: CLOACI-I-0020
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,16 +33,20 @@ Implement the `cloaca build` CLI command that creates `.cloacina` packages from 
 
 ## Acceptance Criteria
 
-- [ ] `cloaca build` command creates `.cloacina` package
-- [ ] Parses `pyproject.toml` for package metadata
-- [ ] Discovers `@task` decorated functions from entry module
-- [ ] `--target` flag for platform targeting (default: auto-detect)
-- [ ] `--output` flag for output directory
-- [ ] Invokes dependency vendoring (T-0068)
-- [ ] Generates `manifest.json`
-- [ ] Creates tar.gz archive with correct structure
-- [ ] Computes package fingerprint (SHA256)
-- [ ] CLI help and error messages
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] `cloaca build` command creates `.cloacina` package
+- [x] Parses `pyproject.toml` for package metadata
+- [x] Discovers `@task` decorated functions from entry module (AST-based)
+- [x] `--target` flag for platform targeting (default: auto-detect)
+- [x] `--output` flag for output directory
+- [x] Invokes dependency vendoring (stubbed — T-0068 provides real impl)
+- [x] Generates `manifest.json`
+- [x] Creates tar.gz archive with correct structure
+- [x] Computes package fingerprint (SHA256)
+- [x] CLI help and error messages (click-based)
 
 ## CLI Interface
 
@@ -275,4 +279,9 @@ pydantic = ">=2.0"
 
 ## Status Updates
 
-*To be added during implementation*
+### Completed
+- Created `bindings/cloaca-backend/python/cloaca/cli/__init__.py` — click group entry point
+- Created `bindings/cloaca-backend/python/cloaca/cli/build.py` — `cloaca build` command with `--output`, `--target`, `--verbose`, `--dry-run` flags; stages build dir, copies workflow source, writes manifest, creates tar.gz, computes SHA256 fingerprint
+- Created `bindings/cloaca-backend/python/cloaca/pyproject.py` — `parse_pyproject()` with validation for `[project]`, `[tool.cloaca]`, `entry_module`
+- Created `bindings/cloaca-backend/python/cloaca/discovery.py` — AST-based `discover_tasks()` that finds `@task` decorated functions without importing user code; extracts id, dependencies, description, retries, timeout_seconds from decorator kwargs
+- Vendor directory creation is stubbed (T-0068 provides real `uv`-based vendoring)

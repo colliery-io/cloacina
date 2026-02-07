@@ -47,13 +47,13 @@ Let's work with the complete registry demonstration that's already set up in the
 
 ```bash
 # Navigate to the registry execution demo
-cd cloacina/examples/registry-execution-demo
+cd cloacina/examples/features/registry-execution
 ls -la
 ```
 
 Your directory structure should look like this:
 ```
-examples/registry-execution-demo/
+examples/features/registry-execution/
 ├── Cargo.toml
 ├── README.md
 └── src/
@@ -219,7 +219,7 @@ You should see output similar to this:
 🚀 Cloacina Registry Execution Demo
 
 📦 Building workflow package...
-Packaging workflow project: "/path/to/cloacina/examples/simple-packaged-demo"
+Packaging workflow project: "/path/to/cloacina/examples/features/simple-packaged"
 ✅ Package built: 1065567 bytes
 
 📋 Setting up shared storage and database...
@@ -363,4 +363,4 @@ Congratulations! You've successfully set up and used the workflow registry. In f
 
 ## Download the Example
 
-You can find the complete example code in our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/registry-execution-demo).
+You can find the complete example code in our [GitHub repository](https://github.com/colliery-io/cloacina/tree/main/examples/features/registry-execution).

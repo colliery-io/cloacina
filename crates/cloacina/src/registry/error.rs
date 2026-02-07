@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -240,4 +240,32 @@ pub enum LoaderError {
         /// Reason for registration failure
         reason: String,
     },
+
+    /// Wrong package language for loader.
+    #[error("Wrong package language: expected {expected}, got {actual}")]
+    WrongLanguage {
+        /// Expected language
+        expected: String,
+        /// Actual language found
+        actual: String,
+    },
+
+    /// Missing Python configuration in manifest.
+    #[error("Missing python configuration in manifest")]
+    MissingPythonConfig,
+
+    /// Missing manifest.json in archive.
+    #[error("Missing manifest.json in package archive")]
+    MissingManifest,
+
+    /// Manifest parse error.
+    #[error("Failed to parse manifest: {reason}")]
+    ManifestParse {
+        /// Details about the parse error
+        reason: String,
+    },
+
+    /// Missing source directory in extracted package.
+    #[error("Missing workflow source directory in Python package")]
+    MissingSourceDir,
 }

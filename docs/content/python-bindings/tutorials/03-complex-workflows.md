@@ -1007,5 +1007,5 @@ Excellent work! You now understand how to build sophisticated workflows with com
 - [API Reference: WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}}) - Advanced workflow configuration
 
 {{< hint type="info" title="Reference Implementation" >}}
-This tutorial demonstrates patterns from [`test_scenario_13_complex_dependency_chains.py`](https://github.com/dstorey/cloacina/blob/main/python-tests/test_scenario_13_complex_dependency_chains.py) and parallel processing concepts from the Cloacina test suite.
+This tutorial demonstrates patterns from [`test_scenario_13_complex_dependency_chains.py`](https://github.com/colliery-io/cloacina/blob/main/tests/python/test_scenario_13_complex_dependency_chains.py) and parallel processing concepts from the Cloacina test suite.
 {{< /hint >}}
