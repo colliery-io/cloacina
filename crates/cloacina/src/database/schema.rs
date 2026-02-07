@@ -103,6 +103,37 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Execution events table for complete audit trail of task/pipeline state transitions.
+        /// Append-only: events are never updated after creation.
+        execution_events (sequence_num) {
+            id -> DbUuid,
+            pipeline_execution_id -> DbUuid,
+            task_execution_id -> Nullable<DbUuid>,
+            event_type -> Text,
+            event_data -> Nullable<Text>,
+            worker_id -> Nullable<Text>,
+            created_at -> DbTimestamp,
+            sequence_num -> BigInt,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        /// Task outbox table for work distribution.
+        /// Transient: rows are deleted immediately upon claiming.
+        task_outbox (id) {
+            id -> BigInt,
+            task_execution_id -> DbUuid,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,
@@ -282,11 +313,15 @@ mod unified_schema {
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> task_executions (task_execution_id));
+    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
         cron_executions,
         cron_schedules,
+        execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
@@ -294,6 +329,7 @@ mod unified_schema {
         signing_keys,
         task_executions,
         task_execution_metadata,
+        task_outbox,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -370,6 +406,27 @@ mod postgres_schema {
             details -> Nullable<Text>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        execution_events (id) {
+            id -> Uuid,
+            pipeline_execution_id -> Uuid,
+            task_execution_id -> Nullable<Uuid>,
+            event_type -> Varchar,
+            event_data -> Nullable<Text>,
+            worker_id -> Nullable<Varchar>,
+            created_at -> Timestamp,
+            sequence_num -> Int8,
+        }
+    }
+
+    diesel::table! {
+        task_outbox (id) {
+            id -> Int8,
+            task_execution_id -> Uuid,
+            created_at -> Timestamp,
         }
     }
 
@@ -553,6 +610,9 @@ mod postgres_schema {
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(workflow_packages -> workflow_registry (registry_id));
+    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> task_executions (task_execution_id));
+    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
@@ -563,6 +623,7 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
@@ -570,6 +631,7 @@ mod postgres_schema {
         signing_keys,
         task_executions,
         task_execution_metadata,
+        task_outbox,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -584,6 +646,7 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
@@ -591,6 +654,7 @@ mod postgres_schema {
         signing_keys,
         task_executions,
         task_execution_metadata,
+        task_outbox,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -663,6 +727,27 @@ mod sqlite_schema {
             details -> Nullable<Text>,
             created_at -> Text,
             updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        execution_events (sequence_num) {
+            id -> Binary,
+            pipeline_execution_id -> Binary,
+            task_execution_id -> Nullable<Binary>,
+            event_type -> Text,
+            event_data -> Nullable<Text>,
+            worker_id -> Nullable<Text>,
+            created_at -> Text,
+            sequence_num -> BigInt,
+        }
+    }
+
+    diesel::table! {
+        task_outbox (id) {
+            id -> BigInt,
+            task_execution_id -> Binary,
+            created_at -> Text,
         }
     }
 
@@ -813,11 +898,15 @@ mod sqlite_schema {
     diesel::joinable!(cron_executions -> cron_schedules (schedule_id));
     diesel::joinable!(cron_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(trigger_executions -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
+    diesel::joinable!(execution_events -> task_executions (task_execution_id));
+    diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
         cron_executions,
         cron_schedules,
+        execution_events,
         key_trust_acls,
         package_signatures,
         pipeline_executions,
@@ -825,6 +914,7 @@ mod sqlite_schema {
         signing_keys,
         task_executions,
         task_execution_metadata,
+        task_outbox,
         trigger_executions,
         trigger_schedules,
         trusted_keys,

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -59,6 +59,7 @@ pub mod default;
 pub mod router;
 pub mod traits;
 pub mod types;
+pub mod work_distributor;
 
 pub use default::DefaultDispatcher;
 pub use router::Router;
@@ -67,3 +68,10 @@ pub use types::{
     DispatchError, ExecutionResult, ExecutionStatus, ExecutorMetrics, RoutingConfig, RoutingRule,
     TaskReadyEvent,
 };
+pub use work_distributor::{create_work_distributor, WorkDistributor};
+
+#[cfg(feature = "postgres")]
+pub use work_distributor::PostgresDistributor;
+
+#[cfg(feature = "sqlite")]
+pub use work_distributor::SqliteDistributor;

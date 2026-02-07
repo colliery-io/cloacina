@@ -60,7 +60,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
         .await
         .expect("Failed to create pipeline");
 
-    // Create multiple ready tasks
+    // Create multiple tasks and mark them ready (which populates the outbox)
     const NUM_TASKS: usize = 20;
     let mut created_task_ids = Vec::new();
 
@@ -70,7 +70,7 @@ async fn test_concurrent_task_claiming_no_duplicates() {
             .create(NewTaskExecution {
                 pipeline_execution_id: pipeline.id,
                 task_name: format!("concurrent-task-{}", i),
-                status: "Ready".to_string(),
+                status: "NotStarted".to_string(),
                 attempt: 1,
                 max_attempts: 3,
                 trigger_rules: json!({"type": "Always"}).to_string(),
@@ -78,8 +78,27 @@ async fn test_concurrent_task_claiming_no_duplicates() {
             })
             .await
             .expect("Failed to create task");
+
+        // Mark as ready - this adds to the outbox
+        dal.task_execution()
+            .mark_ready(task.id)
+            .await
+            .expect("Failed to mark task ready");
+
         created_task_ids.push(task.id);
     }
+
+    // Verify outbox has entries before workers start
+    let outbox_count = dal
+        .task_outbox()
+        .count_pending()
+        .await
+        .expect("Failed to count outbox");
+    assert_eq!(
+        outbox_count as usize, NUM_TASKS,
+        "Outbox should have {} entries, got {}",
+        NUM_TASKS, outbox_count
+    );
 
     // Release the fixture lock before spawning concurrent tasks
     drop(guard);
@@ -191,13 +210,13 @@ async fn test_claimed_tasks_marked_running() {
         .await
         .expect("Failed to create pipeline");
 
-    // Create a ready task
+    // Create a task and mark it ready (which populates the outbox)
     let task = dal
         .task_execution()
         .create(NewTaskExecution {
             pipeline_execution_id: pipeline.id,
             task_name: "status-test-task".to_string(),
-            status: "Ready".to_string(),
+            status: "NotStarted".to_string(),
             attempt: 1,
             max_attempts: 3,
             trigger_rules: json!({"type": "Always"}).to_string(),
@@ -205,6 +224,12 @@ async fn test_claimed_tasks_marked_running() {
         })
         .await
         .expect("Failed to create task");
+
+    // Mark as ready - this adds to the outbox
+    dal.task_execution()
+        .mark_ready(task.id)
+        .await
+        .expect("Failed to mark task ready");
 
     // Claim the task
     let claimed = dal

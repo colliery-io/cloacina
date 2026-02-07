@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,17 +15,26 @@
  */
 
 //! CRUD operations for task executions.
+//!
+//! Task creation is transactional: the task record and execution event
+//! are written atomically.
 
 use super::TaskExecutionDAL;
-use crate::dal::unified::models::{NewUnifiedTaskExecution, UnifiedTaskExecution};
-use crate::database::schema::unified::task_executions;
+use crate::dal::unified::models::{
+    NewUnifiedExecutionEvent, NewUnifiedTaskExecution, UnifiedTaskExecution,
+};
+use crate::database::schema::unified::{execution_events, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
+use crate::models::execution_event::ExecutionEventType;
 use crate::models::task_execution::{NewTaskExecution, TaskExecution};
 use diesel::prelude::*;
 
 impl<'a> TaskExecutionDAL<'a> {
     /// Creates a new task execution record in the database.
+    ///
+    /// This operation is transactional: the task record and execution event
+    /// are written atomically.
     pub async fn create(
         &self,
         new_task: NewTaskExecution,
@@ -42,6 +51,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         new_task: NewTaskExecution,
     ) -> Result<TaskExecution, ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -49,27 +60,46 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
-
-        let new_unified_task = NewUnifiedTaskExecution {
-            id,
-            pipeline_execution_id: new_task.pipeline_execution_id,
-            task_name: new_task.task_name,
-            status: new_task.status,
-            attempt: new_task.attempt,
-            max_attempts: new_task.max_attempts,
-            trigger_rules: new_task.trigger_rules,
-            task_configuration: new_task.task_configuration,
-            created_at: now,
-            updated_at: now,
-        };
-
         let task: UnifiedTaskExecution = conn
             .interact(move |conn| {
-                diesel::insert_into(task_executions::table)
-                    .values(&new_unified_task)
-                    .get_result(conn)
+                conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                    let id = UniversalUuid::new_v4();
+                    let now = UniversalTimestamp::now();
+
+                    let new_unified_task = NewUnifiedTaskExecution {
+                        id,
+                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        task_name: new_task.task_name,
+                        status: new_task.status,
+                        attempt: new_task.attempt,
+                        max_attempts: new_task.max_attempts,
+                        trigger_rules: new_task.trigger_rules,
+                        task_configuration: new_task.task_configuration,
+                        created_at: now,
+                        updated_at: now,
+                    };
+
+                    // Insert task record
+                    let task: UnifiedTaskExecution = diesel::insert_into(task_executions::table)
+                        .values(&new_unified_task)
+                        .get_result(conn)?;
+
+                    // Insert execution event for task creation
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: task.pipeline_execution_id,
+                        task_execution_id: Some(task.id),
+                        event_type: ExecutionEventType::TaskCreated.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+
+                    Ok(task)
+                })
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -82,6 +112,8 @@ impl<'a> TaskExecutionDAL<'a> {
         &self,
         new_task: NewTaskExecution,
     ) -> Result<TaskExecution, ValidationError> {
+        use diesel::connection::Connection;
+
         let conn = self
             .dal
             .database
@@ -89,27 +121,46 @@ impl<'a> TaskExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let id = UniversalUuid::new_v4();
-        let now = UniversalTimestamp::now();
-
-        let new_unified_task = NewUnifiedTaskExecution {
-            id,
-            pipeline_execution_id: new_task.pipeline_execution_id,
-            task_name: new_task.task_name,
-            status: new_task.status,
-            attempt: new_task.attempt,
-            max_attempts: new_task.max_attempts,
-            trigger_rules: new_task.trigger_rules,
-            task_configuration: new_task.task_configuration,
-            created_at: now,
-            updated_at: now,
-        };
-
         let task: UnifiedTaskExecution = conn
             .interact(move |conn| {
-                diesel::insert_into(task_executions::table)
-                    .values(&new_unified_task)
-                    .get_result(conn)
+                conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                    let id = UniversalUuid::new_v4();
+                    let now = UniversalTimestamp::now();
+
+                    let new_unified_task = NewUnifiedTaskExecution {
+                        id,
+                        pipeline_execution_id: new_task.pipeline_execution_id,
+                        task_name: new_task.task_name,
+                        status: new_task.status,
+                        attempt: new_task.attempt,
+                        max_attempts: new_task.max_attempts,
+                        trigger_rules: new_task.trigger_rules,
+                        task_configuration: new_task.task_configuration,
+                        created_at: now,
+                        updated_at: now,
+                    };
+
+                    // Insert task record
+                    let task: UnifiedTaskExecution = diesel::insert_into(task_executions::table)
+                        .values(&new_unified_task)
+                        .get_result(conn)?;
+
+                    // Insert execution event for task creation
+                    let event = NewUnifiedExecutionEvent {
+                        id: UniversalUuid::new_v4(),
+                        pipeline_execution_id: task.pipeline_execution_id,
+                        task_execution_id: Some(task.id),
+                        event_type: ExecutionEventType::TaskCreated.as_str().to_string(),
+                        event_data: None,
+                        worker_id: None,
+                        created_at: now,
+                    };
+                    diesel::insert_into(execution_events::table)
+                        .values(&event)
+                        .execute(conn)?;
+
+                    Ok(task)
+                })
             })
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;

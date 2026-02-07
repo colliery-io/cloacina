@@ -143,6 +143,18 @@ impl SimpleTask {
                 .collect(),
         }
     }
+
+    /// Create a SimpleTask with dependencies specified as simple task names.
+    /// Constructs full namespace using default tenant/package and the given workflow name.
+    fn with_workflow(id: &str, deps: Vec<&str>, workflow_name: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            dependencies: deps
+                .into_iter()
+                .map(|dep| TaskNamespace::new("public", "embedded", workflow_name, dep))
+                .collect(),
+        }
+    }
 }
 
 #[async_trait]
@@ -256,9 +268,10 @@ async fn test_defer_until_with_downstream_dependency() {
         .description("Pipeline with deferred task and downstream dependency")
         .add_task(Arc::new(SimpleTask::new("deferred_flag_task", vec![])))
         .unwrap()
-        .add_task(Arc::new(SimpleTask::new(
+        .add_task(Arc::new(SimpleTask::with_workflow(
             "after_deferred_task",
             vec!["deferred_flag_task"],
+            "defer_chain_pipeline",
         )))
         .unwrap()
         .build()

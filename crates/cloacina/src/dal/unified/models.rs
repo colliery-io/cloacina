@@ -20,9 +20,10 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    contexts, cron_executions, cron_schedules, key_trust_acls, package_signatures,
-    pipeline_executions, recovery_events, signing_keys, task_execution_metadata, task_executions,
-    trigger_executions, trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
+    contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
+    package_signatures, pipeline_executions, recovery_events, signing_keys,
+    task_execution_metadata, task_executions, task_outbox, trigger_executions, trigger_schedules,
+    trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -187,6 +188,58 @@ pub struct NewUnifiedRecoveryEvent {
     pub details: Option<String>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Execution Event Models
+// ============================================================================
+
+/// Unified execution event model for audit trail of state transitions.
+/// Append-only: events are never updated after creation.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = execution_events)]
+pub struct UnifiedExecutionEvent {
+    pub id: UniversalUuid,
+    pub pipeline_execution_id: UniversalUuid,
+    pub task_execution_id: Option<UniversalUuid>,
+    pub event_type: String,
+    pub event_data: Option<String>,
+    pub worker_id: Option<String>,
+    pub created_at: UniversalTimestamp,
+    pub sequence_num: i64,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = execution_events)]
+pub struct NewUnifiedExecutionEvent {
+    pub id: UniversalUuid,
+    pub pipeline_execution_id: UniversalUuid,
+    pub task_execution_id: Option<UniversalUuid>,
+    pub event_type: String,
+    pub event_data: Option<String>,
+    pub worker_id: Option<String>,
+    pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Task Outbox Models
+// ============================================================================
+
+/// Unified task outbox model for work distribution.
+/// Transient: rows are deleted immediately upon claiming.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = task_outbox)]
+pub struct UnifiedTaskOutbox {
+    pub id: i64,
+    pub task_execution_id: UniversalUuid,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = task_outbox)]
+pub struct NewUnifiedTaskOutbox {
+    pub task_execution_id: UniversalUuid,
+    pub created_at: UniversalTimestamp,
 }
 
 // ============================================================================
@@ -480,6 +533,7 @@ pub struct NewUnifiedPackageSignature {
 use crate::models::context::DbContext;
 use crate::models::cron_execution::CronExecution;
 use crate::models::cron_schedule::CronSchedule;
+use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
 use crate::models::pipeline_execution::PipelineExecution;
@@ -575,6 +629,21 @@ impl From<UnifiedRecoveryEvent> for RecoveryEvent {
             details: u.details,
             created_at: u.created_at,
             updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedExecutionEvent> for ExecutionEvent {
+    fn from(u: UnifiedExecutionEvent) -> Self {
+        ExecutionEvent {
+            id: u.id,
+            pipeline_execution_id: u.pipeline_execution_id,
+            task_execution_id: u.task_execution_id,
+            event_type: u.event_type,
+            event_data: u.event_data,
+            worker_id: u.worker_id,
+            created_at: u.created_at,
+            sequence_num: u.sequence_num,
         }
     }
 }
