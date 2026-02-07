@@ -50,3 +50,4 @@ dist/
 # Packaged workflow files
 *.cloacina
 test-quick/
+.metis/research/
