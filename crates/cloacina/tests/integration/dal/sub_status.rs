@@ -19,14 +19,14 @@
 //! Verifies that `set_sub_status()` correctly persists Active, Deferred,
 //! and None values, and that the full lifecycle (Active → Deferred → Active → None)
 //! works end-to-end.
+//!
+//! Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
 
+use crate::fixtures::get_all_fixtures;
 use cloacina::dal::DAL;
 use cloacina::models::pipeline_execution::NewPipelineExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use serde_json::json;
-
-#[cfg(feature = "sqlite")]
-use crate::fixtures::get_or_init_sqlite_fixture;
 
 /// Tests all sub_status operations in a single test to avoid fixture contention.
 ///
@@ -35,97 +35,127 @@ use crate::fixtures::get_or_init_sqlite_fixture;
 /// - Setting sub_status to "Deferred"
 /// - Clearing sub_status to None
 /// - Full lifecycle: None → Active → Deferred → Active → None
-#[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_sub_status_crud_operations() {
-    let fixture = get_or_init_sqlite_fixture().await;
-    let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
-    guard.reset_database().await;
-    guard.initialize().await;
+    for (backend, fixture) in get_all_fixtures().await {
+        tracing::info!("Running test_sub_status_crud_operations on {}", backend);
 
-    let database = guard.get_database();
-    let dal = DAL::new(database.clone());
+        let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+        guard.reset_database().await;
+        guard.initialize().await;
 
-    // Create a pipeline and task
-    let pipeline = dal
-        .pipeline_execution()
-        .create(NewPipelineExecution {
-            pipeline_name: "sub-status-test".to_string(),
-            pipeline_version: "1.0".to_string(),
-            status: "Running".to_string(),
-            context_id: None,
-        })
-        .await
-        .expect("Failed to create pipeline");
+        let database = guard.get_database();
+        let dal = DAL::new(database.clone());
 
-    let task = dal
-        .task_execution()
-        .create(NewTaskExecution {
-            pipeline_execution_id: pipeline.id,
-            task_name: "sub-status-task".to_string(),
-            status: "Running".to_string(),
-            attempt: 1,
-            max_attempts: 3,
-            trigger_rules: json!({"type": "Always"}).to_string(),
-            task_configuration: json!({}).to_string(),
-        })
-        .await
-        .expect("Failed to create task");
+        // Create a pipeline and task
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "sub-status-test".to_string(),
+                pipeline_version: "1.0".to_string(),
+                status: "Running".to_string(),
+                context_id: None,
+            })
+            .await
+            .expect("Failed to create pipeline");
 
-    let task_id = task.id;
+        let task = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "sub-status-test-task".to_string(),
+                status: "Running".to_string(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: json!({"type": "Always"}).to_string(),
+                task_configuration: json!({}).to_string(),
+            })
+            .await
+            .expect("Failed to create task");
 
-    // 1. Initially sub_status should be None
-    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
-    assert_eq!(task.sub_status, None, "Initial sub_status should be None");
+        // Verify initial sub_status is None
+        let initial = dal
+            .task_execution()
+            .get_by_id(task.id)
+            .await
+            .expect("Failed to get task");
+        assert_eq!(
+            initial.sub_status, None,
+            "[{}] Initial sub_status should be None",
+            backend
+        );
 
-    // 2. Set to "Active"
-    dal.task_execution()
-        .set_sub_status(task_id, Some("Active"))
-        .await
-        .expect("Failed to set sub_status to Active");
+        // Test 1: Set sub_status to "Active"
+        dal.task_execution()
+            .set_sub_status(task.id, Some("Active"))
+            .await
+            .expect("Failed to set sub_status to Active");
 
-    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
-    assert_eq!(
-        task.sub_status,
-        Some("Active".to_string()),
-        "sub_status should be Active"
-    );
+        let after_active = dal
+            .task_execution()
+            .get_by_id(task.id)
+            .await
+            .expect("Failed to get task");
+        assert_eq!(
+            after_active.sub_status,
+            Some("Active".to_string()),
+            "[{}] sub_status should be 'Active'",
+            backend
+        );
 
-    // 3. Transition to "Deferred"
-    dal.task_execution()
-        .set_sub_status(task_id, Some("Deferred"))
-        .await
-        .expect("Failed to set sub_status to Deferred");
+        // Test 2: Set sub_status to "Deferred"
+        dal.task_execution()
+            .set_sub_status(task.id, Some("Deferred"))
+            .await
+            .expect("Failed to set sub_status to Deferred");
 
-    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
-    assert_eq!(
-        task.sub_status,
-        Some("Deferred".to_string()),
-        "sub_status should be Deferred"
-    );
+        let after_deferred = dal
+            .task_execution()
+            .get_by_id(task.id)
+            .await
+            .expect("Failed to get task");
+        assert_eq!(
+            after_deferred.sub_status,
+            Some("Deferred".to_string()),
+            "[{}] sub_status should be 'Deferred'",
+            backend
+        );
 
-    // 4. Back to "Active"
-    dal.task_execution()
-        .set_sub_status(task_id, Some("Active"))
-        .await
-        .expect("Failed to set sub_status back to Active");
+        // Test 3: Set back to "Active"
+        dal.task_execution()
+            .set_sub_status(task.id, Some("Active"))
+            .await
+            .expect("Failed to set sub_status back to Active");
 
-    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
-    assert_eq!(
-        task.sub_status,
-        Some("Active".to_string()),
-        "sub_status should be Active again"
-    );
+        let after_active_again = dal
+            .task_execution()
+            .get_by_id(task.id)
+            .await
+            .expect("Failed to get task");
+        assert_eq!(
+            after_active_again.sub_status,
+            Some("Active".to_string()),
+            "[{}] sub_status should be 'Active' again",
+            backend
+        );
 
-    // 5. Clear to None (simulating task completion)
-    dal.task_execution()
-        .set_sub_status(task_id, None)
-        .await
-        .expect("Failed to clear sub_status");
+        // Test 4: Clear sub_status to None
+        dal.task_execution()
+            .set_sub_status(task.id, None)
+            .await
+            .expect("Failed to clear sub_status");
 
-    let task = dal.task_execution().get_by_id(task_id).await.unwrap();
-    assert_eq!(
-        task.sub_status, None,
-        "sub_status should be None after clearing"
-    );
+        let after_clear = dal
+            .task_execution()
+            .get_by_id(task.id)
+            .await
+            .expect("Failed to get task");
+        assert_eq!(
+            after_clear.sub_status, None,
+            "[{}] sub_status should be None after clearing",
+            backend
+        );
+
+        tracing::info!("test_sub_status_crud_operations passed on {}", backend);
+    }
 }

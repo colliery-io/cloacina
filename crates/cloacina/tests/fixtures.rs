@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -138,6 +138,71 @@ pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
 #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
 pub async fn get_or_init_fixture() -> Arc<Mutex<TestFixture>> {
     get_or_init_sqlite_fixture().await
+}
+
+/// Returns all enabled backend fixtures for parameterized testing.
+///
+/// This allows writing a single test that runs against all enabled backends,
+/// eliminating code duplication while ensuring full coverage.
+///
+/// # Example
+/// ```ignore
+/// #[tokio::test]
+/// async fn test_something() {
+///     for (backend, fixture) in get_all_fixtures().await {
+///         let mut guard = fixture.lock().unwrap();
+///         guard.reset_database().await;
+///         guard.initialize().await;
+///         // ... test logic runs on each backend
+///     }
+/// }
+/// ```
+pub async fn get_all_fixtures() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)> {
+    let mut fixtures = Vec::new();
+
+    #[cfg(feature = "sqlite")]
+    fixtures.push(("sqlite", get_or_init_sqlite_fixture().await));
+
+    #[cfg(feature = "postgres")]
+    fixtures.push(("postgres", get_or_init_postgres_fixture().await));
+
+    fixtures
+}
+
+/// Macro for defining tests that run on all enabled backends.
+///
+/// This eliminates the need to duplicate test code for each backend.
+/// The test body receives a `guard` (MutexGuard<TestFixture>) that has
+/// already been reset and initialized.
+///
+/// # Example
+/// ```ignore
+/// backend_test!(test_task_creation, |guard| async move {
+///     let dal = DAL::new(guard.get_database());
+///     // ... test logic
+/// });
+/// ```
+#[macro_export]
+macro_rules! backend_test {
+    ($name:ident, $body:expr) => {
+        #[tokio::test]
+        async fn $name() {
+            use $crate::fixtures::get_all_fixtures;
+
+            for (backend, fixture) in get_all_fixtures().await {
+                tracing::info!("Running {} on {}", stringify!($name), backend);
+
+                let mut guard = fixture.lock().unwrap_or_else(|e| e.into_inner());
+                guard.reset_database().await;
+                guard.initialize().await;
+
+                let result = $body(&mut guard).await;
+
+                tracing::info!("{} passed on {}", stringify!($name), backend);
+                result
+            }
+        }
+    };
 }
 
 /// Represents a test fixture for the Cloacina project.
