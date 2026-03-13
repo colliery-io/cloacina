@@ -55,5 +55,5 @@ repos:
         name: Run codespell to check for common misspellings in files
         language: python
         types: [text]
-        exclude: ^docs/themes/.*$|\.js$|\.css|\.json$
+        exclude: ^docs/themes/.*$|\.js$|\.css|\.json$|\.metis/code-index\.md$
         args: [--ignore-words=.spelling_wordlist.txt]
