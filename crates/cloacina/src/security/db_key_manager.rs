@@ -67,7 +67,7 @@ impl DbKeyManager {
     }
 
     /// Encodes a raw Ed25519 public key to PEM format.
-    fn encode_public_key_pem(public_key: &[u8]) -> String {
+    pub fn encode_public_key_pem(public_key: &[u8]) -> String {
         // Create DER-encoded SubjectPublicKeyInfo
         let mut der = Vec::with_capacity(ED25519_DER_PREFIX.len() + public_key.len());
         der.extend_from_slice(&ED25519_DER_PREFIX);
@@ -79,7 +79,7 @@ impl DbKeyManager {
     }
 
     /// Decodes a PEM-encoded Ed25519 public key to raw bytes.
-    fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
+    pub fn decode_public_key_pem(pem_str: &str) -> Result<Vec<u8>, KeyError> {
         let pem = pem::parse(pem_str).map_err(|e| KeyError::InvalidPem(e.to_string()))?;
 
         if pem.tag() != ED25519_PEM_TAG {
