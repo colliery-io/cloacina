@@ -4,14 +4,14 @@ level: initiative
 title: "cloacina-testing Crate — Public Test Infrastructure for Consumers"
 short_code: "CLOACI-I-0027"
 created_at: 2026-03-13T02:48:48.225839+00:00
-updated_at: 2026-03-13T02:48:48.225839+00:00
+updated_at: 2026-03-14T02:59:09.145834+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -207,6 +207,10 @@ crates/
 Feature flags:
 - Default: `TestRunner`, `TestResult`, `TaskOutcome`, assertion helpers
 - `continuous`: `BoundaryEmitter`, `MockDataConnection` (available once I-0023 lands)
+
+### Dependency Strategy
+
+Core dependency is `cloacina-workflow` (for `Task`, `Context`, `TaskError` types). The `cloacina` crate is needed for `DependencyGraph` topological sort. Existing scattered `MockTask` implementations in integration tests (scheduler/dependency_resolution.rs, basic_scheduling.rs) should be consolidated here.
 
 ## Alternatives Considered
 

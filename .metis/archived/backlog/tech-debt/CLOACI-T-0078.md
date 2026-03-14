@@ -7,7 +7,7 @@ created_at: 2026-01-29T19:06:24.383932+00:00
 updated_at: 2026-03-13T14:09:06.513368+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -24,6 +24,8 @@ initiative_id: NULL
 ## Objective
 
 Two features shipped with zero documentation. Create 6 new docs and update 4 existing ones.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
