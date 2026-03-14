@@ -241,8 +241,93 @@ def validation_task(context):
     return context
 ```
 
+## TaskHandle
+
+Tasks can accept an optional second parameter to gain execution control capabilities. The `TaskHandle` provides concurrency slot management through the `defer_until` method.
+
+### Handle Detection
+
+The `@task` decorator automatically detects handle-aware tasks by inspecting the function's parameter names via `__code__.co_varnames`. If the second parameter is named `handle` or `task_handle`, the task receives a `TaskHandle` instance at runtime.
+
+```python
+# Handle detected — second param is "handle"
+@cloaca.task(id="deferred_task")
+def deferred_task(context, handle):
+    handle.defer_until(lambda: check_ready(), poll_interval_ms=1000)
+    context.set("done", True)
+    return context
+
+# Also valid — "task_handle" is recognized
+@cloaca.task(id="alt_task")
+def alt_task(context, task_handle):
+    task_handle.defer_until(lambda: True, poll_interval_ms=100)
+    return context
+
+# No handle — works exactly as before
+@cloaca.task(id="normal_task")
+def normal_task(context):
+    return context
+```
+
+### TaskHandle Class
+
+The `TaskHandle` class is importable from `cloaca` for type hints:
+
+```python
+import cloaca
+
+@cloaca.task(id="typed_task")
+def typed_task(context: cloaca.Context, handle: cloaca.TaskHandle):
+    ...
+```
+
+#### Methods
+
+| Method | Parameters | Returns | Description |
+|--------|-----------|---------|-------------|
+| `defer_until` | `condition: Callable[[], bool]`, `poll_interval_ms: int = 1000` | `None` | Release concurrency slot, poll condition at interval, reclaim slot when `True` |
+| `is_slot_held` | | `bool` | Whether the handle currently holds a concurrency slot |
+
+### defer_until
+
+Releases the task's executor concurrency slot while polling an external condition. This allows other tasks to use the freed slot while this task waits.
+
+```python
+@cloaca.task(id="wait_for_upload")
+def wait_for_upload(context, handle):
+    """Wait for a file to appear before processing."""
+    import os
+
+    target = "/data/uploads/input.csv"
+
+    handle.defer_until(
+        lambda: os.path.exists(target),
+        poll_interval_ms=5000,  # Check every 5 seconds
+    )
+
+    # File exists — slot has been reclaimed, proceed
+    context.set("file_path", target)
+    return context
+```
+
+**Lifecycle:**
+1. Slot is released — other tasks can use it
+2. Condition function is polled at the specified interval
+3. When condition returns `True`, a slot is reclaimed (may wait if all slots are busy)
+4. Execution resumes with the slot held
+
+{{< hint type=warning title="Condition Function" >}}
+The condition function must be a regular synchronous callable (not async). It is called from the Rust executor and must return `bool`.
+{{< /hint >}}
+
+{{< hint type=info title="Direct Calls" >}}
+When calling a handle-aware task directly (outside the executor), pass `None` for the handle parameter. The handle is only meaningful during executor-managed execution.
+{{< /hint >}}
+
 ## See Also
 
 - **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed between tasks
 - **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Combine tasks into workflows
 - **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows containing tasks
+- **[Task Handles Tutorial]({{< ref "/python-bindings/tutorials/08-task-handles/" >}})** - Step-by-step guide to using TaskHandle
+- **[Task Handle Architecture]({{< ref "/explanation/task-handle-architecture/" >}})** - How the handle system works internally

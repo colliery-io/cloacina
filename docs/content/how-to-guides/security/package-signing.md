@@ -1,5 +1,6 @@
 ---
 title: "Package Signing"
+description: "Set up and use cryptographic package signing in production"
 weight: 10
 ---
 

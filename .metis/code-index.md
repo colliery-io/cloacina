@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-13T13:52:12Z | 348 files | JavaScript, Python, Rust
+> Generated: 2026-03-14T02:49:15Z | 348 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4627,8 +4627,8 @@
 #### crates/cloacinactl/src/commands/key_trust.rs
 
 - pub `add` function L26-52 — `( database_url: &str, org_id: &str, key_file: &str, name: Option<&str>, ) -> Res...` — Add a trusted public key from a PEM file.
-- pub `list` function L55-90 — `(database_url: &str, org_id: &str) -> Result<()>` — List trusted public keys for an organization.
-- pub `revoke` function L93-106 — `(database_url: &str, key_id: &str) -> Result<()>` — Revoke a trusted public key.
+- pub `list` function L55-93 — `(database_url: &str, org_id: &str) -> Result<()>` — List trusted public keys for an organization.
+- pub `revoke` function L96-109 — `(database_url: &str, key_id: &str) -> Result<()>` — Revoke a trusted public key.
 
 #### crates/cloacinactl/src/commands/mod.rs
 
@@ -4643,10 +4643,10 @@
 
 #### crates/cloacinactl/src/commands/package.rs
 
-- pub `build` function L31-80 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a .cloacina package by calling into cloaca's Python build logic via PyO3.
-- pub `sign` function L83-117 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
-- pub `verify` function L120-188 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
-- pub `inspect` function L191-203 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
+- pub `build` function L31-79 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a .cloacina package by calling into cloaca's Python build logic via PyO3.
+- pub `sign` function L82-116 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
+- pub `verify` function L119-192 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
+- pub `inspect` function L195-207 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
 
 ### crates/cloacinactl/src
 
@@ -6799,12 +6799,12 @@
 #### examples/features/cron-scheduling/src/main.rs
 
 -  `tasks` module L47 — `-` — - Recovery service for missed executions
--  `main` function L51-111 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
--  `create_data_backup_workflow` function L114-127 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
--  `create_health_check_workflow` function L130-143 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
--  `create_daily_report_workflow` function L146-158 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
--  `create_cron_schedules` function L161-202 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
--  `show_execution_stats` function L205-217 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
+-  `main` function L51-112 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
+-  `create_data_backup_workflow` function L115-128 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
+-  `create_health_check_workflow` function L131-144 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
+-  `create_daily_report_workflow` function L147-159 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
+-  `create_cron_schedules` function L162-203 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
+-  `show_execution_stats` function L206-218 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
 #### examples/features/cron-scheduling/src/tasks.rs
 
@@ -6838,12 +6838,12 @@
 
 -  `tasks` module L50 — `-` — ```
 -  `triggers` module L51 — `-` — ```
--  `main` function L57-131 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
--  `create_file_processing_workflow` function L134-146 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the file processing workflow triggered by file watcher.
--  `create_queue_processing_workflow` function L149-161 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the queue processing workflow triggered by queue depth.
--  `create_service_recovery_workflow` function L164-177 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the service recovery workflow triggered by health check failures.
--  `register_triggers` function L180-195 — `()` — Register triggers in the global trigger registry.
--  `register_trigger_schedules` function L198-264 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
+-  `main` function L57-132 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+-  `create_file_processing_workflow` function L135-147 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the file processing workflow triggered by file watcher.
+-  `create_queue_processing_workflow` function L150-162 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the queue processing workflow triggered by queue depth.
+-  `create_service_recovery_workflow` function L165-178 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the service recovery workflow triggered by health check failures.
+-  `register_triggers` function L181-196 — `()` — Register triggers in the global trigger registry.
+-  `register_trigger_schedules` function L199-265 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
 
 #### examples/features/event-triggers/src/tasks.rs
 
@@ -6941,9 +6941,9 @@
 
 #### examples/features/registry-execution/src/main.rs
 
--  `main` function L52-267 — `() -> Result<(), Box<dyn std::error::Error>>`
--  `build_package` function L269-289 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
--  `find_workspace_root` function L291-304 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
+-  `main` function L52-268 — `() -> Result<(), Box<dyn std::error::Error>>`
+-  `build_package` function L270-290 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
+-  `find_workspace_root` function L292-305 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
 
 ### examples/features/simple-packaged/src
 
@@ -7106,12 +7106,12 @@
 #### examples/tutorials/05-advanced/src/main.rs
 
 -  `tasks` module L47 — `-` — - Recovery service for missed executions
--  `main` function L51-110 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
--  `create_data_backup_workflow` function L113-126 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
--  `create_health_check_workflow` function L129-142 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
--  `create_daily_report_workflow` function L145-157 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
--  `create_cron_schedules` function L160-201 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
--  `show_execution_stats` function L204-216 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
+-  `main` function L51-111 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
+-  `create_data_backup_workflow` function L114-127 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
+-  `create_health_check_workflow` function L130-143 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
+-  `create_daily_report_workflow` function L146-158 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
+-  `create_cron_schedules` function L161-202 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
+-  `show_execution_stats` function L205-217 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
 #### examples/tutorials/05-advanced/src/tasks.rs
 

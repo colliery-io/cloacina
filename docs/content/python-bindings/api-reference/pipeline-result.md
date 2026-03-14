@@ -13,12 +13,10 @@ The `PipelineResult` class contains the outcome and metadata from a workflow exe
 ### Basic Properties
 
 - `status` (str): The final execution status (e.g., `"Completed"`, `"Failed"`)
-- `workflow_name` (str): Name of the executed workflow
-- `execution_id` (str): Unique identifier for this execution
 - `final_context` (Context): The context after all tasks completed
 - `start_time` (datetime): When execution began
 - `end_time` (datetime): When execution finished
-- `duration` (timedelta): Total execution time
+- `error_message` (str or None): Error message if the workflow failed
 
 ### Status Information
 
@@ -31,9 +29,10 @@ result = runner.execute("my_workflow", context)
 
 # Check execution status
 print(f"Status: {result.status}")
-print(f"Workflow: {result.workflow_name}")
-print(f"Execution ID: {result.execution_id}")
-print(f"Duration: {result.duration}")
+print(f"Start: {result.start_time}")
+print(f"End: {result.end_time}")
+if result.error_message:
+    print(f"Error: {result.error_message}")
 ```
 
 ## Status Values
@@ -98,11 +97,11 @@ Analyze execution performance:
 # Execution timing
 print(f"Started: {result.start_time}")
 print(f"Finished: {result.end_time}")
-print(f"Duration: {result.duration}")
 
-# Calculate performance metrics
-if result.duration:
-    seconds = result.duration.total_seconds()
+# Calculate duration from start and end times
+if result.start_time and result.end_time:
+    duration = result.end_time - result.start_time
+    seconds = duration.total_seconds()
     print(f"Execution took {seconds:.2f} seconds")
 
     if seconds > 300:  # 5 minutes
@@ -164,9 +163,7 @@ result = runner.execute("data_processing", input_context)
 def analyze_result(result):
     """Analyze workflow execution result."""
     print("=== Workflow Execution Result ===")
-    print(f"Workflow: {result.workflow_name}")
     print(f"Status: {result.status}")
-    print(f"Execution ID: {result.execution_id}")
 
     if result.start_time and result.end_time:
         duration = result.end_time - result.start_time
@@ -236,8 +233,9 @@ Track execution performance:
 ```python
 def monitor_performance(result):
     """Monitor workflow performance."""
-    if result.duration:
-        seconds = result.duration.total_seconds()
+    if result.start_time and result.end_time:
+        duration = result.end_time - result.start_time
+        seconds = duration.total_seconds()
 
         # Performance thresholds
         if seconds > 600:  # 10 minutes

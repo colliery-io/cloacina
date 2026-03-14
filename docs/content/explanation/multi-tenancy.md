@@ -45,19 +45,7 @@ Cloacina performs these operations:
 
 The connection pool ensures every database operation is scoped:
 
-```rust
-// From Cloacina's connection.rs
-impl CustomizeConnection<PgConnection, R2D2Error> for SchemaCustomizer {
-    fn on_acquire(&self, conn: &mut PgConnection) -> Result<(), R2D2Error> {
-        if let Some(ref schema) = self.schema {
-            // Every connection is automatically scoped to the tenant
-            let sql = format!("SET search_path TO {}, public", schema);
-            diesel::sql_query(&sql).execute(conn)?;
-        }
-        Ok(())
-    }
-}
-```
+Internally, Cloacina uses `deadpool-diesel` for connection pooling. When a connection is acquired, it runs `SET search_path TO {schema}, public` via `diesel::sql_query` to scope all queries to the tenant schema.
 
 ### SQLite File Implementation
 
@@ -165,7 +153,7 @@ let creds = admin.create_tenant(TenantConfig {
     schema_name: "tenant_acme".to_string(),
     username: "acme_user".to_string(),
     password: "".to_string(), // Auto-generates secure 32-char password
-})?;
+}).await?;
 
 // Each tenant uses their own database credentials
 let executor = DefaultRunner::with_schema(
@@ -220,7 +208,7 @@ let tenant_creds = admin.create_tenant(TenantConfig {
     schema_name: "tenant_acme".to_string(),
     username: "acme_user".to_string(),
     password: "".to_string(), // Empty = auto-generate 32-char password
-})?;
+}).await?;
 
 // Returns ready-to-use credentials
 println!("Username: {}", tenant_creds.username);
@@ -232,8 +220,8 @@ println!("Connection: {}", tenant_creds.connection_string);
 ### Password Security
 
 - **Auto-Generation**: Empty password string triggers generation of 32-character secure password
-- **Character Set**: 94 characters including uppercase, lowercase, digits, and symbols
-- **Entropy**: ~202 bits of entropy for auto-generated passwords
+- **Character Set**: 62 characters including uppercase, lowercase, and digits (no symbols, to avoid URL/connection string issues)
+- **Entropy**: ~190 bits of entropy for auto-generated passwords
 - **PostgreSQL Hashing**: All passwords are hashed with SCRAM-SHA-256 by PostgreSQL
 - **No Storage**: Cloacina never stores passwords - they're passed to PostgreSQL and returned to admin
 
@@ -245,7 +233,7 @@ let creds = admin.create_tenant(TenantConfig {
     schema_name: "tenant_xyz".to_string(),
     username: "xyz_user".to_string(),
     password: "custom_password".to_string(), // Or "" for auto-generation
-})?;
+}).await?;
 
 // 2. Distribute credentials to tenant (via secure channel)
 send_credentials_to_tenant(&creds);
@@ -257,7 +245,7 @@ let executor = DefaultRunner::with_schema(
 ).await?;
 
 // 4. Later: Remove tenant when needed
-admin.remove_tenant("tenant_xyz", "xyz_user")?;
+admin.remove_tenant("tenant_xyz", "xyz_user").await?;
 ```
 
 ### What DatabaseAdmin Does
@@ -300,7 +288,7 @@ You can migrate from shared to per-tenant credentials progressively:
 let legacy = DefaultRunner::with_schema(shared_url, "old_tenant").await?;
 
 // Phase 2: New tenants get their own credentials
-let new_creds = admin.create_tenant(TenantConfig { /* ... */ })?;
+let new_creds = admin.create_tenant(TenantConfig { /* ... */ }).await?;
 let new_tenant = DefaultRunner::with_schema(
     &new_creds.connection_string,
     "new_tenant"
@@ -357,11 +345,15 @@ let result_b = tenant_b.execute("my_workflow", context_b).await?;
 For more complex configurations, use the builder pattern:
 
 ```rust
+let config = DefaultRunnerConfig::builder()
+    .max_concurrent_tasks(8)
+    .task_timeout(Duration::from_secs(600))
+    .build();
+
 let executor = DefaultRunner::builder()
     .database_url("postgresql://user:pass@localhost/cloacina")
     .schema("production_tenant_123")
-    .max_concurrent_tasks(8)
-    .task_timeout(Duration::from_secs(600))
+    .with_config(config)
     .build()
     .await?;
 ```

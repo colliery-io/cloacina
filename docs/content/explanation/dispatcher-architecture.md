@@ -61,7 +61,7 @@ The `Dispatcher` trait defines the interface for routing task events:
 ```rust
 pub trait Dispatcher: Send + Sync {
     /// Dispatch a task-ready event to an appropriate executor.
-    fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
+    async fn dispatch(&self, event: TaskReadyEvent) -> Result<(), DispatchError>;
 
     /// Register an executor with a given key.
     fn register_executor(&self, key: &str, executor: Arc<dyn TaskExecutor>);
@@ -81,7 +81,7 @@ To implement a custom executor, implement the `TaskExecutor` trait:
 ```rust
 pub trait TaskExecutor: Send + Sync {
     /// Execute a task and return the result.
-    fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>;
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>;
 
     /// Check if this executor has capacity for more tasks.
     fn has_capacity(&self) -> bool;
@@ -148,7 +148,7 @@ impl MyCustomExecutor {
 }
 
 impl TaskExecutor for MyCustomExecutor {
-    fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         self.active_tasks.fetch_add(1, Ordering::SeqCst);
 
         // 1. Load context from database using event.pipeline_execution_id
@@ -312,7 +312,7 @@ A K8s executor might:
 
 ```rust
 impl TaskExecutor for K8sExecutor {
-    fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
+    async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         // Create job spec
         let job = self.create_job_spec(&event)?;
 

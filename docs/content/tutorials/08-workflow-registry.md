@@ -69,8 +69,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cloacina = { path = "../../cloacina" }
-cloacina-ctl = { path = "../../cloacina-ctl" }
+cloacina = { path = "../../../crates/cloacina" }
 tokio = { version = "1.35", features = ["full"] }
 serde_json = "1.0"
 tempfile = "3.8"
@@ -82,11 +81,10 @@ chrono = "0.4"
 {{< hint type=warning title="Key Dependencies" >}}
 The registry demo requires:
 
-1. **cloacina** for workflow execution and database storage
-2. **cloacina-ctl** for package building functionality
-3. **tokio** for async runtime
-4. **tracing-subscriber** for detailed logging
-5. **chrono** for cron scheduling support
+1. **cloacina** for workflow execution, database storage, and package building
+2. **tokio** for async runtime
+3. **tracing-subscriber** for detailed logging
+4. **chrono** for cron scheduling support
 
 Cloacina automatically detects the database backend based on your connection URL. This example uses SQLite for simplicity (`sqlite://` URLs), but PostgreSQL (`postgresql://` or `postgres://` URLs) is also supported for production deployments.
 {{< /hint >}}
@@ -107,12 +105,8 @@ Let's examine the key parts of the demo:
 ## Registry Setup and Storage
 
 ```rust
-// Step 2: Set up shared database and storage
-println!("📋 Setting up shared storage and database...");
-let storage_path = "/tmp/cloacina_demo_storage";
-std::fs::create_dir_all(storage_path)?;
-let storage = FilesystemRegistryStorage::new(storage_path)?;
-println!("📋 Storage directory: {}", storage_path);
+// Step 2: Set up shared database
+println!("📋 Setting up shared database...");
 
 // Use a persistent file-based database that both registry and runner can share
 let db_path = "/tmp/cloacina_debug.db";
@@ -120,30 +114,33 @@ let db_url = format!("sqlite://{}?mode=rwc", db_path);
 println!("📋 Database will be saved to: {}", db_path);
 
 let database = Database::new(&db_url, "", 5);
-let conn = database.pool().get().await?;
-conn.interact(move |conn| cloacina::database::run_migrations(conn))
-    .await??;
+database.run_migrations().await
+    .map_err(|e| format!("Migration error: {}", e))?;
+
+// Create DAL and choose storage backend
+let dal = cloacina::dal::DAL::new(database.clone());
+
+// Database storage - stores binary data in workflow_registry table
+let storage = cloacina::dal::UnifiedRegistryStorage::new(database.clone());
+let mut registry_dal = dal.workflow_registry(storage);
 ```
 
 This sets up:
-- **Persistent storage** at `/tmp/cloacina_demo_storage` for .cloacina files
-- **SQLite database** at `/tmp/cloacina_debug.db` for metadata
-- **Database migrations** to ensure proper schema
+- **SQLite database** at `/tmp/cloacina_debug.db` for metadata and package storage
+- **DAL** (Data Access Layer) for database operations
+- **Database storage** for workflow packages (alternatively, filesystem storage is available)
 
 ## Package Registration
 
 ```rust
-// Step 3: Register the workflow package
+// Step 3: Register the workflow package using the DAL system
 println!("📋 Registering workflow package...");
-let mut registry = WorkflowRegistryImpl::new(storage, database)?;
-match registry.register_workflow(package_data).await {
+match registry_dal.register_workflow_package(package_data).await {
     Ok(package_id) => {
-        println!("✅ Package registered with ID: {}", package_id);
+        println!("✅ Package registered with DAL ID: {}", package_id);
     }
     Err(RegistryError::PackageExists { package_name, version }) => {
-        println!("⚠️  Package already exists: {} v{} - continuing with existing package", package_name, version);
-        // For demo purposes, we'll continue with the existing package
-        // In production, you might want to check versions or handle differently
+        println!("⚠️  Package already exists: {} v{} - continuing", package_name, version);
     }
     Err(e) => return Err(e.into()),
 };
@@ -151,30 +148,31 @@ match registry.register_workflow(package_data).await {
 
 The registration process:
 - **Validates** the package format and metadata
-- **Stores binary data** in filesystem storage
-- **Saves metadata** to the database
+- **Stores binary data** in the database (or filesystem, depending on storage backend)
+- **Saves metadata** via atomic transactions
 - **Handles collisions** gracefully by warning and continuing
 
 ## Runner Configuration with Registry
 
 ```rust
-// Configure DefaultRunner with registry reconciler enabled and storage path
-let mut config = DefaultRunnerConfig::default();
-config.enable_registry_reconciler = true;
-config.registry_storage_path = Some(PathBuf::from(storage_path));
-
-// Enable cron scheduling for automatic workflow execution
-config.enable_cron_scheduling = true;
-config.cron_enable_recovery = true;
-config.cron_poll_interval = Duration::from_secs(5); // Check every 5 seconds for demo
-config.cron_recovery_interval = Duration::from_secs(30); // Recovery check every 30 seconds
+// Configure DefaultRunner with registry reconciler enabled
+let config = DefaultRunnerConfig::builder()
+    .enable_registry_reconciler(true)
+    // Configure registry to use SQLite database storage (matching our registration method)
+    .registry_storage_backend("sqlite")
+    // Enable cron scheduling for automatic workflow execution
+    .enable_cron_scheduling(true)
+    .cron_enable_recovery(true)
+    .cron_poll_interval(Duration::from_secs(5)) // Check every 5 seconds for demo
+    .cron_recovery_interval(Duration::from_secs(30)) // Recovery check every 30 seconds
+    .build();
 
 let runner = DefaultRunner::with_config(&db_url, config).await?;
 ```
 
 This configuration:
-- **Enables registry reconciliation** to automatically load packages
-- **Sets storage path** for the reconciler to find packages
+- **Enables registry reconciliation** to automatically load packages from the database
+- **Sets storage backend** to `"sqlite"` to match the registration storage
 - **Enables cron scheduling** for automated workflow execution
 - **Configures polling intervals** for demo responsiveness
 

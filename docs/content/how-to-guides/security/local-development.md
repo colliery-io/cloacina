@@ -1,5 +1,6 @@
 ---
 title: "Local Development"
+description: "Security considerations for local development workflows"
 weight: 20
 ---
 
@@ -143,7 +144,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
         run: |
           # Use your signing tool/script here
-          cloacina sign ./target/release/libworkflow.so
+          cloacinactl package sign ./target/release/libworkflow.so
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

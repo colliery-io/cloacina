@@ -20,23 +20,41 @@ import cloaca
 # Default configuration
 config = cloaca.DefaultRunnerConfig()
 
-# Custom configuration
+# Custom configuration via constructor keyword arguments
 config = cloaca.DefaultRunnerConfig(
-    max_concurrent_workflows=10,
-    task_timeout_seconds=300,
-    retry_attempts=3,
-    connection_pool_size=5
+    max_concurrent_tasks=8,
+    task_timeout_seconds=600,
+    db_pool_size=20
 )
+
+# Properties are also settable after construction
+config.max_concurrent_tasks = 16
+config.enable_cron_scheduling = False
 ```
 
 ### Parameters
 
-- `max_concurrent_workflows` (int, default=5): Maximum number of workflows executing simultaneously
-- `task_timeout_seconds` (int, default=3600): Default timeout for task execution in seconds
-- `retry_attempts` (int, default=2): Default number of retry attempts for failed tasks
-- `connection_pool_size` (int, default=10): Database connection pool size
-- `enable_logging` (bool, default=True): Enable detailed execution logging
-- `log_level` (str, default="INFO"): Logging level (DEBUG, INFO, WARNING, ERROR)
+All parameters are optional keyword arguments with sensible defaults:
+
+- `max_concurrent_tasks` (int, default=4): Maximum number of tasks executing simultaneously
+- `scheduler_poll_interval_ms` (int, default=100): How often the task scheduler polls for ready tasks (ms)
+- `task_timeout_seconds` (int, default=300): Maximum time a single task can run (seconds)
+- `pipeline_timeout_seconds` (int, default=3600): Maximum time an entire workflow can run (seconds)
+- `db_pool_size` (int, default=10): Database connection pool size
+- `enable_recovery` (bool, default=True): Enable automatic recovery of orphaned tasks
+- `enable_cron_scheduling` (bool, default=True): Enable cron scheduling subsystem
+- `cron_poll_interval_seconds` (int, default=30): How often to check for due cron schedules
+- `cron_max_catchup_executions` (int, default=unlimited): Maximum missed cron executions to catch up
+- `cron_enable_recovery` (bool, default=True): Enable cron execution recovery
+- `cron_recovery_interval_seconds` (int, default=300): How often to check for lost cron executions
+- `cron_lost_threshold_minutes` (int, default=10): Minutes before a cron execution is considered lost
+- `cron_max_recovery_age_seconds` (int, default=86400): Maximum age of recoverable cron executions
+- `cron_max_recovery_attempts` (int, default=3): Maximum recovery attempts per execution
+
+### Methods
+
+- `default()` — Create a config with default values (same as `DefaultRunnerConfig()`)
+- `to_dict()` — Return all settings as a dictionary
 
 ### Example Usage
 
@@ -45,18 +63,16 @@ import cloaca
 
 # Create custom configuration
 config = cloaca.DefaultRunnerConfig(
-    max_concurrent_workflows=20,
-    task_timeout_seconds=600,  # 10 minutes
-    retry_attempts=5,
-    connection_pool_size=15,
-    enable_logging=True,
-    log_level="DEBUG"
+    max_concurrent_tasks=16,
+    task_timeout_seconds=600,      # 10 minutes
+    pipeline_timeout_seconds=7200, # 2 hours
+    db_pool_size=20
 )
 
 # Create runner with configuration
-runner = cloaca.DefaultRunner(
-    database_url="sqlite:///workflows.db",
-    config=config
+runner = cloaca.DefaultRunner.with_config(
+    "sqlite:///workflows.db",
+    config
 )
 ```
 
@@ -87,13 +103,13 @@ runner = cloaca.DefaultRunner(
 
 # PostgreSQL with custom configuration
 config = cloaca.DefaultRunnerConfig(
-    connection_pool_size=20,
-    max_concurrent_workflows=15
+    db_pool_size=20,
+    max_concurrent_tasks=15
 )
 
-runner = cloaca.DefaultRunner(
+runner = cloaca.DefaultRunner.with_config(
     "postgresql://user:pass@localhost:5432/cloaca",
-    config=config
+    config
 )
 ```
 
@@ -106,12 +122,12 @@ Configure retry behavior for individual tasks:
 ```python
 @cloaca.task(
     id="resilient_task",
-    retry_policy={
-        "max_attempts": 5,
-        "retry_delay_seconds": 10,
-        "exponential_backoff": True,
-        "max_delay_seconds": 300
-    }
+    retry_attempts=5,
+    retry_delay_ms=10000,
+    retry_backoff="exponential",
+    retry_max_delay_ms=300000,
+    retry_condition="all",
+    retry_jitter=True
 )
 def resilient_task(context):
     """Task with custom retry configuration."""
@@ -136,40 +152,29 @@ def long_running_task(context):
 
 ## Cron Configuration
 
-### CronSchedule Configuration
+### Cron Schedule Registration
+
+Cron schedules are registered through the `DefaultRunner` rather than a standalone class:
 
 ```python
 import cloaca
 
-# Basic cron schedule
-schedule = cloaca.CronSchedule(
-    workflow_name="daily_report",
-    cron_expression="0 9 * * *",  # Daily at 9 AM
-    timezone="UTC",
-    enabled=True
+runner = cloaca.DefaultRunner("sqlite:///app.db")
+
+# Register a cron schedule
+schedule_id = runner.register_cron_workflow(
+    "daily_report",       # workflow name
+    "0 9 * * *",          # cron expression (daily at 9 AM)
+    "UTC"                 # timezone
 )
 
-# Advanced cron configuration
-schedule = cloaca.CronSchedule(
-    workflow_name="complex_workflow",
-    cron_expression="*/15 * * * *",  # Every 15 minutes
-    timezone="America/New_York",
-    enabled=True,
-    context=cloaca.Context({"priority": "high"}),
-    max_missed_runs=3,
-    catch_up=False
-)
+# Manage schedules
+runner.set_cron_schedule_enabled(schedule_id, False)   # disable
+runner.update_cron_schedule(schedule_id, "0 10 * * *", "UTC")  # change time
+runner.delete_cron_schedule(schedule_id)               # remove
 ```
 
-### Cron Parameters
-
-- `workflow_name` (str): Name of the workflow to execute
-- `cron_expression` (str): Standard cron expression
-- `timezone` (str): Timezone for schedule evaluation
-- `enabled` (bool): Whether the schedule is active
-- `context` (Context): Initial context for scheduled executions
-- `max_missed_runs` (int): Maximum number of missed runs to catch up
-- `catch_up` (bool): Whether to execute missed runs on startup
+See the [DefaultRunner API reference]({{< ref "/python-bindings/api-reference/runner/" >}}) for full cron scheduling methods.
 
 ## Multi-Tenant Configuration
 
@@ -251,8 +256,7 @@ log_level = os.environ.get("CLOACA_LOG_LEVEL", "INFO")
 max_workers = int(os.environ.get("CLOACA_MAX_WORKERS", "5"))
 
 config = cloaca.DefaultRunnerConfig(
-    max_concurrent_workflows=max_workers,
-    log_level=log_level
+    max_concurrent_tasks=max_workers
 )
 
 runner = cloaca.DefaultRunner(database_url, config)
@@ -267,12 +271,12 @@ import cloaca
 
 # Production configuration
 production_config = cloaca.DefaultRunnerConfig(
-    max_concurrent_workflows=50,
-    task_timeout_seconds=1800,  # 30 minutes
-    retry_attempts=3,
-    connection_pool_size=25,
-    enable_logging=True,
-    log_level="INFO"
+    max_concurrent_tasks=50,
+    task_timeout_seconds=1800,   # 30 minutes
+    pipeline_timeout_seconds=7200,  # 2 hours
+    db_pool_size=25,
+    enable_recovery=True,
+    enable_cron_scheduling=True
 )
 
 # Production database with connection pooling
@@ -307,19 +311,19 @@ Validate configuration before use:
 ```python
 def validate_config(config):
     """Validate runner configuration."""
-    if config.max_concurrent_workflows < 1:
-        raise ValueError("max_concurrent_workflows must be positive")
+    if config.max_concurrent_tasks < 1:
+        raise ValueError("max_concurrent_tasks must be positive")
 
     if config.task_timeout_seconds < 1:
         raise ValueError("task_timeout_seconds must be positive")
 
-    if config.connection_pool_size < 1:
-        raise ValueError("connection_pool_size must be positive")
+    if config.db_pool_size < 1:
+        raise ValueError("db_pool_size must be positive")
 
     return True
 
 # Usage
-config = cloaca.DefaultRunnerConfig(max_concurrent_workflows=10)
+config = cloaca.DefaultRunnerConfig(max_concurrent_tasks=10)
 validate_config(config)
 ```
 

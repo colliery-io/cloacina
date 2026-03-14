@@ -13,7 +13,7 @@ Welcome to the packaged workflows tutorial! In this guide, you'll learn how to c
 - Completion of [Tutorial 1]({{< ref "/tutorials/01-first-workflow/" >}})
 - Basic understanding of Rust and Cargo projects
 - Rust toolchain installed (rustc, cargo)
-- cloacina-ctl installed (for packaging commands)
+- cloacinactl installed (for packaging commands)
 - A code editor of your choice
 
 ## Time Estimate
@@ -81,7 +81,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina-workflow = "0.2"  # Includes macros by default
+cloacina-workflow = "0.3"  # Includes macros by default
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -376,13 +376,13 @@ Step 3: Executing workflow...
 ✅ Demo completed successfully!
 ```
 
-## Creating a Package with cloacina-ctl
+## Creating a Package with cloacinactl
 
-You can also create packages manually using cloacina-ctl:
+You can also create packages manually using cloacinactl:
 
 ```bash
 # Create a .cloacina package
-cloacina-ctl package . -o simple-demo.cloacina
+cloacinactl package . -o simple-demo.cloacina
 ```
 
 This creates a `.cloacina` file that contains:
@@ -396,7 +396,7 @@ You can inspect the package contents:
 
 ```bash
 # Inspect the package
-cloacina-ctl inspect simple-demo.cloacina
+cloacinactl inspect simple-demo.cloacina
 ```
 
 You should see output showing:

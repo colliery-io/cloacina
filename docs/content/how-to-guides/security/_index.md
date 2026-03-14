@@ -1,5 +1,6 @@
 ---
 title: "Security"
+description: "Security features in Cloacina including package signing and verification"
 weight: 50
 ---
 

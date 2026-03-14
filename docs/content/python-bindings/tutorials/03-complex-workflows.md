@@ -877,7 +877,7 @@ with cloaca.WorkflowBuilder("data_efficient_workflow") as builder:
     @cloaca.task(id="data_manager")
     def data_manager(context):
         # Clear intermediate data to save memory
-        context.delete("large_intermediate_data")
+        context.remove("large_intermediate_data")
 
         # Use structured data organization
         context.set("results", {

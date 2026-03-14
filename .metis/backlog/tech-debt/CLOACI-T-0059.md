@@ -4,7 +4,7 @@ level: task
 title: "Review CLI nomenclature and subcommand organization"
 short_code: "CLOACI-T-0059"
 created_at: 2026-01-28T14:14:05.539285+00:00
-updated_at: 2026-03-13T12:38:54.564850+00:00
+updated_at: 2026-03-13T13:56:29.319441+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -80,6 +80,8 @@ cloaca                              cloacinactl
                                     └── continuous
                                         └── prune-state [--dry-run]  ← (I-0025)
 ```
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

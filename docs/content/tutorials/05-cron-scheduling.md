@@ -3,7 +3,7 @@ title: "05 - Cron Scheduling"
 description: "Creating complex, fault-tolerant workflows with Cloacina"
 weight: 15
 reviewer: "dstorey"
-review_date: "2024-04-2"
+review_date: "2024-04-02"
 ---
 
 ## Overview
@@ -203,12 +203,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _health_workflow = create_health_workflow()?;
     let _report_workflow = create_report_workflow()?;
 
-    // Configure DefaultRunner with cron scheduling
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_cron_scheduling = true;
-    config.cron_enable_recovery = true;
-    config.cron_poll_interval = Duration::from_secs(5); // Check every 5 seconds
-    config.cron_recovery_interval = Duration::from_secs(30); // Recovery check every 30 seconds
+    // Configure DefaultRunner with cron scheduling using the builder pattern
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .cron_enable_recovery(true)
+        .cron_poll_interval(Duration::from_secs(5)) // Check every 5 seconds
+        .cron_recovery_interval(Duration::from_secs(30)) // Recovery check every 30 seconds
+        .build();
 
     let runner = DefaultRunner::with_config("sqlite://cronscheduling.db", config).await?;
 
@@ -356,25 +357,20 @@ Now that you have the basic tutorial working, let's explore the configuration op
 The `DefaultRunnerConfig` provides several important cron-related settings:
 
 ```rust
-let mut config = DefaultRunnerConfig::default();
-
-// Enable cron scheduling functionality
-config.enable_cron_scheduling = true;
-
-// Enable automatic recovery of lost executions
-config.cron_enable_recovery = true;
-
-// How often to check for due schedules (responsiveness vs load)
-config.cron_poll_interval = Duration::from_secs(5);
-
-// How often to check for lost executions
-config.cron_recovery_interval = Duration::from_secs(30);
-
-// Consider executions lost after this many minutes
-config.cron_lost_threshold_minutes = 5;
-
-// Maximum number of missed executions to catch up (usize::MAX = unlimited by default)
-config.cron_max_catchup_executions = 50;
+let config = DefaultRunnerConfig::builder()
+    // Enable cron scheduling functionality
+    .enable_cron_scheduling(true)
+    // Enable automatic recovery of lost executions
+    .cron_enable_recovery(true)
+    // How often to check for due schedules (responsiveness vs load)
+    .cron_poll_interval(Duration::from_secs(5))
+    // How often to check for lost executions
+    .cron_recovery_interval(Duration::from_secs(30))
+    // Consider executions lost after this many minutes
+    .cron_lost_threshold_minutes(5)
+    // Maximum number of missed executions to catch up (usize::MAX = unlimited by default)
+    .cron_max_catchup_executions(50)
+    .build();
 ```
 
 ### Timezone Support

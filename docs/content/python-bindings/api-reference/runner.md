@@ -45,9 +45,10 @@ Create a runner with custom configuration.
 import cloaca
 
 # Custom configuration
-config = cloaca.DefaultRunnerConfig()
-config.max_concurrent_tasks = 8
-config.task_timeout_seconds = 600
+config = cloaca.DefaultRunnerConfig(
+    max_concurrent_tasks=8,
+    task_timeout_seconds=600
+)
 
 runner = cloaca.DefaultRunner.with_config(
     "postgresql://user:pass@localhost:5432/dbname",
@@ -389,9 +390,17 @@ for execution in history:
 
 ## Lifecycle Management
 
+### `start()`
+
+Start the runner's background services (scheduler, executor, cron, triggers). Called automatically during construction; use this to restart after `stop()`.
+
+### `stop()`
+
+Stop the runner's background services without fully shutting down. The runner can be restarted with `start()`.
+
 ### `shutdown()`
 
-Shutdown the runner and cleanup resources.
+Shutdown the runner and cleanup all resources. After shutdown, the runner cannot be restarted.
 
 **Example:**
 ```python

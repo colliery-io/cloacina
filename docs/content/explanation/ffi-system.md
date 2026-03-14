@@ -83,6 +83,9 @@ pub struct cloacina_ctl_package_tasks {
     pub task_count: u32,                     // Number of tasks in package
     pub tasks: *const cloacina_ctl_task_metadata, // Array of task metadata
     pub package_name: *const c_char,         // Package name (null-terminated)
+    pub package_description: *const c_char,  // Package description
+    pub package_author: *const c_char,       // Package author
+    pub workflow_fingerprint: *const c_char, // Content-based fingerprint
     pub graph_data_json: *const c_char,      // Workflow graph as JSON
 }
 ```
@@ -146,6 +149,9 @@ static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package
     task_count: 2,
     tasks: TASK_METADATA_ARRAY.as_ptr(),
     package_name: "example\0".as_ptr() as *const c_char,
+    package_description: "Example data processing workflow\0".as_ptr() as *const c_char,
+    package_author: "\0".as_ptr() as *const c_char,
+    workflow_fingerprint: "sha256:abc123...\0".as_ptr() as *const c_char,
     graph_data_json: "{\"tasks\":{...}}\0".as_ptr() as *const c_char,
 };
 ```
@@ -198,22 +204,15 @@ pub extern "C" fn cloacina_execute_task(
         }
     };
 
-    let mut context = match cloacina::Context::from_json(context_str.to_string()) {
+    let mut context = match cloacina_workflow::Context::from_json(context_str.to_string()) {
         Ok(ctx) => ctx,
         Err(e) => {
             return write_error_result(&format!("Failed to create context from JSON: {}", e), result_buffer, result_capacity, result_len);
         }
     };
 
-    // 3. Execute task in async runtime
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            return write_error_result(&format!("Failed to create async runtime: {}", e), result_buffer, result_capacity, result_len);
-        }
-    };
-
-    let task_result = runtime.block_on(async {
+    // 3. Execute task using futures::executor::block_on
+    let task_result = futures::executor::block_on(async {
         match task_name_str {
             "collect_data" => data_processing::collect_data(&mut context).await,
             "process_data" => data_processing::process_data(&mut context).await,
@@ -290,10 +289,10 @@ fn write_error_result(error: &str, buffer: *mut u8, capacity: u32, result_len: *
 
 ### Client-Side Buffer Usage
 
-From `cloacina-ctl/src/library/execution.rs`, the client uses a fixed 4KB buffer:
+From `cloacina/src/packaging/debug.rs`, the client uses a 10MB buffer:
 
 ```rust
-const RESULT_BUFFER_SIZE: usize = 4096;  // 4KB buffer for result
+const RESULT_BUFFER_SIZE: usize = 10 * 1024 * 1024;  // 10MB buffer for result
 let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE];
 let mut result_len: u32 = 0;
 
@@ -437,15 +436,15 @@ pub extern "C" fn cloacina_execute_task(...) -> i32 {
 
 ### Current Limitations
 
-1. **Fixed Buffer Size**: Client uses 4KB buffer with no dynamic resizing
+1. **Fixed Buffer Size**: Client uses 10MB buffer with no dynamic resizing
 2. **Silent Truncation**: Large results are truncated without error indication
 3. **No Buffer Overflow Detection**: No mechanism to detect when results are too large
-4. **Single Threaded Execution**: Each task execution creates its own tokio runtime
+4. **Single Threaded Execution**: Each task execution uses `futures::executor::block_on`
 
 ### Performance Considerations
 
 - **Static Metadata Access**: Zero-cost metadata access through static arrays
-- **Runtime Creation Overhead**: New tokio runtime created for each task execution
+- **Blocking Execution**: Uses `futures::executor::block_on` for each task execution
 - **JSON Serialization**: Context serialized/deserialized for each task call
 - **Memory Copying**: Results copied through buffer interface
 

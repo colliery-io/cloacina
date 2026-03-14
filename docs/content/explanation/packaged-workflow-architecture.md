@@ -70,14 +70,18 @@ pub struct DefaultRunner {
     config: DefaultRunnerConfig,
     /// Task scheduler for managing workflow execution scheduling
     scheduler: Arc<TaskScheduler>,
-    /// Task executor for running individual tasks
-    executor: Arc<dyn TaskExecutorTrait>,
+    /// Handles for background runtime tasks (scheduler, executor, etc.)
+    runtime_handles: Arc<RwLock<Option<RuntimeHandles>>>,
     /// Optional workflow registry for packaged workflows
-    workflow_registry: Arc<RwLock<Option<Arc<WorkflowRegistryImpl<FilesystemRegistryStorage>>>>>,
+    workflow_registry: Arc<RwLock<Option<Arc<dyn WorkflowRegistry>>>>,
     /// Optional registry reconciler for packaged workflows
     registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
     /// Optional cron scheduler for time-based workflow execution
     cron_scheduler: Arc<RwLock<Option<Arc<CronScheduler>>>>,
+    /// Optional cron recovery service
+    cron_recovery: Arc<RwLock<Option<Arc<CronRecovery>>>>,
+    /// Optional trigger scheduler for event-based workflow execution
+    trigger_scheduler: Arc<RwLock<Option<Arc<TriggerScheduler>>>>,
 }
 ```
 
@@ -108,7 +112,7 @@ Both embedded and packaged workflows register tasks in the same global registry,
 
 - **Embedded tasks**: Registered at compile-time via macro expansion
 - **Packaged tasks**: Registered at runtime via `TaskRegistrar`
-- **Namespace format**: `tenant.package.workflow.task_id`
+- **Namespace format**: `tenant::package::workflow::task_id`
 - **Unified lookup**: All tasks discoverable through same interface
 
 ## Integration Points
@@ -152,14 +156,22 @@ The `DefaultRunner` can be configured with or without packaged workflow support:
 
 ```rust
 // Embedded workflows only
-let runner = DefaultRunner::new(&database_url).await?;
+let runner = DefaultRunnerBuilder::new()
+    .database_url(&database_url)
+    .build()
+    .await?;
 
 // With packaged workflow support
-let mut config = DefaultRunnerConfig::default();
-config.enable_registry_reconciler = true;
-config.registry_storage_path = Some(PathBuf::from("/path/to/storage"));
+let config = DefaultRunnerConfig::builder()
+    .enable_registry_reconciler(true)
+    .registry_storage_backend("filesystem")
+    .build();
 
-let runner = DefaultRunner::with_config(&database_url, config).await?;
+let runner = DefaultRunnerBuilder::new()
+    .database_url(&database_url)
+    .with_config(config)
+    .build()
+    .await?;
 ```
 
 ## Database Schema Integration
@@ -249,12 +261,12 @@ impl DefaultRunner {
 
 Packaged workflows use hierarchical namespaces to prevent conflicts:
 
-**Format**: `{tenant}.{package}.{workflow}.{task_id}`
+**Format**: `{tenant}::{package}::{workflow}::{task_id}`
 
 **Examples**:
-- `acme.data_processor.etl_pipeline.extract_data`
-- `acme.data_processor.etl_pipeline.transform_data`
-- `beta_corp.ml_trainer.model_pipeline.train_model`
+- `acme::data_processor::etl_pipeline::extract_data`
+- `acme::data_processor::etl_pipeline::transform_data`
+- `beta_corp::ml_trainer::model_pipeline::train_model`
 
 ### Namespace Isolation
 
@@ -349,7 +361,7 @@ Contains only the types needed to compile workflows:
 - `RetryPolicy`, `BackoffStrategy` - Retry configuration
 - `TaskNamespace` - Namespace utilities
 
-**Dependencies**: `async-trait`, `serde`, `serde_json`, `thiserror`, `chrono`
+**Dependencies**: `async-trait`, `serde`, `serde_json`, `thiserror`, `chrono`, `rand`, `tracing`
 
 **Does NOT include**: Database drivers (diesel), connection pools, executor, scheduler, libloading
 
@@ -410,14 +422,19 @@ Most production systems use both workflow types strategically:
 
 ```rust
 // Production configuration
-let mut config = DefaultRunnerConfig::default();
-config.max_concurrent_tasks = 50;
-config.task_timeout = Duration::from_mins(30);
-config.enable_registry_reconciler = true;
-config.enable_cron_scheduling = true;
-config.enable_recovery = true;
+let config = DefaultRunnerConfig::builder()
+    .max_concurrent_tasks(50)
+    .task_timeout(Duration::from_secs(1800))  // 30 minutes
+    .enable_registry_reconciler(true)
+    .enable_cron_scheduling(true)
+    .enable_recovery(true)
+    .build();
 
-let runner = DefaultRunner::with_config(&database_url, config).await?;
+let runner = DefaultRunnerBuilder::new()
+    .database_url(&database_url)
+    .with_config(config)
+    .build()
+    .await?;
 ```
 
 ### Operational Considerations
@@ -427,6 +444,84 @@ let runner = DefaultRunner::with_config(&database_url, config).await?;
 3. **Metrics**: Combined metrics collection and reporting
 4. **Backup**: Include both database and package storage
 5. **Security**: Package validation and namespace isolation
+
+## Python Workflow Pipeline
+
+In addition to Rust dynamic-library packages, the architecture supports Python workflow packages through an embedded PyO3 runtime. Python packages follow the same lifecycle as Rust packages but with a different loading and execution path.
+
+### Python Package Loading
+
+When the server receives a Python `.cloacina` package:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Python Package Loading                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  .cloacina archive                                            │
+│       │                                                       │
+│       ▼                                                       │
+│  ┌──────────────┐     ┌──────────────────┐                    │
+│  │ Extract to   │────▶│ Parse manifest   │                    │
+│  │ staging dir  │     │ (V2 format)      │                    │
+│  └──────────────┘     └──────┬───────────┘                    │
+│                              │                                │
+│                   ┌──────────┴───────────┐                    │
+│                   │ language == "python"? │                    │
+│                   └──────────┬───────────┘                    │
+│                              │ Yes                            │
+│                              ▼                                │
+│  ┌──────────────┐     ┌──────────────────┐                    │
+│  │ Add vendor/  │────▶│ Import tasks via │                    │
+│  │ to sys.path  │     │ entry_module     │                    │
+│  └──────────────┘     └──────┬───────────┘                    │
+│                              │                                │
+│                              ▼                                │
+│                   ┌──────────────────────┐                    │
+│                   │ Register tasks in    │                    │
+│                   │ global registry      │                    │
+│                   └──────────────────────┘                    │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+1. **Extraction**: Archive unpacked to a staging directory under a UUID-named subdirectory
+2. **Manifest validation**: V2 manifest parsed, language checked, Python runtime config validated
+3. **Path setup**: `vendor/` and `workflow/` directories added to Python's `sys.path` via PyO3
+4. **Task import**: Tasks imported from the `entry_module` specified in the Python runtime config
+5. **Registration**: `PythonTaskWrapper` instances created for each task and registered in the global task registry
+
+### Python Task Execution
+
+Python tasks are executed through the `PythonTaskWrapper`, which bridges the Rust executor and Python user code:
+
+- **Context bridging**: The Rust `Context<Value>` is converted to a Python `Context` object and back
+- **Handle bridging**: If the task `requires_handle`, a `PyTaskHandle` wrapper is created and passed as the second argument
+- **GIL management**: The GIL is acquired for Python code execution but released during async waits (e.g., `defer_until` sleep intervals)
+- **Error mapping**: Python exceptions are caught and converted to `TaskError::ExecutionFailed`
+
+### Comparison: Rust vs Python Packages
+
+| Aspect | Rust Package | Python Package |
+|--------|-------------|----------------|
+| **Manifest version** | V1 or V2 | V2 only |
+| **Language field** | `"rust"` | `"python"` |
+| **Task callable** | FFI symbol in .so/.dylib | `module.path:function_name` |
+| **Dependencies** | Compiled into library | Vendored wheels in `vendor/` |
+| **Task discovery** | Symbol inspection | AST-based static analysis |
+| **Execution** | Direct FFI call | PyO3 Python interpreter |
+| **Build tool** | `cargo build` + packaging | `cloaca build` |
+| **Handle support** | Compile-time detection | Runtime `co_varnames` inspection |
+
+### Python Build Pipeline
+
+The `cloaca build` command (also available as `cloacinactl package build`) handles the complete Python packaging process:
+
+1. **Task discovery**: AST-based scanning of the entry module for `@task` decorated functions — no code import needed
+2. **Dependency resolution**: `uv pip compile` resolves pinned versions for the target platform
+3. **Wheel download**: `uv pip download` fetches platform-specific pre-built wheels
+4. **Vendoring**: Wheels extracted into `vendor/` directory with `VENDORED.txt` manifest
+5. **Archive creation**: tar.gz containing `manifest.json`, `workflow/`, and `vendor/`
 
 ## Best Practices
 
@@ -457,5 +552,7 @@ let runner = DefaultRunner::with_config(&database_url, config).await?;
 ## Related Resources
 
 - [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
+- [Tutorial: Packaging Python Workflows]({{< ref "/python-bindings/tutorials/09-packaging-workflows/" >}})
 - [Explanation: Package Format]({{< ref "/explanation/package-format/" >}})
+- [Explanation: Task Handle Architecture]({{< ref "/explanation/task-handle-architecture/" >}})
 - [Explanation: FFI System]({{< ref "/explanation/ffi-system/" >}})
