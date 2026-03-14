@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-14T08:56:22Z | 354 files | JavaScript, Python, Rust
+> Generated: 2026-03-14T22:57:23Z | 354 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4562,42 +4562,42 @@
 -  `dfs_cycle` function L192-222 — `( &self, node: &str, visited: &mut HashSet<String>, rec_stack: &mut HashSet<Stri...` — In-process test runner for Cloacina tasks.
 -  `TestRunner` type L225-229 — `impl Default for TestRunner` — In-process test runner for Cloacina tasks.
 -  `default` function L226-228 — `() -> Self` — In-process test runner for Cloacina tasks.
--  `tests` module L241-569 — `-` — In-process test runner for Cloacina tasks.
+-  `tests` module L241-556 — `-` — In-process test runner for Cloacina tasks.
 -  `PassTask` struct L250-255 — `{ id: String, deps: Vec<TaskNamespace>, key: String, value: serde_json::Value }` — A task that inserts a key into the context.
--  `PassTask` type L257-273 — `= PassTask` — In-process test runner for Cloacina tasks.
+-  `PassTask` type L257-272 — `= PassTask` — In-process test runner for Cloacina tasks.
 -  `new` function L258-265 — `(id: &str, key: &str, value: serde_json::Value) -> Self` — In-process test runner for Cloacina tasks.
--  `with_dep` function L267-272 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
--  `PassTask` type L276-290 — `impl Task for PassTask` — In-process test runner for Cloacina tasks.
--  `execute` function L277-283 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — In-process test runner for Cloacina tasks.
--  `id` function L284-286 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
--  `dependencies` function L287-289 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
--  `FailTask` struct L293-297 — `{ id: String, deps: Vec<TaskNamespace>, message: String }` — A task that always fails.
--  `FailTask` type L299-314 — `= FailTask` — In-process test runner for Cloacina tasks.
--  `new` function L300-306 — `(id: &str, message: &str) -> Self` — In-process test runner for Cloacina tasks.
--  `with_dep` function L308-313 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
--  `FailTask` type L317-334 — `impl Task for FailTask` — In-process test runner for Cloacina tasks.
--  `execute` function L318-327 — `( &self, _context: Context<serde_json::Value>, ) -> Result<Context<serde_json::V...` — In-process test runner for Cloacina tasks.
--  `id` function L328-330 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
--  `dependencies` function L331-333 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
--  `ContextCheckTask` struct L337-341 — `{ id: String, deps: Vec<TaskNamespace>, expected_key: String }` — A task that checks a key exists in context.
--  `ContextCheckTask` type L343-358 — `= ContextCheckTask` — In-process test runner for Cloacina tasks.
--  `new` function L344-350 — `(id: &str, expected_key: &str) -> Self` — In-process test runner for Cloacina tasks.
--  `with_dep` function L352-357 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
--  `ContextCheckTask` type L361-388 — `impl Task for ContextCheckTask` — In-process test runner for Cloacina tasks.
--  `execute` function L362-381 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — In-process test runner for Cloacina tasks.
--  `id` function L382-384 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
--  `dependencies` function L385-387 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
--  `test_single_task_completes` function L393-402 — `()` — In-process test runner for Cloacina tasks.
--  `test_multiple_independent_tasks` function L405-416 — `()` — In-process test runner for Cloacina tasks.
--  `test_linear_dependency_chain` function L419-437 — `()` — In-process test runner for Cloacina tasks.
--  `test_diamond_dependency` function L440-461 — `()` — In-process test runner for Cloacina tasks.
--  `test_task_failure_skips_dependents` function L464-481 — `()` — In-process test runner for Cloacina tasks.
--  `test_partial_failure_independent_branches_continue` function L484-500 — `()` — In-process test runner for Cloacina tasks.
--  `test_cycle_detection` function L503-521 — `()` — In-process test runner for Cloacina tasks.
--  `test_empty_runner` function L524-528 — `()` — In-process test runner for Cloacina tasks.
--  `test_context_propagation` function L531-545 — `()` — In-process test runner for Cloacina tasks.
--  `test_index_access` function L548-556 — `()` — In-process test runner for Cloacina tasks.
--  `test_index_missing_task_panics` function L560-568 — `()` — In-process test runner for Cloacina tasks.
+-  `with_dep` function L267-271 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
+-  `PassTask` type L275-289 — `impl Task for PassTask` — In-process test runner for Cloacina tasks.
+-  `execute` function L276-282 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — In-process test runner for Cloacina tasks.
+-  `id` function L283-285 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
+-  `dependencies` function L286-288 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
+-  `FailTask` struct L292-296 — `{ id: String, deps: Vec<TaskNamespace>, message: String }` — A task that always fails.
+-  `FailTask` type L298-312 — `= FailTask` — In-process test runner for Cloacina tasks.
+-  `new` function L299-305 — `(id: &str, message: &str) -> Self` — In-process test runner for Cloacina tasks.
+-  `with_dep` function L307-311 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
+-  `FailTask` type L315-332 — `impl Task for FailTask` — In-process test runner for Cloacina tasks.
+-  `execute` function L316-325 — `( &self, _context: Context<serde_json::Value>, ) -> Result<Context<serde_json::V...` — In-process test runner for Cloacina tasks.
+-  `id` function L326-328 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
+-  `dependencies` function L329-331 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
+-  `ContextCheckTask` struct L335-339 — `{ id: String, deps: Vec<TaskNamespace>, expected_key: String }` — A task that checks a key exists in context.
+-  `ContextCheckTask` type L341-355 — `= ContextCheckTask` — In-process test runner for Cloacina tasks.
+-  `new` function L342-348 — `(id: &str, expected_key: &str) -> Self` — In-process test runner for Cloacina tasks.
+-  `with_dep` function L350-354 — `(mut self, dep_id: &str) -> Self` — In-process test runner for Cloacina tasks.
+-  `ContextCheckTask` type L358-379 — `impl Task for ContextCheckTask` — In-process test runner for Cloacina tasks.
+-  `execute` function L359-372 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — In-process test runner for Cloacina tasks.
+-  `id` function L373-375 — `(&self) -> &str` — In-process test runner for Cloacina tasks.
+-  `dependencies` function L376-378 — `(&self) -> &[TaskNamespace]` — In-process test runner for Cloacina tasks.
+-  `test_single_task_completes` function L384-393 — `()` — In-process test runner for Cloacina tasks.
+-  `test_multiple_independent_tasks` function L396-407 — `()` — In-process test runner for Cloacina tasks.
+-  `test_linear_dependency_chain` function L410-428 — `()` — In-process test runner for Cloacina tasks.
+-  `test_diamond_dependency` function L431-452 — `()` — In-process test runner for Cloacina tasks.
+-  `test_task_failure_skips_dependents` function L455-472 — `()` — In-process test runner for Cloacina tasks.
+-  `test_partial_failure_independent_branches_continue` function L475-491 — `()` — In-process test runner for Cloacina tasks.
+-  `test_cycle_detection` function L494-508 — `()` — In-process test runner for Cloacina tasks.
+-  `test_empty_runner` function L511-515 — `()` — In-process test runner for Cloacina tasks.
+-  `test_context_propagation` function L518-532 — `()` — In-process test runner for Cloacina tasks.
+-  `test_index_access` function L535-543 — `()` — In-process test runner for Cloacina tasks.
+-  `test_index_missing_task_panics` function L547-555 — `()` — In-process test runner for Cloacina tasks.
 
 ### crates/cloacina-workflow/src
 
