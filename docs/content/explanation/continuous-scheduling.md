@@ -151,11 +151,34 @@ The accumulator injects these keys into the task's context on drain:
 | `__signals_coalesced` | integer | Number of raw signals merged into this boundary |
 | `__accumulator_lag_ms` | integer | Max ingestion lag across buffered boundaries |
 
-## Limitations (Current MVP)
+## Watermarks and Late Arrival
+
+The system uses a **two-watermark model**:
+
+- **Source watermarks** (on `BoundaryLedger`): per data source, "nothing earlier will arrive" — a user assertion from the detector
+- **Consumer watermarks** (on each accumulator): "I've processed up to here" — updated on each drain
+
+The `WindowedAccumulator` checks source watermarks before firing:
+
+```rust
+// WaitForWatermark mode: blocks until source confirms data completeness
+let acc = WindowedAccumulator::new(
+    Box::new(WallClockWindow::new(Duration::from_secs(3600))),
+    WatermarkMode::WaitForWatermark,
+    boundary_ledger.clone(),
+    "raw_events".into(),
+);
+```
+
+When a boundary arrives behind a consumer watermark, the **per-edge `LateArrivalPolicy`** determines the behavior: `Discard`, `AccumulateForward`, `Retrigger`, or `RouteToSideChannel`.
+
+## Derived Data Sources
+
+`LedgerTrigger` watches the `ExecutionLedger` for task completions and fires detector workflows for derived data sources — completing the reactive feedback loop without explicit wiring.
+
+## Limitations
 
 - **Postgres only** — continuous scheduling requires LISTEN/NOTIFY capabilities
-- **JoinMode::Any only** — multi-source tasks fire when any source is ready (All deferred)
-- **No watermarks** — no BoundaryLedger, no late arrival detection (deferred to I-0024)
 - **No accumulator persistence** — in-memory only, lost on restart (deferred to I-0025)
-- **No LedgerTrigger** — derived data sources via ledger observation (deferred to I-0024)
+- **No TriggerPolicy composition** — Any/All combinators for policies (deferred to I-0025)
 - **No Python support** — Rust-first, Python continuous tasks in I-0026

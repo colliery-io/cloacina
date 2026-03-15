@@ -20,14 +20,19 @@
 //! detector output → accumulator → task fires → ledger records completion
 
 use chrono::Utc;
+use cloacina::continuous::accumulator::{SignalAccumulator, WatermarkMode, WindowedAccumulator};
 use cloacina::continuous::boundary::{BoundaryKind, ComputationBoundary};
 use cloacina::continuous::datasource::{
     ConnectionDescriptor, DataConnection, DataConnectionError, DataSource, DataSourceMetadata,
 };
 use cloacina::continuous::detector::{DetectorOutput, DETECTOR_OUTPUT_KEY};
-use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration};
+use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration, LateArrivalPolicy};
 use cloacina::continuous::ledger::{ExecutionLedger, LedgerEvent};
+use cloacina::continuous::ledger_trigger::{LedgerMatchMode, LedgerTrigger};
 use cloacina::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerConfig};
+use cloacina::continuous::trigger_policy::Immediate;
+use cloacina::continuous::watermark::BoundaryLedger;
+use cloacina::trigger::Trigger;
 use cloacina_workflow::Context;
 use std::any::Any;
 use std::sync::{Arc, RwLock};
@@ -275,4 +280,164 @@ async fn test_ledger_records_drains() {
         !drain_events.is_empty(),
         "ledger should contain AccumulatorDrained events"
     );
+}
+
+// === I-0024 Integration Tests ===
+
+/// WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
+#[tokio::test]
+async fn test_windowed_accumulator_waits_for_watermark() {
+    let bl = std::sync::Arc::new(std::sync::RwLock::new(BoundaryLedger::new()));
+
+    let mut acc = WindowedAccumulator::new(
+        Box::new(Immediate),
+        WatermarkMode::WaitForWatermark,
+        bl.clone(),
+        "events".into(),
+    );
+
+    // Receive boundary [0, 100)
+    acc.receive(make_boundary(0, 100));
+    assert!(!acc.is_ready(), "should block without watermark");
+
+    // Advance watermark to cover [0, 200)
+    {
+        let mut ledger = bl.write().unwrap();
+        ledger.advance("events", make_boundary(0, 200)).unwrap();
+    }
+
+    assert!(acc.is_ready(), "should fire after watermark covers");
+
+    let ctx = acc.drain();
+    assert!(ctx.get("__boundary").is_some());
+    assert_eq!(ctx.get("__signals_coalesced"), Some(&serde_json::json!(1)));
+}
+
+/// LedgerTrigger completes the reactive feedback loop.
+#[tokio::test]
+async fn test_ledger_trigger_feedback_loop() {
+    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+
+    // Set up trigger watching for "aggregate_hourly" completion
+    let trigger = LedgerTrigger::new(
+        "detect_hourly_stats".into(),
+        vec!["aggregate_hourly".into()],
+        LedgerMatchMode::Any,
+        ledger.clone(),
+    );
+
+    // No events yet — should skip
+    let result = trigger.poll().await.unwrap();
+    assert!(!result.should_fire());
+
+    // Simulate aggregate_hourly completing
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "aggregate_hourly".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+    }
+
+    // Now trigger should fire
+    let result = trigger.poll().await.unwrap();
+    assert!(
+        result.should_fire(),
+        "LedgerTrigger should fire after task completion"
+    );
+
+    // Second poll — cursor advanced, should skip
+    let result = trigger.poll().await.unwrap();
+    assert!(!result.should_fire(), "should not re-fire on same event");
+}
+
+/// LedgerTrigger All mode: waits for both upstream tasks.
+#[tokio::test]
+async fn test_ledger_trigger_all_mode_multi_dependency() {
+    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+
+    let trigger = LedgerTrigger::new(
+        "detect_joined_data".into(),
+        vec!["task_a".into(), "task_b".into()],
+        LedgerMatchMode::All,
+        ledger.clone(),
+    );
+
+    // Only task_a completes
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "task_a".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+    }
+    let result = trigger.poll().await.unwrap();
+    assert!(!result.should_fire(), "All mode should wait for both tasks");
+
+    // task_b completes
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "task_b".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+    }
+    let result = trigger.poll().await.unwrap();
+    assert!(
+        result.should_fire(),
+        "All mode should fire after both tasks complete"
+    );
+}
+
+/// Full scheduler loop with watermark advance via Both output.
+#[tokio::test]
+async fn test_scheduler_watermark_advance_via_both() {
+    let graph = assemble_graph(
+        vec![make_source("events")],
+        vec![ContinuousTaskRegistration {
+            id: "agg".into(),
+            sources: vec!["events".into()],
+            referenced: vec![],
+        }],
+    )
+    .unwrap();
+
+    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+
+    // Detector emits Both: boundaries + watermark
+    {
+        let mut ctx = cloacina_workflow::Context::new();
+        let output = DetectorOutput::Both {
+            boundaries: vec![make_boundary(0, 100)],
+            watermark: make_boundary(0, 500),
+        };
+        ctx.insert(DETECTOR_OUTPUT_KEY, serde_json::to_value(&output).unwrap())
+            .unwrap();
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "detect_events".into(),
+            at: Utc::now(),
+            context: ctx,
+        });
+    }
+
+    let scheduler = ContinuousScheduler::new(
+        graph,
+        ledger.clone(),
+        ContinuousSchedulerConfig {
+            poll_interval: Duration::from_millis(10),
+        },
+    );
+
+    let (tx, rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { scheduler.run(rx).await });
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    tx.send(true).unwrap();
+
+    let fired = handle.await.unwrap();
+    assert!(!fired.is_empty(), "task should fire from Both output");
 }

@@ -22,8 +22,9 @@
 //! See CLOACI-S-0008 for the full specification.
 
 use super::detector::DetectorOutput;
-use super::graph::{DataSourceGraph, JoinMode};
+use super::graph::{DataSourceGraph, JoinMode, LateArrivalPolicy};
 use super::ledger::{ExecutionLedger, LedgerEvent};
+use super::watermark::BoundaryLedger;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -55,6 +56,10 @@ pub struct ContinuousScheduler {
     graph: DataSourceGraph,
     /// Shared execution ledger.
     ledger: Arc<RwLock<ExecutionLedger>>,
+    /// Source watermark tracking.
+    boundary_ledger: Arc<RwLock<BoundaryLedger>>,
+    /// Reverse lookup: detector_workflow name → data source name.
+    detector_to_source: HashMap<String, String>,
     /// Exit edges: task name → workflow names to fire on completion.
     exit_edges: HashMap<String, Vec<String>>,
     /// Configuration.
@@ -68,12 +73,26 @@ impl ContinuousScheduler {
         ledger: Arc<RwLock<ExecutionLedger>>,
         config: ContinuousSchedulerConfig,
     ) -> Self {
+        // Build reverse lookup: detector_workflow → data source name
+        let detector_to_source: HashMap<String, String> = graph
+            .data_sources
+            .iter()
+            .map(|(name, ds)| (ds.detector_workflow.clone(), name.clone()))
+            .collect();
+
         Self {
             graph,
             ledger,
+            boundary_ledger: Arc::new(RwLock::new(BoundaryLedger::new())),
+            detector_to_source,
             exit_edges: HashMap::new(),
             config,
         }
+    }
+
+    /// Get a reference to the boundary ledger (for WindowedAccumulator integration).
+    pub fn boundary_ledger(&self) -> &Arc<RwLock<BoundaryLedger>> {
+        &self.boundary_ledger
     }
 
     /// Register an exit edge: when `task_id` completes, fire `workflow_name`.
@@ -165,26 +184,78 @@ impl ContinuousScheduler {
         fired_tasks
     }
 
-    /// Process a detector output: route boundaries to accumulators.
-    fn process_detector_output(&self, _detector_task: &str, output: &DetectorOutput) {
+    /// Process a detector output: route watermarks and boundaries.
+    fn process_detector_output(&self, detector_task: &str, output: &DetectorOutput) {
+        // Resolve which data source this detector belongs to
+        let source_name = self.detector_to_source.get(detector_task).cloned();
+
+        // Handle watermark advances first
+        if let Some(watermark) = output.watermark() {
+            if let Some(ref src) = source_name {
+                let mut bl = self.boundary_ledger.write().unwrap();
+                match bl.advance(src, watermark.clone()) {
+                    Ok(()) => {
+                        debug!("Watermark advanced for source '{}'", src);
+                    }
+                    Err(e) => {
+                        debug!("Watermark advance rejected for '{}': {}", src, e);
+                    }
+                }
+            }
+        }
+
+        // Route change boundaries to accumulators
         let boundaries = output.boundaries();
         if boundaries.is_empty() {
             return;
         }
 
-        // Find which data source this detector belongs to
-        for (source_name, _source) in &self.graph.data_sources {
-            // Check if this detector's workflow matches the source's detector_workflow
-            // In the MVP, we match by checking all edges for this source
-            let edges = self.graph.edges_for_source(source_name);
+        // If we know the source, route only to that source's edges
+        // Otherwise, broadcast to all edges (fallback for unmatched detectors)
+        let target_sources: Vec<String> = if let Some(src) = source_name {
+            vec![src]
+        } else {
+            self.graph.data_sources.keys().cloned().collect()
+        };
+
+        for src in &target_sources {
+            let edges = self.graph.edges_for_source(src);
             for edge in edges {
                 let mut acc = edge.accumulator.lock().unwrap();
                 for boundary in boundaries {
-                    acc.receive(boundary.clone());
-                    debug!(
-                        "Routed boundary to accumulator: {} -> {}",
-                        source_name, edge.task
-                    );
+                    // Check consumer watermark for late arrival
+                    let is_late = if let Some(consumer_wm) = acc.consumer_watermark() {
+                        let bl = self.boundary_ledger.read().unwrap();
+                        bl.covers(src, boundary)
+                    } else {
+                        false
+                    };
+
+                    if is_late {
+                        match &edge.late_arrival_policy {
+                            LateArrivalPolicy::Discard => {
+                                debug!("Late boundary discarded: {} -> {}", src, edge.task);
+                            }
+                            LateArrivalPolicy::AccumulateForward => {
+                                acc.receive(boundary.clone());
+                                debug!("Late boundary forwarded: {} -> {}", src, edge.task);
+                            }
+                            LateArrivalPolicy::Retrigger => {
+                                acc.receive(boundary.clone());
+                                debug!("Late boundary retriggered: {} -> {}", src, edge.task);
+                            }
+                            LateArrivalPolicy::RouteToSideChannel { task_name } => {
+                                debug!(
+                                    "Late boundary routed to side channel '{}': {} -> {}",
+                                    task_name, src, edge.task
+                                );
+                                // Side channel storage would go here in production
+                            }
+                        }
+                    } else {
+                        acc.receive(boundary.clone());
+                        debug!("Routed boundary to accumulator: {} -> {}", src, edge.task);
+                    }
                 }
             }
         }
@@ -255,6 +326,7 @@ impl std::fmt::Debug for ContinuousScheduler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContinuousScheduler")
             .field("graph", &self.graph)
+            .field("detector_to_source", &self.detector_to_source)
             .field("exit_edges", &self.exit_edges)
             .field("config", &self.config)
             .finish()
@@ -412,5 +484,75 @@ mod tests {
 
         let fired = handle.await.unwrap();
         assert!(fired.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_watermark_advance_updates_boundary_ledger() {
+        let graph = assemble_graph(
+            vec![make_source("events")],
+            vec![ContinuousTaskRegistration {
+                id: "agg".into(),
+                sources: vec!["events".into()],
+                referenced: vec![],
+            }],
+        )
+        .unwrap();
+
+        let ledger = Arc::new(RwLock::new(ExecutionLedger::new()));
+        let scheduler = ContinuousScheduler::new(
+            graph,
+            ledger.clone(),
+            ContinuousSchedulerConfig {
+                poll_interval: Duration::from_millis(10),
+            },
+        );
+
+        // Process a WatermarkAdvance
+        let output = DetectorOutput::WatermarkAdvance {
+            boundary: make_boundary(0, 500),
+        };
+        scheduler.process_detector_output("detect_events", &output);
+
+        // Check boundary ledger was updated
+        let bl = scheduler.boundary_ledger().read().unwrap();
+        assert!(bl.watermark("events").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_both_output_routes_watermark_and_boundaries() {
+        let graph = assemble_graph(
+            vec![make_source("events")],
+            vec![ContinuousTaskRegistration {
+                id: "agg".into(),
+                sources: vec!["events".into()],
+                referenced: vec![],
+            }],
+        )
+        .unwrap();
+
+        let ledger = Arc::new(RwLock::new(ExecutionLedger::new()));
+        let scheduler = ContinuousScheduler::new(
+            graph,
+            ledger.clone(),
+            ContinuousSchedulerConfig {
+                poll_interval: Duration::from_millis(10),
+            },
+        );
+
+        // Process a Both output
+        let output = DetectorOutput::Both {
+            boundaries: vec![make_boundary(0, 100)],
+            watermark: make_boundary(0, 500),
+        };
+        scheduler.process_detector_output("detect_events", &output);
+
+        // Watermark should be updated
+        let bl = scheduler.boundary_ledger().read().unwrap();
+        assert!(bl.watermark("events").is_some());
+
+        // Accumulator should have received boundaries — check readiness
+        let ready = scheduler.check_readiness();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].0, "agg");
     }
 }

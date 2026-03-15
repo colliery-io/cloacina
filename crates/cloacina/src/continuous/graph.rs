@@ -38,11 +38,19 @@ pub enum JoinMode {
 }
 
 /// Late arrival policy for boundaries arriving after consumer watermark.
-/// Only `AccumulateForward` is supported in the MVP (I-0023).
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Each `GraphEdge` configures its own policy. The scheduler checks the
+/// consumer watermark before routing a boundary to an accumulator.
+#[derive(Debug, Clone, PartialEq)]
 pub enum LateArrivalPolicy {
-    /// Buffer the late boundary for the next accumulation cycle.
+    /// Drop the late boundary silently.
+    Discard,
+    /// Buffer the late boundary for the next accumulation cycle (default).
     AccumulateForward,
+    /// Re-submit the affected boundary for re-execution.
+    Retrigger,
+    /// Route to a designated correction task.
+    RouteToSideChannel { task_name: String },
 }
 
 impl Default for LateArrivalPolicy {

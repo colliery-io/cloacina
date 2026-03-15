@@ -23,9 +23,11 @@
 
 use super::boundary::{coalesce, BufferedBoundary, ComputationBoundary};
 use super::trigger_policy::TriggerPolicy;
+use super::watermark::BoundaryLedger;
 use chrono::{DateTime, Duration, Utc};
 use cloacina_workflow::Context;
 use serde_json::json;
+use std::sync::{Arc, RwLock};
 
 /// Observable state for monitoring and backpressure detection.
 #[derive(Debug, Clone)]
@@ -132,6 +134,123 @@ impl SignalAccumulator for SimpleAccumulator {
         let newest = self.buffer.iter().map(|b| b.boundary.emitted_at).max();
         let max_lag = self.buffer.iter().map(|b| b.lag()).max();
 
+        AccumulatorMetrics {
+            buffered_count: self.buffer.len(),
+            oldest_boundary_emitted_at: oldest,
+            newest_boundary_emitted_at: newest,
+            max_lag,
+        }
+    }
+
+    fn consumer_watermark(&self) -> Option<&ComputationBoundary> {
+        self.watermark.as_ref()
+    }
+}
+
+/// How the accumulator uses source watermarks for readiness.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WatermarkMode {
+    /// Wait for source watermark to cover the pending boundary before firing.
+    WaitForWatermark,
+    /// Fire when trigger policy says so, regardless of watermark.
+    BestEffort,
+}
+
+/// Windowed accumulator with source watermark awareness.
+///
+/// Extends `SimpleAccumulator` behavior with an additional watermark check:
+/// in `WaitForWatermark` mode, `is_ready()` returns false until the source
+/// watermark confirms data completeness for the pending boundary.
+pub struct WindowedAccumulator {
+    buffer: Vec<BufferedBoundary>,
+    policy: Box<dyn TriggerPolicy>,
+    watermark: Option<ComputationBoundary>,
+    watermark_mode: WatermarkMode,
+    boundary_ledger: Arc<RwLock<BoundaryLedger>>,
+    source_name: String,
+}
+
+impl WindowedAccumulator {
+    /// Create a new WindowedAccumulator.
+    pub fn new(
+        policy: Box<dyn TriggerPolicy>,
+        watermark_mode: WatermarkMode,
+        boundary_ledger: Arc<RwLock<BoundaryLedger>>,
+        source_name: String,
+    ) -> Self {
+        Self {
+            buffer: Vec::new(),
+            policy,
+            watermark: None,
+            watermark_mode,
+            boundary_ledger,
+            source_name,
+        }
+    }
+
+    /// Get the coalesced pending boundary without draining.
+    pub fn pending_boundary(&self) -> Option<ComputationBoundary> {
+        let boundaries: Vec<ComputationBoundary> =
+            self.buffer.iter().map(|b| b.boundary.clone()).collect();
+        coalesce(&boundaries)
+    }
+}
+
+impl SignalAccumulator for WindowedAccumulator {
+    fn receive(&mut self, boundary: ComputationBoundary) {
+        self.buffer.push(BufferedBoundary::new(boundary));
+    }
+
+    fn is_ready(&self) -> bool {
+        if !self.policy.should_fire(&self.buffer) {
+            return false;
+        }
+        match self.watermark_mode {
+            WatermarkMode::BestEffort => true,
+            WatermarkMode::WaitForWatermark => {
+                if let Some(pending) = self.pending_boundary() {
+                    let bl = self.boundary_ledger.read().unwrap();
+                    bl.covers(&self.source_name, &pending)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    fn drain(&mut self) -> Context<serde_json::Value> {
+        let mut ctx = Context::new();
+        if self.buffer.is_empty() {
+            return ctx;
+        }
+
+        let boundaries: Vec<ComputationBoundary> =
+            self.buffer.iter().map(|b| b.boundary.clone()).collect();
+        let signals_coalesced = boundaries.len();
+        let max_lag_ms = self
+            .buffer
+            .iter()
+            .map(|b| b.lag().num_milliseconds())
+            .max()
+            .unwrap_or(0);
+
+        if let Some(coalesced) = coalesce(&boundaries) {
+            let boundary_value = serde_json::to_value(&coalesced).unwrap_or(json!(null));
+            let _ = ctx.insert("__boundary", boundary_value);
+            self.watermark = Some(coalesced);
+        }
+
+        let _ = ctx.insert("__signals_coalesced", json!(signals_coalesced));
+        let _ = ctx.insert("__accumulator_lag_ms", json!(max_lag_ms));
+
+        self.buffer.clear();
+        ctx
+    }
+
+    fn metrics(&self) -> AccumulatorMetrics {
+        let oldest = self.buffer.iter().map(|b| b.boundary.emitted_at).min();
+        let newest = self.buffer.iter().map(|b| b.boundary.emitted_at).max();
+        let max_lag = self.buffer.iter().map(|b| b.lag()).max();
         AccumulatorMetrics {
             buffered_count: self.buffer.len(),
             oldest_boundary_emitted_at: oldest,
@@ -288,5 +407,127 @@ mod tests {
                 assert_eq!(*end, 300);
             }
         }
+    }
+
+    // --- WindowedAccumulator tests ---
+
+    #[test]
+    fn test_windowed_best_effort_fires_immediately() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::BestEffort,
+            bl,
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        assert!(acc.is_ready());
+    }
+
+    #[test]
+    fn test_windowed_wait_for_watermark_blocks_without_watermark() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::WaitForWatermark,
+            bl,
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        // No watermark set — should NOT be ready
+        assert!(!acc.is_ready());
+    }
+
+    #[test]
+    fn test_windowed_wait_for_watermark_fires_when_covered() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+
+        // Set watermark covering [0, 200)
+        {
+            let mut ledger = bl.write().unwrap();
+            ledger.advance("src", make_offset_boundary(0, 200)).unwrap();
+        }
+
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::WaitForWatermark,
+            bl,
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        // Watermark [0,200) covers boundary [0,100) — should be ready
+        assert!(acc.is_ready());
+    }
+
+    #[test]
+    fn test_windowed_wait_for_watermark_blocks_when_not_covered() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+
+        // Set watermark only covering [0, 50)
+        {
+            let mut ledger = bl.write().unwrap();
+            ledger.advance("src", make_offset_boundary(0, 50)).unwrap();
+        }
+
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::WaitForWatermark,
+            bl,
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        // Watermark [0,50) does NOT cover boundary [0,100) — should NOT be ready
+        assert!(!acc.is_ready());
+    }
+
+    #[test]
+    fn test_windowed_watermark_advance_unblocks() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::WaitForWatermark,
+            bl.clone(),
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        assert!(!acc.is_ready()); // No watermark yet
+
+        // Advance watermark
+        {
+            let mut ledger = bl.write().unwrap();
+            ledger.advance("src", make_offset_boundary(0, 200)).unwrap();
+        }
+
+        assert!(acc.is_ready()); // Now covered
+    }
+
+    #[test]
+    fn test_windowed_drain_produces_context() {
+        let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
+        {
+            let mut ledger = bl.write().unwrap();
+            ledger.advance("src", make_offset_boundary(0, 500)).unwrap();
+        }
+
+        let mut acc = WindowedAccumulator::new(
+            Box::new(Immediate),
+            WatermarkMode::WaitForWatermark,
+            bl,
+            "src".into(),
+        );
+
+        acc.receive(make_offset_boundary(0, 100));
+        acc.receive(make_offset_boundary(100, 200));
+
+        let ctx = acc.drain();
+        assert_eq!(ctx.get("__signals_coalesced"), Some(&json!(2)));
+        assert!(ctx.get("__boundary").is_some());
+        assert!(acc.consumer_watermark().is_some());
     }
 }
