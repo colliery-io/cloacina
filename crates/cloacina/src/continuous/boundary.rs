@@ -126,6 +126,18 @@ pub fn validate_custom_boundary(kind: &str, value: &serde_json::Value) -> Result
     validate_against_schema(value, &schema.schema)
 }
 
+/// Validate a `ComputationBoundary`. Non-Custom kinds always pass.
+/// Custom kinds are validated against their registered schema.
+///
+/// Returns `Ok(())` for valid boundaries, `Err(message)` for invalid Custom boundaries.
+pub fn validate_boundary(boundary: &ComputationBoundary) -> Result<(), String> {
+    if let BoundaryKind::Custom { kind, value } = &boundary.kind {
+        validate_custom_boundary(kind, value)
+    } else {
+        Ok(())
+    }
+}
+
 /// Clear all registered custom boundary schemas (for testing).
 #[cfg(test)]
 pub fn clear_custom_schemas() {

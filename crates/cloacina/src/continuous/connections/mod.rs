@@ -16,5 +16,7 @@
 
 //! Framework-provided `DataConnection` implementations.
 
+pub mod kafka;
 #[cfg(feature = "postgres")]
 pub mod postgres;
+pub mod s3;

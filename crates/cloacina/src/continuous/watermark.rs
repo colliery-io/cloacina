@@ -65,7 +65,7 @@ impl BoundaryLedger {
         watermark: ComputationBoundary,
     ) -> Result<(), WatermarkError> {
         if let Some(existing) = self.watermarks.get(source_name) {
-            if is_backward(&existing.kind, &watermark.kind)? {
+            if is_backward(existing, &watermark)? {
                 return Err(WatermarkError::BackwardMovement {
                     source_name: source_name.to_string(),
                 });
@@ -80,7 +80,7 @@ impl BoundaryLedger {
     /// Returns `false` if the source has no watermark.
     pub fn covers(&self, source_name: &str, boundary: &ComputationBoundary) -> bool {
         match self.watermarks.get(source_name) {
-            Some(watermark) => boundary_covered(&watermark.kind, &boundary.kind),
+            Some(watermark) => boundary_covered(watermark, boundary),
             None => false,
         }
     }
@@ -97,8 +97,17 @@ impl BoundaryLedger {
 }
 
 /// Check if a new watermark would be a backward movement.
-fn is_backward(existing: &BoundaryKind, proposed: &BoundaryKind) -> Result<bool, WatermarkError> {
-    match (existing, proposed) {
+///
+/// For TimeRange/OffsetRange: compares end positions (structural ordering).
+/// For Cursor/FullState: compares emitted_at timestamps (temporal ordering).
+///   Opaque values can't be structurally compared, so we use the detector's
+///   emission time as a monotonicity proxy. A watermark emitted earlier than
+///   the current one is rejected.
+fn is_backward(
+    existing: &ComputationBoundary,
+    proposed: &ComputationBoundary,
+) -> Result<bool, WatermarkError> {
+    match (&existing.kind, &proposed.kind) {
         (
             BoundaryKind::TimeRange {
                 end: existing_end, ..
@@ -115,28 +124,14 @@ fn is_backward(existing: &BoundaryKind, proposed: &BoundaryKind) -> Result<bool,
                 end: proposed_end, ..
             },
         ) => Ok(proposed_end < existing_end),
-        (
-            BoundaryKind::Cursor {
-                value: existing_val,
-            },
-            BoundaryKind::Cursor {
-                value: proposed_val,
-            },
-        ) => {
-            // Cursors are opaque — we can't determine ordering, so we never reject.
-            // The user is asserting "this is the new position."
-            Ok(false)
+        (BoundaryKind::Cursor { .. }, BoundaryKind::Cursor { .. }) => {
+            // Cursor values are opaque — use emitted_at for monotonicity.
+            Ok(proposed.emitted_at < existing.emitted_at)
         }
-        (
-            BoundaryKind::FullState {
-                value: existing_val,
-            },
-            BoundaryKind::FullState {
-                value: proposed_val,
-            },
-        ) => {
-            // FullState: same value = no movement (not backward), different = forward
-            Ok(false)
+        (BoundaryKind::FullState { .. }, BoundaryKind::FullState { .. }) => {
+            // FullState values are opaque — use emitted_at for monotonicity.
+            // Same emitted_at is allowed (idempotent re-assertion).
+            Ok(proposed.emitted_at < existing.emitted_at)
         }
         _ => {
             // Different kinds — can't compare, allow the advance
@@ -146,8 +141,13 @@ fn is_backward(existing: &BoundaryKind, proposed: &BoundaryKind) -> Result<bool,
 }
 
 /// Check if a watermark covers a boundary.
-fn boundary_covered(watermark: &BoundaryKind, boundary: &BoundaryKind) -> bool {
-    match (watermark, boundary) {
+///
+/// For TimeRange/OffsetRange: boundary end <= watermark end (structural).
+/// For Cursor/FullState: boundary emitted_at <= watermark emitted_at (temporal).
+///   A boundary emitted at or before the watermark's emission time is considered
+///   covered — the watermark represents a later point in time.
+fn boundary_covered(watermark: &ComputationBoundary, boundary: &ComputationBoundary) -> bool {
+    match (&watermark.kind, &boundary.kind) {
         (
             BoundaryKind::TimeRange { end: wm_end, .. },
             BoundaryKind::TimeRange { end: b_end, .. },
@@ -156,11 +156,13 @@ fn boundary_covered(watermark: &BoundaryKind, boundary: &BoundaryKind) -> bool {
             BoundaryKind::OffsetRange { end: wm_end, .. },
             BoundaryKind::OffsetRange { end: b_end, .. },
         ) => b_end <= wm_end,
-        (BoundaryKind::Cursor { value: wm_val }, BoundaryKind::Cursor { value: b_val }) => {
-            wm_val == b_val
+        (BoundaryKind::Cursor { .. }, BoundaryKind::Cursor { .. }) => {
+            // Covered if the boundary was emitted at or before the watermark
+            boundary.emitted_at <= watermark.emitted_at
         }
-        (BoundaryKind::FullState { value: wm_val }, BoundaryKind::FullState { value: b_val }) => {
-            wm_val == b_val
+        (BoundaryKind::FullState { .. }, BoundaryKind::FullState { .. }) => {
+            // Covered if the boundary was emitted at or before the watermark
+            boundary.emitted_at <= watermark.emitted_at
         }
         _ => false, // Different kinds can't cover each other
     }
@@ -201,6 +203,16 @@ mod tests {
         }
     }
 
+    fn cursor_boundary_at(value: &str, emitted_at: chrono::DateTime<Utc>) -> ComputationBoundary {
+        ComputationBoundary {
+            kind: BoundaryKind::Cursor {
+                value: value.to_string(),
+            },
+            metadata: None,
+            emitted_at,
+        }
+    }
+
     fn fullstate_boundary(value: &str) -> ComputationBoundary {
         ComputationBoundary {
             kind: BoundaryKind::FullState {
@@ -208,6 +220,19 @@ mod tests {
             },
             metadata: None,
             emitted_at: Utc::now(),
+        }
+    }
+
+    fn fullstate_boundary_at(
+        value: &str,
+        emitted_at: chrono::DateTime<Utc>,
+    ) -> ComputationBoundary {
+        ComputationBoundary {
+            kind: BoundaryKind::FullState {
+                value: value.to_string(),
+            },
+            metadata: None,
+            emitted_at,
         }
     }
 
@@ -249,18 +274,76 @@ mod tests {
     }
 
     #[test]
-    fn test_advance_cursor_always_accepted() {
+    fn test_advance_cursor_forward_accepted() {
+        let now = Utc::now();
         let mut ledger = BoundaryLedger::new();
-        ledger.advance("src", cursor_boundary("abc")).unwrap();
-        // Cursors are opaque — no ordering, always accepted
-        assert!(ledger.advance("src", cursor_boundary("def")).is_ok());
+        ledger
+            .advance("src", cursor_boundary_at("abc", now))
+            .unwrap();
+        // Later emitted_at → forward movement → accepted
+        assert!(ledger
+            .advance(
+                "src",
+                cursor_boundary_at("def", now + Duration::seconds(10))
+            )
+            .is_ok());
     }
 
     #[test]
-    fn test_advance_fullstate_always_accepted() {
+    fn test_advance_cursor_backward_rejected() {
+        let now = Utc::now();
         let mut ledger = BoundaryLedger::new();
-        ledger.advance("src", fullstate_boundary("v1")).unwrap();
-        assert!(ledger.advance("src", fullstate_boundary("v2")).is_ok());
+        ledger
+            .advance("src", cursor_boundary_at("abc", now))
+            .unwrap();
+        // Earlier emitted_at → backward movement → rejected
+        let result = ledger.advance(
+            "src",
+            cursor_boundary_at("def", now - Duration::seconds(10)),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_advance_fullstate_forward_accepted() {
+        let now = Utc::now();
+        let mut ledger = BoundaryLedger::new();
+        ledger
+            .advance("src", fullstate_boundary_at("v1", now))
+            .unwrap();
+        assert!(ledger
+            .advance(
+                "src",
+                fullstate_boundary_at("v2", now + Duration::seconds(1))
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn test_advance_fullstate_backward_rejected() {
+        let now = Utc::now();
+        let mut ledger = BoundaryLedger::new();
+        ledger
+            .advance("src", fullstate_boundary_at("v2", now))
+            .unwrap();
+        let result = ledger.advance(
+            "src",
+            fullstate_boundary_at("v1", now - Duration::seconds(10)),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_advance_fullstate_same_emitted_at_accepted() {
+        let now = Utc::now();
+        let mut ledger = BoundaryLedger::new();
+        ledger
+            .advance("src", fullstate_boundary_at("v1", now))
+            .unwrap();
+        // Same emitted_at = idempotent re-assertion → accepted
+        assert!(ledger
+            .advance("src", fullstate_boundary_at("v1", now))
+            .is_ok());
     }
 
     // --- covers tests ---
@@ -287,19 +370,44 @@ mod tests {
     }
 
     #[test]
-    fn test_covers_cursor_exact_match() {
+    fn test_covers_cursor_by_timestamp() {
+        let now = Utc::now();
         let mut ledger = BoundaryLedger::new();
-        ledger.advance("src", cursor_boundary("abc")).unwrap();
-        assert!(ledger.covers("src", &cursor_boundary("abc")));
-        assert!(!ledger.covers("src", &cursor_boundary("xyz")));
+        // Watermark emitted at T=now
+        ledger
+            .advance("src", cursor_boundary_at("wm", now))
+            .unwrap();
+        // Boundary emitted before watermark → covered
+        assert!(ledger.covers(
+            "src",
+            &cursor_boundary_at("old", now - Duration::seconds(10))
+        ));
+        // Boundary emitted at same time → covered
+        assert!(ledger.covers("src", &cursor_boundary_at("same", now)));
+        // Boundary emitted after watermark → not covered
+        assert!(!ledger.covers(
+            "src",
+            &cursor_boundary_at("new", now + Duration::seconds(10))
+        ));
     }
 
     #[test]
-    fn test_covers_fullstate_exact_match() {
+    fn test_covers_fullstate_by_timestamp() {
+        let now = Utc::now();
         let mut ledger = BoundaryLedger::new();
-        ledger.advance("src", fullstate_boundary("v3")).unwrap();
-        assert!(ledger.covers("src", &fullstate_boundary("v3")));
-        assert!(!ledger.covers("src", &fullstate_boundary("v2")));
+        ledger
+            .advance("src", fullstate_boundary_at("v3", now))
+            .unwrap();
+        // Boundary emitted before watermark → covered (late arrival)
+        assert!(ledger.covers(
+            "src",
+            &fullstate_boundary_at("v2", now - Duration::seconds(5))
+        ));
+        // Boundary emitted after watermark → not covered
+        assert!(!ledger.covers(
+            "src",
+            &fullstate_boundary_at("v4", now + Duration::seconds(5))
+        ));
     }
 
     #[test]

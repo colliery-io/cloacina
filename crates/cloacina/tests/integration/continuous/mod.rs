@@ -19,6 +19,8 @@
 //! These tests exercise the full reactive loop:
 //! detector output → accumulator → task fires → ledger records completion
 
+pub mod accumulator_persistence;
+
 use chrono::Utc;
 use cloacina::continuous::accumulator::{SignalAccumulator, WatermarkMode, WindowedAccumulator};
 use cloacina::continuous::boundary::{BoundaryKind, ComputationBoundary};
@@ -33,6 +35,35 @@ use cloacina::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerCo
 use cloacina::continuous::trigger_policy::Immediate;
 use cloacina::continuous::watermark::BoundaryLedger;
 use cloacina::trigger::Trigger;
+use cloacina_workflow::Task;
+
+/// A simple continuous task for integration tests that passes through context.
+struct PassthroughTask {
+    id: String,
+}
+
+impl PassthroughTask {
+    fn new(id: &str) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+#[async_trait::async_trait]
+impl Task for PassthroughTask {
+    async fn execute(
+        &self,
+        mut context: cloacina_workflow::Context<serde_json::Value>,
+    ) -> Result<cloacina_workflow::Context<serde_json::Value>, cloacina_workflow::TaskError> {
+        let _ = context.insert("executed_by", serde_json::json!(self.id));
+        Ok(context)
+    }
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn dependencies(&self) -> &[cloacina_workflow::TaskNamespace] {
+        &[]
+    }
+}
 use cloacina_workflow::Context;
 use std::any::Any;
 use std::sync::{Arc, RwLock};
@@ -108,13 +139,16 @@ async fn test_full_reactive_loop() {
         ));
     }
 
-    let scheduler = ContinuousScheduler::new(
+    let mut scheduler = ContinuousScheduler::new(
         graph,
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
         },
     );
+    scheduler.register_task(std::sync::Arc::new(PassthroughTask::new(
+        "aggregate_hourly",
+    )));
 
     let (tx, rx) = watch::channel(false);
     let handle = tokio::spawn(async move { scheduler.run(rx).await });
@@ -126,15 +160,26 @@ async fn test_full_reactive_loop() {
     let fired = handle.await.unwrap();
     assert_eq!(fired.len(), 1, "expected exactly one task to fire");
     assert_eq!(fired[0].task_id, "aggregate_hourly");
+    assert!(fired[0].executed, "task should have been executed");
+    assert!(fired[0].error.is_none(), "task should not have errored");
 
-    // Verify boundary context was produced
-    assert!(!fired[0].boundary_context.is_empty());
-    let ctx = &fired[0].boundary_context[0];
+    // Verify TaskCompleted was written to ledger with task output
+    let l = ledger.read().unwrap();
+    let completed: Vec<_> = l
+        .events_since(0)
+        .iter()
+        .filter(|e| {
+            if let LedgerEvent::TaskCompleted { task, .. } = e {
+                task == "aggregate_hourly"
+            } else {
+                false
+            }
+        })
+        .collect();
     assert!(
-        ctx.get("__boundary").is_some(),
-        "missing __boundary in context"
+        !completed.is_empty(),
+        "ledger should contain TaskCompleted for aggregate_hourly"
     );
-    assert_eq!(ctx.get("__signals_coalesced"), Some(&serde_json::json!(2)));
 }
 
 /// Multiple detector outputs accumulate before firing.
@@ -440,4 +485,183 @@ async fn test_scheduler_watermark_advance_via_both() {
 
     let fired = handle.await.unwrap();
     assert!(!fired.is_empty(), "task should fire from Both output");
+}
+
+/// Multi-cycle reactive loop: source → task_a → derived source → task_b.
+///
+/// This tests the core "make"-like behavior: task_a completes, which triggers
+/// a derived detector via LedgerTrigger, which produces boundaries for task_b.
+///
+/// Since the scheduler doesn't actually execute tasks (that's the Dispatcher's job),
+/// we simulate the multi-cycle by:
+/// 1. Pre-load detector completion for source "raw_events" → fires task_a ("aggregate")
+/// 2. After scheduler processes cycle 1, inject a TaskCompleted for "aggregate"
+///    with DetectorOutput for derived source "hourly_stats" → fires task_b ("dashboard")
+#[tokio::test]
+async fn test_multi_cycle_reactive_loop() {
+    // Two-level graph:
+    //   raw_events → aggregate (task_a)
+    //   hourly_stats → dashboard (task_b)
+    let graph = assemble_graph(
+        vec![make_source("raw_events"), make_source("hourly_stats")],
+        vec![
+            ContinuousTaskRegistration {
+                id: "aggregate".into(),
+                sources: vec!["raw_events".into()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "dashboard".into(),
+                sources: vec!["hourly_stats".into()],
+                referenced: vec![],
+            },
+        ],
+    )
+    .unwrap();
+
+    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+
+    // Cycle 1: raw_events detector completed with boundaries
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(make_detector_completion(
+            "detect_raw_events",
+            vec![make_boundary(0, 100)],
+        ));
+    }
+
+    let scheduler = ContinuousScheduler::new(
+        graph,
+        ledger.clone(),
+        ContinuousSchedulerConfig {
+            poll_interval: Duration::from_millis(10),
+        },
+    );
+
+    let (tx, rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { scheduler.run(rx).await });
+
+    // Let cycle 1 process (aggregate fires)
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    // Simulate: aggregate task completed, which would trigger
+    // the derived detector for hourly_stats.
+    // In production, LedgerTrigger would fire detect_hourly_stats.
+    // Here we simulate that detector completing:
+    {
+        let mut l = ledger.write().unwrap();
+
+        // First: aggregate completed (this is what LedgerTrigger would see)
+        l.append(LedgerEvent::TaskCompleted {
+            task: "aggregate".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+
+        // Then: the derived detector for hourly_stats found changes
+        l.append(make_detector_completion(
+            "detect_hourly_stats",
+            vec![make_boundary(0, 50)],
+        ));
+    }
+
+    // Let cycle 2 process (dashboard fires)
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    tx.send(true).unwrap();
+
+    let fired = handle.await.unwrap();
+
+    // Both tasks should have fired
+    let fired_ids: Vec<&str> = fired.iter().map(|f| f.task_id.as_str()).collect();
+    assert!(
+        fired_ids.contains(&"aggregate"),
+        "aggregate should have fired in cycle 1, got: {:?}",
+        fired_ids
+    );
+    assert!(
+        fired_ids.contains(&"dashboard"),
+        "dashboard should have fired in cycle 2, got: {:?}",
+        fired_ids
+    );
+
+    // Verify ledger has events from both cycles
+    let l = ledger.read().unwrap();
+    let all_events = l.events_since(0);
+
+    let drain_events: Vec<&str> = all_events
+        .iter()
+        .filter_map(|e| {
+            if let LedgerEvent::AccumulatorDrained { task, .. } = e {
+                Some(task.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    assert!(
+        drain_events.contains(&"aggregate"),
+        "ledger should record aggregate drain"
+    );
+    assert!(
+        drain_events.contains(&"dashboard"),
+        "ledger should record dashboard drain"
+    );
+}
+
+/// LedgerTrigger integration: verify it correctly bridges task completion
+/// to detector firing in the reactive loop.
+#[tokio::test]
+async fn test_ledger_trigger_bridges_cycles() {
+    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+
+    // LedgerTrigger watches for "aggregate" completion
+    let trigger = LedgerTrigger::new(
+        "detect_hourly_stats".into(),
+        vec!["aggregate".into()],
+        LedgerMatchMode::Any,
+        ledger.clone(),
+    );
+
+    // Step 1: No completions yet
+    let result = trigger.poll().await.unwrap();
+    assert!(!result.should_fire(), "should not fire without events");
+
+    // Step 2: aggregate completes
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "aggregate".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+    }
+
+    // Step 3: Trigger fires — this would kick off detect_hourly_stats
+    let result = trigger.poll().await.unwrap();
+    assert!(
+        result.should_fire(),
+        "should fire after aggregate completes"
+    );
+
+    // Step 4: Cursor advanced — doesn't re-fire on same event
+    let result = trigger.poll().await.unwrap();
+    assert!(!result.should_fire(), "should not re-fire");
+
+    // Step 5: aggregate completes again (next cycle)
+    {
+        let mut l = ledger.write().unwrap();
+        l.append(LedgerEvent::TaskCompleted {
+            task: "aggregate".into(),
+            at: Utc::now(),
+            context: cloacina_workflow::Context::new(),
+        });
+    }
+
+    // Step 6: Fires again for the new completion
+    let result = trigger.poll().await.unwrap();
+    assert!(
+        result.should_fire(),
+        "should fire again for new aggregate completion"
+    );
 }

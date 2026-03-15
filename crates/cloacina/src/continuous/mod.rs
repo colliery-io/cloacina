@@ -32,5 +32,6 @@ pub mod graph;
 pub mod ledger;
 pub mod ledger_trigger;
 pub mod scheduler;
+pub mod state_management;
 pub mod trigger_policy;
 pub mod watermark;

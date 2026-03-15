@@ -21,7 +21,7 @@
 //!
 //! See CLOACI-S-0005 for the full specification.
 
-use super::boundary::{coalesce, BufferedBoundary, ComputationBoundary};
+use super::boundary::{coalesce, validate_boundary, BufferedBoundary, ComputationBoundary};
 use super::trigger_policy::TriggerPolicy;
 use super::watermark::BoundaryLedger;
 use chrono::{DateTime, Duration, Utc};
@@ -40,6 +40,21 @@ pub struct AccumulatorMetrics {
     pub newest_boundary_emitted_at: Option<DateTime<Utc>>,
     /// Maximum ingestion lag across all buffered boundaries.
     pub max_lag: Option<Duration>,
+    /// Total number of boundaries received since creation.
+    pub total_boundaries_received: u64,
+    /// Total number of drains since creation.
+    pub drain_count: u64,
+}
+
+/// Per-edge metrics snapshot for the scheduler.
+#[derive(Debug, Clone)]
+pub struct EdgeMetrics {
+    /// Data source name for this edge.
+    pub source: String,
+    /// Task name for this edge.
+    pub task: String,
+    /// Accumulator metrics snapshot.
+    pub accumulator: AccumulatorMetrics,
 }
 
 /// Per-edge stateful component that buffers boundaries and decides when to fire.
@@ -70,6 +85,8 @@ pub struct SimpleAccumulator {
     buffer: Vec<BufferedBoundary>,
     policy: Box<dyn TriggerPolicy>,
     watermark: Option<ComputationBoundary>,
+    total_received: u64,
+    drain_count: u64,
 }
 
 impl SimpleAccumulator {
@@ -79,6 +96,8 @@ impl SimpleAccumulator {
             buffer: Vec::new(),
             policy,
             watermark: None,
+            total_received: 0,
+            drain_count: 0,
         }
     }
 }
@@ -86,6 +105,7 @@ impl SimpleAccumulator {
 impl SignalAccumulator for SimpleAccumulator {
     fn receive(&mut self, boundary: ComputationBoundary) {
         self.buffer.push(BufferedBoundary::new(boundary));
+        self.total_received += 1;
     }
 
     fn is_ready(&self) -> bool {
@@ -113,6 +133,11 @@ impl SignalAccumulator for SimpleAccumulator {
 
         // Coalesce boundaries
         if let Some(coalesced) = coalesce(&boundaries) {
+            // Re-validate Custom boundaries after coalescing
+            if let Err(e) = validate_boundary(&coalesced) {
+                let _ = ctx.insert("__validation_error", json!(e));
+            }
+
             let boundary_value = serde_json::to_value(&coalesced).unwrap_or(json!(null));
             let _ = ctx.insert("__boundary", boundary_value);
 
@@ -123,8 +148,8 @@ impl SignalAccumulator for SimpleAccumulator {
         let _ = ctx.insert("__signals_coalesced", json!(signals_coalesced));
         let _ = ctx.insert("__accumulator_lag_ms", json!(max_lag_ms));
 
-        // Clear buffer
         self.buffer.clear();
+        self.drain_count += 1;
 
         ctx
     }
@@ -139,6 +164,8 @@ impl SignalAccumulator for SimpleAccumulator {
             oldest_boundary_emitted_at: oldest,
             newest_boundary_emitted_at: newest,
             max_lag,
+            total_boundaries_received: self.total_received,
+            drain_count: self.drain_count,
         }
     }
 
@@ -168,6 +195,8 @@ pub struct WindowedAccumulator {
     watermark_mode: WatermarkMode,
     boundary_ledger: Arc<RwLock<BoundaryLedger>>,
     source_name: String,
+    total_received: u64,
+    drain_count: u64,
 }
 
 impl WindowedAccumulator {
@@ -185,6 +214,8 @@ impl WindowedAccumulator {
             watermark_mode,
             boundary_ledger,
             source_name,
+            total_received: 0,
+            drain_count: 0,
         }
     }
 
@@ -199,6 +230,7 @@ impl WindowedAccumulator {
 impl SignalAccumulator for WindowedAccumulator {
     fn receive(&mut self, boundary: ComputationBoundary) {
         self.buffer.push(BufferedBoundary::new(boundary));
+        self.total_received += 1;
     }
 
     fn is_ready(&self) -> bool {
@@ -235,6 +267,11 @@ impl SignalAccumulator for WindowedAccumulator {
             .unwrap_or(0);
 
         if let Some(coalesced) = coalesce(&boundaries) {
+            // Re-validate Custom boundaries after coalescing
+            if let Err(e) = validate_boundary(&coalesced) {
+                let _ = ctx.insert("__validation_error", json!(e));
+            }
+
             let boundary_value = serde_json::to_value(&coalesced).unwrap_or(json!(null));
             let _ = ctx.insert("__boundary", boundary_value);
             self.watermark = Some(coalesced);
@@ -244,6 +281,7 @@ impl SignalAccumulator for WindowedAccumulator {
         let _ = ctx.insert("__accumulator_lag_ms", json!(max_lag_ms));
 
         self.buffer.clear();
+        self.drain_count += 1;
         ctx
     }
 
@@ -256,6 +294,8 @@ impl SignalAccumulator for WindowedAccumulator {
             oldest_boundary_emitted_at: oldest,
             newest_boundary_emitted_at: newest,
             max_lag,
+            total_boundaries_received: self.total_received,
+            drain_count: self.drain_count,
         }
     }
 

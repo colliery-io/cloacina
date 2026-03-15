@@ -303,6 +303,24 @@ mod unified_schema {
         }
     }
 
+    // =========================================================================
+    // Continuous Scheduling Tables
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        accumulator_state (edge_id) {
+            edge_id -> Text,
+            consumer_watermark -> Nullable<Text>,
+            last_drain_at -> DbTimestamp,
+            drain_metadata -> Text,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -318,6 +336,7 @@ mod unified_schema {
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_state,
         contexts,
         cron_executions,
         cron_schedules,
@@ -599,6 +618,18 @@ mod postgres_schema {
         }
     }
 
+    // Continuous scheduling
+    diesel::table! {
+        accumulator_state (edge_id) {
+            edge_id -> Varchar,
+            consumer_watermark -> Nullable<Text>,
+            last_drain_at -> Timestamp,
+            drain_metadata -> Text,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -620,6 +651,7 @@ mod postgres_schema {
 
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_state,
         contexts,
         cron_executions,
         cron_schedules,
@@ -641,6 +673,7 @@ mod postgres_schema {
 
     #[cfg(feature = "auth")]
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_state,
         auth_audit_log,
         auth_tokens,
         contexts,
@@ -888,6 +921,18 @@ mod sqlite_schema {
         }
     }
 
+    // Continuous scheduling
+    diesel::table! {
+        accumulator_state (edge_id) {
+            edge_id -> Text,
+            consumer_watermark -> Nullable<Text>,
+            last_drain_at -> Text,
+            drain_metadata -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -903,6 +948,7 @@ mod sqlite_schema {
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
+        accumulator_state,
         contexts,
         cron_executions,
         cron_schedules,

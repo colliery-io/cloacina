@@ -20,7 +20,7 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
+    accumulator_state, contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
     package_signatures, pipeline_executions, recovery_events, signing_keys,
     task_execution_metadata, task_executions, task_outbox, trigger_executions, trigger_schedules,
     trusted_keys, workflow_packages, workflow_registry,
@@ -790,4 +790,29 @@ impl From<UnifiedPackageSignature> for PackageSignature {
             signed_at: u.signed_at,
         }
     }
+}
+
+// ============================================================================
+// Accumulator State Models (Continuous Scheduling)
+// ============================================================================
+
+/// Persisted accumulator state for crash recovery.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = accumulator_state)]
+pub struct AccumulatorStateRow {
+    pub edge_id: String,
+    pub consumer_watermark: Option<String>,
+    pub last_drain_at: UniversalTimestamp,
+    pub drain_metadata: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+/// New accumulator state for insertion.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = accumulator_state)]
+pub struct NewAccumulatorState {
+    pub edge_id: String,
+    pub consumer_watermark: Option<String>,
+    pub drain_metadata: String,
 }

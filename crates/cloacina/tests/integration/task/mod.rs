@@ -15,6 +15,7 @@
  */
 
 pub mod checkpoint;
+pub mod continuous_macro;
 pub mod debug_macro;
 pub mod handle_macro;
 pub mod macro_test;

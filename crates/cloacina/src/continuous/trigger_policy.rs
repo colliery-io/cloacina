@@ -79,6 +79,88 @@ impl TriggerPolicy for WallClockWindow {
     }
 }
 
+/// Fires when ANY sub-policy returns true (OR combinator).
+///
+/// ```rust,ignore
+/// AnyPolicy(vec![
+///     Box::new(WallClockWindow::new(Duration::from_secs(300))),
+///     Box::new(BoundaryCount::new(20)),
+/// ])
+/// // fires after 5 minutes OR 20 boundaries, whichever comes first
+/// ```
+pub struct AnyPolicy(pub Vec<Box<dyn TriggerPolicy>>);
+
+impl TriggerPolicy for AnyPolicy {
+    fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
+        self.0.iter().any(|p| p.should_fire(buffer))
+    }
+}
+
+/// Fires when ALL sub-policies return true (AND combinator).
+///
+/// ```rust,ignore
+/// AllPolicy(vec![
+///     Box::new(BoundaryCount::new(1000)),
+///     Box::new(WallClockWindow::new(Duration::from_secs(60))),
+/// ])
+/// // fires after at least 1000 boundaries AND at least 1 minute
+/// ```
+pub struct AllPolicy(pub Vec<Box<dyn TriggerPolicy>>);
+
+impl TriggerPolicy for AllPolicy {
+    fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
+        !self.0.is_empty() && self.0.iter().all(|p| p.should_fire(buffer))
+    }
+}
+
+/// Fires when N boundaries are buffered.
+pub struct BoundaryCount {
+    /// Minimum number of boundaries to trigger.
+    pub count: usize,
+}
+
+impl BoundaryCount {
+    /// Create a new BoundaryCount policy.
+    pub fn new(count: usize) -> Self {
+        Self { count }
+    }
+}
+
+impl TriggerPolicy for BoundaryCount {
+    fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
+        buffer.len() >= self.count
+    }
+}
+
+/// Fires when no new boundary has been received for `duration` (debounce).
+///
+/// "Silence means the burst is over." Checks the newest `received_at` in the
+/// buffer against wall clock time. Only fires if there are buffered boundaries
+/// AND the newest one arrived more than `duration` ago.
+pub struct WallClockDebounce {
+    /// Silence duration before triggering.
+    pub duration: Duration,
+}
+
+impl WallClockDebounce {
+    /// Create a new WallClockDebounce policy.
+    pub fn new(duration: Duration) -> Self {
+        Self { duration }
+    }
+}
+
+impl TriggerPolicy for WallClockDebounce {
+    fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
+        if buffer.is_empty() {
+            return false;
+        }
+        // Find the newest received_at
+        let newest_received = buffer.iter().map(|b| b.received_at).max().unwrap();
+        let elapsed = chrono::Utc::now().signed_duration_since(newest_received);
+        elapsed >= chrono::Duration::from_std(self.duration).unwrap_or(chrono::Duration::weeks(52))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +224,111 @@ mod tests {
         // After drain reset, should not fire
         policy.mark_drained();
         assert!(!policy.should_fire(&[make_buffered()]));
+    }
+
+    // --- BoundaryCount tests ---
+
+    #[test]
+    fn test_boundary_count_fires_at_threshold() {
+        let policy = BoundaryCount::new(3);
+        let buf = vec![make_buffered(), make_buffered(), make_buffered()];
+        assert!(policy.should_fire(&buf));
+    }
+
+    #[test]
+    fn test_boundary_count_does_not_fire_below() {
+        let policy = BoundaryCount::new(3);
+        let buf = vec![make_buffered(), make_buffered()];
+        assert!(!policy.should_fire(&buf));
+    }
+
+    #[test]
+    fn test_boundary_count_fires_above() {
+        let policy = BoundaryCount::new(2);
+        let buf = vec![make_buffered(), make_buffered(), make_buffered()];
+        assert!(policy.should_fire(&buf));
+    }
+
+    // --- WallClockDebounce tests ---
+
+    #[test]
+    fn test_debounce_fires_after_silence() {
+        let policy = WallClockDebounce::new(Duration::from_millis(0));
+        // Boundary received "now" with received_at = now - make_buffered uses Utc::now()
+        // With 0ms debounce, any boundary should trigger immediately
+        let buf = vec![make_buffered()];
+        // Sleep-free: 0ms debounce fires immediately
+        assert!(policy.should_fire(&buf));
+    }
+
+    #[test]
+    fn test_debounce_does_not_fire_during_burst() {
+        let policy = WallClockDebounce::new(Duration::from_secs(3600)); // 1 hour
+        let buf = vec![make_buffered()]; // just received
+        assert!(!policy.should_fire(&buf));
+    }
+
+    #[test]
+    fn test_debounce_empty_buffer() {
+        let policy = WallClockDebounce::new(Duration::from_millis(0));
+        assert!(!policy.should_fire(&[]));
+    }
+
+    // --- AnyPolicy tests ---
+
+    #[test]
+    fn test_any_fires_when_one_matches() {
+        let policy = AnyPolicy(vec![
+            Box::new(BoundaryCount::new(100)), // won't fire (only 1 boundary)
+            Box::new(Immediate),               // fires immediately
+        ]);
+        assert!(policy.should_fire(&[make_buffered()]));
+    }
+
+    #[test]
+    fn test_any_does_not_fire_when_none_match() {
+        let policy = AnyPolicy(vec![
+            Box::new(BoundaryCount::new(100)),
+            Box::new(BoundaryCount::new(50)),
+        ]);
+        assert!(!policy.should_fire(&[make_buffered()]));
+    }
+
+    // --- AllPolicy tests ---
+
+    #[test]
+    fn test_all_fires_when_all_match() {
+        let policy = AllPolicy(vec![Box::new(Immediate), Box::new(BoundaryCount::new(1))]);
+        assert!(policy.should_fire(&[make_buffered()]));
+    }
+
+    #[test]
+    fn test_all_does_not_fire_when_one_fails() {
+        let policy = AllPolicy(vec![
+            Box::new(Immediate),               // fires
+            Box::new(BoundaryCount::new(100)), // won't fire
+        ]);
+        assert!(!policy.should_fire(&[make_buffered()]));
+    }
+
+    #[test]
+    fn test_all_empty_policies_does_not_fire() {
+        let policy = AllPolicy(vec![]);
+        assert!(!policy.should_fire(&[make_buffered()]));
+    }
+
+    // --- Nesting tests ---
+
+    #[test]
+    fn test_nested_any_all() {
+        // "at least 1 boundary AND (immediate OR count >= 100)"
+        let policy = AllPolicy(vec![
+            Box::new(BoundaryCount::new(1)),
+            Box::new(AnyPolicy(vec![
+                Box::new(Immediate),
+                Box::new(BoundaryCount::new(100)),
+            ])),
+        ]);
+        assert!(policy.should_fire(&[make_buffered()]));
     }
 }

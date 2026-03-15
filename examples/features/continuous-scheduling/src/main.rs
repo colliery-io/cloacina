@@ -31,11 +31,55 @@ use cloacina::continuous::detector::{DetectorOutput, DETECTOR_OUTPUT_KEY};
 use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration};
 use cloacina::continuous::ledger::{ExecutionLedger, LedgerEvent};
 use cloacina::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerConfig};
-use cloacina_workflow::Context;
+use cloacina_workflow::{Context, Task, TaskError, TaskNamespace};
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::watch;
+
+/// The actual continuous task that processes aggregated data.
+struct AggregateHourlyTask;
+
+#[async_trait::async_trait]
+impl Task for AggregateHourlyTask {
+    async fn execute(
+        &self,
+        mut context: Context<serde_json::Value>,
+    ) -> Result<Context<serde_json::Value>, TaskError> {
+        // Read the boundary the scheduler injected
+        let boundary = context.get("__boundary").cloned();
+        let signals = context.get("__signals_coalesced").cloned();
+
+        println!("   [TASK EXECUTING] aggregate_hourly");
+        if let Some(b) = &boundary {
+            if let Some(kind) = b.get("kind") {
+                println!(
+                    "   Processing offsets [{}, {})",
+                    kind.get("start").unwrap_or(&serde_json::json!("?")),
+                    kind.get("end").unwrap_or(&serde_json::json!("?"))
+                );
+            }
+        }
+        if let Some(s) = &signals {
+            println!("   Coalesced from {} detector signals", s);
+        }
+
+        // Simulate doing real work
+        let _ = context.insert("aggregation_complete", serde_json::json!(true));
+        let _ = context.insert("rows_aggregated", serde_json::json!(250));
+
+        println!("   [TASK COMPLETE] aggregate_hourly — 250 rows aggregated");
+        Ok(context)
+    }
+
+    fn id(&self) -> &str {
+        "aggregate_hourly"
+    }
+
+    fn dependencies(&self) -> &[TaskNamespace] {
+        &[]
+    }
+}
 
 /// Simulated database connection for the example.
 struct SimulatedDbConnection {
@@ -166,14 +210,17 @@ async fn main() {
         println!("   Simulated detector: raw_events changed (offsets 100-250)");
     }
 
-    // Step 4: Run the scheduler
-    let scheduler = ContinuousScheduler::new(
+    // Step 4: Run the scheduler with REAL task execution
+    let mut scheduler = ContinuousScheduler::new(
         graph,
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
         },
     );
+
+    // Register the actual task — this is what makes it execute
+    scheduler.register_task(Arc::new(AggregateHourlyTask));
 
     let (tx, rx) = watch::channel(false);
     let handle = tokio::spawn(async move { scheduler.run(rx).await });
@@ -188,15 +235,10 @@ async fn main() {
     println!("\n4. Results:");
     println!("   Tasks fired: {}", fired.len());
     for task in &fired {
-        println!("   - {} (at {})", task.task_id, task.fired_at);
-        for ctx in &task.boundary_context {
-            if let Some(boundary) = ctx.get("__boundary") {
-                println!("     Coalesced boundary: {}", boundary);
-            }
-            if let Some(coalesced) = ctx.get("__signals_coalesced") {
-                println!("     Signals coalesced: {}", coalesced);
-            }
-        }
+        println!(
+            "   - {} | executed: {} | error: {:?}",
+            task.task_id, task.executed, task.error
+        );
     }
 
     // Check ledger

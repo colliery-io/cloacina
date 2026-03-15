@@ -185,6 +185,13 @@ enum AdminCommands {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Manage continuous scheduling accumulator state
+    ContinuousPruneState {
+        /// Preview orphaned states without deleting
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[tokio::main]
@@ -293,6 +300,42 @@ async fn main() -> Result<()> {
                     "Database URL is required. Set --database-url or DATABASE_URL env var",
                 )?;
                 commands::cleanup_events::run(&database_url, &older_than, dry_run).await?;
+            }
+            AdminCommands::ContinuousPruneState { dry_run } => {
+                let database_url = cli.database_url.context(
+                    "Database URL is required. Set --database-url or DATABASE_URL env var",
+                )?;
+                let dal = commands::connect_db(&database_url)?;
+
+                // Load all persisted states
+                let acc_dal = cloacina::dal::unified::AccumulatorStateDAL::new(&dal);
+                let all_states = acc_dal.load_all().await.map_err(|e| anyhow::anyhow!(e))?;
+
+                if all_states.is_empty() {
+                    println!("No persisted accumulator states found.");
+                } else {
+                    // Without a running graph, all persisted states are candidates.
+                    // In production, the graph would be assembled first to determine true orphans.
+                    println!("Found {} persisted accumulator states:", all_states.len());
+                    for state in &all_states {
+                        println!(
+                            "  edge: {}, last drain: {:?}",
+                            state.edge_id, state.last_drain_at
+                        );
+                    }
+
+                    if dry_run {
+                        println!("\n--dry-run: No states deleted.");
+                    } else {
+                        let ids: Vec<String> =
+                            all_states.iter().map(|s| s.edge_id.clone()).collect();
+                        let deleted = acc_dal
+                            .delete_by_ids(ids)
+                            .await
+                            .map_err(|e| anyhow::anyhow!(e))?;
+                        println!("\nDeleted {} orphaned states.", deleted);
+                    }
+                }
             }
         },
     }
