@@ -14,28 +14,21 @@
  *  limitations under the License.
  */
 
-// This file is intentionally left empty.
-// It serves as the entry point for integration tests in this directory.
+//! Continuous reactive scheduling for Cloacina.
+//!
+//! This module implements data-driven DAG execution where a persistent graph
+//! of compute tasks reacts automatically to data changes, re-executing only
+//! the affected subgraph. Analogous to `make` but applied to a live,
+//! continuously-running computation graph.
+//!
+//! See CLOACI-S-0001 for the full specification.
 
-pub mod context;
-pub mod continuous;
-pub mod dal;
-pub mod database;
-pub mod error;
-pub mod executor;
-pub mod logging;
-pub mod models;
-pub mod packaging;
-pub mod packaging_inspection;
-pub mod python_package;
-pub mod registry_simple_functional_test;
-pub mod registry_storage_tests;
-pub mod registry_workflow_registry_tests;
-pub mod runner_configurable_registry_tests;
+pub mod accumulator;
+pub mod boundary;
+pub mod connections;
+pub mod datasource;
+pub mod detector;
+pub mod graph;
+pub mod ledger;
 pub mod scheduler;
-pub mod signing;
-pub mod task;
-pub mod workflow;
-
-#[path = "../fixtures.rs"]
-mod fixtures;
+pub mod trigger_policy;

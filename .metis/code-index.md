@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-14T22:57:23Z | 354 files | JavaScript, Python, Rust
+> Generated: 2026-03-15T13:08:23Z | 368 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -34,6 +34,19 @@
 │   ├── cloacina/
 │   │   ├── src/
 │   │   │   ├── context.rs
+│   │   │   ├── continuous/
+│   │   │   │   ├── accumulator.rs
+│   │   │   │   ├── boundary.rs
+│   │   │   │   ├── connections/
+│   │   │   │   │   ├── mod.rs
+│   │   │   │   │   └── postgres.rs
+│   │   │   │   ├── datasource.rs
+│   │   │   │   ├── detector.rs
+│   │   │   │   ├── graph.rs
+│   │   │   │   ├── ledger.rs
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── scheduler.rs
+│   │   │   │   └── trigger_policy.rs
 │   │   │   ├── cron_evaluator.rs
 │   │   │   ├── cron_recovery.rs
 │   │   │   ├── cron_scheduler.rs
@@ -214,6 +227,8 @@
 │   │       ├── fixtures.rs
 │   │       └── integration/
 │   │           ├── context.rs
+│   │           ├── continuous/
+│   │           │   └── mod.rs
 │   │           ├── dal/
 │   │           │   ├── context.rs
 │   │           │   ├── execution_events.rs
@@ -277,6 +292,7 @@
 │   │               └── subgraph.rs
 │   ├── cloacina-macros/
 │   │   └── src/
+│   │       ├── continuous_task.rs
 │   │       ├── lib.rs
 │   │       ├── packaged_workflow.rs
 │   │       ├── registry.rs
@@ -360,6 +376,9 @@
 │   │   ├── complex-dag/
 │   │   │   └── src/
 │   │   │       └── lib.rs
+│   │   ├── continuous-scheduling/
+│   │   │   └── src/
+│   │   │       └── main.rs
 │   │   ├── cron-scheduling/
 │   │   │   └── src/
 │   │   │       ├── main.rs
@@ -1018,30 +1037,31 @@
 
 - pub `prelude` module L450-480 — `-` — Prelude module for convenient imports.
 - pub `context` module L484 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_evaluator` module L485 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_recovery` module L486 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_scheduler` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `crypto` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dal` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `database` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `executor` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task_scheduler` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger_scheduler` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
+- pub `continuous` module L485 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_evaluator` module L486 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_recovery` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_scheduler` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `crypto` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dal` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `database` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `executor` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task_scheduler` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger_scheduler` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L516-518 — `()` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1110,6 +1130,278 @@
 -  `execute_workflow` function L414-446 — `( &self, schedule: &TriggerSchedule, mut context: Context<serde_json::Value>, ) ...` — Executes a workflow by handing it off to the pipeline executor.
 -  `tests` module L500-509 — `-` — ```
 -  `test_trigger_scheduler_config_default` function L504-508 — `()` — ```
+
+### crates/cloacina/src/continuous
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/src/continuous/accumulator.rs
+
+- pub `AccumulatorMetrics` struct L32-41 — `{ buffered_count: usize, oldest_boundary_emitted_at: Option<DateTime<Utc>>, newe...` — Observable state for monitoring and backpressure detection.
+- pub `SignalAccumulator` interface L44-61 — `{ fn receive(), fn is_ready(), fn drain(), fn metrics(), fn consumer_watermark()...` — Per-edge stateful component that buffers boundaries and decides when to fire.
+- pub `SimpleAccumulator` struct L67-71 — `{ buffer: Vec<BufferedBoundary>, policy: Box<dyn TriggerPolicy>, watermark: Opti...` — Simple accumulator with no watermark awareness.
+- pub `new` function L75-81 — `(policy: Box<dyn TriggerPolicy>) -> Self` — Create a new SimpleAccumulator with the given trigger policy.
+-  `SimpleAccumulator` type L73-82 — `= SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `SimpleAccumulator` type L84-158 — `impl SignalAccumulator for SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `receive` function L85-87 — `(&mut self, boundary: ComputationBoundary)` — See CLOACI-S-0005 for the full specification.
+-  `is_ready` function L89-91 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `drain` function L93-128 — `(&mut self) -> Context<serde_json::Value>` — See CLOACI-S-0005 for the full specification.
+-  `metrics` function L130-153 — `(&self) -> AccumulatorMetrics` — See CLOACI-S-0005 for the full specification.
+-  `consumer_watermark` function L155-157 — `(&self) -> Option<&ComputationBoundary>` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L161-304 — `-` — See CLOACI-S-0005 for the full specification.
+-  `make_offset_boundary` function L166-172 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
+-  `make_cursor_boundary` function L174-182 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_receive_and_drain` function L185-199 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_coalesces_on_drain` function L202-214 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_updates_consumer_watermark` function L217-234 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_empty_drain` function L237-243 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_metrics` function L246-260 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_lag_tracking` function L263-279 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_multiple_drain_cycles` function L282-303 — `()` — See CLOACI-S-0005 for the full specification.
+
+#### crates/cloacina/src/continuous/boundary.rs
+
+- pub `ComputationBoundary` struct L32-39 — `{ kind: BoundaryKind, metadata: Option<serde_json::Value>, emitted_at: DateTime<...` — A serializable message describing what slice of data a signal or execution covers.
+- pub `BoundaryKind` enum L44-62 — `TimeRange | OffsetRange | Cursor | FullState | Custom` — The specific type and data of a computation boundary.
+- pub `BufferedBoundary` struct L66-71 — `{ boundary: ComputationBoundary, received_at: DateTime<Utc> }` — A boundary buffered in an accumulator, with receipt timestamp for backpressure measurement.
+- pub `new` function L75-80 — `(boundary: ComputationBoundary) -> Self` — Create a new buffered boundary with the current time as receipt time.
+- pub `lag` function L83-86 — `(&self) -> chrono::Duration` — Calculate ingestion lag (received_at - emitted_at).
+- pub `CustomBoundarySchema` struct L91-96 — `{ kind: String, schema: serde_json::Value }` — Schema definition for custom boundary types.
+- pub `register_custom_boundary` function L106-115 — `(kind: &str, schema: serde_json::Value)` — Register a custom boundary schema.
+- pub `validate_custom_boundary` function L120-127 — `(kind: &str, value: &serde_json::Value) -> Result<(), String>` — Validate a custom boundary payload against its registered schema.
+- pub `clear_custom_schemas` function L131-134 — `()` — Clear all registered custom boundary schemas (for testing).
+- pub `coalesce` function L215-282 — `(boundaries: &[ComputationBoundary]) -> Option<ComputationBoundary>` — Coalesce a slice of computation boundaries into a single boundary.
+-  `BufferedBoundary` type L73-87 — `= BufferedBoundary` — See CLOACI-S-0002 for the full specification.
+-  `CUSTOM_SCHEMAS` variable L99-100 — `: std::sync::LazyLock<RwLock<HashMap<String, CustomBoundarySchema>>>` — Global registry for custom boundary schemas.
+-  `validate_against_schema` function L140-202 — `( value: &serde_json::Value, schema: &serde_json::Value, ) -> Result<(), String>` — Simple JSON schema validation.
+-  `tests` module L285-524 — `-` — See CLOACI-S-0002 for the full specification.
+-  `make_time_boundary` function L289-302 — `( start_offset_hours: i64, end_offset_hours: i64, ) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_offset_boundary` function L304-310 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_cursor_boundary` function L312-320 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_fullstate_boundary` function L322-330 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_empty` function L335-337 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_single` function L340-344 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_time_ranges` function L347-366 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_offset_ranges` function L369-382 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_cursors_latest_wins` function L385-397 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_fullstate_latest_wins` function L400-411 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_buffered_boundary_lag` function L416-426 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_serialization_roundtrip` function L431-443 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_kind_tagged_serialization` function L446-453 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_validation_passes` function L458-481 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_missing_required_field` function L484-496 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_unregistered_kind` function L499-507 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_wrong_type` function L510-523 — `()` — See CLOACI-S-0002 for the full specification.
+
+#### crates/cloacina/src/continuous/datasource.rs
+
+- pub `DataConnection` interface L32-41 — `{ fn connect(), fn descriptor(), fn system_metadata() }` — Trait for connecting to external data systems.
+- pub `DataConnectionError` enum L45-50 — `ConnectionFailed | ConfigurationError` — Error type for data connection operations.
+- pub `ConnectionDescriptor` struct L54-59 — `{ system_type: String, location: String }` — Generic lineage descriptor for a data connection.
+- pub `DataSourceMetadata` struct L69-76 — `{ description: Option<String>, owner: Option<String>, tags: Vec<String> }` — Metadata for lineage tracking on a data source.
+- pub `DataSource` struct L82-92 — `{ name: String, connection: Box<dyn DataConnection>, detector_workflow: String, ...` — A named handle to an external dataset.
+- pub `GraphError` enum L107-119 — `SourceNotFound | ConnectionTypeMismatch | ConnectionError` — Errors that can occur during graph operations.
+- pub `DataSourceMap` struct L125-127 — `{ sources: HashMap<String, DataSource> }` — A map of data sources provided to continuous tasks at execution time.
+- pub `new` function L131-135 — `() -> Self` — Create a new empty data source map.
+- pub `insert` function L138-140 — `(&mut self, source: DataSource)` — Insert a data source into the map.
+- pub `get` function L143-145 — `(&self, name: &str) -> Option<&DataSource>` — Get a data source by name.
+- pub `connection` function L152-164 — `(&self, name: &str) -> Result<Box<T>, GraphError>` — Get a typed connection handle, with a clear error on wiring mismatch.
+- pub `len` function L167-169 — `(&self) -> usize` — Get the number of data sources in the map.
+- pub `is_empty` function L172-174 — `(&self) -> bool` — Check if the map is empty.
+- pub `names` function L177-179 — `(&self) -> impl Iterator<Item = &str>` — Iterate over all data source names.
+-  `ConnectionDescriptor` type L61-65 — `= ConnectionDescriptor` — See CLOACI-S-0003 for the full specification.
+-  `fmt` function L62-64 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — See CLOACI-S-0003 for the full specification.
+-  `DataSource` type L94-103 — `= DataSource` — See CLOACI-S-0003 for the full specification.
+-  `fmt` function L95-102 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — See CLOACI-S-0003 for the full specification.
+-  `DataSourceMap` type L129-180 — `= DataSourceMap` — See CLOACI-S-0003 for the full specification.
+-  `DataSourceMap` type L182-186 — `impl Default for DataSourceMap` — See CLOACI-S-0003 for the full specification.
+-  `default` function L183-185 — `() -> Self` — See CLOACI-S-0003 for the full specification.
+-  `DataSourceMap` type L188-194 — `= DataSourceMap` — See CLOACI-S-0003 for the full specification.
+-  `fmt` function L189-193 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — See CLOACI-S-0003 for the full specification.
+-  `tests` module L197-336 — `-` — See CLOACI-S-0003 for the full specification.
+-  `TestStringConnection` struct L201-203 — `{ value: String }` — Simple test connection that returns a String handle.
+-  `TestStringConnection` type L205-220 — `impl DataConnection for TestStringConnection` — See CLOACI-S-0003 for the full specification.
+-  `connect` function L206-208 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0003 for the full specification.
+-  `descriptor` function L210-215 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0003 for the full specification.
+-  `system_metadata` function L217-219 — `(&self) -> serde_json::Value` — See CLOACI-S-0003 for the full specification.
+-  `TestIntConnection` struct L223-225 — `{ value: i32 }` — Test connection that returns an i32 handle.
+-  `TestIntConnection` type L227-242 — `impl DataConnection for TestIntConnection` — See CLOACI-S-0003 for the full specification.
+-  `connect` function L228-230 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0003 for the full specification.
+-  `descriptor` function L232-237 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0003 for the full specification.
+-  `system_metadata` function L239-241 — `(&self) -> serde_json::Value` — See CLOACI-S-0003 for the full specification.
+-  `make_test_source` function L244-251 — `(name: &str, conn: impl DataConnection + 'static) -> DataSource` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_typed_access` function L254-265 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_type_mismatch` function L268-285 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_missing_source` function L288-296 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_multiple_sources` function L299-312 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_connection_descriptor` function L315-323 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_debug` function L326-335 — `()` — See CLOACI-S-0003 for the full specification.
+
+#### crates/cloacina/src/continuous/detector.rs
+
+- pub `DETECTOR_OUTPUT_KEY` variable L29 — `: &str` — Well-known context key for detector output.
+- pub `DetectorOutput` enum L38-52 — `Change | WatermarkAdvance | Both` — Output produced by a detector workflow.
+- pub `from_context` function L58-63 — `( context: &cloacina_workflow::Context<serde_json::Value>, ) -> Option<Self>` — Extract `DetectorOutput` from a task output context.
+- pub `boundaries` function L66-72 — `(&self) -> &[ComputationBoundary]` — Get all change boundaries from this output (empty for WatermarkAdvance-only).
+- pub `watermark` function L75-81 — `(&self) -> Option<&ComputationBoundary>` — Get the watermark boundary if present.
+-  `DetectorOutput` type L54-82 — `= DetectorOutput` — See CLOACI-S-0004 for the full specification.
+-  `tests` module L85-151 — `-` — See CLOACI-S-0004 for the full specification.
+-  `make_boundary` function L90-99 — `() -> ComputationBoundary` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_change_serialization` function L102-112 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_watermark_advance` function L115-121 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_both` function L124-131 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_from_context` function L134-144 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_from_context_missing` function L147-150 — `()` — See CLOACI-S-0004 for the full specification.
+
+#### crates/cloacina/src/continuous/graph.rs
+
+- pub `JoinMode` enum L33-38 — `Any | All` — How to combine accumulator readiness for multi-input tasks.
+- pub `LateArrivalPolicy` enum L43-46 — `AccumulateForward` — Late arrival policy for boundaries arriving after consumer watermark.
+- pub `GraphEdge` struct L55-64 — `{ source: String, task: String, accumulator: Arc<Mutex<Box<dyn SignalAccumulator...` — An edge in the continuous graph: data source → accumulator → task.
+- pub `ContinuousTaskConfig` struct L78-85 — `{ triggered_edges: Vec<usize>, referenced_sources: Vec<String>, join_mode: JoinM...` — Configuration for a continuous task within the graph.
+- pub `DataSourceGraph` struct L91-98 — `{ data_sources: HashMap<String, DataSource>, tasks: HashMap<String, ContinuousTa...` — The continuous reactive graph.
+- pub `new` function L102-108 — `() -> Self` — Create a new empty graph.
+- pub `edges_for_task` function L111-122 — `(&self, task_id: &str) -> Vec<&GraphEdge>` — Get all edges for a given task.
+- pub `edges_for_source` function L125-130 — `(&self, source_name: &str) -> Vec<&GraphEdge>` — Get all edges for a given data source.
+- pub `task_ids` function L133-135 — `(&self) -> Vec<&str>` — Get all task IDs in the graph.
+- pub `ContinuousTaskRegistration` struct L156-163 — `{ id: String, sources: Vec<String>, referenced: Vec<String> }` — Registration for a continuous task (used during graph assembly).
+- pub `GraphAssemblyError` enum L167-180 — `UnknownSource | UnknownDetectorWorkflow | DuplicateTask` — Errors during graph assembly.
+- pub `assemble_graph` function L186-249 — `( data_sources: Vec<DataSource>, task_registrations: Vec<ContinuousTaskRegistrat...` — Assemble a `DataSourceGraph` from registered data sources and task declarations.
+-  `LateArrivalPolicy` type L48-52 — `impl Default for LateArrivalPolicy` — See CLOACI-S-0008 for the full specification.
+-  `default` function L49-51 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `GraphEdge` type L66-74 — `= GraphEdge` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L67-73 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L100-136 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L138-142 — `impl Default for DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `default` function L139-141 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L144-152 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L145-151 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `tests` module L252-419 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConnection` struct L259 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConnection` type L260-273 — `impl DataConnection for MockConnection` — See CLOACI-S-0008 for the full specification.
+-  `connect` function L261-263 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
+-  `descriptor` function L264-269 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
+-  `system_metadata` function L270-272 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
+-  `make_data_source` function L275-282 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_simple_graph` function L285-302 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_multi_source_task` function L305-319 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_unknown_source` function L322-338 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_unknown_referenced_source` function L341-351 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_duplicate_task` function L354-375 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_edges_for_task` function L378-389 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_edges_for_source` function L392-410 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_empty_graph` function L413-418 — `()` — See CLOACI-S-0008 for the full specification.
+
+#### crates/cloacina/src/continuous/ledger.rs
+
+- pub `LedgerEvent` enum L30-54 — `TaskCompleted | TaskFailed | BoundaryEmitted | AccumulatorDrained` — Events recorded in the execution ledger.
+- pub `task_name` function L58-65 — `(&self) -> Option<&str>` — Get the task name if this event is task-related.
+- pub `is_task_completed` function L68-70 — `(&self) -> bool` — Returns true if this is a TaskCompleted event.
+- pub `is_task_failed` function L73-75 — `(&self) -> bool` — Returns true if this is a TaskFailed event.
+- pub `ExecutionLedger` struct L85-87 — `{ events: Vec<LedgerEvent> }` — In-memory append-only log of graph activity.
+- pub `new` function L91-93 — `() -> Self` — Create a new empty ledger.
+- pub `append` function L96-98 — `(&mut self, event: LedgerEvent)` — Append an event to the ledger.
+- pub `events_since` function L104-110 — `(&self, cursor: usize) -> &[LedgerEvent]` — Get all events since the given cursor position.
+- pub `len` function L113-115 — `(&self) -> usize` — Get the current length of the ledger (usable as next cursor position).
+- pub `is_empty` function L118-120 — `(&self) -> bool` — Check if the ledger is empty.
+- pub `get` function L123-125 — `(&self, index: usize) -> Option<&LedgerEvent>` — Get a specific event by index.
+-  `LedgerEvent` type L56-76 — `= LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `ExecutionLedger` type L89-126 — `= ExecutionLedger` — See CLOACI-S-0007 for the full specification.
+-  `tests` module L129-248 — `-` — See CLOACI-S-0007 for the full specification.
+-  `make_completed_event` function L133-139 — `(task: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `make_failed_event` function L141-147 — `(task: &str, error: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `make_boundary_event` function L149-160 — `(source: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_append_and_len` function L163-174 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_events_since` function L177-195 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_cursor_advancement` function L198-222 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_event_helpers` function L225-238 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_get` function L241-247 — `()` — See CLOACI-S-0007 for the full specification.
+
+#### crates/cloacina/src/continuous/mod.rs
+
+- pub `accumulator` module L26 — `-` — Continuous reactive scheduling for Cloacina.
+- pub `boundary` module L27 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `connections` module L28 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `datasource` module L29 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `detector` module L30 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `graph` module L31 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `ledger` module L32 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `scheduler` module L33 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `trigger_policy` module L34 — `-` — See CLOACI-S-0001 for the full specification.
+
+#### crates/cloacina/src/continuous/scheduler.rs
+
+- pub `ContinuousSchedulerConfig` struct L36-39 — `{ poll_interval: Duration }` — Configuration for the continuous scheduler.
+- pub `ContinuousScheduler` struct L53-62 — `{ graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, exit_edges: Hash...` — The continuous reactive scheduler.
+- pub `new` function L66-77 — `( graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, config: Continuo...` — Create a new continuous scheduler.
+- pub `add_exit_edge` function L80-85 — `(&mut self, task_id: String, workflow_name: String)` — Register an exit edge: when `task_id` completes, fire `workflow_name`.
+- pub `run` function L95-166 — `( &self, mut shutdown: watch::Receiver<bool>, ) -> Vec<FiredTask>` — Run the continuous scheduling loop.
+- pub `FiredTask` struct L247-254 — `{ task_id: String, fired_at: chrono::DateTime<Utc>, boundary_context: Vec<cloaci...` — A task that was fired by the scheduler.
+-  `ContinuousSchedulerConfig` type L41-47 — `impl Default for ContinuousSchedulerConfig` — See CLOACI-S-0008 for the full specification.
+-  `default` function L42-46 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `ContinuousScheduler` type L64-243 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
+-  `process_detector_output` function L169-191 — `(&self, _detector_task: &str, output: &DetectorOutput)` — Process a detector output: route boundaries to accumulators.
+-  `check_readiness` function L194-242 — `( &self, ) -> Vec<(String, Vec<cloacina_workflow::Context<serde_json::Value>>)>` — Check all tasks for readiness based on their JoinMode.
+-  `ContinuousScheduler` type L256-264 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L257-263 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `tests` module L267-422 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConn` struct L277 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConn` type L278-291 — `impl DataConnection for MockConn` — See CLOACI-S-0008 for the full specification.
+-  `connect` function L279-281 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
+-  `descriptor` function L282-287 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
+-  `system_metadata` function L288-290 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
+-  `make_source` function L293-300 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
+-  `make_boundary` function L302-308 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_processes_detector_output` function L311-341 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_run_loop_with_shutdown` function L344-399 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_empty_graph_runs_cleanly` function L402-421 — `()` — See CLOACI-S-0008 for the full specification.
+
+#### crates/cloacina/src/continuous/trigger_policy.rs
+
+- pub `TriggerPolicy` interface L32-35 — `{ fn should_fire() }` — Trait controlling when an accumulator should fire.
+- pub `Immediate` struct L38 — `-` — Fires on every boundary — as soon as the buffer is non-empty.
+- pub `WallClockWindow` struct L51-56 — `{ duration: Duration, last_drain_at: Instant }` — Fires when wall clock time since last drain exceeds a configured duration.
+- pub `new` function L60-65 — `(duration: Duration) -> Self` — Create a new WallClockWindow policy with the given duration.
+- pub `mark_drained` function L68-70 — `(&mut self)` — Notify the policy that a drain occurred.
+-  `Immediate` type L40-44 — `impl TriggerPolicy for Immediate` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L41-43 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `WallClockWindow` type L58-71 — `= WallClockWindow` — See CLOACI-S-0005 for the full specification.
+-  `WallClockWindow` type L73-80 — `impl TriggerPolicy for WallClockWindow` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L74-79 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L83-146 — `-` — See CLOACI-S-0005 for the full specification.
+-  `make_buffered` function L88-96 — `() -> BufferedBoundary` — See CLOACI-S-0005 for the full specification.
+-  `test_immediate_fires_on_non_empty` function L99-102 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_immediate_does_not_fire_on_empty` function L105-108 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_fires_after_duration` function L111-117 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_does_not_fire_early` function L120-123 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_does_not_fire_on_empty` function L126-132 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_mark_drained` function L135-145 — `()` — See CLOACI-S-0005 for the full specification.
+
+### crates/cloacina/src/continuous/connections
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/src/continuous/connections/mod.rs
+
+- pub `postgres` module L20 — `-` — Framework-provided `DataConnection` implementations.
+
+#### crates/cloacina/src/continuous/connections/postgres.rs
+
+- pub `PostgresConnection` struct L29-42 — `{ host: String, port: u16, database: String, schema: String, table: String, user...` — A PostgreSQL data connection for continuous scheduling.
+- pub `new` function L46-61 — `( host: &str, port: u16, database: &str, schema: &str, table: &str, ) -> Self` — Create a new PostgresConnection.
+- pub `with_username` function L64-67 — `(mut self, username: &str) -> Self` — Set the username for the connection URL.
+- pub `connection_url` function L70-81 — `(&self) -> String` — Build the connection URL.
+-  `PostgresConnection` type L44-82 — `= PostgresConnection` — PostgreSQL `DataConnection` implementation.
+-  `PostgresConnection` type L84-110 — `impl DataConnection for PostgresConnection` — PostgreSQL `DataConnection` implementation.
+-  `connect` function L85-89 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — PostgreSQL `DataConnection` implementation.
+-  `descriptor` function L91-99 — `(&self) -> ConnectionDescriptor` — PostgreSQL `DataConnection` implementation.
+-  `system_metadata` function L101-109 — `(&self) -> serde_json::Value` — PostgreSQL `DataConnection` implementation.
+-  `tests` module L113-156 — `-` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_descriptor` function L117-122 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_metadata` function L125-132 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_connect` function L135-140 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_with_username` function L143-149 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_url` function L152-155 — `()` — PostgreSQL `DataConnection` implementation.
 
 ### crates/cloacina/src/crypto
 
@@ -3055,87 +3347,91 @@
 
 #### crates/cloacina/src/runner/default_runner/config.rs
 
-- pub `DefaultRunnerConfig` struct L59-85 — `{ max_concurrent_tasks: usize, scheduler_poll_interval: Duration, task_timeout: ...` — Configuration for the default runner
-- pub `builder` function L89-91 — `() -> DefaultRunnerConfigBuilder` — Creates a new configuration builder with default values.
-- pub `max_concurrent_tasks` function L94-96 — `(&self) -> usize` — Maximum number of concurrent task executions allowed.
-- pub `scheduler_poll_interval` function L99-101 — `(&self) -> Duration` — How often the scheduler checks for ready tasks.
-- pub `task_timeout` function L104-106 — `(&self) -> Duration` — Maximum time allowed for a single task to execute.
-- pub `pipeline_timeout` function L109-111 — `(&self) -> Option<Duration>` — Optional maximum time for an entire pipeline execution.
-- pub `db_pool_size` function L114-116 — `(&self) -> u32` — Number of database connections in the pool.
-- pub `enable_recovery` function L119-121 — `(&self) -> bool` — Whether automatic recovery is enabled.
-- pub `enable_cron_scheduling` function L124-126 — `(&self) -> bool` — Whether cron scheduling is enabled.
-- pub `cron_poll_interval` function L129-131 — `(&self) -> Duration` — Poll interval for cron schedules.
-- pub `cron_max_catchup_executions` function L134-136 — `(&self) -> usize` — Maximum catchup executions for missed cron runs.
-- pub `cron_enable_recovery` function L139-141 — `(&self) -> bool` — Whether cron recovery is enabled.
-- pub `cron_recovery_interval` function L144-146 — `(&self) -> Duration` — How often to check for lost cron executions.
-- pub `cron_lost_threshold_minutes` function L149-151 — `(&self) -> i32` — Minutes before an execution is considered lost.
-- pub `cron_max_recovery_age` function L154-156 — `(&self) -> Duration` — Maximum age of executions to recover.
-- pub `cron_max_recovery_attempts` function L159-161 — `(&self) -> usize` — Maximum recovery attempts per execution.
-- pub `enable_trigger_scheduling` function L164-166 — `(&self) -> bool` — Whether trigger scheduling is enabled.
-- pub `trigger_base_poll_interval` function L169-171 — `(&self) -> Duration` — Base poll interval for trigger readiness checks.
-- pub `trigger_poll_timeout` function L174-176 — `(&self) -> Duration` — Timeout for trigger poll operations.
-- pub `enable_registry_reconciler` function L179-181 — `(&self) -> bool` — Whether the registry reconciler is enabled.
-- pub `registry_reconcile_interval` function L184-186 — `(&self) -> Duration` — How often to run registry reconciliation.
-- pub `registry_enable_startup_reconciliation` function L189-191 — `(&self) -> bool` — Whether startup reconciliation is enabled.
-- pub `registry_storage_path` function L194-196 — `(&self) -> Option<&std::path::Path>` — Path for registry storage (filesystem backend).
-- pub `registry_storage_backend` function L199-201 — `(&self) -> &str` — Registry storage backend type.
-- pub `runner_id` function L204-206 — `(&self) -> Option<&str>` — Optional runner identifier for logging.
-- pub `runner_name` function L209-211 — `(&self) -> Option<&str>` — Optional runner name for logging.
-- pub `routing_config` function L214-216 — `(&self) -> Option<&RoutingConfig>` — Routing configuration for task dispatch.
-- pub `DefaultRunnerConfigBuilder` struct L230-232 — `{ config: DefaultRunnerConfig }` — Builder for [`DefaultRunnerConfig`].
-- pub `max_concurrent_tasks` function L270-273 — `(mut self, value: usize) -> Self` — Sets the maximum number of concurrent task executions.
-- pub `scheduler_poll_interval` function L276-279 — `(mut self, value: Duration) -> Self` — Sets the scheduler poll interval.
-- pub `task_timeout` function L282-285 — `(mut self, value: Duration) -> Self` — Sets the task timeout.
-- pub `pipeline_timeout` function L288-291 — `(mut self, value: Option<Duration>) -> Self` — Sets the pipeline timeout.
-- pub `db_pool_size` function L294-297 — `(mut self, value: u32) -> Self` — Sets the database pool size.
-- pub `enable_recovery` function L300-303 — `(mut self, value: bool) -> Self` — Enables or disables automatic recovery.
-- pub `enable_cron_scheduling` function L306-309 — `(mut self, value: bool) -> Self` — Enables or disables cron scheduling.
-- pub `cron_poll_interval` function L312-315 — `(mut self, value: Duration) -> Self` — Sets the cron poll interval.
-- pub `cron_max_catchup_executions` function L318-321 — `(mut self, value: usize) -> Self` — Sets the maximum catchup executions for cron.
-- pub `cron_enable_recovery` function L324-327 — `(mut self, value: bool) -> Self` — Enables or disables cron recovery.
-- pub `cron_recovery_interval` function L330-333 — `(mut self, value: Duration) -> Self` — Sets the cron recovery interval.
-- pub `cron_lost_threshold_minutes` function L336-339 — `(mut self, value: i32) -> Self` — Sets the cron lost threshold in minutes.
-- pub `cron_max_recovery_age` function L342-345 — `(mut self, value: Duration) -> Self` — Sets the maximum cron recovery age.
-- pub `cron_max_recovery_attempts` function L348-351 — `(mut self, value: usize) -> Self` — Sets the maximum cron recovery attempts.
-- pub `enable_trigger_scheduling` function L354-357 — `(mut self, value: bool) -> Self` — Enables or disables trigger scheduling.
-- pub `trigger_base_poll_interval` function L360-363 — `(mut self, value: Duration) -> Self` — Sets the trigger base poll interval.
-- pub `trigger_poll_timeout` function L366-369 — `(mut self, value: Duration) -> Self` — Sets the trigger poll timeout.
-- pub `enable_registry_reconciler` function L372-375 — `(mut self, value: bool) -> Self` — Enables or disables the registry reconciler.
-- pub `registry_reconcile_interval` function L378-381 — `(mut self, value: Duration) -> Self` — Sets the registry reconcile interval.
-- pub `registry_enable_startup_reconciliation` function L384-387 — `(mut self, value: bool) -> Self` — Enables or disables startup reconciliation.
-- pub `registry_storage_path` function L390-393 — `(mut self, value: Option<std::path::PathBuf>) -> Self` — Sets the registry storage path.
-- pub `registry_storage_backend` function L396-399 — `(mut self, value: impl Into<String>) -> Self` — Sets the registry storage backend.
-- pub `runner_id` function L402-405 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
-- pub `runner_name` function L408-411 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
-- pub `routing_config` function L414-417 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
-- pub `build` function L420-422 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
-- pub `DefaultRunnerBuilder` struct L457-461 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `new` function L471-477 — `() -> Self` — Creates a new builder with default configuration
-- pub `database_url` function L480-483 — `(mut self, url: &str) -> Self` — Sets the database URL
-- pub `schema` function L489-492 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
-- pub `with_config` function L495-498 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L512-627 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L645-648 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
--  `DefaultRunnerConfig` type L87-217 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L234-266 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L235-265 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L268-423 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfig` type L425-429 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `default` function L426-428 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L463-467 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L464-466 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L469-649 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `validate_schema_name` function L501-509 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L652-818 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L656-671 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L674-697 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L700-708 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L711-732 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L735-750 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L753-756 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L759-772 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L775-783 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L786-817 — `()` — configuring the DefaultRunner's behavior.
+- pub `DefaultRunnerConfig` struct L59-87 — `{ max_concurrent_tasks: usize, scheduler_poll_interval: Duration, task_timeout: ...` — Configuration for the default runner
+- pub `builder` function L91-93 — `() -> DefaultRunnerConfigBuilder` — Creates a new configuration builder with default values.
+- pub `max_concurrent_tasks` function L96-98 — `(&self) -> usize` — Maximum number of concurrent task executions allowed.
+- pub `scheduler_poll_interval` function L101-103 — `(&self) -> Duration` — How often the scheduler checks for ready tasks.
+- pub `task_timeout` function L106-108 — `(&self) -> Duration` — Maximum time allowed for a single task to execute.
+- pub `pipeline_timeout` function L111-113 — `(&self) -> Option<Duration>` — Optional maximum time for an entire pipeline execution.
+- pub `db_pool_size` function L116-118 — `(&self) -> u32` — Number of database connections in the pool.
+- pub `enable_recovery` function L121-123 — `(&self) -> bool` — Whether automatic recovery is enabled.
+- pub `enable_cron_scheduling` function L126-128 — `(&self) -> bool` — Whether cron scheduling is enabled.
+- pub `cron_poll_interval` function L131-133 — `(&self) -> Duration` — Poll interval for cron schedules.
+- pub `cron_max_catchup_executions` function L136-138 — `(&self) -> usize` — Maximum catchup executions for missed cron runs.
+- pub `cron_enable_recovery` function L141-143 — `(&self) -> bool` — Whether cron recovery is enabled.
+- pub `cron_recovery_interval` function L146-148 — `(&self) -> Duration` — How often to check for lost cron executions.
+- pub `cron_lost_threshold_minutes` function L151-153 — `(&self) -> i32` — Minutes before an execution is considered lost.
+- pub `cron_max_recovery_age` function L156-158 — `(&self) -> Duration` — Maximum age of executions to recover.
+- pub `cron_max_recovery_attempts` function L161-163 — `(&self) -> usize` — Maximum recovery attempts per execution.
+- pub `enable_trigger_scheduling` function L166-168 — `(&self) -> bool` — Whether trigger scheduling is enabled.
+- pub `trigger_base_poll_interval` function L171-173 — `(&self) -> Duration` — Base poll interval for trigger readiness checks.
+- pub `trigger_poll_timeout` function L176-178 — `(&self) -> Duration` — Timeout for trigger poll operations.
+- pub `enable_registry_reconciler` function L181-183 — `(&self) -> bool` — Whether the registry reconciler is enabled.
+- pub `registry_reconcile_interval` function L186-188 — `(&self) -> Duration` — How often to run registry reconciliation.
+- pub `registry_enable_startup_reconciliation` function L191-193 — `(&self) -> bool` — Whether startup reconciliation is enabled.
+- pub `registry_storage_path` function L196-198 — `(&self) -> Option<&std::path::Path>` — Path for registry storage (filesystem backend).
+- pub `registry_storage_backend` function L201-203 — `(&self) -> &str` — Registry storage backend type.
+- pub `runner_id` function L206-208 — `(&self) -> Option<&str>` — Optional runner identifier for logging.
+- pub `runner_name` function L211-213 — `(&self) -> Option<&str>` — Optional runner name for logging.
+- pub `routing_config` function L216-218 — `(&self) -> Option<&RoutingConfig>` — Routing configuration for task dispatch.
+- pub `enable_continuous_scheduling` function L221-223 — `(&self) -> bool` — Whether continuous reactive scheduling is enabled.
+- pub `continuous_poll_interval` function L226-228 — `(&self) -> Duration` — Poll interval for the continuous scheduler's ledger observation.
+- pub `DefaultRunnerConfigBuilder` struct L242-244 — `{ config: DefaultRunnerConfig }` — Builder for [`DefaultRunnerConfig`].
+- pub `max_concurrent_tasks` function L284-287 — `(mut self, value: usize) -> Self` — Sets the maximum number of concurrent task executions.
+- pub `scheduler_poll_interval` function L290-293 — `(mut self, value: Duration) -> Self` — Sets the scheduler poll interval.
+- pub `task_timeout` function L296-299 — `(mut self, value: Duration) -> Self` — Sets the task timeout.
+- pub `pipeline_timeout` function L302-305 — `(mut self, value: Option<Duration>) -> Self` — Sets the pipeline timeout.
+- pub `db_pool_size` function L308-311 — `(mut self, value: u32) -> Self` — Sets the database pool size.
+- pub `enable_recovery` function L314-317 — `(mut self, value: bool) -> Self` — Enables or disables automatic recovery.
+- pub `enable_cron_scheduling` function L320-323 — `(mut self, value: bool) -> Self` — Enables or disables cron scheduling.
+- pub `cron_poll_interval` function L326-329 — `(mut self, value: Duration) -> Self` — Sets the cron poll interval.
+- pub `cron_max_catchup_executions` function L332-335 — `(mut self, value: usize) -> Self` — Sets the maximum catchup executions for cron.
+- pub `cron_enable_recovery` function L338-341 — `(mut self, value: bool) -> Self` — Enables or disables cron recovery.
+- pub `cron_recovery_interval` function L344-347 — `(mut self, value: Duration) -> Self` — Sets the cron recovery interval.
+- pub `cron_lost_threshold_minutes` function L350-353 — `(mut self, value: i32) -> Self` — Sets the cron lost threshold in minutes.
+- pub `cron_max_recovery_age` function L356-359 — `(mut self, value: Duration) -> Self` — Sets the maximum cron recovery age.
+- pub `cron_max_recovery_attempts` function L362-365 — `(mut self, value: usize) -> Self` — Sets the maximum cron recovery attempts.
+- pub `enable_trigger_scheduling` function L368-371 — `(mut self, value: bool) -> Self` — Enables or disables trigger scheduling.
+- pub `trigger_base_poll_interval` function L374-377 — `(mut self, value: Duration) -> Self` — Sets the trigger base poll interval.
+- pub `trigger_poll_timeout` function L380-383 — `(mut self, value: Duration) -> Self` — Sets the trigger poll timeout.
+- pub `enable_registry_reconciler` function L386-389 — `(mut self, value: bool) -> Self` — Enables or disables the registry reconciler.
+- pub `registry_reconcile_interval` function L392-395 — `(mut self, value: Duration) -> Self` — Sets the registry reconcile interval.
+- pub `registry_enable_startup_reconciliation` function L398-401 — `(mut self, value: bool) -> Self` — Enables or disables startup reconciliation.
+- pub `registry_storage_path` function L404-407 — `(mut self, value: Option<std::path::PathBuf>) -> Self` — Sets the registry storage path.
+- pub `registry_storage_backend` function L410-413 — `(mut self, value: impl Into<String>) -> Self` — Sets the registry storage backend.
+- pub `runner_id` function L416-419 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
+- pub `runner_name` function L422-425 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
+- pub `routing_config` function L428-431 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
+- pub `enable_continuous_scheduling` function L434-437 — `(mut self, value: bool) -> Self` — Enables or disables continuous reactive scheduling.
+- pub `continuous_poll_interval` function L440-443 — `(mut self, value: Duration) -> Self` — Sets the continuous scheduler poll interval.
+- pub `build` function L446-448 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
+- pub `DefaultRunnerBuilder` struct L483-487 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `new` function L497-503 — `() -> Self` — Creates a new builder with default configuration
+- pub `database_url` function L506-509 — `(mut self, url: &str) -> Self` — Sets the database URL
+- pub `schema` function L515-518 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
+- pub `with_config` function L521-524 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
+- pub `build` function L538-653 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L671-674 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+-  `DefaultRunnerConfig` type L89-229 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L246-280 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L247-279 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L282-449 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfig` type L451-455 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `default` function L452-454 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L489-493 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L490-492 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L495-675 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `validate_schema_name` function L527-535 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
+-  `tests` module L678-844 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L682-697 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L700-723 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L726-734 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L737-758 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L761-776 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L779-782 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L785-798 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L801-809 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L812-843 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3733,25 +4029,26 @@
 
 #### crates/cloacina/tests/integration/main.rs
 
-- pub `context` module L20 — `-`
-- pub `dal` module L21 — `-`
-- pub `database` module L22 — `-`
-- pub `error` module L23 — `-`
-- pub `executor` module L24 — `-`
-- pub `logging` module L25 — `-`
-- pub `models` module L26 — `-`
-- pub `packaging` module L27 — `-`
-- pub `packaging_inspection` module L28 — `-`
-- pub `python_package` module L29 — `-`
-- pub `registry_simple_functional_test` module L30 — `-`
-- pub `registry_storage_tests` module L31 — `-`
-- pub `registry_workflow_registry_tests` module L32 — `-`
-- pub `runner_configurable_registry_tests` module L33 — `-`
-- pub `scheduler` module L34 — `-`
-- pub `signing` module L35 — `-`
-- pub `task` module L36 — `-`
-- pub `workflow` module L37 — `-`
--  `fixtures` module L40 — `-`
+- pub `continuous` module L20 — `-`
+- pub `context` module L21 — `-`
+- pub `dal` module L22 — `-`
+- pub `database` module L23 — `-`
+- pub `error` module L24 — `-`
+- pub `executor` module L25 — `-`
+- pub `logging` module L26 — `-`
+- pub `models` module L27 — `-`
+- pub `packaging` module L28 — `-`
+- pub `packaging_inspection` module L29 — `-`
+- pub `python_package` module L30 — `-`
+- pub `registry_simple_functional_test` module L31 — `-`
+- pub `registry_storage_tests` module L32 — `-`
+- pub `registry_workflow_registry_tests` module L33 — `-`
+- pub `runner_configurable_registry_tests` module L34 — `-`
+- pub `scheduler` module L35 — `-`
+- pub `signing` module L36 — `-`
+- pub `task` module L37 — `-`
+- pub `workflow` module L38 — `-`
+-  `fixtures` module L41 — `-`
 
 #### crates/cloacina/tests/integration/packaging.rs
 
@@ -3913,6 +4210,25 @@
 #### crates/cloacina/tests/integration/test_registry_dynamic_loading_simple.rs
 
 -  `test_reconciler_with_dynamic_loading` function L38-79 — `()` — Test that verifies the reconciler can be created with dynamic loading enabled
+
+### crates/cloacina/tests/integration/continuous
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/tests/integration/continuous/mod.rs
+
+-  `MockConn` struct L37 — `-` — detector output → accumulator → task fires → ledger records completion
+-  `MockConn` type L38-51 — `impl DataConnection for MockConn` — detector output → accumulator → task fires → ledger records completion
+-  `connect` function L39-41 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — detector output → accumulator → task fires → ledger records completion
+-  `descriptor` function L42-47 — `(&self) -> ConnectionDescriptor` — detector output → accumulator → task fires → ledger records completion
+-  `system_metadata` function L48-50 — `(&self) -> serde_json::Value` — detector output → accumulator → task fires → ledger records completion
+-  `make_source` function L53-60 — `(name: &str) -> DataSource` — detector output → accumulator → task fires → ledger records completion
+-  `make_boundary` function L62-68 — `(start: i64, end: i64) -> ComputationBoundary` — detector output → accumulator → task fires → ledger records completion
+-  `make_detector_completion` function L70-83 — `( task_name: &str, boundaries: Vec<ComputationBoundary>, ) -> LedgerEvent` — detector output → accumulator → task fires → ledger records completion
+-  `test_full_reactive_loop` function L87-133 — `()` — Full reactive loop: detector emits boundaries → accumulator receives → task fires.
+-  `test_multiple_detector_outputs_accumulate` function L137-182 — `()` — Multiple detector outputs accumulate before firing.
+-  `test_multi_source_task` function L186-227 — `()` — Multi-source task: boundaries arrive on two sources.
+-  `test_ledger_records_drains` function L231-278 — `()` — Ledger records accumulator drains.
 
 ### crates/cloacina/tests/integration/dal
 
@@ -4402,15 +4718,25 @@
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacina-macros/src/continuous_task.rs
+
+- pub `ContinuousTaskAttributes` struct L34-38 — `{ id: String, sources: Vec<String>, referenced: Vec<String> }` — Attributes for the continuous_task macro.
+- pub `continuous_task` function L129-143 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The continuous_task proc macro implementation.
+-  `ContinuousTaskAttributes` type L40-126 — `impl Parse for ContinuousTaskAttributes` — as `#[task]` — `DataSourceMap` is injected via context by the scheduler.
+-  `parse` function L41-125 — `(input: ParseStream) -> SynResult<Self>` — as `#[task]` — `DataSourceMap` is injected via context by the scheduler.
+-  `generate_continuous_task` function L145-260 — `( attrs: &ContinuousTaskAttributes, fn_item: &ItemFn, ) -> TokenStream2` — as `#[task]` — `DataSourceMap` is injected via context by the scheduler.
+
 #### crates/cloacina-macros/src/lib.rs
 
-- pub `task` function L64-66 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
-- pub `workflow` function L69-71 — `(input: TokenStream) -> TokenStream` — ```
-- pub `packaged_workflow` function L74-76 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
--  `packaged_workflow` module L56 — `-` — # Cloacina Macros
--  `registry` module L57 — `-` — ```
--  `tasks` module L58 — `-` — ```
--  `workflow` module L59 — `-` — ```
+- pub `task` function L65-67 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
+- pub `continuous_task` function L70-72 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
+- pub `workflow` function L75-77 — `(input: TokenStream) -> TokenStream` — ```
+- pub `packaged_workflow` function L80-82 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
+-  `continuous_task` module L56 — `-` — # Cloacina Macros
+-  `packaged_workflow` module L57 — `-` — ```
+-  `registry` module L58 — `-` — ```
+-  `tasks` module L59 — `-` — ```
+-  `workflow` module L60 — `-` — ```
 
 #### crates/cloacina-macros/src/packaged_workflow.rs
 
@@ -6916,6 +7242,19 @@
 -  `generate_reports` function L190-194 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
 -  `send_notifications` function L201-205 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
 -  `cleanup_staging` function L208-212 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+
+### examples/features/continuous-scheduling/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/continuous-scheduling/src/main.rs
+
+-  `SimulatedDbConnection` struct L41-43 — `{ table: String }` — Simulated database connection for the example.
+-  `SimulatedDbConnection` type L45-60 — `impl DataConnection for SimulatedDbConnection` — 4.
+-  `connect` function L46-48 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — 4.
+-  `descriptor` function L50-55 — `(&self) -> ConnectionDescriptor` — 4.
+-  `system_metadata` function L57-59 — `(&self) -> serde_json::Value` — 4.
+-  `main` function L63-226 — `()` — 4.
 
 ### examples/features/cron-scheduling/src
 

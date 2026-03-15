@@ -14,28 +14,7 @@
  *  limitations under the License.
  */
 
-// This file is intentionally left empty.
-// It serves as the entry point for integration tests in this directory.
+//! Framework-provided `DataConnection` implementations.
 
-pub mod context;
-pub mod continuous;
-pub mod dal;
-pub mod database;
-pub mod error;
-pub mod executor;
-pub mod logging;
-pub mod models;
-pub mod packaging;
-pub mod packaging_inspection;
-pub mod python_package;
-pub mod registry_simple_functional_test;
-pub mod registry_storage_tests;
-pub mod registry_workflow_registry_tests;
-pub mod runner_configurable_registry_tests;
-pub mod scheduler;
-pub mod signing;
-pub mod task;
-pub mod workflow;
-
-#[path = "../fixtures.rs"]
-mod fixtures;
+#[cfg(feature = "postgres")]
+pub mod postgres;

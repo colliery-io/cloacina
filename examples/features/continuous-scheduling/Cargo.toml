@@ -1,0 +1,13 @@
+[package]
+name = "continuous-scheduling-example"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["postgres"] }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }

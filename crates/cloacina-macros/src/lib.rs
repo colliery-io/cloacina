@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -53,6 +53,7 @@
 //! };
 //! ```
 
+mod continuous_task;
 mod packaged_workflow;
 mod registry;
 mod tasks;
@@ -63,6 +64,11 @@ use proc_macro::TokenStream;
 #[proc_macro_attribute]
 pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     tasks::task(args, input)
+}
+
+#[proc_macro_attribute]
+pub fn continuous_task(args: TokenStream, input: TokenStream) -> TokenStream {
+    continuous_task::continuous_task(args, input)
 }
 
 #[proc_macro]

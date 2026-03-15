@@ -82,6 +82,8 @@ pub struct DefaultRunnerConfig {
     runner_id: Option<String>,
     runner_name: Option<String>,
     routing_config: Option<RoutingConfig>,
+    enable_continuous_scheduling: bool,
+    continuous_poll_interval: Duration,
 }
 
 impl DefaultRunnerConfig {
@@ -214,6 +216,16 @@ impl DefaultRunnerConfig {
     pub fn routing_config(&self) -> Option<&RoutingConfig> {
         self.routing_config.as_ref()
     }
+
+    /// Whether continuous reactive scheduling is enabled.
+    pub fn enable_continuous_scheduling(&self) -> bool {
+        self.enable_continuous_scheduling
+    }
+
+    /// Poll interval for the continuous scheduler's ledger observation.
+    pub fn continuous_poll_interval(&self) -> Duration {
+        self.continuous_poll_interval
+    }
 }
 
 /// Builder for [`DefaultRunnerConfig`].
@@ -260,6 +272,8 @@ impl Default for DefaultRunnerConfigBuilder {
                 runner_id: None,
                 runner_name: None,
                 routing_config: None,
+                enable_continuous_scheduling: false,
+                continuous_poll_interval: Duration::from_millis(100),
             },
         }
     }
@@ -413,6 +427,18 @@ impl DefaultRunnerConfigBuilder {
     /// Sets the routing configuration.
     pub fn routing_config(mut self, value: Option<RoutingConfig>) -> Self {
         self.config.routing_config = value;
+        self
+    }
+
+    /// Enables or disables continuous reactive scheduling.
+    pub fn enable_continuous_scheduling(mut self, value: bool) -> Self {
+        self.config.enable_continuous_scheduling = value;
+        self
+    }
+
+    /// Sets the continuous scheduler poll interval.
+    pub fn continuous_poll_interval(mut self, value: Duration) -> Self {
+        self.config.continuous_poll_interval = value;
         self
     }
 
