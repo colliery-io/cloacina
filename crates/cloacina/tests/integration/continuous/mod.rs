@@ -20,6 +20,7 @@
 //! detector output → accumulator → task fires → ledger records completion
 
 pub mod accumulator_persistence;
+pub mod recovery_e2e;
 
 use chrono::Utc;
 use cloacina::continuous::accumulator::{SignalAccumulator, WatermarkMode, WindowedAccumulator};
@@ -28,7 +29,7 @@ use cloacina::continuous::datasource::{
     ConnectionDescriptor, DataConnection, DataConnectionError, DataSource, DataSourceMetadata,
 };
 use cloacina::continuous::detector::{DetectorOutput, DETECTOR_OUTPUT_KEY};
-use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration, LateArrivalPolicy};
+use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration};
 use cloacina::continuous::ledger::{ExecutionLedger, LedgerEvent};
 use cloacina::continuous::ledger_trigger::{LedgerMatchMode, LedgerTrigger};
 use cloacina::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerConfig};
@@ -65,8 +66,9 @@ impl Task for PassthroughTask {
     }
 }
 use cloacina_workflow::Context;
+use parking_lot::RwLock;
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -132,7 +134,7 @@ async fn test_full_reactive_loop() {
 
     // Simulate detector workflow completing with boundaries
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(make_detector_completion(
             "detect_raw_events",
             vec![make_boundary(0, 100), make_boundary(100, 200)],
@@ -144,6 +146,8 @@ async fn test_full_reactive_loop() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
     scheduler.register_task(std::sync::Arc::new(PassthroughTask::new(
@@ -164,9 +168,9 @@ async fn test_full_reactive_loop() {
     assert!(fired[0].error.is_none(), "task should not have errored");
 
     // Verify TaskCompleted was written to ledger with task output
-    let l = ledger.read().unwrap();
-    let completed: Vec<_> = l
-        .events_since(0)
+    let l = ledger.read();
+    let all_events = l.events_since(0);
+    let completed: Vec<_> = all_events
         .iter()
         .filter(|e| {
             if let LedgerEvent::TaskCompleted { task, .. } = e {
@@ -199,7 +203,7 @@ async fn test_multiple_detector_outputs_accumulate() {
 
     // Two separate detector completions
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(make_detector_completion(
             "detect_clicks",
             vec![make_boundary(0, 50)],
@@ -215,6 +219,8 @@ async fn test_multiple_detector_outputs_accumulate() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -248,7 +254,7 @@ async fn test_multi_source_task() {
 
     // Only one source fires — JoinMode::Any should still fire the task
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(make_detector_completion(
             "detect_clicks",
             vec![make_boundary(0, 100)],
@@ -260,6 +266,8 @@ async fn test_multi_source_task() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -292,7 +300,7 @@ async fn test_ledger_records_drains() {
     let ledger = Arc::new(RwLock::new(ExecutionLedger::new()));
 
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(make_detector_completion(
             "detect_events",
             vec![make_boundary(0, 50)],
@@ -304,6 +312,8 @@ async fn test_ledger_records_drains() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -315,9 +325,9 @@ async fn test_ledger_records_drains() {
     handle.await.unwrap();
 
     // Check ledger has AccumulatorDrained events (beyond the initial TaskCompleted)
-    let l = ledger.read().unwrap();
-    let drain_events: Vec<_> = l
-        .events_since(0)
+    let l = ledger.read();
+    let all_events = l.events_since(0);
+    let drain_events: Vec<_> = all_events
         .iter()
         .filter(|e| matches!(e, LedgerEvent::AccumulatorDrained { .. }))
         .collect();
@@ -332,7 +342,7 @@ async fn test_ledger_records_drains() {
 /// WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
 #[tokio::test]
 async fn test_windowed_accumulator_waits_for_watermark() {
-    let bl = std::sync::Arc::new(std::sync::RwLock::new(BoundaryLedger::new()));
+    let bl = std::sync::Arc::new(RwLock::new(BoundaryLedger::new()));
 
     let mut acc = WindowedAccumulator::new(
         Box::new(Immediate),
@@ -347,7 +357,7 @@ async fn test_windowed_accumulator_waits_for_watermark() {
 
     // Advance watermark to cover [0, 200)
     {
-        let mut ledger = bl.write().unwrap();
+        let mut ledger = bl.write();
         ledger.advance("events", make_boundary(0, 200)).unwrap();
     }
 
@@ -361,7 +371,7 @@ async fn test_windowed_accumulator_waits_for_watermark() {
 /// LedgerTrigger completes the reactive feedback loop.
 #[tokio::test]
 async fn test_ledger_trigger_feedback_loop() {
-    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+    let ledger = std::sync::Arc::new(RwLock::new(ExecutionLedger::new()));
 
     // Set up trigger watching for "aggregate_hourly" completion
     let trigger = LedgerTrigger::new(
@@ -377,7 +387,7 @@ async fn test_ledger_trigger_feedback_loop() {
 
     // Simulate aggregate_hourly completing
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "aggregate_hourly".into(),
             at: Utc::now(),
@@ -400,7 +410,7 @@ async fn test_ledger_trigger_feedback_loop() {
 /// LedgerTrigger All mode: waits for both upstream tasks.
 #[tokio::test]
 async fn test_ledger_trigger_all_mode_multi_dependency() {
-    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+    let ledger = std::sync::Arc::new(RwLock::new(ExecutionLedger::new()));
 
     let trigger = LedgerTrigger::new(
         "detect_joined_data".into(),
@@ -411,7 +421,7 @@ async fn test_ledger_trigger_all_mode_multi_dependency() {
 
     // Only task_a completes
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "task_a".into(),
             at: Utc::now(),
@@ -423,7 +433,7 @@ async fn test_ledger_trigger_all_mode_multi_dependency() {
 
     // task_b completes
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "task_b".into(),
             at: Utc::now(),
@@ -450,7 +460,7 @@ async fn test_scheduler_watermark_advance_via_both() {
     )
     .unwrap();
 
-    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+    let ledger = std::sync::Arc::new(RwLock::new(ExecutionLedger::new()));
 
     // Detector emits Both: boundaries + watermark
     {
@@ -461,7 +471,7 @@ async fn test_scheduler_watermark_advance_via_both() {
         };
         ctx.insert(DETECTOR_OUTPUT_KEY, serde_json::to_value(&output).unwrap())
             .unwrap();
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "detect_events".into(),
             at: Utc::now(),
@@ -474,6 +484,8 @@ async fn test_scheduler_watermark_advance_via_both() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -519,11 +531,11 @@ async fn test_multi_cycle_reactive_loop() {
     )
     .unwrap();
 
-    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+    let ledger = std::sync::Arc::new(RwLock::new(ExecutionLedger::new()));
 
     // Cycle 1: raw_events detector completed with boundaries
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(make_detector_completion(
             "detect_raw_events",
             vec![make_boundary(0, 100)],
@@ -535,6 +547,8 @@ async fn test_multi_cycle_reactive_loop() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -549,7 +563,7 @@ async fn test_multi_cycle_reactive_loop() {
     // In production, LedgerTrigger would fire detect_hourly_stats.
     // Here we simulate that detector completing:
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
 
         // First: aggregate completed (this is what LedgerTrigger would see)
         l.append(LedgerEvent::TaskCompleted {
@@ -585,7 +599,7 @@ async fn test_multi_cycle_reactive_loop() {
     );
 
     // Verify ledger has events from both cycles
-    let l = ledger.read().unwrap();
+    let l = ledger.read();
     let all_events = l.events_since(0);
 
     let drain_events: Vec<&str> = all_events
@@ -613,7 +627,7 @@ async fn test_multi_cycle_reactive_loop() {
 /// to detector firing in the reactive loop.
 #[tokio::test]
 async fn test_ledger_trigger_bridges_cycles() {
-    let ledger = std::sync::Arc::new(std::sync::RwLock::new(ExecutionLedger::new()));
+    let ledger = std::sync::Arc::new(RwLock::new(ExecutionLedger::new()));
 
     // LedgerTrigger watches for "aggregate" completion
     let trigger = LedgerTrigger::new(
@@ -629,7 +643,7 @@ async fn test_ledger_trigger_bridges_cycles() {
 
     // Step 2: aggregate completes
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "aggregate".into(),
             at: Utc::now(),
@@ -650,7 +664,7 @@ async fn test_ledger_trigger_bridges_cycles() {
 
     // Step 5: aggregate completes again (next cycle)
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
         l.append(LedgerEvent::TaskCompleted {
             task: "aggregate".into(),
             at: Utc::now(),

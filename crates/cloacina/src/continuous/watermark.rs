@@ -65,7 +65,7 @@ impl BoundaryLedger {
         watermark: ComputationBoundary,
     ) -> Result<(), WatermarkError> {
         if let Some(existing) = self.watermarks.get(source_name) {
-            if is_backward(existing, &watermark)? {
+            if is_backward(source_name, existing, &watermark)? {
                 return Err(WatermarkError::BackwardMovement {
                     source_name: source_name.to_string(),
                 });
@@ -104,6 +104,7 @@ impl BoundaryLedger {
 ///   emission time as a monotonicity proxy. A watermark emitted earlier than
 ///   the current one is rejected.
 fn is_backward(
+    source_name: &str,
     existing: &ComputationBoundary,
     proposed: &ComputationBoundary,
 ) -> Result<bool, WatermarkError> {
@@ -134,8 +135,12 @@ fn is_backward(
             Ok(proposed.emitted_at < existing.emitted_at)
         }
         _ => {
-            // Different kinds — can't compare, allow the advance
-            Ok(false)
+            // Different kinds — reject the advance. Watermark kind must remain
+            // consistent per source. Switching from OffsetRange to TimeRange
+            // (etc.) breaks monotonicity semantics.
+            Err(WatermarkError::IncompatibleKinds {
+                source_name: source_name.to_string(),
+            })
         }
     }
 }
@@ -433,5 +438,66 @@ mod tests {
         let mut sources: Vec<&str> = ledger.sources().collect();
         sources.sort();
         assert_eq!(sources, vec!["a", "b"]);
+    }
+
+    // --- Hardening: kind mixing tests ---
+
+    #[test]
+    fn test_watermark_kind_mixing_rejected() {
+        let mut ledger = BoundaryLedger::new();
+        // First advance with OffsetRange
+        ledger.advance("src", offset_boundary(0, 100)).unwrap();
+        // Second advance with TimeRange — should be rejected
+        let result = ledger.advance("src", time_boundary(2));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WatermarkError::IncompatibleKinds { source_name } => {
+                assert_eq!(source_name, "src");
+            }
+            other => panic!("expected IncompatibleKinds, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_watermark_same_kind_different_values_ok() {
+        let mut ledger = BoundaryLedger::new();
+        ledger.advance("src", offset_boundary(0, 100)).unwrap();
+        ledger.advance("src", offset_boundary(0, 200)).unwrap();
+        let wm = ledger.watermark("src").unwrap();
+        if let BoundaryKind::OffsetRange { end, .. } = &wm.kind {
+            assert_eq!(*end, 200);
+        }
+    }
+
+    #[test]
+    fn test_watermark_backward_movement_rejected() {
+        let mut ledger = BoundaryLedger::new();
+        ledger.advance("src", offset_boundary(0, 200)).unwrap();
+        let result = ledger.advance("src", offset_boundary(0, 100));
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WatermarkError::BackwardMovement { .. } => {}
+            other => panic!("expected BackwardMovement, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_watermark_monotonicity_many_advances() {
+        let mut ledger = BoundaryLedger::new();
+        for i in 1..=100 {
+            ledger.advance("src", offset_boundary(0, i * 10)).unwrap();
+        }
+        let wm = ledger.watermark("src").unwrap();
+        if let BoundaryKind::OffsetRange { end, .. } = &wm.kind {
+            assert_eq!(*end, 1000);
+        }
+    }
+
+    #[test]
+    fn test_covers_cross_kind_returns_false() {
+        let mut ledger = BoundaryLedger::new();
+        ledger.advance("src", offset_boundary(0, 1000)).unwrap();
+        // Try to check coverage with a TimeRange boundary — should return false
+        assert!(!ledger.covers("src", &time_boundary(1)));
     }
 }

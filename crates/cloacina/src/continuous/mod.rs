@@ -28,6 +28,7 @@ pub mod boundary;
 pub mod connections;
 pub mod datasource;
 pub mod detector;
+pub mod detector_state_store;
 pub mod graph;
 pub mod ledger;
 pub mod ledger_trigger;

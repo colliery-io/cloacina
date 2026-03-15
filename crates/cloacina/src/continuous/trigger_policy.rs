@@ -32,6 +32,11 @@ use std::time::{Duration, Instant};
 pub trait TriggerPolicy: Send + Sync {
     /// Should the accumulator fire given the current buffer state?
     fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool;
+
+    /// Notify the policy that a drain occurred. Policies that track timing
+    /// (e.g., `WallClockWindow`) use this to reset their internal clock.
+    /// Default implementation is a no-op.
+    fn mark_drained(&mut self) {}
 }
 
 /// Fires on every boundary — as soon as the buffer is non-empty.
@@ -63,11 +68,6 @@ impl WallClockWindow {
             last_drain_at: Instant::now(),
         }
     }
-
-    /// Notify the policy that a drain occurred. Called by the accumulator.
-    pub fn mark_drained(&mut self) {
-        self.last_drain_at = Instant::now();
-    }
 }
 
 impl TriggerPolicy for WallClockWindow {
@@ -76,6 +76,10 @@ impl TriggerPolicy for WallClockWindow {
             return false;
         }
         self.last_drain_at.elapsed() >= self.duration
+    }
+
+    fn mark_drained(&mut self) {
+        self.last_drain_at = Instant::now();
     }
 }
 
@@ -94,6 +98,12 @@ impl TriggerPolicy for AnyPolicy {
     fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
         self.0.iter().any(|p| p.should_fire(buffer))
     }
+
+    fn mark_drained(&mut self) {
+        for policy in &mut self.0 {
+            policy.mark_drained();
+        }
+    }
 }
 
 /// Fires when ALL sub-policies return true (AND combinator).
@@ -110,6 +120,12 @@ pub struct AllPolicy(pub Vec<Box<dyn TriggerPolicy>>);
 impl TriggerPolicy for AllPolicy {
     fn should_fire(&self, buffer: &[BufferedBoundary]) -> bool {
         !self.0.is_empty() && self.0.iter().all(|p| p.should_fire(buffer))
+    }
+
+    fn mark_drained(&mut self) {
+        for policy in &mut self.0 {
+            policy.mark_drained();
+        }
     }
 }
 
@@ -138,14 +154,28 @@ impl TriggerPolicy for BoundaryCount {
 /// buffer against wall clock time. Only fires if there are buffered boundaries
 /// AND the newest one arrived more than `duration` ago.
 pub struct WallClockDebounce {
-    /// Silence duration before triggering.
-    pub duration: Duration,
+    /// Pre-converted chrono duration (validated at construction time).
+    chrono_duration: chrono::Duration,
 }
 
 impl WallClockDebounce {
     /// Create a new WallClockDebounce policy.
+    ///
+    /// Returns `Err` if the duration cannot be converted to a chrono Duration
+    /// (e.g., extreme values that overflow). Validates at construction time
+    /// to fail fast instead of silently using a wrong fallback at runtime.
+    pub fn try_new(duration: Duration) -> Result<Self, String> {
+        let chrono_duration = chrono::Duration::from_std(duration)
+            .map_err(|e| format!("invalid debounce duration {:?}: {}", duration, e))?;
+        Ok(Self { chrono_duration })
+    }
+
+    /// Create a new WallClockDebounce policy (panics on invalid duration).
+    ///
+    /// Prefer `try_new()` for production code. This is a convenience for
+    /// tests and cases where the duration is known to be valid.
     pub fn new(duration: Duration) -> Self {
-        Self { duration }
+        Self::try_new(duration).unwrap_or_else(|e| panic!("{}", e))
     }
 }
 
@@ -154,10 +184,9 @@ impl TriggerPolicy for WallClockDebounce {
         if buffer.is_empty() {
             return false;
         }
-        // Find the newest received_at
         let newest_received = buffer.iter().map(|b| b.received_at).max().unwrap();
         let elapsed = chrono::Utc::now().signed_duration_since(newest_received);
-        elapsed >= chrono::Duration::from_std(self.duration).unwrap_or(chrono::Duration::weeks(52))
+        elapsed >= self.chrono_duration
     }
 }
 

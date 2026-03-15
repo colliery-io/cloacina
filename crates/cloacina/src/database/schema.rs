@@ -321,6 +321,40 @@ mod unified_schema {
         }
     }
 
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        detector_state (source_name) {
+            source_name -> Text,
+            committed_state -> Nullable<Text>,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        pending_boundaries (id) {
+            id -> BigInt,
+            source_name -> Text,
+            boundary_json -> Text,
+            received_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        edge_drain_cursors (edge_id) {
+            edge_id -> Text,
+            source_name -> Text,
+            last_drain_id -> BigInt,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -340,9 +374,12 @@ mod unified_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        detector_state,
+        edge_drain_cursors,
         execution_events,
         key_trust_acls,
         package_signatures,
+        pending_boundaries,
         pipeline_executions,
         recovery_events,
         signing_keys,
@@ -630,6 +667,31 @@ mod postgres_schema {
         }
     }
 
+    diesel::table! {
+        detector_state (source_name) {
+            source_name -> Varchar,
+            committed_state -> Nullable<Text>,
+            updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        pending_boundaries (id) {
+            id -> BigInt,
+            source_name -> Varchar,
+            boundary_json -> Text,
+            received_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        edge_drain_cursors (edge_id) {
+            edge_id -> Varchar,
+            source_name -> Varchar,
+            last_drain_id -> BigInt,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -655,9 +717,12 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        detector_state,
+        edge_drain_cursors,
         execution_events,
         key_trust_acls,
         package_signatures,
+        pending_boundaries,
         pipeline_executions,
         recovery_events,
         signing_keys,
@@ -679,9 +744,12 @@ mod postgres_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        detector_state,
+        edge_drain_cursors,
         execution_events,
         key_trust_acls,
         package_signatures,
+        pending_boundaries,
         pipeline_executions,
         recovery_events,
         signing_keys,
@@ -933,6 +1001,31 @@ mod sqlite_schema {
         }
     }
 
+    diesel::table! {
+        detector_state (source_name) {
+            source_name -> Text,
+            committed_state -> Nullable<Text>,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        pending_boundaries (id) {
+            id -> Integer,
+            source_name -> Text,
+            boundary_json -> Text,
+            received_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        edge_drain_cursors (edge_id) {
+            edge_id -> Text,
+            source_name -> Text,
+            last_drain_id -> Integer,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -952,9 +1045,12 @@ mod sqlite_schema {
         contexts,
         cron_executions,
         cron_schedules,
+        detector_state,
+        edge_drain_cursors,
         execution_events,
         key_trust_acls,
         package_signatures,
+        pending_boundaries,
         pipeline_executions,
         recovery_events,
         signing_keys,

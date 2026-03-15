@@ -25,9 +25,11 @@
 use super::ledger::{ExecutionLedger, LedgerEvent};
 use crate::trigger::{Trigger, TriggerError, TriggerResult};
 use async_trait::async_trait;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Notify;
 
 /// How to match watched task completions.
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +58,10 @@ pub struct LedgerTrigger {
     cursor: Mutex<usize>,
     /// For All mode: tracks which watched tasks have completed since last fire.
     seen_completions: Mutex<HashSet<String>>,
+    /// Event-driven notification from the ledger. When present, `poll()` is
+    /// only a fallback — the trigger framework should `await` the notify
+    /// between polls to avoid unnecessary wake-ups.
+    notify: Option<Arc<Notify>>,
 }
 
 impl LedgerTrigger {
@@ -66,6 +72,11 @@ impl LedgerTrigger {
         match_mode: LedgerMatchMode,
         ledger: Arc<RwLock<ExecutionLedger>>,
     ) -> Self {
+        // Subscribe to ledger notifications
+        let notify = {
+            let l = ledger.read();
+            Some(l.subscribe())
+        };
         Self {
             trigger_name,
             watch_tasks,
@@ -73,7 +84,14 @@ impl LedgerTrigger {
             ledger,
             cursor: Mutex::new(0),
             seen_completions: Mutex::new(HashSet::new()),
+            notify,
         }
+    }
+
+    /// Get the notification handle for event-driven wake-up.
+    /// Callers can `await` on `notified()` instead of relying on `poll_interval()`.
+    pub fn notify_handle(&self) -> Option<&Arc<Notify>> {
+        self.notify.as_ref()
     }
 }
 
@@ -84,8 +102,9 @@ impl Trigger for LedgerTrigger {
     }
 
     fn poll_interval(&self) -> Duration {
-        // Sub-second — ledger is in-memory, polling is cheap
-        Duration::from_millis(50)
+        // Fallback interval — primary wake-up is via Notify from ledger.append().
+        // This is a safety net in case a notification is missed.
+        Duration::from_secs(5)
     }
 
     fn allow_concurrent(&self) -> bool {
@@ -93,11 +112,9 @@ impl Trigger for LedgerTrigger {
     }
 
     async fn poll(&self) -> Result<TriggerResult, TriggerError> {
-        let ledger = self.ledger.read().map_err(|e| TriggerError::PollError {
-            message: format!("ledger lock poisoned: {}", e),
-        })?;
+        let ledger = self.ledger.read();
 
-        let mut cursor = self.cursor.lock().unwrap();
+        let mut cursor = self.cursor.lock();
         let new_events = ledger.events_since(*cursor);
 
         if new_events.is_empty() {
@@ -115,7 +132,7 @@ impl Trigger for LedgerTrigger {
                     matched_context = Some(context);
 
                     if self.match_mode == LedgerMatchMode::All {
-                        let mut seen = self.seen_completions.lock().unwrap();
+                        let mut seen = self.seen_completions.lock();
                         seen.insert(task.clone());
                     }
                 }
@@ -136,7 +153,7 @@ impl Trigger for LedgerTrigger {
                 }
             }
             LedgerMatchMode::All => {
-                let mut seen = self.seen_completions.lock().unwrap();
+                let mut seen = self.seen_completions.lock();
                 let all_seen = self.watch_tasks.iter().all(|w| seen.contains(w));
 
                 if all_seen {
@@ -213,7 +230,7 @@ mod tests {
 
         // Add task_b completion
         {
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "task_b".into(),
                 at: Utc::now(),
@@ -265,7 +282,7 @@ mod tests {
 
         // Add new completion
         {
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "task_a".into(),
                 at: Utc::now(),
@@ -303,7 +320,7 @@ mod tests {
         );
 
         assert_eq!(trigger.name(), "my_trigger");
-        assert_eq!(trigger.poll_interval(), Duration::from_millis(50));
+        assert_eq!(trigger.poll_interval(), Duration::from_secs(5));
         assert!(!trigger.allow_concurrent());
     }
 }

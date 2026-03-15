@@ -55,7 +55,17 @@ impl DetectorOutput {
     /// Returns `None` if the key is missing or the value can't be deserialized.
     pub fn from_context(context: &cloacina_workflow::Context<serde_json::Value>) -> Option<Self> {
         let value = context.get(DETECTOR_OUTPUT_KEY)?;
-        serde_json::from_value(value.clone()).ok()
+        match serde_json::from_value(value.clone()) {
+            Ok(output) => Some(output),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to deserialize detector output from context key '{}': {}",
+                    DETECTOR_OUTPUT_KEY,
+                    e
+                );
+                None
+            }
+        }
     }
 
     /// Get all change boundaries from this output (empty for WatermarkAdvance-only).

@@ -23,27 +23,38 @@
 
 use super::boundary::validate_boundary;
 use super::detector::DetectorOutput;
+use super::detector_state_store::DetectorStateStore;
 use super::graph::{DataSourceGraph, JoinMode, LateArrivalPolicy};
 use super::ledger::{ExecutionLedger, LedgerEvent};
 use super::watermark::BoundaryLedger;
 use chrono::Utc;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 /// Configuration for the continuous scheduler.
 #[derive(Debug, Clone)]
 pub struct ContinuousSchedulerConfig {
     /// How often to poll the execution ledger for new events.
     pub poll_interval: Duration,
+    /// Maximum number of fired task records to retain. Oldest records are
+    /// discarded when this limit is reached. Set to 0 for unlimited (not
+    /// recommended for long-running schedulers).
+    pub max_fired_tasks: usize,
+    /// Maximum time a task execution is allowed to run before being cancelled.
+    /// `None` means no timeout (not recommended for production).
+    pub task_timeout: Option<Duration>,
 }
 
 impl Default for ContinuousSchedulerConfig {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_millis(100),
+            max_fired_tasks: 10_000,
+            task_timeout: Some(Duration::from_secs(300)), // 5 minutes
         }
     }
 }
@@ -69,6 +80,8 @@ pub struct ContinuousScheduler {
     config: ContinuousSchedulerConfig,
     /// Optional DAL for accumulator state persistence.
     dal: Option<Arc<crate::dal::DAL>>,
+    /// In-memory detector state store with committed/latest tracking.
+    detector_state_store: DetectorStateStore,
 }
 
 impl ContinuousScheduler {
@@ -94,6 +107,7 @@ impl ContinuousScheduler {
             exit_edges: HashMap::new(),
             config,
             dal: None,
+            detector_state_store: DetectorStateStore::new(),
         }
     }
 
@@ -114,6 +128,11 @@ impl ContinuousScheduler {
     pub fn with_dal(mut self, dal: Arc<crate::dal::DAL>) -> Self {
         self.dal = Some(dal);
         self
+    }
+
+    /// Get a reference to the detector state store.
+    pub fn detector_state_store(&self) -> &DetectorStateStore {
+        &self.detector_state_store
     }
 
     /// Restore accumulator consumer watermarks from persisted state.
@@ -139,14 +158,39 @@ impl ContinuousScheduler {
 
                 for state in &states {
                     if current_edge_ids.contains(&state.edge_id) {
-                        // TODO: Initialize accumulator consumer watermark from
-                        // state.consumer_watermark. Requires mutable access to
-                        // accumulator which is behind Arc<Mutex>. For now, log
-                        // that we found persisted state.
-                        info!(
-                            "Found persisted state for edge '{}', last drain: {:?}",
-                            state.edge_id, state.last_drain_at
-                        );
+                        // Restore consumer watermark from persisted state
+                        if let Some(ref wm_json) = state.consumer_watermark {
+                            match serde_json::from_str::<super::boundary::ComputationBoundary>(
+                                wm_json,
+                            ) {
+                                Ok(watermark) => {
+                                    // Find the matching edge and set its watermark
+                                    for edge in &self.graph.edges {
+                                        let edge_id = format!("{}:{}", edge.source, edge.task);
+                                        if edge_id == state.edge_id {
+                                            let mut acc = edge.accumulator.lock();
+                                            acc.set_consumer_watermark(watermark.clone());
+                                            info!(
+                                                "Restored consumer watermark for edge '{}', last drain: {:?}",
+                                                state.edge_id, state.last_drain_at
+                                            );
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to deserialize persisted watermark for edge '{}': {}",
+                                        state.edge_id, e
+                                    );
+                                }
+                            }
+                        } else {
+                            info!(
+                                "Found persisted state for edge '{}' (no watermark), last drain: {:?}",
+                                state.edge_id, state.last_drain_at
+                            );
+                        }
                     } else {
                         tracing::warn!(
                             "Orphaned accumulator state: edge '{}' not in current graph",
@@ -180,7 +224,7 @@ impl ContinuousScheduler {
             .edges
             .iter()
             .map(|edge| {
-                let acc = edge.accumulator.lock().unwrap();
+                let acc = edge.accumulator.lock();
                 super::accumulator::EdgeMetrics {
                     source: edge.source.clone(),
                     task: edge.task.clone(),
@@ -198,6 +242,112 @@ impl ContinuousScheduler {
             .push(workflow_name);
     }
 
+    /// Restore pending boundaries from WAL into accumulators on startup.
+    /// Must be called BEFORE restore_from_persisted_state.
+    pub async fn restore_pending_boundaries(&self) {
+        let dal = match &self.dal {
+            Some(dal) => dal,
+            None => return,
+        };
+
+        let pb_dal = crate::dal::unified::PendingBoundaryDAL::new(dal);
+
+        for edge in &self.graph.edges {
+            let edge_id = format!("{}:{}", edge.source, edge.task);
+            let cursor = match pb_dal.load_cursor(edge_id.clone()).await {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("Failed to load drain cursor for '{}': {}", edge_id, e);
+                    0
+                }
+            };
+
+            match pb_dal.load_after_cursor(edge.source.clone(), cursor).await {
+                Ok(rows) => {
+                    if !rows.is_empty() {
+                        let mut acc = edge.accumulator.lock();
+                        for row in &rows {
+                            if let Ok(boundary) = serde_json::from_str::<
+                                super::boundary::ComputationBoundary,
+                            >(&row.boundary_json)
+                            {
+                                acc.receive(boundary);
+                            } else {
+                                warn!(
+                                    "Failed to deserialize pending boundary id={} for edge '{}'",
+                                    row.id, edge_id
+                                );
+                            }
+                        }
+                        info!(
+                            "Restored {} pending boundaries for edge '{}' (cursor was {})",
+                            rows.len(),
+                            edge_id,
+                            cursor
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to load pending boundaries for '{}': {}", edge_id, e);
+                }
+            }
+        }
+    }
+
+    /// Restore detector states from DB into the detector state store.
+    pub async fn restore_detector_state(&self) {
+        let dal = match &self.dal {
+            Some(dal) => dal,
+            None => return,
+        };
+
+        let ds_dal = crate::dal::unified::DetectorStateDAL::new(dal);
+        match ds_dal.load_all().await {
+            Ok(states) => {
+                for state in &states {
+                    if let Some(ref committed_json) = state.committed_state {
+                        match serde_json::from_str::<serde_json::Value>(committed_json) {
+                            Ok(value) => {
+                                self.detector_state_store
+                                    .load_committed(&state.source_name, value);
+                                info!("Restored detector state for source '{}'", state.source_name);
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to deserialize detector state for '{}': {}",
+                                    state.source_name, e
+                                );
+                            }
+                        }
+                    }
+                }
+                info!("Loaded {} detector states", states.len());
+            }
+            Err(e) => {
+                warn!("Failed to load detector states: {}", e);
+            }
+        }
+    }
+
+    /// Initialize edge drain cursors for all edges in the graph.
+    pub async fn init_drain_cursors(&self) {
+        let dal = match &self.dal {
+            Some(dal) => dal,
+            None => return,
+        };
+
+        let pb_dal = crate::dal::unified::PendingBoundaryDAL::new(dal);
+        for edge in &self.graph.edges {
+            let edge_id = format!("{}:{}", edge.source, edge.task);
+            if let Err(e) = pb_dal
+                .init_cursor(edge_id.clone(), edge.source.clone())
+                .await
+            {
+                warn!("Failed to init drain cursor for '{}': {}", edge_id, e);
+            }
+        }
+    }
+
     /// Run the continuous scheduling loop.
     ///
     /// This method runs until the shutdown signal is received. It polls the
@@ -209,6 +359,7 @@ impl ContinuousScheduler {
     pub async fn run(&self, mut shutdown: watch::Receiver<bool>) -> Vec<FiredTask> {
         let mut cursor: usize = 0;
         let mut fired_tasks: Vec<FiredTask> = Vec::new();
+        let mut drain_counter: usize = 0;
 
         info!(
             "ContinuousScheduler starting with {} tasks, {} edges",
@@ -227,11 +378,15 @@ impl ContinuousScheduler {
                 _ = tokio::time::sleep(self.config.poll_interval) => {
                     // Step 1: Read new ledger events
                     let new_events = {
-                        let ledger = self.ledger.read().unwrap();
+                        let ledger = self.ledger.read();
                         let events = ledger.events_since(cursor);
                         let collected: Vec<_> = events.iter().map(|e| match e {
                             LedgerEvent::TaskCompleted { task, context, .. } => {
-                                Some((task.clone(), DetectorOutput::from_context(context)))
+                                Some((
+                                    task.clone(),
+                                    DetectorOutput::from_context(context),
+                                    context.get("__last_known_state").cloned(),
+                                ))
                             }
                             _ => None,
                         }).collect();
@@ -241,9 +396,39 @@ impl ContinuousScheduler {
 
                     // Step 2: Process detector completions
                     for event in &new_events {
-                        if let Some((task_name, detector_output)) = event {
+                        if let Some((task_name, detector_output, last_known_state)) = event {
+                            // Persist detector state if present
+                            if let Some(state) = last_known_state {
+                                if let Some(source_name) = self.detector_to_source.get(task_name.as_str()) {
+                                    self.detector_state_store.update_latest(source_name, state.clone());
+                                }
+                            }
                             if let Some(output) = detector_output {
                                 self.process_detector_output(task_name, output);
+                            } else {
+                                warn!(
+                                    "Task '{}' completed but detector output could not be deserialized — boundaries lost",
+                                    task_name
+                                );
+                            }
+                        }
+                    }
+
+                    // Step 2.5: Persist boundaries to WAL
+                    if let Some(ref dal) = self.dal {
+                        let pb_dal = crate::dal::unified::PendingBoundaryDAL::new(dal);
+                        for event in &new_events {
+                            if let Some((task_name, detector_output, _)) = event {
+                                if let Some(output) = detector_output {
+                                    if let Some(source_name) = self.detector_to_source.get(task_name.as_str()) {
+                                        for boundary in output.boundaries() {
+                                            let boundary_json = serde_json::to_string(boundary).unwrap_or_default();
+                                            if let Err(e) = pb_dal.append(source_name.clone(), boundary_json).await {
+                                                error!("Failed to persist boundary for source '{}': {}", source_name, e);
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -267,12 +452,12 @@ impl ContinuousScheduler {
 
                         // Write AccumulatorDrained to ledger (scoped lock)
                         {
-                            let mut ledger = self.ledger.write().unwrap();
+                            let mut ledger = self.ledger.write();
                             ledger.append(LedgerEvent::AccumulatorDrained {
                                 task: task_id.clone(),
                                 boundary: super::boundary::ComputationBoundary {
                                     kind: super::boundary::BoundaryKind::Cursor {
-                                        value: format!("drain_{}", fired_tasks.len() + 1),
+                                        value: format!("drain_{}", drain_counter + 1),
                                     },
                                     metadata: None,
                                     emitted_at: Utc::now(),
@@ -285,7 +470,7 @@ impl ContinuousScheduler {
                             if let Some(config) = self.graph.tasks.get(task_id) {
                                 for &idx in &config.triggered_edges {
                                     if let Some(edge) = self.graph.edges.get(idx) {
-                                        let acc = edge.accumulator.lock().unwrap();
+                                        let acc = edge.accumulator.lock();
                                         let edge_id = format!("{}:{}", edge.source, edge.task);
                                         let watermark_json = acc
                                             .consumer_watermark()
@@ -321,6 +506,7 @@ impl ContinuousScheduler {
                                 "No task implementation registered for '{}', recording as fired",
                                 task_id
                             );
+                            drain_counter += 1;
                             fired_tasks.push(FiredTask {
                                 task_id: task_id.clone(),
                                 fired_at: Utc::now(),
@@ -334,7 +520,53 @@ impl ContinuousScheduler {
                     // Execute tasks (async — no locks held)
                     for exec in executions {
                         info!("Executing continuous task: {}", exec.task_id);
-                        let result = exec.task.execute(exec.context.clone_data()).await;
+
+                        // Apply timeout if configured
+                        let result = if let Some(timeout_duration) = self.config.task_timeout {
+                            match tokio::time::timeout(
+                                timeout_duration,
+                                exec.task.execute(exec.context.clone_data()),
+                            )
+                            .await
+                            {
+                                Ok(task_result) => task_result,
+                                Err(_elapsed) => {
+                                    tracing::error!(
+                                        "Continuous task '{}' timed out after {:?}",
+                                        exec.task_id,
+                                        timeout_duration
+                                    );
+
+                                    // Record timeout in ledger
+                                    {
+                                        let mut ledger = self.ledger.write();
+                                        ledger.append(LedgerEvent::TaskFailed {
+                                            task: exec.task_id.clone(),
+                                            at: Utc::now(),
+                                            error: format!(
+                                                "task timed out after {:?}",
+                                                timeout_duration
+                                            ),
+                                        });
+                                    }
+
+                                    drain_counter += 1;
+                                    fired_tasks.push(FiredTask {
+                                        task_id: exec.task_id,
+                                        fired_at: Utc::now(),
+                                        boundary_context: vec![exec.context],
+                                        executed: true,
+                                        error: Some(format!(
+                                            "task timed out after {:?}",
+                                            timeout_duration
+                                        )),
+                                    });
+                                    continue;
+                                }
+                            }
+                        } else {
+                            exec.task.execute(exec.context.clone_data()).await
+                        };
 
                         match result {
                             Ok(output_context) => {
@@ -342,7 +574,7 @@ impl ContinuousScheduler {
 
                                 // Write TaskCompleted to ledger
                                 {
-                                    let mut ledger = self.ledger.write().unwrap();
+                                    let mut ledger = self.ledger.write();
                                     ledger.append(LedgerEvent::TaskCompleted {
                                         task: exec.task_id.clone(),
                                         at: Utc::now(),
@@ -350,6 +582,7 @@ impl ContinuousScheduler {
                                     });
                                 }
 
+                                drain_counter += 1;
                                 fired_tasks.push(FiredTask {
                                     task_id: exec.task_id,
                                     fired_at: Utc::now(),
@@ -363,7 +596,7 @@ impl ContinuousScheduler {
 
                                 // Write TaskFailed to ledger
                                 {
-                                    let mut ledger = self.ledger.write().unwrap();
+                                    let mut ledger = self.ledger.write();
                                     ledger.append(LedgerEvent::TaskFailed {
                                         task: exec.task_id.clone(),
                                         at: Utc::now(),
@@ -371,6 +604,7 @@ impl ContinuousScheduler {
                                     });
                                 }
 
+                                drain_counter += 1;
                                 fired_tasks.push(FiredTask {
                                     task_id: exec.task_id,
                                     fired_at: Utc::now(),
@@ -388,9 +622,56 @@ impl ContinuousScheduler {
                         for state in persist_batch {
                             let eid = state.edge_id.clone();
                             if let Err(e) = acc_dal.save(state).await {
-                                debug!("Failed to persist state for '{}': {}", eid, e);
+                                error!("Failed to persist accumulator state for '{}': {}", eid, e);
                             }
                         }
+
+                        // Advance drain cursors and check commit gate
+                        let pb_dal = crate::dal::unified::PendingBoundaryDAL::new(dal);
+                        let ds_dal = crate::dal::unified::DetectorStateDAL::new(dal);
+
+                        for (task_id, _) in &ready_tasks {
+                            if let Some(config) = self.graph.tasks.get(task_id) {
+                                for &idx in &config.triggered_edges {
+                                    if let Some(edge) = self.graph.edges.get(idx) {
+                                        let edge_id = format!("{}:{}", edge.source, edge.task);
+                                        let source = &edge.source;
+
+                                        // Advance cursor to the latest boundary for this source
+                                        if let Ok(Some(max_id)) = pb_dal.max_id_for_source(source.clone()).await {
+                                            let _ = pb_dal.advance_cursor(edge_id.clone(), max_id).await;
+                                        }
+
+                                        // Record edge drain in detector state store
+                                        self.detector_state_store.record_edge_drain(source, &edge_id);
+
+                                        // Check if all edges for this source have drained
+                                        if let Ok(min_cursor) = pb_dal.min_cursor_for_source(source.clone()).await {
+                                            if let Ok(Some(max_boundary)) = pb_dal.max_id_for_source(source.clone()).await {
+                                                if min_cursor >= max_boundary {
+                                                    // All consumers caught up — commit detector state
+                                                    if let Some(committed) = self.detector_state_store.commit(source) {
+                                                        let state_json = serde_json::to_string(&committed).unwrap_or_default();
+                                                        let _ = ds_dal.save(crate::dal::unified::models::NewDetectorState {
+                                                            source_name: source.clone(),
+                                                            committed_state: Some(state_json),
+                                                        }).await;
+                                                    }
+                                                    // Cleanup consumed boundaries
+                                                    let _ = pb_dal.cleanup(source.clone(), min_cursor).await;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Trim fired_tasks to prevent unbounded growth
+                    if self.config.max_fired_tasks > 0 && fired_tasks.len() > self.config.max_fired_tasks {
+                        let excess = fired_tasks.len() - self.config.max_fired_tasks;
+                        fired_tasks.drain(..excess);
                     }
                 }
             }
@@ -407,13 +688,13 @@ impl ContinuousScheduler {
         // Handle watermark advances first
         if let Some(watermark) = output.watermark() {
             if let Some(ref src) = source_name {
-                let mut bl = self.boundary_ledger.write().unwrap();
+                let mut bl = self.boundary_ledger.write();
                 match bl.advance(src, watermark.clone()) {
                     Ok(()) => {
                         debug!("Watermark advanced for source '{}'", src);
                     }
                     Err(e) => {
-                        debug!("Watermark advance rejected for '{}': {}", src, e);
+                        warn!("Watermark advance rejected for '{}': {}", src, e);
                     }
                 }
             }
@@ -436,11 +717,11 @@ impl ContinuousScheduler {
         for src in &target_sources {
             let edges = self.graph.edges_for_source(src);
             for edge in edges {
-                let mut acc = edge.accumulator.lock().unwrap();
+                let mut acc = edge.accumulator.lock();
                 for boundary in boundaries {
                     // Validate Custom boundaries before routing
                     if let Err(e) = validate_boundary(boundary) {
-                        debug!(
+                        warn!(
                             "Rejected invalid Custom boundary for {} -> {}: {}",
                             src, edge.task, e
                         );
@@ -449,7 +730,7 @@ impl ContinuousScheduler {
 
                     // Check consumer watermark for late arrival
                     let is_late = if let Some(_consumer_wm) = acc.consumer_watermark() {
-                        let bl = self.boundary_ledger.read().unwrap();
+                        let bl = self.boundary_ledger.read();
                         bl.covers(src, boundary)
                     } else {
                         false
@@ -461,23 +742,31 @@ impl ContinuousScheduler {
                                 debug!("Late boundary discarded: {} -> {}", src, edge.task);
                             }
                             LateArrivalPolicy::AccumulateForward => {
-                                acc.receive(boundary.clone());
+                                let r = acc.receive(boundary.clone());
+                                if r == super::accumulator::ReceiveResult::AcceptedWithDrop {
+                                    warn!(
+                                        "Backpressure on late-arrival forward: {} -> {}",
+                                        src, edge.task
+                                    );
+                                }
                                 debug!("Late boundary forwarded: {} -> {}", src, edge.task);
                             }
                             LateArrivalPolicy::Retrigger => {
-                                acc.receive(boundary.clone());
+                                let r = acc.receive(boundary.clone());
+                                if r == super::accumulator::ReceiveResult::AcceptedWithDrop {
+                                    warn!(
+                                        "Backpressure on late-arrival retrigger: {} -> {}",
+                                        src, edge.task
+                                    );
+                                }
                                 debug!("Late boundary retriggered: {} -> {}", src, edge.task);
-                            }
-                            LateArrivalPolicy::RouteToSideChannel { task_name } => {
-                                debug!(
-                                    "Late boundary routed to side channel '{}': {} -> {}",
-                                    task_name, src, edge.task
-                                );
-                                // Side channel storage would go here in production
                             }
                         }
                     } else {
-                        acc.receive(boundary.clone());
+                        let result = acc.receive(boundary.clone());
+                        if result == super::accumulator::ReceiveResult::AcceptedWithDrop {
+                            debug!("Backpressure on edge {} -> {}", src, edge.task);
+                        }
                         debug!("Routed boundary to accumulator: {} -> {}", src, edge.task);
                     }
                 }
@@ -490,44 +779,62 @@ impl ContinuousScheduler {
         let mut ready = Vec::new();
 
         for (task_id, config) in &self.graph.tasks {
-            let is_ready = match config.join_mode {
+            match config.join_mode {
                 JoinMode::Any => {
-                    // Fire when any accumulator is ready
-                    config.triggered_edges.iter().any(|&idx| {
+                    // Fire when any accumulator is ready — try_drain under single lock
+                    let mut contexts = Vec::new();
+                    for &idx in &config.triggered_edges {
                         if let Some(edge) = self.graph.edges.get(idx) {
-                            let acc = edge.accumulator.lock().unwrap();
+                            let mut acc = edge.accumulator.lock();
+                            if let Some(ctx) = acc.try_drain() {
+                                contexts.push(ctx);
+                            }
+                        }
+                    }
+                    if !contexts.is_empty() {
+                        ready.push((task_id.clone(), contexts));
+                    }
+                }
+                JoinMode::All => {
+                    // Fire when all accumulators are ready.
+                    // First check all are ready (single lock each), then drain all.
+                    if config.triggered_edges.is_empty() {
+                        continue;
+                    }
+                    let expected_count = config.triggered_edges.len();
+                    let all_ready = config.triggered_edges.iter().all(|&idx| {
+                        if let Some(edge) = self.graph.edges.get(idx) {
+                            let acc = edge.accumulator.lock();
                             acc.is_ready()
                         } else {
                             false
                         }
-                    })
-                }
-                JoinMode::All => {
-                    // Fire when all accumulators are ready
-                    !config.triggered_edges.is_empty()
-                        && config.triggered_edges.iter().all(|&idx| {
+                    });
+                    if all_ready {
+                        let mut contexts = Vec::new();
+                        for &idx in &config.triggered_edges {
                             if let Some(edge) = self.graph.edges.get(idx) {
-                                let acc = edge.accumulator.lock().unwrap();
-                                acc.is_ready()
-                            } else {
-                                false
+                                let mut acc = edge.accumulator.lock();
+                                if let Some(ctx) = acc.try_drain() {
+                                    contexts.push(ctx);
+                                }
                             }
-                        })
-                }
-            };
-
-            if is_ready {
-                // Drain all ready accumulators
-                let mut contexts = Vec::new();
-                for &idx in &config.triggered_edges {
-                    if let Some(edge) = self.graph.edges.get(idx) {
-                        let mut acc = edge.accumulator.lock().unwrap();
-                        if acc.is_ready() {
-                            contexts.push(acc.drain());
+                        }
+                        // Fire if we got any contexts. In the unlikely TOCTOU race
+                        // where some edges lost readiness between check and drain,
+                        // we still fire with partial data rather than silently dropping
+                        // already-drained contexts. Log a warning if partial.
+                        if contexts.len() == expected_count {
+                            ready.push((task_id.clone(), contexts));
+                        } else if !contexts.is_empty() {
+                            warn!(
+                                "JoinMode::All for '{}': only {}/{} edges drained (readiness race), firing with partial data",
+                                task_id, contexts.len(), expected_count
+                            );
+                            ready.push((task_id.clone(), contexts));
                         }
                     }
                 }
-                ready.push((task_id.clone(), contexts));
             }
         }
 
@@ -622,6 +929,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -663,7 +972,7 @@ mod tests {
             )
             .unwrap();
 
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "detect_events".into(),
                 at: Utc::now(),
@@ -676,6 +985,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -701,6 +1012,8 @@ mod tests {
             ledger,
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -732,6 +1045,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -742,7 +1057,7 @@ mod tests {
         scheduler.process_detector_output("detect_events", &output);
 
         // Check boundary ledger was updated
-        let bl = scheduler.boundary_ledger().read().unwrap();
+        let bl = scheduler.boundary_ledger().read();
         assert!(bl.watermark("events").is_some());
     }
 
@@ -764,6 +1079,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -775,7 +1092,7 @@ mod tests {
         scheduler.process_detector_output("detect_events", &output);
 
         // Watermark should be updated
-        let bl = scheduler.boundary_ledger().read().unwrap();
+        let bl = scheduler.boundary_ledger().read();
         assert!(bl.watermark("events").is_some());
 
         // Accumulator should have received boundaries — check readiness
@@ -806,7 +1123,7 @@ mod tests {
 
         // Send a boundary and drain to establish consumer watermark at [0, 100)
         {
-            let mut acc = graph.edges[0].accumulator.lock().unwrap();
+            let mut acc = graph.edges[0].accumulator.lock();
             acc.receive(make_boundary(0, 100));
             let _ = acc.drain(); // consumer watermark now at [0, 100)
         }
@@ -819,12 +1136,14 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
         // Advance boundary ledger to cover [0, 200) so late check triggers
         {
-            let mut bl = scheduler.boundary_ledger().write().unwrap();
+            let mut bl = scheduler.boundary_ledger().write();
             bl.advance("events", make_boundary(0, 200)).unwrap();
         }
 
@@ -887,26 +1206,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_late_arrival_route_to_side_channel() {
-        let (scheduler, _) =
-            setup_scheduler_with_watermark(LateArrivalPolicy::RouteToSideChannel {
-                task_name: "correction_task".into(),
-            });
-
-        // Send a "late" boundary [0, 50)
-        let output = DetectorOutput::Change {
-            boundaries: vec![make_boundary(0, 50)],
-        };
-        scheduler.process_detector_output("detect_events", &output);
-
-        // RouteToSideChannel: boundary NOT in accumulator (routed elsewhere)
-        let ready = scheduler.check_readiness();
-        assert!(
-            ready.is_empty(),
-            "RouteToSideChannel: late boundary should not go to main accumulator"
-        );
-    }
+    // Note: test_late_arrival_route_to_side_channel was removed along with
+    // the RouteToSideChannel variant — it was a no-op that silently dropped data.
 
     #[tokio::test]
     async fn test_non_late_boundary_passes_through_regardless_of_policy() {
@@ -979,7 +1280,7 @@ mod tests {
                 serde_json::to_value(&output).unwrap(),
             )
             .unwrap();
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "detect_events".into(),
                 at: Utc::now(),
@@ -992,6 +1293,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 
@@ -1013,9 +1316,9 @@ mod tests {
         assert!(fired[0].error.is_none(), "task should not have errored");
 
         // Verify TaskCompleted was written to ledger by the scheduler
-        let l = ledger.read().unwrap();
-        let completed: Vec<_> = l
-            .events_since(0)
+        let l = ledger.read();
+        let all_events = l.events_since(0);
+        let completed: Vec<_> = all_events
             .iter()
             .filter(|e| {
                 if let LedgerEvent::TaskCompleted { task, .. } = e {
@@ -1077,7 +1380,7 @@ mod tests {
                 serde_json::to_value(&output).unwrap(),
             )
             .unwrap();
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "detect_events".into(),
                 at: Utc::now(),
@@ -1090,6 +1393,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
         scheduler.register_task(Arc::new(FailingTask));
@@ -1111,9 +1416,9 @@ mod tests {
             .contains("intentional failure"));
 
         // Verify TaskFailed was written to ledger
-        let l = ledger.read().unwrap();
-        let failed: Vec<_> = l
-            .events_since(0)
+        let l = ledger.read();
+        let all_events = l.events_since(0);
+        let failed: Vec<_> = all_events
             .iter()
             .filter(|e| matches!(e, LedgerEvent::TaskFailed { .. }))
             .collect();
@@ -1146,7 +1451,7 @@ mod tests {
                 serde_json::to_value(&output).unwrap(),
             )
             .unwrap();
-            let mut l = ledger.write().unwrap();
+            let mut l = ledger.write();
             l.append(LedgerEvent::TaskCompleted {
                 task: "detect_events".into(),
                 at: Utc::now(),
@@ -1160,6 +1465,8 @@ mod tests {
             ledger.clone(),
             ContinuousSchedulerConfig {
                 poll_interval: Duration::from_millis(10),
+                max_fired_tasks: 10_000,
+                task_timeout: None,
             },
         );
 

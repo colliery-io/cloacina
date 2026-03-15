@@ -25,8 +25,9 @@
 use super::accumulator::{SignalAccumulator, SimpleAccumulator};
 use super::datasource::DataSource;
 use super::trigger_policy::Immediate;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 /// How to combine accumulator readiness for multi-input tasks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,8 +50,9 @@ pub enum LateArrivalPolicy {
     AccumulateForward,
     /// Re-submit the affected boundary for re-execution.
     Retrigger,
-    /// Route to a designated correction task.
-    RouteToSideChannel { task_name: String },
+    // Note: RouteToSideChannel was removed — the previous implementation was
+    // a no-op that silently dropped late data. Will be re-added when the
+    // side-channel design is complete.
 }
 
 impl Default for LateArrivalPolicy {
@@ -188,6 +190,14 @@ pub enum GraphAssemblyError {
     },
     #[error("duplicate task ID: '{0}'")]
     DuplicateTask(String),
+    #[error("duplicate detector workflow '{workflow}': sources '{source_a}' and '{source_b}' share the same detector")]
+    DuplicateDetectorWorkflow {
+        workflow: String,
+        source_a: String,
+        source_b: String,
+    },
+    #[error("cycle detected in data-flow graph: {}", path.join(" -> "))]
+    CycleDetected { path: Vec<String> },
 }
 
 /// Assemble a `DataSourceGraph` from registered data sources and task declarations.
@@ -255,6 +265,78 @@ pub fn assemble_graph(
                 join_mode: JoinMode::Any,
             },
         );
+    }
+
+    // Note: Multiple data sources CAN share the same detector_workflow
+    // (e.g., one task producing multiple derived outputs). The scheduler's
+    // detector_to_source mapping handles this by broadcasting to all matching
+    // edges. No uniqueness check here.
+
+    // Cycle detection via Kahn's algorithm (topological sort).
+    //
+    // Build a dependency graph: task → [tasks it depends on].
+    // A task T depends on task U if T consumes a source whose detector_workflow
+    // matches U's ID (i.e., U produces data that T consumes).
+    //
+    // Note: LedgerTrigger feedback loops are NOT modeled here — they are
+    // event-driven and do not create data-flow dependencies.
+    {
+        let task_ids: HashSet<&str> = graph.tasks.keys().map(|s| s.as_str()).collect();
+
+        // Map: detector_workflow_name → source_name → consuming_task_names
+        // If a task's detector_workflow name matches a task ID, that creates a dependency.
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut in_degree: HashMap<&str, usize> = HashMap::new();
+
+        for task_id in &task_ids {
+            adjacency.entry(task_id).or_default();
+            in_degree.entry(task_id).or_insert(0);
+        }
+
+        // For each edge (source → task), check if the source's detector is a task ID
+        for edge in &graph.edges {
+            if let Some(ds) = graph.data_sources.get(&edge.source) {
+                let detector = ds.detector_workflow.as_str();
+                // If the detector workflow is itself a task in the graph,
+                // then edge.task depends on that producer task
+                if task_ids.contains(detector) && detector != edge.task.as_str() {
+                    adjacency.entry(detector).or_default().push(&edge.task);
+                    *in_degree.entry(&edge.task).or_insert(0) += 1;
+                }
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: VecDeque<&str> = in_degree
+            .iter()
+            .filter(|(_, &deg)| deg == 0)
+            .map(|(&k, _)| k)
+            .collect();
+        let mut sorted_count = 0;
+
+        while let Some(node) = queue.pop_front() {
+            sorted_count += 1;
+            if let Some(neighbors) = adjacency.get(node) {
+                for &neighbor in neighbors {
+                    if let Some(deg) = in_degree.get_mut(neighbor) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push_back(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        if sorted_count < task_ids.len() {
+            // Cycle detected — collect the remaining nodes (those with in_degree > 0)
+            let cycle_nodes: Vec<String> = in_degree
+                .iter()
+                .filter(|(_, &deg)| deg > 0)
+                .map(|(&k, _)| k.to_string())
+                .collect();
+            return Err(GraphAssemblyError::CycleDetected { path: cycle_nodes });
+        }
     }
 
     Ok(graph)
@@ -424,5 +506,129 @@ mod tests {
         assert!(graph.data_sources.is_empty());
         assert!(graph.tasks.is_empty());
         assert!(graph.edges.is_empty());
+    }
+
+    // --- Cycle detection tests ---
+
+    fn make_data_source_with_detector(name: &str, detector: &str) -> DataSource {
+        DataSource {
+            name: name.to_string(),
+            connection: Box::new(MockConnection),
+            detector_workflow: detector.to_string(),
+            lineage: DataSourceMetadata::default(),
+        }
+    }
+
+    #[test]
+    fn test_cycle_detection_simple_cycle() {
+        // Task A consumes source "s1" (detector = "task_b")
+        // Task B consumes source "s2" (detector = "task_a")
+        // This forms: task_a -> s2(detected by task_a) -> task_b -> s1(detected by task_b) -> task_a
+        let sources = vec![
+            make_data_source_with_detector("s1", "task_b"),
+            make_data_source_with_detector("s2", "task_a"),
+        ];
+        let tasks = vec![
+            ContinuousTaskRegistration {
+                id: "task_a".to_string(),
+                sources: vec!["s1".to_string()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "task_b".to_string(),
+                sources: vec!["s2".to_string()],
+                referenced: vec![],
+            },
+        ];
+
+        let result = assemble_graph(sources, tasks);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphAssemblyError::CycleDetected { path } => {
+                assert!(!path.is_empty(), "cycle path should not be empty");
+            }
+            other => panic!("expected CycleDetected, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_diamond_dependency_is_valid() {
+        // A → B, A → C, B → D, C → D (diamond, no cycle)
+        let sources = vec![
+            make_data_source_with_detector("s_a", "external_detector"),
+            make_data_source_with_detector("s_b", "task_a"),
+            make_data_source_with_detector("s_c", "task_a"),
+            make_data_source_with_detector("s_d_from_b", "task_b"),
+            make_data_source_with_detector("s_d_from_c", "task_c"),
+        ];
+        let tasks = vec![
+            ContinuousTaskRegistration {
+                id: "task_a".to_string(),
+                sources: vec!["s_a".to_string()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "task_b".to_string(),
+                sources: vec!["s_b".to_string()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "task_c".to_string(),
+                sources: vec!["s_c".to_string()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "task_d".to_string(),
+                sources: vec!["s_d_from_b".to_string(), "s_d_from_c".to_string()],
+                referenced: vec![],
+            },
+        ];
+
+        let result = assemble_graph(sources, tasks);
+        assert!(result.is_ok(), "diamond dependency should be valid");
+    }
+
+    #[test]
+    fn test_linear_chain_is_valid() {
+        // raw → task_a → derived → task_b (valid chain, no cycle)
+        let sources = vec![
+            make_data_source_with_detector("raw", "external_detect"),
+            make_data_source_with_detector("derived", "task_a"),
+        ];
+        let tasks = vec![
+            ContinuousTaskRegistration {
+                id: "task_a".to_string(),
+                sources: vec!["raw".to_string()],
+                referenced: vec![],
+            },
+            ContinuousTaskRegistration {
+                id: "task_b".to_string(),
+                sources: vec!["derived".to_string()],
+                referenced: vec![],
+            },
+        ];
+
+        let result = assemble_graph(sources, tasks);
+        assert!(result.is_ok(), "linear chain should be valid");
+    }
+
+    #[test]
+    fn test_shared_detector_workflow_allowed() {
+        // Two sources share the same detector workflow (one producer, multiple derived)
+        let sources = vec![
+            make_data_source_with_detector("s1", "shared_detector"),
+            make_data_source_with_detector("s2", "shared_detector"),
+        ];
+        let tasks = vec![ContinuousTaskRegistration {
+            id: "task_a".to_string(),
+            sources: vec!["s1".to_string(), "s2".to_string()],
+            referenced: vec![],
+        }];
+
+        let result = assemble_graph(sources, tasks);
+        assert!(
+            result.is_ok(),
+            "shared detector workflows should be allowed"
+        );
     }
 }

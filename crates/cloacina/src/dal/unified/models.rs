@@ -20,10 +20,11 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    accumulator_state, contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
-    package_signatures, pipeline_executions, recovery_events, signing_keys,
-    task_execution_metadata, task_executions, task_outbox, trigger_executions, trigger_schedules,
-    trusted_keys, workflow_packages, workflow_registry,
+    accumulator_state, contexts, cron_executions, cron_schedules, detector_state,
+    edge_drain_cursors, execution_events, key_trust_acls, package_signatures, pending_boundaries,
+    pipeline_executions, recovery_events, signing_keys, task_execution_metadata, task_executions,
+    task_outbox, trigger_executions, trigger_schedules, trusted_keys, workflow_packages,
+    workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -815,4 +816,69 @@ pub struct NewAccumulatorState {
     pub edge_id: String,
     pub consumer_watermark: Option<String>,
     pub drain_metadata: String,
+}
+
+// ============================================================================
+// Detector State Models (Continuous Scheduling)
+// ============================================================================
+
+/// Persisted detector state row.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = detector_state)]
+pub struct DetectorStateRow {
+    pub source_name: String,
+    pub committed_state: Option<String>,
+    pub updated_at: UniversalTimestamp,
+}
+
+/// New detector state for insertion.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = detector_state)]
+pub struct NewDetectorState {
+    pub source_name: String,
+    pub committed_state: Option<String>,
+}
+
+// ============================================================================
+// Pending Boundary WAL Models (Continuous Scheduling)
+// ============================================================================
+
+/// Pending boundary row from the WAL.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = pending_boundaries)]
+pub struct PendingBoundaryRow {
+    pub id: i64,
+    pub source_name: String,
+    pub boundary_json: String,
+    pub received_at: UniversalTimestamp,
+}
+
+/// New pending boundary for insertion.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = pending_boundaries)]
+pub struct NewPendingBoundary {
+    pub source_name: String,
+    pub boundary_json: String,
+}
+
+// ============================================================================
+// Edge Drain Cursor Models (Continuous Scheduling)
+// ============================================================================
+
+/// Edge drain cursor row.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = edge_drain_cursors)]
+pub struct EdgeDrainCursorRow {
+    pub edge_id: String,
+    pub source_name: String,
+    pub last_drain_id: i64,
+}
+
+/// New edge drain cursor for insertion.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = edge_drain_cursors)]
+pub struct NewEdgeDrainCursor {
+    pub edge_id: String,
+    pub source_name: String,
+    pub last_drain_id: i64,
 }

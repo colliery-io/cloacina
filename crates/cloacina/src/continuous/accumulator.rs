@@ -26,8 +26,10 @@ use super::trigger_policy::TriggerPolicy;
 use super::watermark::BoundaryLedger;
 use chrono::{DateTime, Duration, Utc};
 use cloacina_workflow::Context;
+use parking_lot::RwLock;
 use serde_json::json;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tracing::warn;
 
 /// Observable state for monitoring and backpressure detection.
 #[derive(Debug, Clone)]
@@ -57,10 +59,20 @@ pub struct EdgeMetrics {
     pub accumulator: AccumulatorMetrics,
 }
 
+/// Result of receiving a boundary into an accumulator.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ReceiveResult {
+    /// Boundary accepted into the buffer.
+    Accepted,
+    /// Boundary accepted, but an older boundary was dropped (buffer was full).
+    AcceptedWithDrop,
+}
+
 /// Per-edge stateful component that buffers boundaries and decides when to fire.
 pub trait SignalAccumulator: Send + Sync {
-    /// Buffer a boundary event.
-    fn receive(&mut self, boundary: ComputationBoundary);
+    /// Buffer a boundary event. Returns whether the boundary was accepted
+    /// cleanly or if backpressure occurred (oldest boundary dropped).
+    fn receive(&mut self, boundary: ComputationBoundary) -> ReceiveResult;
 
     /// Should the downstream task run now?
     fn is_ready(&self) -> bool;
@@ -75,7 +87,25 @@ pub trait SignalAccumulator: Send + Sync {
     /// What boundary has this accumulator processed up to?
     /// Updated on each drain().
     fn consumer_watermark(&self) -> Option<&ComputationBoundary>;
+
+    /// Set the consumer watermark from persisted state on restart.
+    fn set_consumer_watermark(&mut self, watermark: ComputationBoundary);
+
+    /// Atomically check readiness and drain if ready.
+    /// Returns `Some(context)` if the accumulator was ready and drained,
+    /// `None` if not ready. This avoids the double-lock race where readiness
+    /// could change between a separate `is_ready()` check and `drain()` call.
+    fn try_drain(&mut self) -> Option<Context<serde_json::Value>> {
+        if self.is_ready() {
+            Some(self.drain())
+        } else {
+            None
+        }
+    }
 }
+
+/// Default maximum buffer size for accumulators.
+const DEFAULT_MAX_BUFFER_SIZE: usize = 10_000;
 
 /// Simple accumulator with no watermark awareness.
 ///
@@ -87,6 +117,12 @@ pub struct SimpleAccumulator {
     watermark: Option<ComputationBoundary>,
     total_received: u64,
     drain_count: u64,
+    max_buffer_size: usize,
+    dropped_count: u64,
+    // Cached metrics — updated incrementally on receive, cleared on drain
+    cached_oldest: Option<DateTime<Utc>>,
+    cached_newest: Option<DateTime<Utc>>,
+    cached_max_lag: Option<Duration>,
 }
 
 impl SimpleAccumulator {
@@ -98,14 +134,61 @@ impl SimpleAccumulator {
             watermark: None,
             total_received: 0,
             drain_count: 0,
+            max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
+            dropped_count: 0,
+            cached_oldest: None,
+            cached_newest: None,
+            cached_max_lag: None,
+        }
+    }
+
+    /// Create a new SimpleAccumulator with a custom buffer size limit.
+    pub fn with_max_buffer(policy: Box<dyn TriggerPolicy>, max_buffer_size: usize) -> Self {
+        Self {
+            buffer: Vec::new(),
+            policy,
+            watermark: None,
+            total_received: 0,
+            drain_count: 0,
+            max_buffer_size,
+            dropped_count: 0,
+            cached_oldest: None,
+            cached_newest: None,
+            cached_max_lag: None,
         }
     }
 }
 
 impl SignalAccumulator for SimpleAccumulator {
-    fn receive(&mut self, boundary: ComputationBoundary) {
-        self.buffer.push(BufferedBoundary::new(boundary));
+    fn receive(&mut self, boundary: ComputationBoundary) -> ReceiveResult {
+        let result = if self.buffer.len() >= self.max_buffer_size {
+            self.buffer.remove(0);
+            self.dropped_count += 1;
+            // Invalidate caches that may have been affected by the drop
+            self.cached_oldest = self.buffer.first().map(|b| b.boundary.emitted_at);
+            // Max lag must be recomputed — the dropped boundary may have been the max
+            self.cached_max_lag = self.buffer.iter().map(|b| b.lag()).max();
+            warn!(
+                "SimpleAccumulator buffer full (max={}), dropped oldest boundary (total dropped: {})",
+                self.max_buffer_size, self.dropped_count
+            );
+            ReceiveResult::AcceptedWithDrop
+        } else {
+            ReceiveResult::Accepted
+        };
+        let buffered = BufferedBoundary::new(boundary);
+        let emitted = buffered.boundary.emitted_at;
+        let lag = buffered.lag();
+        self.cached_newest = Some(emitted);
+        if self.cached_oldest.is_none() || emitted < self.cached_oldest.unwrap() {
+            self.cached_oldest = Some(emitted);
+        }
+        if self.cached_max_lag.is_none() || lag > self.cached_max_lag.unwrap() {
+            self.cached_max_lag = Some(lag);
+        }
+        self.buffer.push(buffered);
         self.total_received += 1;
+        result
     }
 
     fn is_ready(&self) -> bool {
@@ -150,20 +233,21 @@ impl SignalAccumulator for SimpleAccumulator {
 
         self.buffer.clear();
         self.drain_count += 1;
+        self.policy.mark_drained();
+        // Clear cached metrics
+        self.cached_oldest = None;
+        self.cached_newest = None;
+        self.cached_max_lag = None;
 
         ctx
     }
 
     fn metrics(&self) -> AccumulatorMetrics {
-        let oldest = self.buffer.iter().map(|b| b.boundary.emitted_at).min();
-        let newest = self.buffer.iter().map(|b| b.boundary.emitted_at).max();
-        let max_lag = self.buffer.iter().map(|b| b.lag()).max();
-
         AccumulatorMetrics {
             buffered_count: self.buffer.len(),
-            oldest_boundary_emitted_at: oldest,
-            newest_boundary_emitted_at: newest,
-            max_lag,
+            oldest_boundary_emitted_at: self.cached_oldest,
+            newest_boundary_emitted_at: self.cached_newest,
+            max_lag: self.cached_max_lag,
             total_boundaries_received: self.total_received,
             drain_count: self.drain_count,
         }
@@ -171,6 +255,10 @@ impl SignalAccumulator for SimpleAccumulator {
 
     fn consumer_watermark(&self) -> Option<&ComputationBoundary> {
         self.watermark.as_ref()
+    }
+
+    fn set_consumer_watermark(&mut self, watermark: ComputationBoundary) {
+        self.watermark = Some(watermark);
     }
 }
 
@@ -197,6 +285,11 @@ pub struct WindowedAccumulator {
     source_name: String,
     total_received: u64,
     drain_count: u64,
+    max_buffer_size: usize,
+    dropped_count: u64,
+    cached_oldest: Option<DateTime<Utc>>,
+    cached_newest: Option<DateTime<Utc>>,
+    cached_max_lag: Option<Duration>,
 }
 
 impl WindowedAccumulator {
@@ -216,6 +309,36 @@ impl WindowedAccumulator {
             source_name,
             total_received: 0,
             drain_count: 0,
+            max_buffer_size: DEFAULT_MAX_BUFFER_SIZE,
+            dropped_count: 0,
+            cached_oldest: None,
+            cached_newest: None,
+            cached_max_lag: None,
+        }
+    }
+
+    /// Create a new WindowedAccumulator with a custom buffer size limit.
+    pub fn with_max_buffer(
+        policy: Box<dyn TriggerPolicy>,
+        watermark_mode: WatermarkMode,
+        boundary_ledger: Arc<RwLock<BoundaryLedger>>,
+        source_name: String,
+        max_buffer_size: usize,
+    ) -> Self {
+        Self {
+            buffer: Vec::new(),
+            policy,
+            watermark: None,
+            watermark_mode,
+            boundary_ledger,
+            source_name,
+            total_received: 0,
+            drain_count: 0,
+            max_buffer_size,
+            dropped_count: 0,
+            cached_oldest: None,
+            cached_newest: None,
+            cached_max_lag: None,
         }
     }
 
@@ -228,9 +351,33 @@ impl WindowedAccumulator {
 }
 
 impl SignalAccumulator for WindowedAccumulator {
-    fn receive(&mut self, boundary: ComputationBoundary) {
-        self.buffer.push(BufferedBoundary::new(boundary));
+    fn receive(&mut self, boundary: ComputationBoundary) -> ReceiveResult {
+        let result = if self.buffer.len() >= self.max_buffer_size {
+            self.buffer.remove(0);
+            self.dropped_count += 1;
+            self.cached_oldest = self.buffer.first().map(|b| b.boundary.emitted_at);
+            self.cached_max_lag = self.buffer.iter().map(|b| b.lag()).max();
+            warn!(
+                "WindowedAccumulator[{}] buffer full (max={}), dropped oldest boundary (total dropped: {})",
+                self.source_name, self.max_buffer_size, self.dropped_count
+            );
+            ReceiveResult::AcceptedWithDrop
+        } else {
+            ReceiveResult::Accepted
+        };
+        let buffered = BufferedBoundary::new(boundary);
+        let emitted = buffered.boundary.emitted_at;
+        let lag = buffered.lag();
+        self.cached_newest = Some(emitted);
+        if self.cached_oldest.is_none() || emitted < self.cached_oldest.unwrap() {
+            self.cached_oldest = Some(emitted);
+        }
+        if self.cached_max_lag.is_none() || lag > self.cached_max_lag.unwrap() {
+            self.cached_max_lag = Some(lag);
+        }
+        self.buffer.push(buffered);
         self.total_received += 1;
+        result
     }
 
     fn is_ready(&self) -> bool {
@@ -241,7 +388,7 @@ impl SignalAccumulator for WindowedAccumulator {
             WatermarkMode::BestEffort => true,
             WatermarkMode::WaitForWatermark => {
                 if let Some(pending) = self.pending_boundary() {
-                    let bl = self.boundary_ledger.read().unwrap();
+                    let bl = self.boundary_ledger.read();
                     bl.covers(&self.source_name, &pending)
                 } else {
                     false
@@ -282,18 +429,19 @@ impl SignalAccumulator for WindowedAccumulator {
 
         self.buffer.clear();
         self.drain_count += 1;
+        self.policy.mark_drained();
+        self.cached_oldest = None;
+        self.cached_newest = None;
+        self.cached_max_lag = None;
         ctx
     }
 
     fn metrics(&self) -> AccumulatorMetrics {
-        let oldest = self.buffer.iter().map(|b| b.boundary.emitted_at).min();
-        let newest = self.buffer.iter().map(|b| b.boundary.emitted_at).max();
-        let max_lag = self.buffer.iter().map(|b| b.lag()).max();
         AccumulatorMetrics {
             buffered_count: self.buffer.len(),
-            oldest_boundary_emitted_at: oldest,
-            newest_boundary_emitted_at: newest,
-            max_lag,
+            oldest_boundary_emitted_at: self.cached_oldest,
+            newest_boundary_emitted_at: self.cached_newest,
+            max_lag: self.cached_max_lag,
             total_boundaries_received: self.total_received,
             drain_count: self.drain_count,
         }
@@ -302,13 +450,17 @@ impl SignalAccumulator for WindowedAccumulator {
     fn consumer_watermark(&self) -> Option<&ComputationBoundary> {
         self.watermark.as_ref()
     }
+
+    fn set_consumer_watermark(&mut self, watermark: ComputationBoundary) {
+        self.watermark = Some(watermark);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::continuous::boundary::BoundaryKind;
-    use crate::continuous::trigger_policy::Immediate;
+    use crate::continuous::trigger_policy::{BoundaryCount, Immediate};
 
     fn make_offset_boundary(start: i64, end: i64) -> ComputationBoundary {
         ComputationBoundary {
@@ -486,7 +638,7 @@ mod tests {
 
         // Set watermark covering [0, 200)
         {
-            let mut ledger = bl.write().unwrap();
+            let mut ledger = bl.write();
             ledger.advance("src", make_offset_boundary(0, 200)).unwrap();
         }
 
@@ -508,7 +660,7 @@ mod tests {
 
         // Set watermark only covering [0, 50)
         {
-            let mut ledger = bl.write().unwrap();
+            let mut ledger = bl.write();
             ledger.advance("src", make_offset_boundary(0, 50)).unwrap();
         }
 
@@ -540,7 +692,7 @@ mod tests {
 
         // Advance watermark
         {
-            let mut ledger = bl.write().unwrap();
+            let mut ledger = bl.write();
             ledger.advance("src", make_offset_boundary(0, 200)).unwrap();
         }
 
@@ -551,7 +703,7 @@ mod tests {
     fn test_windowed_drain_produces_context() {
         let bl = Arc::new(RwLock::new(BoundaryLedger::new()));
         {
-            let mut ledger = bl.write().unwrap();
+            let mut ledger = bl.write();
             ledger.advance("src", make_offset_boundary(0, 500)).unwrap();
         }
 
@@ -569,5 +721,104 @@ mod tests {
         assert_eq!(ctx.get("__signals_coalesced"), Some(&json!(2)));
         assert!(ctx.get("__boundary").is_some());
         assert!(acc.consumer_watermark().is_some());
+    }
+
+    // --- Buffer overflow / backpressure tests ---
+
+    #[test]
+    fn test_simple_accumulator_buffer_overflow_drops_oldest() {
+        let mut acc = SimpleAccumulator::with_max_buffer(Box::new(Immediate), 3);
+
+        acc.receive(make_offset_boundary(0, 100));
+        acc.receive(make_offset_boundary(100, 200));
+        acc.receive(make_offset_boundary(200, 300));
+        assert_eq!(acc.metrics().buffered_count, 3);
+
+        // This should drop the oldest (0, 100)
+        let result = acc.receive(make_offset_boundary(300, 400));
+        assert_eq!(result, ReceiveResult::AcceptedWithDrop);
+        assert_eq!(acc.metrics().buffered_count, 3);
+
+        // Drain and verify coalesced boundary starts at 100, not 0
+        let ctx = acc.drain();
+        let boundary = ctx.get("__boundary").unwrap();
+        assert_eq!(boundary["kind"]["start"], 100);
+        assert_eq!(boundary["kind"]["end"], 400);
+    }
+
+    #[test]
+    fn test_simple_accumulator_buffer_within_limit() {
+        let mut acc = SimpleAccumulator::with_max_buffer(Box::new(Immediate), 100);
+
+        for i in 0..50 {
+            let result = acc.receive(make_offset_boundary(i * 10, (i + 1) * 10));
+            assert_eq!(result, ReceiveResult::Accepted);
+        }
+        assert_eq!(acc.metrics().buffered_count, 50);
+    }
+
+    #[test]
+    fn test_metrics_accurate_after_interleaved_receive_drain() {
+        let mut acc = SimpleAccumulator::new(Box::new(Immediate));
+
+        // Receive 3 boundaries
+        acc.receive(make_offset_boundary(0, 100));
+        acc.receive(make_offset_boundary(100, 200));
+        acc.receive(make_offset_boundary(200, 300));
+
+        let m = acc.metrics();
+        assert_eq!(m.buffered_count, 3);
+        assert!(m.oldest_boundary_emitted_at.is_some());
+        assert!(m.newest_boundary_emitted_at.is_some());
+        assert_eq!(m.total_boundaries_received, 3);
+
+        // Drain
+        acc.drain();
+        let m = acc.metrics();
+        assert_eq!(m.buffered_count, 0);
+        assert!(m.oldest_boundary_emitted_at.is_none());
+        assert!(m.newest_boundary_emitted_at.is_none());
+        assert_eq!(m.drain_count, 1);
+
+        // Receive again
+        acc.receive(make_offset_boundary(300, 400));
+        let m = acc.metrics();
+        assert_eq!(m.buffered_count, 1);
+        assert!(m.oldest_boundary_emitted_at.is_some());
+        assert_eq!(m.total_boundaries_received, 4);
+        assert_eq!(m.drain_count, 1);
+    }
+
+    #[test]
+    fn test_set_consumer_watermark_enables_late_detection() {
+        let mut acc = SimpleAccumulator::new(Box::new(Immediate));
+        assert!(acc.consumer_watermark().is_none());
+
+        // Set watermark as if restored from persistence
+        acc.set_consumer_watermark(make_offset_boundary(0, 500));
+        assert!(acc.consumer_watermark().is_some());
+
+        let wm = acc.consumer_watermark().unwrap();
+        if let BoundaryKind::OffsetRange { end, .. } = &wm.kind {
+            assert_eq!(*end, 500);
+        } else {
+            panic!("expected OffsetRange");
+        }
+    }
+
+    #[test]
+    fn test_try_drain_when_not_ready() {
+        let mut acc = SimpleAccumulator::new(Box::new(BoundaryCount::new(10)));
+        acc.receive(make_offset_boundary(0, 100)); // only 1, need 10
+        assert!(acc.try_drain().is_none());
+    }
+
+    #[test]
+    fn test_try_drain_when_ready() {
+        let mut acc = SimpleAccumulator::new(Box::new(Immediate));
+        acc.receive(make_offset_boundary(0, 100));
+        let ctx = acc.try_drain();
+        assert!(ctx.is_some());
+        assert_eq!(acc.metrics().buffered_count, 0);
     }
 }

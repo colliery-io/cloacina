@@ -167,3 +167,370 @@ async fn test_load_nonexistent_returns_none() {
         .expect("load failed");
     assert!(loaded.is_none());
 }
+
+// ============================================================================
+// Detector State DAL Tests
+// ============================================================================
+
+#[tokio::test]
+#[serial]
+async fn test_detector_state_save_and_load() {
+    let dal = get_fresh_dal().await;
+    let ds_dal = cloacina::dal::unified::DetectorStateDAL::new(&dal);
+
+    ds_dal
+        .save(cloacina::dal::unified::models::NewDetectorState {
+            source_name: "events".to_string(),
+            committed_state: Some(r#"{"cursor": 100}"#.to_string()),
+        })
+        .await
+        .unwrap();
+
+    let loaded = ds_dal.load("events").await.unwrap();
+    assert!(loaded.is_some());
+    let row = loaded.unwrap();
+    assert_eq!(row.source_name, "events");
+    assert_eq!(row.committed_state, Some(r#"{"cursor": 100}"#.to_string()));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_detector_state_upserts() {
+    let dal = get_fresh_dal().await;
+    let ds_dal = cloacina::dal::unified::DetectorStateDAL::new(&dal);
+
+    ds_dal
+        .save(cloacina::dal::unified::models::NewDetectorState {
+            source_name: "events".to_string(),
+            committed_state: Some(r#"{"cursor": 100}"#.to_string()),
+        })
+        .await
+        .unwrap();
+
+    ds_dal
+        .save(cloacina::dal::unified::models::NewDetectorState {
+            source_name: "events".to_string(),
+            committed_state: Some(r#"{"cursor": 500}"#.to_string()),
+        })
+        .await
+        .unwrap();
+
+    let loaded = ds_dal.load("events").await.unwrap().unwrap();
+    assert_eq!(
+        loaded.committed_state,
+        Some(r#"{"cursor": 500}"#.to_string())
+    );
+}
+
+#[tokio::test]
+#[serial]
+async fn test_detector_state_load_nonexistent() {
+    let dal = get_fresh_dal().await;
+    let ds_dal = cloacina::dal::unified::DetectorStateDAL::new(&dal);
+
+    let loaded = ds_dal.load("nonexistent").await.unwrap();
+    assert!(loaded.is_none());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_detector_state_load_all() {
+    let dal = get_fresh_dal().await;
+    let ds_dal = cloacina::dal::unified::DetectorStateDAL::new(&dal);
+
+    ds_dal
+        .save(cloacina::dal::unified::models::NewDetectorState {
+            source_name: "events".to_string(),
+            committed_state: Some(r#"{"cursor": 100}"#.to_string()),
+        })
+        .await
+        .unwrap();
+
+    ds_dal
+        .save(cloacina::dal::unified::models::NewDetectorState {
+            source_name: "config".to_string(),
+            committed_state: Some(r#"{"version": 3}"#.to_string()),
+        })
+        .await
+        .unwrap();
+
+    let all = ds_dal.load_all().await.unwrap();
+    assert_eq!(all.len(), 2);
+}
+
+// ============================================================================
+// Pending Boundary DAL Tests
+// ============================================================================
+
+#[tokio::test]
+#[serial]
+async fn test_pending_boundary_append_and_load() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    let id1 = pb_dal
+        .append("events".to_string(), r#"{"start":0,"end":100}"#.to_string())
+        .await
+        .unwrap();
+    let id2 = pb_dal
+        .append(
+            "events".to_string(),
+            r#"{"start":100,"end":200}"#.to_string(),
+        )
+        .await
+        .unwrap();
+    let id3 = pb_dal
+        .append(
+            "events".to_string(),
+            r#"{"start":200,"end":300}"#.to_string(),
+        )
+        .await
+        .unwrap();
+
+    assert!(id2 > id1);
+    assert!(id3 > id2);
+
+    let loaded = pb_dal
+        .load_after_cursor("events".to_string(), 0)
+        .await
+        .unwrap();
+    assert_eq!(loaded.len(), 3);
+
+    let loaded = pb_dal
+        .load_after_cursor("events".to_string(), id1)
+        .await
+        .unwrap();
+    assert_eq!(loaded.len(), 2);
+
+    let loaded = pb_dal
+        .load_after_cursor("events".to_string(), id3)
+        .await
+        .unwrap();
+    assert_eq!(loaded.len(), 0);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_edge_drain_cursor_lifecycle() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    pb_dal
+        .init_cursor("events:task_a".to_string(), "events".to_string())
+        .await
+        .unwrap();
+    pb_dal
+        .init_cursor("events:task_b".to_string(), "events".to_string())
+        .await
+        .unwrap();
+
+    let cursor = pb_dal
+        .load_cursor("events:task_a".to_string())
+        .await
+        .unwrap();
+    assert_eq!(cursor, 0);
+
+    pb_dal
+        .advance_cursor("events:task_a".to_string(), 5)
+        .await
+        .unwrap();
+    assert_eq!(
+        pb_dal
+            .load_cursor("events:task_a".to_string())
+            .await
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        pb_dal
+            .load_cursor("events:task_b".to_string())
+            .await
+            .unwrap(),
+        0
+    );
+
+    let min = pb_dal
+        .min_cursor_for_source("events".to_string())
+        .await
+        .unwrap();
+    assert_eq!(min, 0); // B is slowest
+
+    pb_dal
+        .advance_cursor("events:task_b".to_string(), 5)
+        .await
+        .unwrap();
+    let min = pb_dal
+        .min_cursor_for_source("events".to_string())
+        .await
+        .unwrap();
+    assert_eq!(min, 5); // Both caught up
+}
+
+#[tokio::test]
+#[serial]
+async fn test_boundary_cleanup_after_all_consumers_drain() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    let id1 = pb_dal
+        .append("events".to_string(), r#"{"id":1}"#.to_string())
+        .await
+        .unwrap();
+    let _id2 = pb_dal
+        .append("events".to_string(), r#"{"id":2}"#.to_string())
+        .await
+        .unwrap();
+    let id3 = pb_dal
+        .append("events".to_string(), r#"{"id":3}"#.to_string())
+        .await
+        .unwrap();
+
+    pb_dal
+        .init_cursor("events:task_a".to_string(), "events".to_string())
+        .await
+        .unwrap();
+    pb_dal
+        .init_cursor("events:task_b".to_string(), "events".to_string())
+        .await
+        .unwrap();
+
+    // Both advance to id2
+    pb_dal
+        .advance_cursor("events:task_a".to_string(), id1 + 1)
+        .await
+        .unwrap();
+    pb_dal
+        .advance_cursor("events:task_b".to_string(), id1 + 1)
+        .await
+        .unwrap();
+
+    let min = pb_dal
+        .min_cursor_for_source("events".to_string())
+        .await
+        .unwrap();
+    pb_dal.cleanup("events".to_string(), min).await.unwrap();
+
+    // Only id3 should remain
+    let remaining = pb_dal
+        .load_after_cursor("events".to_string(), 0)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, id3);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_init_cursor_idempotent() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    pb_dal
+        .init_cursor("events:task_a".to_string(), "events".to_string())
+        .await
+        .unwrap();
+    pb_dal
+        .advance_cursor("events:task_a".to_string(), 10)
+        .await
+        .unwrap();
+
+    // Re-init should NOT reset
+    pb_dal
+        .init_cursor("events:task_a".to_string(), "events".to_string())
+        .await
+        .unwrap();
+
+    let cursor = pb_dal
+        .load_cursor("events:task_a".to_string())
+        .await
+        .unwrap();
+    assert_eq!(cursor, 10);
+}
+
+#[tokio::test]
+#[serial]
+async fn test_max_id_for_source() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    // Empty — should be None
+    let max = pb_dal
+        .max_id_for_source("events".to_string())
+        .await
+        .unwrap();
+    assert!(max.is_none());
+
+    let _id1 = pb_dal
+        .append("events".to_string(), r#"{"a":1}"#.to_string())
+        .await
+        .unwrap();
+    let id2 = pb_dal
+        .append("events".to_string(), r#"{"a":2}"#.to_string())
+        .await
+        .unwrap();
+
+    let max = pb_dal
+        .max_id_for_source("events".to_string())
+        .await
+        .unwrap();
+    assert_eq!(max, Some(id2));
+}
+
+#[tokio::test]
+#[serial]
+async fn test_multi_source_isolation() {
+    let dal = get_fresh_dal().await;
+    let pb_dal = cloacina::dal::unified::PendingBoundaryDAL::new(&dal);
+
+    pb_dal
+        .append("events".to_string(), r#"{"src":"events"}"#.to_string())
+        .await
+        .unwrap();
+    pb_dal
+        .append("events".to_string(), r#"{"src":"events"}"#.to_string())
+        .await
+        .unwrap();
+    pb_dal
+        .append("config".to_string(), r#"{"src":"config"}"#.to_string())
+        .await
+        .unwrap();
+
+    let events = pb_dal
+        .load_after_cursor("events".to_string(), 0)
+        .await
+        .unwrap();
+    let config = pb_dal
+        .load_after_cursor("config".to_string(), 0)
+        .await
+        .unwrap();
+
+    assert_eq!(events.len(), 2);
+    assert_eq!(config.len(), 1);
+
+    // Cleanup events doesn't affect config
+    pb_dal
+        .init_cursor("events:task".to_string(), "events".to_string())
+        .await
+        .unwrap();
+    let max = pb_dal
+        .max_id_for_source("events".to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    pb_dal
+        .advance_cursor("events:task".to_string(), max)
+        .await
+        .unwrap();
+    pb_dal.cleanup("events".to_string(), max).await.unwrap();
+
+    let events = pb_dal
+        .load_after_cursor("events".to_string(), 0)
+        .await
+        .unwrap();
+    let config = pb_dal
+        .load_after_cursor("config".to_string(), 0)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 0);
+    assert_eq!(config.len(), 1); // Untouched
+}

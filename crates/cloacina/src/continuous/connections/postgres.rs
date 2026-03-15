@@ -20,11 +20,26 @@ use crate::continuous::datasource::{ConnectionDescriptor, DataConnection, DataCo
 use serde_json::json;
 use std::any::Any;
 
+/// Pool configuration returned by `connect()`.
+///
+/// Consumers can use this to create a `deadpool-diesel` pool or a raw
+/// `diesel` connection. Centralizes connection parameters so every task
+/// does not need to re-parse the URL.
+#[derive(Debug, Clone)]
+pub struct PostgresPoolConfig {
+    /// Full connection URL (e.g., `postgres://user@host:port/db`).
+    pub url: String,
+    /// Maximum number of connections in the pool.
+    pub max_connections: u32,
+    /// Minimum number of idle connections to maintain.
+    pub min_connections: u32,
+}
+
 /// A PostgreSQL data connection for continuous scheduling.
 ///
 /// Provides connection information for a specific table in a PostgreSQL database.
-/// The `connect()` method returns the connection URL as a `String` handle.
-/// Tasks can use this to establish their own connection pools.
+/// The `connect()` method returns a `PostgresPoolConfig` that consumers can use
+/// to create shared connection pools via `deadpool-diesel`.
 #[derive(Debug, Clone)]
 pub struct PostgresConnection {
     /// Database host.
@@ -39,6 +54,10 @@ pub struct PostgresConnection {
     pub table: String,
     /// Optional username for connection URL.
     pub username: Option<String>,
+    /// Maximum pool connections (default: 10).
+    pub max_connections: u32,
+    /// Minimum idle pool connections (default: 1).
+    pub min_connections: u32,
 }
 
 impl PostgresConnection {
@@ -51,12 +70,26 @@ impl PostgresConnection {
             schema: schema.to_string(),
             table: table.to_string(),
             username: None,
+            max_connections: 10,
+            min_connections: 1,
         }
     }
 
     /// Set the username for the connection URL.
     pub fn with_username(mut self, username: &str) -> Self {
         self.username = Some(username.to_string());
+        self
+    }
+
+    /// Set the maximum number of connections in the pool.
+    pub fn with_max_connections(mut self, max: u32) -> Self {
+        self.max_connections = max;
+        self
+    }
+
+    /// Set the minimum number of idle connections in the pool.
+    pub fn with_min_connections(mut self, min: u32) -> Self {
+        self.min_connections = min;
         self
     }
 
@@ -74,9 +107,14 @@ impl PostgresConnection {
 
 impl DataConnection for PostgresConnection {
     fn connect(&self) -> Result<Box<dyn Any>, DataConnectionError> {
-        // Returns the connection URL as a String handle.
-        // Tasks use this to configure their own connection pools.
-        Ok(Box::new(self.connection_url()))
+        // Returns a PostgresPoolConfig that consumers can use to create
+        // shared connection pools. Multiple calls return configs pointing
+        // to the same database — consumers should create the pool once.
+        Ok(Box::new(PostgresPoolConfig {
+            url: self.connection_url(),
+            max_connections: self.max_connections,
+            min_connections: self.min_connections,
+        }))
     }
 
     fn descriptor(&self) -> ConnectionDescriptor {
@@ -93,6 +131,8 @@ impl DataConnection for PostgresConnection {
             "database": self.database,
             "schema": self.schema,
             "table": self.table,
+            "max_connections": self.max_connections,
+            "min_connections": self.min_connections,
         })
     }
 }
@@ -120,11 +160,15 @@ mod tests {
     }
 
     #[test]
-    fn test_postgres_connection_connect() {
-        let conn = PostgresConnection::new("localhost", 5432, "mydb", "public", "events");
+    fn test_postgres_connection_returns_pool_config() {
+        let conn = PostgresConnection::new("localhost", 5432, "mydb", "public", "events")
+            .with_max_connections(20)
+            .with_min_connections(2);
         let handle = conn.connect().unwrap();
-        let url = handle.downcast::<String>().unwrap();
-        assert_eq!(*url, "postgres://localhost:5432/mydb");
+        let config = handle.downcast::<PostgresPoolConfig>().unwrap();
+        assert_eq!(config.url, "postgres://localhost:5432/mydb");
+        assert_eq!(config.max_connections, 20);
+        assert_eq!(config.min_connections, 2);
     }
 
     #[test]
@@ -132,13 +176,22 @@ mod tests {
         let conn = PostgresConnection::new("localhost", 5432, "mydb", "public", "events")
             .with_username("admin");
         let handle = conn.connect().unwrap();
-        let url = handle.downcast::<String>().unwrap();
-        assert_eq!(*url, "postgres://admin@localhost:5432/mydb");
+        let config = handle.downcast::<PostgresPoolConfig>().unwrap();
+        assert_eq!(config.url, "postgres://admin@localhost:5432/mydb");
     }
 
     #[test]
     fn test_postgres_connection_url() {
         let conn = PostgresConnection::new("host", 5433, "db", "schema", "table");
         assert_eq!(conn.connection_url(), "postgres://host:5433/db");
+    }
+
+    #[test]
+    fn test_default_pool_settings() {
+        let conn = PostgresConnection::new("localhost", 5432, "mydb", "public", "events");
+        let handle = conn.connect().unwrap();
+        let config = handle.downcast::<PostgresPoolConfig>().unwrap();
+        assert_eq!(config.max_connections, 10);
+        assert_eq!(config.min_connections, 1);
     }
 }

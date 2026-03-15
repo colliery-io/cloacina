@@ -16,14 +16,18 @@
 
 //! Execution ledger for continuous scheduling.
 //!
-//! An in-memory append-only log recording all graph activity. The
-//! `ContinuousScheduler` writes to it; observers scan from cursors.
+//! An in-memory log recording all graph activity with configurable size limits.
+//! The `ContinuousScheduler` writes to it; observers scan from cursors.
 //!
 //! See CLOACI-S-0007 for the full specification.
 
 use super::boundary::ComputationBoundary;
 use chrono::{DateTime, Utc};
 use cloacina_workflow::Context;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::Notify;
+use tracing::debug;
 
 /// Events recorded in the execution ledger.
 #[derive(Debug)]
@@ -75,43 +79,122 @@ impl LedgerEvent {
     }
 }
 
-/// In-memory append-only log of graph activity.
+/// Default maximum number of events in the ledger.
+const DEFAULT_MAX_EVENTS: usize = 100_000;
+
+/// Configuration for the execution ledger.
+#[derive(Debug, Clone)]
+pub struct LedgerConfig {
+    /// Maximum number of events to retain. Oldest events are evicted when full.
+    pub max_events: usize,
+}
+
+impl Default for LedgerConfig {
+    fn default() -> Self {
+        Self {
+            max_events: DEFAULT_MAX_EVENTS,
+        }
+    }
+}
+
+/// In-memory log of graph activity with bounded size.
 ///
 /// The ledger is the single observation point for all continuous scheduling
 /// activity. Observers use cursor-based scanning to efficiently read new events.
+/// When the ledger reaches `max_events`, the oldest events are evicted.
+///
+/// Cursors are absolute indices. A `base_offset` tracks how many events have
+/// been evicted so that cursors remain valid across evictions.
 ///
 /// Thread safety: wrap in `Arc<RwLock<ExecutionLedger>>` for concurrent access.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ExecutionLedger {
-    events: Vec<LedgerEvent>,
+    events: VecDeque<LedgerEvent>,
+    /// Number of events evicted from the front. Cursor `n` maps to
+    /// `events[n - base_offset]`.
+    base_offset: usize,
+    config: LedgerConfig,
+    /// Notification channel for event-driven observers (e.g., LedgerTrigger).
+    /// `notify_waiters()` is called on every `append()`.
+    notify: Arc<Notify>,
+}
+
+impl Default for ExecutionLedger {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExecutionLedger {
-    /// Create a new empty ledger.
+    /// Create a new empty ledger with default configuration.
     pub fn new() -> Self {
-        Self { events: Vec::new() }
+        Self {
+            events: VecDeque::new(),
+            base_offset: 0,
+            config: LedgerConfig::default(),
+            notify: Arc::new(Notify::new()),
+        }
     }
 
-    /// Append an event to the ledger.
+    /// Create a new empty ledger with the given configuration.
+    pub fn with_config(config: LedgerConfig) -> Self {
+        Self {
+            events: VecDeque::new(),
+            base_offset: 0,
+            config,
+            notify: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Get a handle to the notification channel.
+    /// Observers can `await` on `notified()` to be woken when new events arrive.
+    pub fn subscribe(&self) -> Arc<Notify> {
+        self.notify.clone()
+    }
+
+    /// Append an event to the ledger, evicting the oldest if at capacity.
+    /// Notifies all waiting observers after appending.
     pub fn append(&mut self, event: LedgerEvent) {
-        self.events.push(event);
+        // Evict oldest if at capacity
+        if self.events.len() >= self.config.max_events {
+            let to_evict = self.events.len() - self.config.max_events + 1;
+            for _ in 0..to_evict {
+                self.events.pop_front();
+                self.base_offset += 1;
+            }
+            debug!(
+                "Ledger evicted {} events, base_offset now {}",
+                to_evict, self.base_offset
+            );
+        }
+        self.events.push_back(event);
+        // Wake up any observers waiting for new events
+        self.notify.notify_waiters();
     }
 
     /// Get all events since the given cursor position.
     ///
-    /// The cursor is an index into the events vector. Returns a slice
-    /// of events from `cursor` to the end. If cursor >= len, returns empty.
-    pub fn events_since(&self, cursor: usize) -> &[LedgerEvent] {
-        if cursor >= self.events.len() {
-            &[]
+    /// The cursor is an absolute index. If the cursor points to evicted events,
+    /// returns all available events from the earliest retained event.
+    /// If cursor >= len, returns empty.
+    pub fn events_since(&self, cursor: usize) -> Vec<&LedgerEvent> {
+        let effective_cursor = if cursor < self.base_offset {
+            0
         } else {
-            &self.events[cursor..]
+            cursor - self.base_offset
+        };
+
+        if effective_cursor >= self.events.len() {
+            Vec::new()
+        } else {
+            self.events.iter().skip(effective_cursor).collect()
         }
     }
 
-    /// Get the current length of the ledger (usable as next cursor position).
+    /// Get the current length (absolute index of next append).
+    /// Usable as next cursor position.
     pub fn len(&self) -> usize {
-        self.events.len()
+        self.base_offset + self.events.len()
     }
 
     /// Check if the ledger is empty.
@@ -119,9 +202,22 @@ impl ExecutionLedger {
         self.events.is_empty()
     }
 
-    /// Get a specific event by index.
+    /// Get a specific event by absolute index.
     pub fn get(&self, index: usize) -> Option<&LedgerEvent> {
-        self.events.get(index)
+        if index < self.base_offset {
+            return None; // evicted
+        }
+        self.events.get(index - self.base_offset)
+    }
+
+    /// Get the base offset (number of evicted events).
+    pub fn base_offset(&self) -> usize {
+        self.base_offset
+    }
+
+    /// Get the number of events currently retained.
+    pub fn retained_count(&self) -> usize {
+        self.events.len()
     }
 }
 
@@ -244,5 +340,130 @@ mod tests {
 
         assert!(ledger.get(0).is_some());
         assert!(ledger.get(1).is_none());
+    }
+
+    // --- Eviction tests ---
+
+    #[test]
+    fn test_ledger_eviction_on_overflow() {
+        let config = LedgerConfig { max_events: 3 };
+        let mut ledger = ExecutionLedger::with_config(config);
+
+        ledger.append(make_completed_event("a")); // index 0
+        ledger.append(make_completed_event("b")); // index 1
+        ledger.append(make_completed_event("c")); // index 2
+        assert_eq!(ledger.retained_count(), 3);
+        assert_eq!(ledger.base_offset(), 0);
+
+        // This should evict "a"
+        ledger.append(make_completed_event("d")); // index 3
+        assert_eq!(ledger.retained_count(), 3);
+        assert_eq!(ledger.base_offset(), 1);
+        assert_eq!(ledger.len(), 4); // absolute index
+
+        // "a" is evicted
+        assert!(ledger.get(0).is_none());
+        // "b" still accessible
+        assert!(ledger.get(1).is_some());
+        assert_eq!(ledger.get(1).unwrap().task_name(), Some("b"));
+    }
+
+    #[test]
+    fn test_ledger_cursor_adjustment_after_eviction() {
+        let config = LedgerConfig { max_events: 2 };
+        let mut ledger = ExecutionLedger::with_config(config);
+
+        ledger.append(make_completed_event("a")); // abs 0
+        ledger.append(make_completed_event("b")); // abs 1
+
+        let mut cursor = ledger.len(); // cursor = 2
+
+        ledger.append(make_completed_event("c")); // abs 2, evicts "a"
+        ledger.append(make_completed_event("d")); // abs 3, evicts "b"
+
+        // Cursor 2 still works — it points to "c"
+        let events = ledger.events_since(cursor);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].task_name(), Some("c"));
+        assert_eq!(events[1].task_name(), Some("d"));
+    }
+
+    #[test]
+    fn test_ledger_cursor_before_base_offset_returns_all_retained() {
+        let config = LedgerConfig { max_events: 2 };
+        let mut ledger = ExecutionLedger::with_config(config);
+
+        ledger.append(make_completed_event("a"));
+        ledger.append(make_completed_event("b"));
+        ledger.append(make_completed_event("c")); // evicts "a"
+
+        // Cursor 0 is before base_offset (1) — should return all retained events
+        let events = ledger.events_since(0);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].task_name(), Some("b"));
+        assert_eq!(events[1].task_name(), Some("c"));
+    }
+
+    // --- Hardening: stress tests ---
+
+    #[test]
+    fn test_ledger_heavy_eviction_stress() {
+        let config = LedgerConfig { max_events: 10 };
+        let mut ledger = ExecutionLedger::with_config(config);
+
+        // Append 10,000 events — only last 10 should be retained
+        for i in 0..10_000 {
+            ledger.append(make_completed_event(&format!("task_{}", i)));
+        }
+
+        assert_eq!(ledger.retained_count(), 10);
+        assert_eq!(ledger.len(), 10_000);
+        assert_eq!(ledger.base_offset(), 9990);
+
+        // Latest event should be accessible
+        assert!(ledger.get(9999).is_some());
+        assert_eq!(ledger.get(9999).unwrap().task_name(), Some("task_9999"));
+
+        // Early events should be evicted
+        assert!(ledger.get(0).is_none());
+        assert!(ledger.get(9989).is_none());
+    }
+
+    #[test]
+    fn test_ledger_cursor_tracking_through_eviction() {
+        let config = LedgerConfig { max_events: 5 };
+        let mut ledger = ExecutionLedger::with_config(config);
+
+        let mut cursor: usize = 0;
+
+        // Simulate multiple poll cycles with eviction
+        for batch in 0..20 {
+            // Append 3 events per cycle
+            for j in 0..3 {
+                ledger.append(make_completed_event(&format!("b{}_{}", batch, j)));
+            }
+
+            // Read new events from cursor
+            let events = ledger.events_since(cursor);
+            // Should always get the events we just appended (possibly more if cursor was behind)
+            assert!(!events.is_empty(), "batch {} should have events", batch);
+
+            cursor = ledger.len();
+        }
+
+        // After 20 batches of 3, total = 60, retained = 5
+        assert_eq!(ledger.len(), 60);
+        assert_eq!(ledger.retained_count(), 5);
+
+        // Cursor at end should give empty
+        assert!(ledger.events_since(cursor).is_empty());
+    }
+
+    #[test]
+    fn test_ledger_notify_on_append() {
+        let ledger = ExecutionLedger::new();
+        let notify = ledger.subscribe();
+        // Just verify subscribe works and returns a handle
+        assert!(std::sync::Arc::strong_count(&notify) >= 2);
     }
 }

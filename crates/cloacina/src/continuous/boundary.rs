@@ -23,9 +23,9 @@
 //! See CLOACI-S-0002 for the full specification.
 
 use chrono::{DateTime, Utc};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 /// A serializable message describing what slice of data a signal or execution covers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,35 +95,77 @@ pub struct CustomBoundarySchema {
     pub schema: serde_json::Value,
 }
 
-/// Global registry for custom boundary schemas.
-static CUSTOM_SCHEMAS: std::sync::LazyLock<RwLock<HashMap<String, CustomBoundarySchema>>> =
+/// Compiled schema entry for the registry.
+struct CompiledSchema {
+    /// Original schema definition.
+    definition: CustomBoundarySchema,
+    /// Compiled jsonschema validator — compiled once at registration time.
+    validator: jsonschema::Validator,
+}
+
+// Implement Debug manually since jsonschema::Validator doesn't implement Debug
+impl std::fmt::Debug for CompiledSchema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledSchema")
+            .field("definition", &self.definition)
+            .finish()
+    }
+}
+
+/// Global registry for custom boundary schemas with compiled validators.
+static CUSTOM_SCHEMAS: std::sync::LazyLock<RwLock<HashMap<String, CompiledSchema>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Register a custom boundary schema.
 ///
+/// The schema is compiled at registration time for fast validation.
 /// Custom boundary types must be registered before they can be used.
 /// Unregistered custom boundary kinds are rejected at signal ingestion.
 pub fn register_custom_boundary(kind: &str, schema: serde_json::Value) {
-    let mut schemas = CUSTOM_SCHEMAS.write().unwrap();
+    let validator = match jsonschema::validator_for(&schema) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                "Failed to compile JSON schema for custom boundary '{}': {}",
+                kind,
+                e
+            );
+            return;
+        }
+    };
+    let mut schemas = CUSTOM_SCHEMAS.write();
     schemas.insert(
         kind.to_string(),
-        CustomBoundarySchema {
-            kind: kind.to_string(),
-            schema,
+        CompiledSchema {
+            definition: CustomBoundarySchema {
+                kind: kind.to_string(),
+                schema,
+            },
+            validator,
         },
     );
 }
 
 /// Validate a custom boundary payload against its registered schema.
 ///
+/// Uses the compiled `jsonschema::Validator` for spec-compliant validation.
 /// Returns `Ok(())` if the payload is valid, or an error message if not.
 pub fn validate_custom_boundary(kind: &str, value: &serde_json::Value) -> Result<(), String> {
-    let schemas = CUSTOM_SCHEMAS.read().unwrap();
-    let schema = schemas
+    let schemas = CUSTOM_SCHEMAS.read();
+    let compiled = schemas
         .get(kind)
         .ok_or_else(|| format!("unregistered custom boundary kind: '{}'", kind))?;
 
-    validate_against_schema(value, &schema.schema)
+    if compiled.validator.is_valid(value) {
+        Ok(())
+    } else {
+        let errors: Vec<String> = compiled
+            .validator
+            .iter_errors(value)
+            .map(|e| e.to_string())
+            .collect();
+        Err(errors.join("; "))
+    }
 }
 
 /// Validate a `ComputationBoundary`. Non-Custom kinds always pass.
@@ -141,75 +183,13 @@ pub fn validate_boundary(boundary: &ComputationBoundary) -> Result<(), String> {
 /// Clear all registered custom boundary schemas (for testing).
 #[cfg(test)]
 pub fn clear_custom_schemas() {
-    let mut schemas = CUSTOM_SCHEMAS.write().unwrap();
+    let mut schemas = CUSTOM_SCHEMAS.write();
     schemas.clear();
 }
 
-/// Simple JSON schema validation.
-///
-/// Validates `required` fields and basic `type` checks. Not a full JSON Schema
-/// implementation — covers the common cases needed for boundary validation.
-fn validate_against_schema(
-    value: &serde_json::Value,
-    schema: &serde_json::Value,
-) -> Result<(), String> {
-    // Check type constraint
-    if let Some(expected_type) = schema.get("type").and_then(|t| t.as_str()) {
-        let actual_type = match value {
-            serde_json::Value::Object(_) => "object",
-            serde_json::Value::Array(_) => "array",
-            serde_json::Value::String(_) => "string",
-            serde_json::Value::Number(_) => {
-                if value.as_i64().is_some() || value.as_u64().is_some() {
-                    "integer"
-                } else {
-                    "number"
-                }
-            }
-            serde_json::Value::Bool(_) => "boolean",
-            serde_json::Value::Null => "null",
-        };
-
-        // "number" matches both "number" and "integer"
-        let type_matches =
-            actual_type == expected_type || (expected_type == "number" && actual_type == "integer");
-
-        if !type_matches {
-            return Err(format!(
-                "expected type '{}', got '{}'",
-                expected_type, actual_type
-            ));
-        }
-    }
-
-    // Check required fields for objects
-    if let (Some(required), Some(obj)) = (
-        schema.get("required").and_then(|r| r.as_array()),
-        value.as_object(),
-    ) {
-        for field in required {
-            if let Some(field_name) = field.as_str() {
-                if !obj.contains_key(field_name) {
-                    return Err(format!("missing required field: '{}'", field_name));
-                }
-            }
-        }
-    }
-
-    // Check properties types for objects
-    if let (Some(properties), Some(obj)) = (
-        schema.get("properties").and_then(|p| p.as_object()),
-        value.as_object(),
-    ) {
-        for (prop_name, prop_schema) in properties {
-            if let Some(prop_value) = obj.get(prop_name) {
-                validate_against_schema(prop_value, prop_schema)?;
-            }
-        }
-    }
-
-    Ok(())
-}
+// JSON schema validation is now handled by the `jsonschema` crate via
+// compiled validators in the CUSTOM_SCHEMAS registry. The previous hand-rolled
+// validation has been removed.
 
 /// Coalesce a slice of computation boundaries into a single boundary.
 ///
@@ -221,7 +201,8 @@ fn validate_against_schema(
 /// - `Custom`: Not coalesced — returns the latest boundary unchanged
 ///
 /// Returns `None` if the slice is empty. Returns the single boundary if length is 1.
-/// All boundaries must be of the same variant; mixed variants return the latest.
+/// All boundaries must be of the same variant; mixed variants log a warning
+/// and return `None` (refuse to coalesce).
 pub fn coalesce(boundaries: &[ComputationBoundary]) -> Option<ComputationBoundary> {
     if boundaries.is_empty() {
         return None;
@@ -246,8 +227,11 @@ pub fn coalesce(boundaries: &[ComputationBoundary]) -> Option<ComputationBoundar
                         max_end = *end;
                     }
                 } else {
-                    // Mixed variants — return latest
-                    return Some(latest.clone());
+                    // Mixed variants — refuse to coalesce
+                    tracing::warn!(
+                        "Cannot coalesce boundaries of mixed kinds — refusing to coalesce"
+                    );
+                    return None;
                 }
             }
             BoundaryKind::TimeRange {
@@ -492,7 +476,13 @@ mod tests {
 
         let result = validate_custom_boundary("missing_field_test_type", &serde_json::json!({}));
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("missing required field"));
+        // jsonschema produces its own error format; just check it's an error
+        let err = result.unwrap_err();
+        assert!(
+            !err.is_empty(),
+            "error message should not be empty: {}",
+            err
+        );
     }
 
     #[test]
@@ -521,6 +511,85 @@ mod tests {
             &serde_json::json!("not an object"),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("expected type"));
+        let err = result.unwrap_err();
+        assert!(
+            !err.is_empty(),
+            "error message should not be empty: {}",
+            err
+        );
+    }
+
+    // --- JSON Roundtrip Tests ---
+
+    #[test]
+    fn test_boundary_json_roundtrip_offset_range() {
+        let boundary = ComputationBoundary {
+            kind: BoundaryKind::OffsetRange { start: 0, end: 100 },
+            metadata: Some(serde_json::json!({"source": "events"})),
+            emitted_at: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&boundary).unwrap();
+        let deserialized: ComputationBoundary = serde_json::from_str(&json).unwrap();
+
+        match (&boundary.kind, &deserialized.kind) {
+            (
+                BoundaryKind::OffsetRange { start: s1, end: e1 },
+                BoundaryKind::OffsetRange { start: s2, end: e2 },
+            ) => {
+                assert_eq!(s1, s2);
+                assert_eq!(e1, e2);
+            }
+            _ => panic!("kind mismatch after roundtrip"),
+        }
+        assert_eq!(boundary.metadata, deserialized.metadata);
+    }
+
+    #[test]
+    fn test_boundary_json_roundtrip_cursor() {
+        let boundary = ComputationBoundary {
+            kind: BoundaryKind::Cursor {
+                value: "checkpoint_abc".into(),
+            },
+            metadata: None,
+            emitted_at: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&boundary).unwrap();
+        let deserialized: ComputationBoundary = serde_json::from_str(&json).unwrap();
+
+        match (&boundary.kind, &deserialized.kind) {
+            (BoundaryKind::Cursor { value: v1 }, BoundaryKind::Cursor { value: v2 }) => {
+                assert_eq!(v1, v2);
+            }
+            _ => panic!("kind mismatch after roundtrip"),
+        }
+    }
+
+    #[test]
+    fn test_boundary_json_roundtrip_time_range() {
+        let now = Utc::now();
+        let boundary = ComputationBoundary {
+            kind: BoundaryKind::TimeRange {
+                start: now - Duration::hours(1),
+                end: now,
+            },
+            metadata: None,
+            emitted_at: now,
+        };
+
+        let json = serde_json::to_string(&boundary).unwrap();
+        let deserialized: ComputationBoundary = serde_json::from_str(&json).unwrap();
+
+        match (&boundary.kind, &deserialized.kind) {
+            (
+                BoundaryKind::TimeRange { start: s1, end: e1 },
+                BoundaryKind::TimeRange { start: s2, end: e2 },
+            ) => {
+                assert_eq!(s1, s2);
+                assert_eq!(e1, e2);
+            }
+            _ => panic!("kind mismatch after roundtrip"),
+        }
     }
 }

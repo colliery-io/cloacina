@@ -32,8 +32,9 @@ use cloacina::continuous::graph::{assemble_graph, ContinuousTaskRegistration};
 use cloacina::continuous::ledger::{ExecutionLedger, LedgerEvent};
 use cloacina::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerConfig};
 use cloacina_workflow::{Context, Task, TaskError, TaskNamespace};
+use parking_lot::RwLock;
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
@@ -168,7 +169,7 @@ async fn main() {
     // Simulate detector workflow completions arriving in the ledger
     // (In production, these come from cron-triggered detector workflows)
     {
-        let mut l = ledger.write().unwrap();
+        let mut l = ledger.write();
 
         // First batch: offsets 0-100
         let mut ctx1 = Context::new();
@@ -216,6 +217,8 @@ async fn main() {
         ledger.clone(),
         ContinuousSchedulerConfig {
             poll_interval: Duration::from_millis(10),
+            max_fired_tasks: 10_000,
+            task_timeout: None,
         },
     );
 
@@ -242,7 +245,7 @@ async fn main() {
     }
 
     // Check ledger
-    let l = ledger.read().unwrap();
+    let l = ledger.read();
     println!("\n5. Execution Ledger ({} events):", l.len());
     for (i, event) in l.events_since(0).iter().enumerate() {
         match event {
