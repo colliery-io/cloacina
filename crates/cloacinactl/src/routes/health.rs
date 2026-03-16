@@ -33,6 +33,8 @@ pub struct AppState {
     pub mode: String,
     /// Auth middleware state. None when running in api-only mode without a database.
     pub auth_state: Option<crate::auth::middleware::AuthState>,
+    /// The DefaultRunner for backend services. None in api-only mode.
+    pub runner: Option<cloacina::runner::DefaultRunner>,
 }
 
 /// Health check response body.

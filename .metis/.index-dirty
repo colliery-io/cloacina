@@ -1,1 +1,6 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/auth/pattern.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/health.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/error.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/workflows.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/executions.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/serve.rs

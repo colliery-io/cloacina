@@ -19,7 +19,7 @@
 use crate::config::ServerConfig;
 use crate::routes::health::{self, AppState};
 use anyhow::Result;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use std::sync::Arc;
 use std::time::Instant;
@@ -96,8 +96,31 @@ pub fn app(state: Arc<AppState>) -> Router {
         .merge(SwaggerUi::new("/api-docs/").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     // Protected routes — auth required
-    let protected_routes =
-        Router::new().route("/auth-test", get(crate::routes::auth_test::auth_test));
+    let protected_routes = Router::new()
+        .route("/auth-test", get(crate::routes::auth_test::auth_test))
+        .route(
+            "/executions",
+            post(crate::routes::executions::create_execution)
+                .get(crate::routes::executions::list_executions),
+        )
+        .route(
+            "/executions/{id}",
+            get(crate::routes::executions::get_execution)
+                .delete(crate::routes::executions::cancel_execution),
+        )
+        .route(
+            "/executions/{id}/pause",
+            post(crate::routes::executions::pause_execution),
+        )
+        .route(
+            "/executions/{id}/resume",
+            post(crate::routes::executions::resume_execution),
+        )
+        .route("/workflows", get(crate::routes::workflows::list_workflows))
+        .route(
+            "/workflows/packages",
+            post(crate::routes::workflows::upload_package),
+        );
 
     // Apply auth middleware to protected routes only (if auth is configured)
     let protected_routes = if let Some(ref auth) = state.auth_state {
@@ -229,6 +252,7 @@ pub async fn run(args: &ServeArgs) -> Result<()> {
             startup_instant: Instant::now(),
             mode: config.server.mode.clone(),
             auth_state,
+            runner: runner.clone(),
         });
 
         let bind_addr = format!("{}:{}", config.server.bind, config.server.port);
@@ -273,6 +297,7 @@ mod tests {
             startup_instant: Instant::now(),
             mode: "api".to_string(),
             auth_state: None,
+            runner: None,
         });
 
         // Bind to port 0 (OS assigns random available port)
@@ -332,6 +357,7 @@ mod tests {
             startup_instant: Instant::now(),
             mode: "scheduler".to_string(),
             auth_state: None,
+            runner: None,
         });
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -363,6 +389,7 @@ mod tests {
             startup_instant: Instant::now(),
             mode: "api".to_string(),
             auth_state: None,
+            runner: None,
         });
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -404,6 +431,7 @@ mod tests {
             startup_instant: Instant::now(),
             mode: "api".to_string(),
             auth_state: Some(auth_state),
+            runner: None,
         });
 
         (app(state.clone()), state)
@@ -534,6 +562,171 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 401);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    // --- API endpoint tests (no DB, no runner — verify routing and error handling) ---
+
+    #[tokio::test]
+    async fn test_api_workflows_without_runner_returns_503() {
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let key_hash =
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+        cache.insert(
+            "test_demo".to_string(),
+            vec![crate::auth::cache::CachedKey {
+                key_hash,
+                key_id: uuid::Uuid::new_v4(),
+                tenant_id: None,
+                can_read: true,
+                can_write: true,
+                can_execute: true,
+                can_admin: true,
+                expires_at: None,
+                revoked_at: None,
+                workflow_patterns: vec![],
+            }],
+        );
+
+        let (router, _) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let client = reqwest::Client::new();
+
+        // GET /workflows without runner → 503
+        let resp = client
+            .get(format!("http://{}/workflows", addr))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 503);
+
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE");
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_api_executions_without_auth_returns_401() {
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let (router, _) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let client = reqwest::Client::new();
+
+        // POST /executions without auth → 401
+        let resp = client
+            .post(format!("http://{}/executions", addr))
+            .json(&serde_json::json!({"workflow_name": "test"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // GET /executions without auth → 401
+        let resp = client
+            .get(format!("http://{}/executions", addr))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_api_error_format_consistency() {
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let key_hash =
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+        cache.insert(
+            "test_demo".to_string(),
+            vec![crate::auth::cache::CachedKey {
+                key_hash,
+                key_id: uuid::Uuid::new_v4(),
+                tenant_id: None,
+                can_read: true,
+                can_write: true,
+                can_execute: true,
+                can_admin: true,
+                expires_at: None,
+                revoked_at: None,
+                workflow_patterns: vec![],
+            }],
+        );
+
+        let (router, _) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let client = reqwest::Client::new();
+
+        // GET /executions/{id} without runner → 503 with consistent error format
+        let resp = client
+            .get(format!(
+                "http://{}/executions/550e8400-e29b-41d4-a716-446655440000",
+                addr
+            ))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 503);
+
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert!(
+            body["error"]["code"].is_string(),
+            "error.code should be a string"
+        );
+        assert!(
+            body["error"]["message"].is_string(),
+            "error.message should be a string"
+        );
+        assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE");
 
         let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
     }

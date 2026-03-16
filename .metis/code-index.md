@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-16T20:41:04Z | 395 files | JavaScript, Python, Rust
+> Generated: 2026-03-16T21:07:04Z | 395 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1809,23 +1809,23 @@
 - pub `ApiKeyDAL` struct L27-29 — `{ dal: &'a DAL }` — Data access layer for API key operations.
 - pub `new` function L32-34 — `(dal: &'a DAL) -> Self` — DAL for API key operations (auth system).
 - pub `create` function L37-43 — `(&self, new_key: NewApiKey) -> Result<(), String>` — Create a new API key.
-- pub `create_patterns` function L46-55 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — Create workflow patterns in batch.
-- pub `load_by_prefix` function L58-68 — `( &self, prefix: &str, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, St...` — Load API keys by prefix, along with their workflow patterns.
-- pub `list_by_tenant` function L71-80 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — List API keys for a specific tenant.
-- pub `list_all` function L83-89 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — List all API keys (across all tenants).
-- pub `revoke` function L92-98 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — Revoke an API key by setting revoked_at to now.
--  `create_postgres` function L103-120 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
--  `create_patterns_postgres` function L123-143 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
--  `load_by_prefix_postgres` function L146-186 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
--  `list_by_tenant_postgres` function L189-208 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
--  `list_all_postgres` function L211-227 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
--  `revoke_postgres` function L230-250 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
--  `create_sqlite` function L255-272 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
--  `create_patterns_sqlite` function L275-297 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
--  `load_by_prefix_sqlite` function L300-332 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
--  `list_by_tenant_sqlite` function L335-354 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
--  `list_all_sqlite` function L357-373 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
--  `revoke_sqlite` function L376-396 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
+- pub `create_patterns` function L46-52 — `(&self, patterns: Vec<NewWorkflowPattern>) -> Result<(), String>` — Create workflow patterns in batch.
+- pub `load_by_prefix` function L55-65 — `( &self, prefix: &str, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, St...` — Load API keys by prefix, along with their workflow patterns.
+- pub `list_by_tenant` function L68-74 — `(&self, tenant_id: UniversalUuid) -> Result<Vec<ApiKeyRow>, String>` — List API keys for a specific tenant.
+- pub `list_all` function L77-83 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — List all API keys (across all tenants).
+- pub `revoke` function L86-92 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — Revoke an API key by setting revoked_at to now.
+-  `create_postgres` function L97-114 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_patterns_postgres` function L117-137 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `load_by_prefix_postgres` function L140-180 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
+-  `list_by_tenant_postgres` function L183-202 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `list_all_postgres` function L205-221 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `revoke_postgres` function L224-244 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_sqlite` function L249-266 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_patterns_sqlite` function L269-291 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `load_by_prefix_sqlite` function L294-326 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
+-  `list_by_tenant_sqlite` function L329-348 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `list_all_sqlite` function L351-367 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `revoke_sqlite` function L370-390 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
 
 #### crates/cloacina/src/dal/unified/context.rs
 
@@ -5587,21 +5587,21 @@
 #### crates/cloacinactl/src/auth/cache.rs
 
 - pub `CachedKey` struct L27-38 — `{ key_hash: String, key_id: Uuid, tenant_id: Option<Uuid>, can_read: bool, can_w...` — Cached API key with pre-loaded permissions and workflow patterns.
-- pub `AuthCache` struct L49-52 — `{ inner: Arc<RwLock<HashMap<String, CacheEntry>>>, ttl: Duration }` — In-memory auth cache with configurable TTL.
-- pub `new` function L55-60 — `(ttl: Duration) -> Self` — In-memory auth cache with TTL for API key lookups.
-- pub `lookup` function L63-82 — `(&self, prefix: &str) -> Option<Vec<CachedKey>>` — Look up cached keys by prefix.
-- pub `insert` function L85-88 — `(&self, prefix: String, keys: Vec<CachedKey>)` — Insert found keys into cache.
-- pub `insert_not_found` function L91-94 — `(&self, prefix: String)` — Insert negative cache entry (prefix not found in DB).
-- pub `invalidate` function L97-100 — `(&self, prefix: &str)` — Invalidate a specific prefix (e.g., after key creation or revocation).
--  `CacheEntry` enum L42-45 — `Found | NotFound` — Cache entry: either found keys or negative cache.
--  `AuthCache` type L54-101 — `= AuthCache` — In-memory auth cache with TTL for API key lookups.
--  `tests` module L104-179 — `-` — In-memory auth cache with TTL for API key lookups.
--  `make_cached_key` function L107-120 — `(name: &str) -> CachedKey` — In-memory auth cache with TTL for API key lookups.
--  `test_insert_and_lookup` function L123-133 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_ttl_expiry` function L136-149 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_negative_cache` function L152-159 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_invalidation` function L162-172 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_miss_returns_none` function L175-178 — `()` — In-memory auth cache with TTL for API key lookups.
+- pub `AuthCache` struct L54-57 — `{ inner: Arc<RwLock<HashMap<String, CacheEntry>>>, ttl: Duration }` — In-memory auth cache with configurable TTL.
+- pub `new` function L60-65 — `(ttl: Duration) -> Self` — In-memory auth cache with TTL for API key lookups.
+- pub `lookup` function L68-87 — `(&self, prefix: &str) -> Option<Vec<CachedKey>>` — Look up cached keys by prefix.
+- pub `insert` function L90-99 — `(&self, prefix: String, keys: Vec<CachedKey>)` — Insert found keys into cache.
+- pub `insert_not_found` function L102-110 — `(&self, prefix: String)` — Insert negative cache entry (prefix not found in DB).
+- pub `invalidate` function L113-116 — `(&self, prefix: &str)` — Invalidate a specific prefix (e.g., after key creation or revocation).
+-  `CacheEntry` enum L42-50 — `Found | NotFound` — Cache entry: either found keys or negative cache.
+-  `AuthCache` type L59-117 — `= AuthCache` — In-memory auth cache with TTL for API key lookups.
+-  `tests` module L120-195 — `-` — In-memory auth cache with TTL for API key lookups.
+-  `make_cached_key` function L123-136 — `(name: &str) -> CachedKey` — In-memory auth cache with TTL for API key lookups.
+-  `test_insert_and_lookup` function L139-149 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_ttl_expiry` function L152-165 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_negative_cache` function L168-175 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_invalidation` function L178-188 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_miss_returns_none` function L191-194 — `()` — In-memory auth cache with TTL for API key lookups.
 
 #### crates/cloacinactl/src/auth/context.rs
 
@@ -5612,14 +5612,14 @@
 #### crates/cloacinactl/src/auth/middleware.rs
 
 - pub `AuthState` struct L32-35 — `{ cache: AuthCache, dal: Arc<cloacina::dal::DAL> }` — Auth middleware state, shared across requests.
-- pub `auth_middleware` function L39-157 — `( axum::extract::State(auth_state): axum::extract::State<AuthState>, mut request...` — Middleware function for authentication.
-- pub `Permission` enum L174-179 — `Read | Write | Execute | Admin` — Permission types for route-level authorization.
-- pub `require_read` function L182-184 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Read permission.
-- pub `require_write` function L187-189 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Write permission.
-- pub `require_execute` function L192-194 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Execute permission.
-- pub `require_admin` function L197-199 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Admin permission.
--  `extract_bearer_token` function L159-166 — `(request: &Request) -> Option<String>` — Authentication and authorization middleware for axum.
--  `check_permission` function L201-229 — `(request: Request, next: Next, required: Permission) -> Response` — Authentication and authorization middleware for axum.
+- pub `auth_middleware` function L39-154 — `( axum::extract::State(auth_state): axum::extract::State<AuthState>, mut request...` — Middleware function for authentication.
+- pub `Permission` enum L171-176 — `Read | Write | Execute | Admin` — Permission types for route-level authorization.
+- pub `require_read` function L179-181 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Read permission.
+- pub `require_write` function L184-186 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Write permission.
+- pub `require_execute` function L189-191 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Execute permission.
+- pub `require_admin` function L194-196 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Admin permission.
+-  `extract_bearer_token` function L156-163 — `(request: &Request) -> Option<String>` — Authentication and authorization middleware for axum.
+-  `check_permission` function L198-226 — `(request: Request, next: Next, required: Permission) -> Response` — Authentication and authorization middleware for axum.
 
 #### crates/cloacinactl/src/auth/mod.rs
 
@@ -5648,9 +5648,9 @@
 #### crates/cloacinactl/src/commands/api_key.rs
 
 - pub `create` function L26-103 — `( dal: &DAL, tenant: Option<&str>, name: Option<&str>, read: bool, write: bool, ...` — Create a new API key.
-- pub `list` function L106-181 — `(dal: &DAL, tenant: Option<&str>) -> Result<()>` — List API keys.
-- pub `revoke` function L184-196 — `(dal: &DAL, key_id: &str) -> Result<()>` — Revoke an API key.
-- pub `create_admin` function L199-201 — `(dal: &DAL, name: &str) -> Result<()>` — Create a global super-admin key (bootstrap command).
+- pub `list` function L106-178 — `(dal: &DAL, tenant: Option<&str>) -> Result<()>` — List API keys.
+- pub `revoke` function L181-193 — `(dal: &DAL, key_id: &str) -> Result<()>` — Revoke an API key.
+- pub `create_admin` function L196-198 — `(dal: &DAL, name: &str) -> Result<()>` — Create a global super-admin key (bootstrap command).
 
 #### crates/cloacinactl/src/commands/cleanup_events.rs
 
@@ -5707,20 +5707,20 @@
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
 - pub `app` function L92-116 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L175-263 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `run` function L175-262 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
 -  `shutdown_signal` function L119-143 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
 -  `build_runner_config` function L146-172 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L266-539 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L271-328 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L331-359 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L362-389 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L392-413 — `( cache: crate::auth::cache::AuthCache, ) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L416-447 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L450-504 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L507-538 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `tests` module L265-540 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L270-327 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L330-358 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L361-388 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L391-410 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L413-444 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L447-505 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L508-539 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 

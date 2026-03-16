@@ -17,4 +17,7 @@
 //! HTTP route handlers for the Cloacina server.
 
 pub mod auth_test;
+pub mod error;
+pub mod executions;
 pub mod health;
+pub mod workflows;

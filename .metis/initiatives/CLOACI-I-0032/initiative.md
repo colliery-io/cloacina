@@ -4,14 +4,14 @@ level: initiative
 title: "Server Phase 4: Core REST API"
 short_code: "CLOACI-I-0032"
 created_at: 2026-03-16T01:32:35.636577+00:00
-updated_at: 2026-03-16T01:32:35.636577+00:00
+updated_at: 2026-03-16T21:09:24.196773+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -44,102 +44,77 @@ The underlying operations already exist in the library (PackageLoader, DefaultRu
 - `DELETE /executions/{id}` — cancel execution
 - Consistent JSON error format with error codes
 
-## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
+## Detailed Design
 
-{Delete if not a requirements-focused initiative}
+### Existing Library APIs (audit: 2026-03-16)
 
-### User Requirements
-- **User Characteristics**: {Technical background, experience level, etc.}
-- **System Functionality**: {What users expect the system to do}
-- **User Interfaces**: {How users will interact with the system}
+Every endpoint wraps an existing library function — no new engine logic needed:
 
-### System Requirements
-- **Functional Requirements**: {What the system should do - use unique identifiers}
-  - REQ-001: {Functional requirement 1}
-  - REQ-002: {Functional requirement 2}
-- **Non-Functional Requirements**: {How the system should behave}
-  - NFR-001: {Performance requirement}
-  - NFR-002: {Security requirement}
+| Endpoint | HTTP | Library Function | Permission |
+|---|---|---|---|
+| Upload package | `POST /workflows/packages` | `WorkflowRegistry::register_workflow(Vec<u8>)` → `Uuid` | write |
+| List workflows | `GET /workflows` | `WorkflowRegistry::list_workflows()` → `Vec<WorkflowMetadata>` | read |
+| Trigger run | `POST /executions` | `PipelineExecutor::execute_async(name, context)` → `PipelineExecution` | execute + workflow pattern |
+| Get status | `GET /executions/{id}` | `PipelineExecutor::get_execution_result(uuid)` → `PipelineResult` | read |
+| List executions | `GET /executions` | `PipelineExecutor::list_executions()` → `Vec<PipelineResult>` | read |
+| Pause | `POST /executions/{id}/pause` | `PipelineExecutor::pause_execution(uuid, reason)` | execute |
+| Resume | `POST /executions/{id}/resume` | `PipelineExecutor::resume_execution(uuid)` | execute |
+| Cancel | `DELETE /executions/{id}` | `PipelineExecutor::cancel_execution(uuid)` | execute |
 
-## Use Cases **[CONDITIONAL: User-Facing Initiative]**
+### AppState Extension
 
-{Delete if not user-facing}
+The handlers need access to DefaultRunner (which implements PipelineExecutor). Add to AppState:
 
-### Use Case 1: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+```rust
+pub struct AppState {
+    pub startup_instant: Instant,
+    pub mode: String,
+    pub auth_state: Option<AuthState>,
+    pub runner: Option<DefaultRunner>,  // None in api-only mode without DB
+}
+```
 
-### Use Case 2: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+### Error Response Format
 
-## Architecture **[CONDITIONAL: Technically Complex Initiative]**
+Consistent JSON error format across all endpoints:
 
-{Delete if not technically complex}
+```json
+{
+    "error": {
+        "code": "EXECUTION_NOT_FOUND",
+        "message": "Pipeline execution not found: 550e8400-e29b-41d4-a716-446655440000"
+    }
+}
+```
 
-### Overview
-{High-level architectural approach}
+Map library errors to HTTP status codes:
+- `PipelineError::NotFound` → 404
+- `PipelineError::Configuration` → 400
+- `PipelineError::Executor` → 500
+- `PipelineError::Timeout` → 408
+- `RegistryError` → 400/409/500
+- `ValidationError` → 400
 
-### Component Diagrams
-{Describe or link to component diagrams}
+### Multipart Package Upload
 
-### Class Diagrams
-{Describe or link to class diagrams - for OOP systems}
+`POST /workflows/packages` uses axum's `Multipart` extractor:
+- Field name: `package` or `file`
+- Content-Type: `application/octet-stream` or `multipart/form-data`
+- Max size: configurable (default 100MB)
+- Signature verification happens inside `register_workflow()`
 
-### Sequence Diagrams
-{Describe or link to sequence diagrams - for interaction flows}
+## Implementation Plan
 
-### Deployment Diagrams
-{Describe or link to deployment diagrams - for infrastructure}
-
-## Detailed Design **[REQUIRED]**
-
-{Technical approach and implementation details}
-
-## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
-
-{Delete if no UI components}
-
-### User Interface Mockups
-{Describe or link to UI mockups}
-
-### User Flows
-{Describe key user interaction flows}
-
-### Design System Integration
-{How this fits with existing design patterns}
-
-## Testing Strategy **[CONDITIONAL: Separate Testing Initiative]**
-
-{Delete if covered by separate testing initiative}
-
-### Unit Testing
-- **Strategy**: {Approach to unit testing}
-- **Coverage Target**: {Expected coverage percentage}
-- **Tools**: {Testing frameworks and tools}
-
-### Integration Testing
-- **Strategy**: {Approach to integration testing}
-- **Test Environment**: {Where integration tests run}
-- **Data Management**: {Test data strategy}
-
-### System Testing
-- **Strategy**: {End-to-end testing approach}
-- **User Acceptance**: {How UAT will be conducted}
-- **Performance Testing**: {Load and stress testing}
-
-### Test Selection
-{Criteria for determining what to test}
-
-### Bug Tracking
-{How defects will be managed and prioritized}
-
-## Alternatives Considered **[REQUIRED]**
-
-{Alternative approaches and why they were rejected}
-
-## Implementation Plan **[REQUIRED]**
-
-{Phases and timeline for execution}
+- [ ] Consistent error response type (ApiError struct + IntoResponse impl)
+- [ ] Add DefaultRunner to AppState, wire in serve.rs
+- [ ] POST /workflows/packages — multipart upload handler
+- [ ] GET /workflows — list workflows handler
+- [ ] POST /executions — trigger execution handler (async mode)
+- [ ] GET /executions/{id} — get execution result handler
+- [ ] GET /executions — list executions handler
+- [ ] POST /executions/{id}/pause — pause handler
+- [ ] POST /executions/{id}/resume — resume handler
+- [ ] DELETE /executions/{id} — cancel handler
+- [ ] Wire all routes into protected Router with permission guards
+- [ ] utoipa annotations on all endpoints + response schemas
+- [ ] Integration test: upload package → trigger execution → poll status → complete
