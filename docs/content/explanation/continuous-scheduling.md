@@ -43,12 +43,14 @@ The reactive loop:
 
 1. **Detector workflows** poll external data sources via `DataConnection.connect()`
 2. Detectors produce `DetectorOutput` — boundaries describing what data changed
-3. The `ContinuousScheduler` observes detector completions via the `ExecutionLedger`
-4. Boundaries are routed to per-edge `SignalAccumulator`s
-5. When a `TriggerPolicy` fires, the accumulator drains and coalesces boundaries
-6. The coalesced boundary context is merged and submitted to the `TaskScheduler`
-7. The continuous task executes with boundary context
-8. Task completion is recorded in the `ExecutionLedger`
+3. Detectors optionally write `__last_known_state` to their output context for crash recovery
+4. The `ContinuousScheduler` observes detector completions via the `ExecutionLedger`
+5. Boundaries are persisted to the WAL (write-ahead log) and routed to per-edge `SignalAccumulator`s
+6. When a `TriggerPolicy` fires, the accumulator drains and coalesces boundaries
+7. The coalesced boundary context is merged and the continuous task executes
+8. On drain: consumer watermarks are persisted, edge drain cursors advanced, detector state committed when all consumers catch up
+9. Task completion is recorded in the `ExecutionLedger`
+10. `LedgerTrigger` observers wake up and fire derived data source detectors (feedback loop)
 
 ## Key Concepts
 
@@ -62,9 +64,9 @@ A serializable message describing what slice of data a signal covers. Five kinds
 | `OffsetRange` | min(starts)..max(ends) | Kafka partition offsets |
 | `Cursor` | Latest wins | Opaque resume tokens |
 | `FullState` | Latest wins | Entire dataset changes (version hash) |
-| `Custom` | User-defined | Domain-specific boundaries |
+| `Custom` | Latest wins (schema-validated via `jsonschema` crate) | Domain-specific boundaries |
 
-Boundaries are advisory — the framework carries them, tasks scope their own work.
+Boundaries are advisory — the framework carries them, tasks scope their own work. Mixed boundary kinds refuse to coalesce (logged as warning, returns None).
 
 ### DataSource and DataConnection
 
@@ -73,30 +75,52 @@ A `DataSource` is a named handle to an external dataset with:
 - A detector workflow reference for change detection
 - Lineage metadata
 
-Tasks access data sources via `DataSourceMap`, which provides typed connection handles.
+The framework provides `PostgresConnection` (with pool config), `KafkaConnection`, and `S3Connection`. Tasks access data sources via `DataSourceMap`, which provides typed connection handles.
 
 ### SignalAccumulator
 
 Per-edge stateful component that buffers boundaries and decides when to fire:
 
-- `receive(boundary)` — buffer incoming boundaries
+- `receive(boundary)` — buffer incoming boundaries, returns `ReceiveResult` (Accepted or AcceptedWithDrop for backpressure)
 - `is_ready()` — check if the trigger policy says "fire now"
+- `try_drain()` — atomically check readiness and drain under a single lock (prevents TOCTOU races)
 - `drain()` — coalesce buffered boundaries into a partial context fragment
+- `metrics()` — O(1) cached metrics (buffered count, oldest/newest emitted_at, max lag)
 
-The `SimpleAccumulator` preset fires based on an injected `TriggerPolicy` without watermark awareness.
+Two implementations:
+- `SimpleAccumulator` — fires based on `TriggerPolicy` alone, no watermark awareness
+- `WindowedAccumulator` — adds watermark-gated readiness in `WaitForWatermark` mode
+
+Both have configurable `max_buffer_size` (default 10,000) with drop-oldest eviction on overflow.
 
 ### TriggerPolicy
 
 Controls when an accumulator fires. Framework provides:
 
-- `Immediate` — fire on every boundary
-- `WallClockWindow` — fire after wall clock duration since last drain
+| Policy | Fires when |
+|--------|-----------|
+| `Immediate` | Buffer non-empty |
+| `BoundaryCount(n)` | N boundaries buffered |
+| `WallClockWindow(d)` | Duration since last drain |
+| `WallClockDebounce(d)` | No new boundaries for duration (silence = burst over) |
+| `AnyPolicy(vec![...])` | Any sub-policy matches (OR combinator) |
+| `AllPolicy(vec![...])` | All sub-policies match (AND combinator) |
 
-Custom policies implement the `TriggerPolicy` trait.
+Composites propagate `mark_drained()` to all sub-policies, so timing-based policies reset correctly in nested configurations.
 
 ### ExecutionLedger
 
-In-memory append-only log recording all graph activity. The scheduler writes to it; observers scan from cursors. Events include `TaskCompleted`, `TaskFailed`, `BoundaryEmitted`, and `AccumulatorDrained`.
+Bounded in-memory log recording all graph activity with configurable eviction (default 100K events). Uses `VecDeque` with `base_offset` tracking so cursor-based scanning works across evictions. Emits `Notify` on every append for event-driven observers.
+
+Events: `TaskCompleted`, `TaskFailed`, `BoundaryEmitted`, `AccumulatorDrained`.
+
+### Graph Assembly and Validation
+
+`assemble_graph()` validates and constructs the `DataSourceGraph`:
+- Validates all referenced data sources exist
+- Creates `GraphEdge` for each task x triggering source pair
+- Performs cycle detection via Kahn's algorithm on data-flow dependencies
+- Multiple data sources may share the same detector workflow (fan-out from one producer)
 
 ## Defining Continuous Tasks
 
@@ -122,25 +146,6 @@ async fn aggregate_hourly(
 - `sources` — data sources that trigger execution (create graph edges with accumulators)
 - `referenced` — data sources available but not triggering (no accumulator, no edge)
 
-## Graph Assembly
-
-The graph emerges implicitly from declarations:
-1. `DataSource` registrations (name, connection, detector workflow)
-2. `#[continuous_task]` declarations (which sources trigger, which are referenced)
-
-At startup, `assemble_graph()` creates `GraphEdge`s for each task × triggering source pair, validates references, and constructs the `DataSourceGraph`.
-
-## Configuration
-
-Enable continuous scheduling via `DefaultRunnerConfig`:
-
-```rust
-let config = DefaultRunnerConfig::builder()
-    .enable_continuous_scheduling(true)
-    .continuous_poll_interval(Duration::from_millis(100))
-    .build();
-```
-
 ## Context Keys
 
 The accumulator injects these keys into the task's context on drain:
@@ -150,35 +155,105 @@ The accumulator injects these keys into the task's context on drain:
 | `__boundary` | JSON | The coalesced boundary (kind + metadata) |
 | `__signals_coalesced` | integer | Number of raw signals merged into this boundary |
 | `__accumulator_lag_ms` | integer | Max ingestion lag across buffered boundaries |
+| `__last_known_state` | JSON | Detector's persisted state (available if detector wrote it) |
 
 ## Watermarks and Late Arrival
 
 The system uses a **two-watermark model**:
 
-- **Source watermarks** (on `BoundaryLedger`): per data source, "nothing earlier will arrive" — a user assertion from the detector
-- **Consumer watermarks** (on each accumulator): "I've processed up to here" — updated on each drain
+- **Source watermarks** (on `BoundaryLedger`): per data source, "nothing earlier will arrive" — asserted by the detector via `DetectorOutput::WatermarkAdvance`
+- **Consumer watermarks** (on each accumulator): "I've processed up to here" — updated on each drain, persisted to DB
 
-The `WindowedAccumulator` checks source watermarks before firing:
+Watermarks enforce monotonicity: advancing backward or switching boundary kinds is rejected. The `WindowedAccumulator` in `WaitForWatermark` mode blocks until the source watermark covers the pending coalesced boundary.
 
-```rust
-// WaitForWatermark mode: blocks until source confirms data completeness
-let acc = WindowedAccumulator::new(
-    Box::new(WallClockWindow::new(Duration::from_secs(3600))),
-    WatermarkMode::WaitForWatermark,
-    boundary_ledger.clone(),
-    "raw_events".into(),
-);
-```
-
-When a boundary arrives behind a consumer watermark, the **per-edge `LateArrivalPolicy`** determines the behavior: `Discard`, `AccumulateForward`, `Retrigger`, or `RouteToSideChannel`.
+When a boundary arrives behind a consumer watermark, the per-edge `LateArrivalPolicy` determines behavior:
+- `Discard` — drop the late boundary
+- `AccumulateForward` — buffer for next cycle (default)
+- `Retrigger` — re-submit for re-execution
 
 ## Derived Data Sources
 
-`LedgerTrigger` watches the `ExecutionLedger` for task completions and fires detector workflows for derived data sources — completing the reactive feedback loop without explicit wiring.
+`LedgerTrigger` watches the `ExecutionLedger` for task completions and fires detector workflows for derived data sources — completing the reactive feedback loop without explicit wiring. Supports `Any` (fire on any watched task) and `All` (fire when all watched tasks completed) match modes.
+
+The trigger subscribes to ledger `Notify` events for near-instant wake-up (5-second polling fallback for missed notifications).
+
+## Crash Recovery
+
+With a DAL configured, the scheduler provides full crash recovery via three persistence layers:
+
+### Boundary WAL (Write-Ahead Log)
+
+Per-source ordered log of boundaries with per-edge drain cursors (Kafka consumer group model):
+
+- **On boundary routing**: 1 INSERT per source per boundary (O(1) regardless of fan-out)
+- **On edge drain**: advance that edge's cursor
+- **Cleanup**: delete boundaries where all edge cursors have advanced past them
+- **On restart**: re-inject unconsumed boundaries into each edge's accumulator
+
+### Consumer Watermarks
+
+Per-edge watermarks persisted on drain (existing `accumulator_state` table). Restored on startup to enable correct late-arrival detection.
+
+### Detector State
+
+Per-source committed checkpoint with latest/committed split:
+
+- Detectors write `__last_known_state` to their output context
+- The scheduler tracks the latest state in memory
+- On drain, the current latest is recorded per-edge
+- The committed state advances only when ALL consumers for a source have drained (slowest consumer gates the commit)
+- On restart, detectors read committed state to resume from the last fully-processed point
+
+### Startup Sequence
+
+```rust
+scheduler.init_drain_cursors().await;         // 1. Init cursor tracking
+scheduler.restore_pending_boundaries().await;  // 2. Re-inject un-consumed boundaries
+scheduler.restore_from_persisted_state().await; // 3. Restore consumer watermarks
+scheduler.restore_detector_state().await;      // 4. Load detector checkpoints
+```
+
+Order matters: boundaries must be in buffers before watermarks are set, otherwise restored boundaries would be classified as "late" and potentially discarded.
+
+## Production Safety
+
+### Task Execution Timeout
+
+Configurable per-task timeout (default 5 minutes). Timed-out tasks are recorded as `TaskFailed` in the ledger and the scheduler continues processing.
+
+### Backpressure
+
+Accumulators have configurable `max_buffer_size` (default 10,000). When full, the oldest boundary is dropped and `ReceiveResult::AcceptedWithDrop` is returned with a warning log.
+
+### Bounded Memory
+
+- Ledger: configurable `max_events` (default 100K) with VecDeque eviction
+- Accumulators: `max_buffer_size` per edge
+- Fired tasks: `max_fired_tasks` (default 10K) trimmed per poll cycle
+
+### Non-Poisoning Locks
+
+All locks use `parking_lot::Mutex`/`RwLock` — a panic in user-supplied task code does not poison locks or cascade-crash the scheduler.
+
+### Observability
+
+All error paths log at `warn!` or `error!` level:
+- Boundary validation rejections
+- Persistence failures
+- Watermark advance rejections
+- Detector output deserialization failures
+
+## Configuration
+
+```rust
+ContinuousSchedulerConfig {
+    poll_interval: Duration::from_millis(100),    // How often to poll the ledger
+    max_fired_tasks: 10_000,                       // Retain up to 10K fired task records
+    task_timeout: Some(Duration::from_secs(300)),  // 5 minute task timeout
+}
+```
 
 ## Limitations
 
-- **Postgres only** — continuous scheduling requires LISTEN/NOTIFY capabilities
-- **No accumulator persistence** — in-memory only, lost on restart (deferred to I-0025)
-- **No TriggerPolicy composition** — Any/All combinators for policies (deferred to I-0025)
-- **No Python support** — Rust-first, Python continuous tasks in I-0026
+- **Postgres only** for persistence — continuous scheduling requires DB for crash recovery (SQLite supported for testing)
+- **No Python support** — Rust-first, Python continuous tasks planned in CLOACI-I-0026
