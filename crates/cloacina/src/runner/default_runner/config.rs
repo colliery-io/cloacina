@@ -637,6 +637,8 @@ impl DefaultRunnerBuilder {
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
                 trigger_scheduler_handle: None,
+                continuous_scheduler_handle: None,
+                continuous_shutdown_tx: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
@@ -644,6 +646,9 @@ impl DefaultRunnerBuilder {
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
             trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            continuous_data_sources: Arc::new(RwLock::new(Vec::new())),
+            continuous_task_registrations: Arc::new(RwLock::new(Vec::new())),
+            continuous_task_impls: Arc::new(RwLock::new(Vec::new())),
         };
 
         // Start the background services immediately

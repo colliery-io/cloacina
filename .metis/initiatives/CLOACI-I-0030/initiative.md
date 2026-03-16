@@ -4,14 +4,14 @@ level: initiative
 title: "Server Phase 2: Continuous Scheduling in Server Mode"
 short_code: "CLOACI-I-0030"
 created_at: 2026-03-16T01:32:33.428932+00:00
-updated_at: 2026-03-16T01:32:33.428932+00:00
+updated_at: 2026-03-16T13:23:13.346037+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -37,102 +37,43 @@ ContinuousScheduler (I-0023/I-0024/I-0025, all completed) exists as a full react
 - Graceful shutdown via existing watch-channel pattern
 - ContinuousScheduler runs when `enable_continuous_scheduling = true` in config
 
-## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
+## Detailed Design
 
-{Delete if not a requirements-focused initiative}
+### What needs to happen in `start_background_services()`
 
-### User Requirements
-- **User Characteristics**: {Technical background, experience level, etc.}
-- **System Functionality**: {What users expect the system to do}
-- **User Interfaces**: {How users will interact with the system}
+The existing method in `runner/default_runner/services.rs` starts: TaskScheduler, CronScheduler, CronRecovery, RegistryReconciler, TriggerScheduler — each gated by a config flag. ContinuousScheduler needs the same treatment:
 
-### System Requirements
-- **Functional Requirements**: {What the system should do - use unique identifiers}
-  - REQ-001: {Functional requirement 1}
-  - REQ-002: {Functional requirement 2}
-- **Non-Functional Requirements**: {How the system should behave}
-  - NFR-001: {Performance requirement}
-  - NFR-002: {Security requirement}
+1. Check `self.config.enable_continuous_scheduling()`
+2. Create `ExecutionLedger` (shared with the scheduler)
+3. Assemble `DataSourceGraph` from loaded workflow packages (need to extract DataSource + ContinuousTaskRegistration from the registry)
+4. Create `ContinuousScheduler` with graph, ledger, config
+5. Wire DAL for persistence: `scheduler.with_dal(dal)`
+6. Run startup restore: `init_drain_cursors()` → `restore_pending_boundaries()` → `restore_from_persisted_state()` → `restore_detector_state()`
+7. Spawn scheduler.run() as tokio task with shutdown signal
+8. Store handle in RuntimeHandles
 
-## Use Cases **[CONDITIONAL: User-Facing Initiative]**
+### Graph assembly challenge
 
-{Delete if not user-facing}
+The current `assemble_graph()` takes `Vec<DataSource>` and `Vec<ContinuousTaskRegistration>`. These don't exist in the workflow package format yet — packages define regular workflows with `@task` / `#[task]` decorators. The continuous task registrations need to come from somewhere.
 
-### Use Case 1: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+**For this phase**: Support programmatic registration via `DefaultRunner` API. The serve command or user code registers data sources and continuous task declarations before starting. Package-based registration is a future enhancement.
 
-### Use Case 2: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+```rust
+// API on DefaultRunner:
+runner.register_data_source(source);
+runner.register_continuous_task(registration);
+// Then on start, if enable_continuous, assemble graph from registered items
+```
 
-## Architecture **[CONDITIONAL: Technically Complex Initiative]**
+### Shutdown
 
-{Delete if not technically complex}
+ContinuousScheduler already uses `watch::Receiver<bool>` for shutdown — same pattern as the existing scheduler. Create a `watch::channel`, give the receiver to the continuous scheduler, and send `true` on the sender when the global shutdown fires.
 
-### Overview
-{High-level architectural approach}
+## Implementation Plan
 
-### Component Diagrams
-{Describe or link to component diagrams}
-
-### Class Diagrams
-{Describe or link to class diagrams - for OOP systems}
-
-### Sequence Diagrams
-{Describe or link to sequence diagrams - for interaction flows}
-
-### Deployment Diagrams
-{Describe or link to deployment diagrams - for infrastructure}
-
-## Detailed Design **[REQUIRED]**
-
-{Technical approach and implementation details}
-
-## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
-
-{Delete if no UI components}
-
-### User Interface Mockups
-{Describe or link to UI mockups}
-
-### User Flows
-{Describe key user interaction flows}
-
-### Design System Integration
-{How this fits with existing design patterns}
-
-## Testing Strategy **[CONDITIONAL: Separate Testing Initiative]**
-
-{Delete if covered by separate testing initiative}
-
-### Unit Testing
-- **Strategy**: {Approach to unit testing}
-- **Coverage Target**: {Expected coverage percentage}
-- **Tools**: {Testing frameworks and tools}
-
-### Integration Testing
-- **Strategy**: {Approach to integration testing}
-- **Test Environment**: {Where integration tests run}
-- **Data Management**: {Test data strategy}
-
-### System Testing
-- **Strategy**: {End-to-end testing approach}
-- **User Acceptance**: {How UAT will be conducted}
-- **Performance Testing**: {Load and stress testing}
-
-### Test Selection
-{Criteria for determining what to test}
-
-### Bug Tracking
-{How defects will be managed and prioritized}
-
-## Alternatives Considered **[REQUIRED]**
-
-{Alternative approaches and why they were rejected}
-
-## Implementation Plan **[REQUIRED]**
-
-{Phases and timeline for execution}
+- [ ] Add `ContinuousScheduler` + `ExecutionLedger` fields to `DefaultRunner` struct (behind `Arc<RwLock<Option<...>>>`)
+- [ ] Add `register_data_source()` and `register_continuous_task()` methods on DefaultRunner
+- [ ] Add `start_continuous_scheduler()` method in services.rs, gated by `enable_continuous_scheduling`
+- [ ] Startup restore sequence inside `start_continuous_scheduler()`
+- [ ] Shutdown: send to continuous scheduler's watch channel on global shutdown
+- [ ] Integration test: DefaultRunner with continuous scheduling enabled starts and stops cleanly

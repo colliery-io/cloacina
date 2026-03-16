@@ -126,6 +126,12 @@ impl DefaultRunner {
                 .await?;
         }
 
+        // Start continuous scheduler if enabled
+        if self.config.enable_continuous_scheduling() {
+            self.start_continuous_scheduler(&mut handles, &shutdown_tx)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -403,6 +409,89 @@ impl DefaultRunner {
         *self.trigger_scheduler.write().await = Some(Arc::new(trigger_scheduler));
         handles.trigger_scheduler_handle = Some(trigger_handle);
 
+        Ok(())
+    }
+
+    /// Starts the continuous reactive scheduler.
+    async fn start_continuous_scheduler(
+        &self,
+        handles: &mut super::RuntimeHandles,
+        shutdown_tx: &broadcast::Sender<()>,
+    ) -> Result<(), PipelineError> {
+        use crate::continuous::graph::assemble_graph;
+        use crate::continuous::ledger::ExecutionLedger;
+        use crate::continuous::scheduler::{ContinuousScheduler, ContinuousSchedulerConfig};
+
+        tracing::info!("Starting continuous scheduler");
+
+        // Drain registered data sources and task registrations
+        let data_sources = std::mem::take(&mut *self.continuous_data_sources.write().await);
+        let task_registrations =
+            std::mem::take(&mut *self.continuous_task_registrations.write().await);
+        let task_impls = std::mem::take(&mut *self.continuous_task_impls.write().await);
+
+        if data_sources.is_empty() && task_registrations.is_empty() {
+            tracing::warn!("Continuous scheduling enabled but no data sources or tasks registered");
+        }
+
+        // Assemble the reactive graph
+        let graph = assemble_graph(data_sources, task_registrations).map_err(|e| {
+            PipelineError::Configuration {
+                message: format!("Continuous graph assembly failed: {}", e),
+            }
+        })?;
+
+        // Create execution ledger
+        let ledger = std::sync::Arc::new(parking_lot::RwLock::new(ExecutionLedger::new()));
+
+        // Create continuous scheduler config from runner config
+        let continuous_config = ContinuousSchedulerConfig {
+            poll_interval: self.config.continuous_poll_interval(),
+            max_fired_tasks: 10_000,
+            task_timeout: Some(self.config.task_timeout()),
+        };
+
+        // Create continuous scheduler with DAL
+        let dal = std::sync::Arc::new(DAL::new(self.database.clone()));
+        let mut scheduler =
+            ContinuousScheduler::new(graph, ledger, continuous_config).with_dal(dal);
+
+        // Startup restore sequence
+        scheduler.init_drain_cursors().await;
+        scheduler.restore_pending_boundaries().await;
+        scheduler.restore_from_persisted_state().await;
+        scheduler.restore_detector_state().await;
+
+        // Register task implementations
+        for task in task_impls {
+            scheduler.register_task(task);
+        }
+
+        // Create watch channel for shutdown
+        let (continuous_shutdown_tx, continuous_shutdown_rx) = watch::channel(false);
+
+        // Spawn scheduler run loop
+        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+        let continuous_span = self.create_runner_span("continuous_scheduler");
+        let continuous_handle = tokio::spawn(
+            async move {
+                tokio::select! {
+                    _fired = scheduler.run(continuous_shutdown_rx) => {
+                        tracing::info!("Continuous scheduler completed");
+                    }
+                    _ = broadcast_shutdown_rx.recv() => {
+                        tracing::info!("Continuous scheduler shutdown via broadcast");
+                    }
+                }
+            }
+            .instrument(continuous_span),
+        );
+
+        // Store handle and shutdown sender
+        handles.continuous_scheduler_handle = Some(continuous_handle);
+        handles.continuous_shutdown_tx = Some(continuous_shutdown_tx);
+
+        tracing::info!("Continuous scheduler started");
         Ok(())
     }
 }

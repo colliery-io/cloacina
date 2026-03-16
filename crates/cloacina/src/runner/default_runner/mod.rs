@@ -85,6 +85,13 @@ pub struct DefaultRunner {
     pub(super) registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
     /// Optional trigger scheduler for event-based workflow execution
     pub(super) trigger_scheduler: Arc<RwLock<Option<Arc<TriggerScheduler>>>>,
+    /// Registered data sources for continuous scheduling (consumed on start).
+    pub(super) continuous_data_sources: Arc<RwLock<Vec<crate::continuous::datasource::DataSource>>>,
+    /// Registered continuous task declarations (consumed on start).
+    pub(super) continuous_task_registrations:
+        Arc<RwLock<Vec<crate::continuous::graph::ContinuousTaskRegistration>>>,
+    /// Registered continuous task implementations (consumed on start).
+    pub(super) continuous_task_impls: Arc<RwLock<Vec<Arc<dyn cloacina_workflow::Task>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -104,6 +111,10 @@ pub(super) struct RuntimeHandles {
     pub(super) registry_reconciler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the trigger scheduler background task (if enabled)
     pub(super) trigger_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the continuous scheduler background task (if enabled)
+    pub(super) continuous_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Watch sender for continuous scheduler shutdown signal
+    pub(super) continuous_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     /// Channel sender for broadcasting shutdown signals
     pub(super) shutdown_sender: Option<broadcast::Sender<()>>,
 }
@@ -234,6 +245,8 @@ impl DefaultRunner {
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
                 trigger_scheduler_handle: None,
+                continuous_scheduler_handle: None,
+                continuous_shutdown_tx: None,
                 shutdown_sender: None,
             })),
             cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
@@ -241,6 +254,9 @@ impl DefaultRunner {
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
             trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            continuous_data_sources: Arc::new(RwLock::new(Vec::new())),
+            continuous_task_registrations: Arc::new(RwLock::new(Vec::new())),
+            continuous_task_impls: Arc::new(RwLock::new(Vec::new())),
         };
 
         // Start the background services immediately
@@ -264,6 +280,34 @@ impl DefaultRunner {
     /// Returns `None` if trigger scheduling is disabled or not yet initialized.
     pub async fn trigger_scheduler(&self) -> Option<Arc<crate::TriggerScheduler>> {
         self.trigger_scheduler.read().await.clone()
+    }
+
+    /// Register a data source for continuous scheduling.
+    ///
+    /// Call before `start()` or after construction. The data source will be
+    /// consumed when the continuous scheduler starts.
+    pub async fn register_data_source(&self, source: crate::continuous::datasource::DataSource) {
+        self.continuous_data_sources.write().await.push(source);
+    }
+
+    /// Register a continuous task declaration for graph assembly.
+    ///
+    /// Call before `start()` or after construction.
+    pub async fn register_continuous_task(
+        &self,
+        registration: crate::continuous::graph::ContinuousTaskRegistration,
+    ) {
+        self.continuous_task_registrations
+            .write()
+            .await
+            .push(registration);
+    }
+
+    /// Register a continuous task implementation.
+    ///
+    /// The task ID must match a `ContinuousTaskRegistration` for it to execute.
+    pub async fn register_continuous_task_impl(&self, task: Arc<dyn cloacina_workflow::Task>) {
+        self.continuous_task_impls.write().await.push(task);
     }
 
     /// Gracefully shuts down the executor and its background services
@@ -314,6 +358,16 @@ impl DefaultRunner {
             let _ = handle.await;
         }
 
+        // Send shutdown signal to continuous scheduler (if enabled)
+        if let Some(tx) = handles.continuous_shutdown_tx.take() {
+            let _ = tx.send(true);
+        }
+
+        // Wait for continuous scheduler to finish (if enabled)
+        if let Some(handle) = handles.continuous_scheduler_handle.take() {
+            let _ = handle.await;
+        }
+
         // Close the database connection pool to release all connections
         self.database.close();
 
@@ -333,6 +387,9 @@ impl Clone for DefaultRunner {
             workflow_registry: self.workflow_registry.clone(),
             registry_reconciler: self.registry_reconciler.clone(),
             trigger_scheduler: self.trigger_scheduler.clone(),
+            continuous_data_sources: self.continuous_data_sources.clone(),
+            continuous_task_registrations: self.continuous_task_registrations.clone(),
+            continuous_task_impls: self.continuous_task_impls.clone(),
         }
     }
 }

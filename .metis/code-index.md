@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-16T12:56:14Z | 384 files | JavaScript, Python, Rust
+> Generated: 2026-03-16T13:42:39Z | 385 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -239,7 +239,8 @@
 │   │           ├── continuous/
 │   │           │   ├── accumulator_persistence.rs
 │   │           │   ├── mod.rs
-│   │           │   └── recovery_e2e.rs
+│   │           │   ├── recovery_e2e.rs
+│   │           │   └── runner_lifecycle.rs
 │   │           ├── dal/
 │   │           │   ├── context.rs
 │   │           │   ├── execution_events.rs
@@ -3766,8 +3767,8 @@
 - pub `database_url` function L506-509 — `(mut self, url: &str) -> Self` — Sets the database URL
 - pub `schema` function L515-518 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L521-524 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L538-653 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L671-674 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L538-658 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L676-679 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L89-229 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L246-280 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L247-279 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -3776,18 +3777,18 @@
 -  `default` function L452-454 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L489-493 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L490-492 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L495-675 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L495-680 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L527-535 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L678-844 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L682-697 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L700-723 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L726-734 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L737-758 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L761-776 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L779-782 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L785-798 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L801-809 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L812-843 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L683-849 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L687-702 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L705-728 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L731-739 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L742-763 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L766-781 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L784-787 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L790-803 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L806-814 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L817-848 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3806,26 +3807,29 @@
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
-- pub `DefaultRunner` struct L69-88 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
-- pub `new` function L124-126 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
-- pub `builder` function L140-142 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L160-166 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L183-250 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L253-255 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L258-260 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `trigger_scheduler` function L265-267 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
-- pub `shutdown` function L279-321 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `DefaultRunner` struct L69-96 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
+- pub `new` function L136-138 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
+- pub `builder` function L152-154 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
+- pub `with_schema` function L172-178 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L195-267 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L270-272 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L275-277 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `trigger_scheduler` function L282-284 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
+- pub `register_data_source` function L290-292 — `(&self, source: crate::continuous::datasource::DataSource)` — Register a data source for continuous scheduling.
+- pub `register_continuous_task` function L297-305 — `( &self, registration: crate::continuous::graph::ContinuousTaskRegistration, )` — Register a continuous task declaration for graph assembly.
+- pub `register_continuous_task_impl` function L310-315 — `( &self, task: Arc<dyn cloacina_workflow::Task>, )` — Register a continuous task implementation.
+- pub `shutdown` function L327-379 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `RuntimeHandles` struct L94-109 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L111-322 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L324-338 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L325-337 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L341-347 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L342-346 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `RuntimeHandles` struct L102-121 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
+-  `DefaultRunner` type L123-380 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L382-399 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L383-398 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L402-408 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L403-407 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -3848,13 +3852,14 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L38-408 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L38-499 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L40-58 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
--  `start_background_services` function L70-130 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
--  `start_cron_services` function L133-193 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
--  `start_cron_recovery` function L196-253 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L256-350 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_trigger_services` function L353-407 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
+-  `start_background_services` function L70-136 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
+-  `start_cron_services` function L139-199 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
+-  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
+-  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
+-  `start_continuous_scheduler` function L416-498 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the continuous reactive scheduler.
 
 ### crates/cloacina/src/runner
 
@@ -4603,31 +4608,32 @@
 
 - pub `accumulator_persistence` module L22 — `-` — Integration tests for the continuous scheduling pipeline.
 - pub `recovery_e2e` module L23 — `-` — detector output → accumulator → task fires → ledger records completion
--  `PassthroughTask` struct L42-44 — `{ id: String }` — A simple continuous task for integration tests that passes through context.
--  `PassthroughTask` type L46-50 — `= PassthroughTask` — detector output → accumulator → task fires → ledger records completion
--  `new` function L47-49 — `(id: &str) -> Self` — detector output → accumulator → task fires → ledger records completion
--  `PassthroughTask` type L53-67 — `impl Task for PassthroughTask` — detector output → accumulator → task fires → ledger records completion
--  `execute` function L54-60 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — detector output → accumulator → task fires → ledger records completion
--  `id` function L61-63 — `(&self) -> &str` — detector output → accumulator → task fires → ledger records completion
--  `dependencies` function L64-66 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — detector output → accumulator → task fires → ledger records completion
--  `MockConn` struct L75 — `-` — detector output → accumulator → task fires → ledger records completion
--  `MockConn` type L76-89 — `impl DataConnection for MockConn` — detector output → accumulator → task fires → ledger records completion
--  `connect` function L77-79 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — detector output → accumulator → task fires → ledger records completion
--  `descriptor` function L80-85 — `(&self) -> ConnectionDescriptor` — detector output → accumulator → task fires → ledger records completion
--  `system_metadata` function L86-88 — `(&self) -> serde_json::Value` — detector output → accumulator → task fires → ledger records completion
--  `make_source` function L91-98 — `(name: &str) -> DataSource` — detector output → accumulator → task fires → ledger records completion
--  `make_boundary` function L100-106 — `(start: i64, end: i64) -> ComputationBoundary` — detector output → accumulator → task fires → ledger records completion
--  `make_detector_completion` function L108-118 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — detector output → accumulator → task fires → ledger records completion
--  `test_full_reactive_loop` function L122-187 — `()` — Full reactive loop: detector emits boundaries → accumulator receives → task fires.
--  `test_multiple_detector_outputs_accumulate` function L191-238 — `()` — Multiple detector outputs accumulate before firing.
--  `test_multi_source_task` function L242-285 — `()` — Multi-source task: boundaries arrive on two sources.
--  `test_ledger_records_drains` function L289-338 — `()` — Ledger records accumulator drains.
--  `test_windowed_accumulator_waits_for_watermark` function L344-369 — `()` — WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
--  `test_ledger_trigger_feedback_loop` function L373-408 — `()` — LedgerTrigger completes the reactive feedback loop.
--  `test_ledger_trigger_all_mode_multi_dependency` function L412-448 — `()` — LedgerTrigger All mode: waits for both upstream tasks.
--  `test_scheduler_watermark_advance_via_both` function L452-500 — `()` — Full scheduler loop with watermark advance via Both output.
--  `test_multi_cycle_reactive_loop` function L513-624 — `()` — Multi-cycle reactive loop: source → task_a → derived source → task_b.
--  `test_ledger_trigger_bridges_cycles` function L629-681 — `()` — LedgerTrigger integration: verify it correctly bridges task completion
+- pub `runner_lifecycle` module L24 — `-` — detector output → accumulator → task fires → ledger records completion
+-  `PassthroughTask` struct L43-45 — `{ id: String }` — A simple continuous task for integration tests that passes through context.
+-  `PassthroughTask` type L47-51 — `= PassthroughTask` — detector output → accumulator → task fires → ledger records completion
+-  `new` function L48-50 — `(id: &str) -> Self` — detector output → accumulator → task fires → ledger records completion
+-  `PassthroughTask` type L54-68 — `impl Task for PassthroughTask` — detector output → accumulator → task fires → ledger records completion
+-  `execute` function L55-61 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — detector output → accumulator → task fires → ledger records completion
+-  `id` function L62-64 — `(&self) -> &str` — detector output → accumulator → task fires → ledger records completion
+-  `dependencies` function L65-67 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — detector output → accumulator → task fires → ledger records completion
+-  `MockConn` struct L76 — `-` — detector output → accumulator → task fires → ledger records completion
+-  `MockConn` type L77-90 — `impl DataConnection for MockConn` — detector output → accumulator → task fires → ledger records completion
+-  `connect` function L78-80 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — detector output → accumulator → task fires → ledger records completion
+-  `descriptor` function L81-86 — `(&self) -> ConnectionDescriptor` — detector output → accumulator → task fires → ledger records completion
+-  `system_metadata` function L87-89 — `(&self) -> serde_json::Value` — detector output → accumulator → task fires → ledger records completion
+-  `make_source` function L92-99 — `(name: &str) -> DataSource` — detector output → accumulator → task fires → ledger records completion
+-  `make_boundary` function L101-107 — `(start: i64, end: i64) -> ComputationBoundary` — detector output → accumulator → task fires → ledger records completion
+-  `make_detector_completion` function L109-119 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — detector output → accumulator → task fires → ledger records completion
+-  `test_full_reactive_loop` function L123-188 — `()` — Full reactive loop: detector emits boundaries → accumulator receives → task fires.
+-  `test_multiple_detector_outputs_accumulate` function L192-239 — `()` — Multiple detector outputs accumulate before firing.
+-  `test_multi_source_task` function L243-286 — `()` — Multi-source task: boundaries arrive on two sources.
+-  `test_ledger_records_drains` function L290-339 — `()` — Ledger records accumulator drains.
+-  `test_windowed_accumulator_waits_for_watermark` function L345-370 — `()` — WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
+-  `test_ledger_trigger_feedback_loop` function L374-409 — `()` — LedgerTrigger completes the reactive feedback loop.
+-  `test_ledger_trigger_all_mode_multi_dependency` function L413-449 — `()` — LedgerTrigger All mode: waits for both upstream tasks.
+-  `test_scheduler_watermark_advance_via_both` function L453-501 — `()` — Full scheduler loop with watermark advance via Both output.
+-  `test_multi_cycle_reactive_loop` function L514-625 — `()` — Multi-cycle reactive loop: source → task_a → derived source → task_b.
+-  `test_ledger_trigger_bridges_cycles` function L630-682 — `()` — LedgerTrigger integration: verify it correctly bridges task completion
 
 #### crates/cloacina/tests/integration/continuous/recovery_e2e.rs
 
@@ -4655,6 +4661,11 @@
 -  `test_e2e_boundary_wal_restore_fires_task` function L393-454 — `()` — Verify pending boundary WAL → restore into accumulator → task fires.
 -  `test_e2e_cursor_skips_already_consumed_boundaries` function L459-519 — `()` — Verify cursor-based restore only re-injects unconsumed boundaries.
 -  `test_e2e_commit_gate_requires_all_consumers` function L524-601 — `()` — Verify the commit gate: detector state only commits when ALL consumers drain.
+
+#### crates/cloacina/tests/integration/continuous/runner_lifecycle.rs
+
+-  `test_continuous_scheduler_empty_graph_lifecycle` function L31-60 — `()` — Test: continuous scheduling enabled with empty graph starts and stops cleanly.
+-  `test_continuous_scheduler_disabled_by_default` function L66-88 — `()` — Test: continuous scheduling disabled (default) starts and stops without
 
 ### crates/cloacina/tests/integration/dal
 
@@ -5549,17 +5560,17 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-100 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L152-214 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-97 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L156-223 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L103-127 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L130-149 — `(config: &ServerConfig, mode: ServeMode) -> cloacina::runner::DefaultRunnerConfi...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L217-344 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L222-280 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L283-312 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L315-343 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L100-124 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L127-153 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L226-347 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L231-287 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L290-317 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L320-346 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5589,7 +5600,7 @@
 -  `discover_config_file` function L157-178 — `(cli_path: Option<&str>) -> Option<String>` — Discover the config file path from CLI flag, CWD, or user config dir.
 -  `apply_env_overrides` function L181-214 — `(config: &mut ServerConfig)` — Apply environment variable overrides with CLOACINA_ prefix.
 -  `apply_cli_overrides` function L217-221 — `(config: &mut ServerConfig, args: &ServeArgs)` — Apply CLI flag overrides (highest precedence).
--  `tests` module L224-360 — `-` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `tests` module L224-358 — `-` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 -  `default_args` function L228-235 — `() -> ServeArgs` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 -  `test_default_config` function L238-247 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 -  `test_toml_parsing` function L250-281 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
@@ -5598,7 +5609,7 @@
 -  `test_cli_overrides_take_precedence` function L313-330 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 -  `test_load_config_no_file` function L333-338 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 -  `test_missing_config_file_is_not_error` function L341-346 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_explicit_missing_config_file_is_error` function L349-359 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_explicit_missing_config_file_is_error` function L349-357 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 
 #### crates/cloacinactl/src/main.rs
 

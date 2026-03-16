@@ -21,6 +21,7 @@
 
 pub mod accumulator_persistence;
 pub mod recovery_e2e;
+pub mod runner_lifecycle;
 
 use chrono::Utc;
 use cloacina::continuous::accumulator::{SignalAccumulator, WatermarkMode, WindowedAccumulator};
