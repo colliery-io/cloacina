@@ -482,6 +482,7 @@ pub mod prelude {
 // #[cfg(feature = "auth")]
 // pub mod auth;
 pub mod context;
+pub mod continuous;
 pub mod cron_evaluator;
 pub mod cron_recovery;
 pub mod cron_scheduler;
@@ -562,4 +563,4 @@ pub use workflow::{
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{packaged_workflow, task, workflow};
+pub use cloacina_macros::{continuous_task, packaged_workflow, task, workflow};

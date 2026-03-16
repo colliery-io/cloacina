@@ -4,14 +4,14 @@ level: initiative
 title: "Core Continuous Scheduling — Minimum Viable Reactive Graph"
 short_code: "CLOACI-I-0023"
 created_at: 2026-03-13T02:44:38.132491+00:00
-updated_at: 2026-03-13T02:44:38.132491+00:00
+updated_at: 2026-03-15T11:50:58.545509+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

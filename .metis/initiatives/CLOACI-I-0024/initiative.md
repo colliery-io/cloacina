@@ -4,14 +4,14 @@ level: initiative
 title: "Watermarks, Late Arrival, and Derived Data Sources"
 short_code: "CLOACI-I-0024"
 created_at: 2026-03-13T02:44:39.399396+00:00
-updated_at: 2026-03-13T02:44:39.399396+00:00
+updated_at: 2026-03-15T13:16:53.996919+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

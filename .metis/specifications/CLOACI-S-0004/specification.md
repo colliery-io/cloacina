@@ -45,12 +45,14 @@ Both are implementations of the existing `Trigger` trait. All paths result in th
 
 ```rust
 enum DetectorOutput {
-    /// Data changed, here's the boundary describing what's new
-    Change(ComputationBoundary),
+    /// Data changed — one or more new boundaries to process.
+    /// Vec allows a single detector poll to emit multiple boundary ranges
+    /// (e.g., multiple new partitions discovered in one check).
+    Change { boundaries: Vec<ComputationBoundary> },
     /// Assertion: no boundaries earlier than this will arrive in the future
-    WatermarkAdvance(ComputationBoundary),
-    /// Both a change and a watermark advance in one emission
-    Both { change: ComputationBoundary, watermark: ComputationBoundary },
+    WatermarkAdvance { boundary: ComputationBoundary },
+    /// Both data changes and a watermark advance in one emission
+    Both { boundaries: Vec<ComputationBoundary>, watermark: ComputationBoundary },
 }
 ```
 

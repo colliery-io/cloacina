@@ -43,11 +43,14 @@
 use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
+pub mod accumulator_state;
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
+pub mod detector_state_dal;
 pub mod execution_event;
 pub mod models;
+pub mod pending_boundary_dal;
 pub mod pipeline_execution;
 pub mod recovery_event;
 pub mod task_execution;
@@ -60,10 +63,13 @@ pub mod workflow_registry;
 pub mod workflow_registry_storage;
 
 // Re-export DAL components
+pub use accumulator_state::AccumulatorStateDAL;
 pub use context::ContextDAL;
 pub use cron_execution::CronExecutionDAL;
 pub use cron_schedule::CronScheduleDAL;
+pub use detector_state_dal::DetectorStateDAL;
 pub use execution_event::ExecutionEventDAL;
+pub use pending_boundary_dal::PendingBoundaryDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};

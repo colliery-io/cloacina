@@ -45,6 +45,7 @@ tar = { version = "0.4" }
 parking_lot = { version = "0.12" }
 petgraph = { version = "0.6" }
 rand = { version = "0.8" }
+jsonschema = { version = "0.28" }
 serde = { version = "1.0", features = ["derive"] }
 base64 = { version = "0.22" }
 dirs = { version = "5.0" }

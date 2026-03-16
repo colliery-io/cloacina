@@ -18,6 +18,7 @@
 // It serves as the entry point for integration tests in this directory.
 
 pub mod context;
+pub mod continuous;
 pub mod dal;
 pub mod database;
 pub mod error;

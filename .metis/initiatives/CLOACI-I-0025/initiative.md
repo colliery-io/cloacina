@@ -4,14 +4,14 @@ level: initiative
 title: "Continuous Scheduling Production Hardening"
 short_code: "CLOACI-I-0025"
 created_at: 2026-03-13T02:44:40.269357+00:00
-updated_at: 2026-03-13T02:44:40.269357+00:00
+updated_at: 2026-03-15T13:53:05.514243+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
