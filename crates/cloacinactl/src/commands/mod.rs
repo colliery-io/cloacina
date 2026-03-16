@@ -20,6 +20,7 @@ pub mod cleanup_events;
 pub mod key;
 pub mod key_trust;
 pub mod package;
+pub mod serve;
 
 use anyhow::{anyhow, Context, Result};
 use cloacina::dal::DAL;

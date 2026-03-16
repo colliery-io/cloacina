@@ -21,6 +21,8 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod commands;
+pub mod config;
+pub mod routes;
 
 /// cloacinactl - Control tool for the Cloacina task orchestration engine
 #[derive(Parser)]
@@ -45,6 +47,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Start the Cloacina server
+    Serve(commands::serve::ServeArgs),
+
     /// Package signing and verification
     Package {
         #[command(subcommand)]
@@ -211,6 +216,10 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
+        Commands::Serve(ref args) => {
+            commands::serve::run(args).await?;
+        }
+
         Commands::Package { command } => {
             let database_url = cli.database_url.as_deref();
             let org_id = &cli.org_id;
