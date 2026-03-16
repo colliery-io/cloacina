@@ -338,4 +338,123 @@ mod tests {
         let debug = format!("{:?}", source);
         assert!(debug.contains("events"));
     }
+
+    #[test]
+    fn test_datasource_map_new_is_empty() {
+        let map = DataSourceMap::new();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn test_datasource_map_default_is_empty() {
+        let map = DataSourceMap::default();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn test_datasource_map_insert_and_len() {
+        let mut map = DataSourceMap::new();
+        assert!(map.is_empty());
+
+        map.insert(make_test_source(
+            "events",
+            TestStringConnection {
+                value: "ev".to_string(),
+            },
+        ));
+        assert_eq!(map.len(), 1);
+        assert!(!map.is_empty());
+
+        map.insert(make_test_source("metrics", TestIntConnection { value: 7 }));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn test_datasource_map_get_returns_source() {
+        let mut map = DataSourceMap::new();
+        map.insert(make_test_source(
+            "events",
+            TestStringConnection {
+                value: "hello".to_string(),
+            },
+        ));
+
+        let source = map.get("events");
+        assert!(source.is_some());
+        let source = source.unwrap();
+        assert_eq!(source.name, "events");
+        assert_eq!(source.detector_workflow, "detect_events");
+    }
+
+    #[test]
+    fn test_datasource_map_get_returns_none_for_missing() {
+        let map = DataSourceMap::new();
+        assert!(map.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_datasource_map_names() {
+        let mut map = DataSourceMap::new();
+        map.insert(make_test_source(
+            "alpha",
+            TestStringConnection {
+                value: "a".to_string(),
+            },
+        ));
+        map.insert(make_test_source("beta", TestIntConnection { value: 2 }));
+        map.insert(make_test_source(
+            "gamma",
+            TestStringConnection {
+                value: "g".to_string(),
+            },
+        ));
+
+        let mut names: Vec<&str> = map.names().collect();
+        names.sort();
+        assert_eq!(names, vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn test_datasource_map_names_empty() {
+        let map = DataSourceMap::new();
+        let names: Vec<&str> = map.names().collect();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_datasource_map_insert_overwrites_existing() {
+        let mut map = DataSourceMap::new();
+        map.insert(make_test_source(
+            "events",
+            TestStringConnection {
+                value: "v1".to_string(),
+            },
+        ));
+        map.insert(make_test_source(
+            "events",
+            TestStringConnection {
+                value: "v2".to_string(),
+            },
+        ));
+
+        assert_eq!(map.len(), 1);
+        let handle = map.connection::<String>("events").unwrap();
+        assert_eq!(*handle, "v2");
+    }
+
+    #[test]
+    fn test_datasource_map_debug_format() {
+        let mut map = DataSourceMap::new();
+        map.insert(make_test_source(
+            "events",
+            TestStringConnection {
+                value: "x".to_string(),
+            },
+        ));
+        let debug = format!("{:?}", map);
+        assert!(debug.contains("DataSourceMap"));
+        assert!(debug.contains("events"));
+    }
 }
