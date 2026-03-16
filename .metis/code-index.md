@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-15T16:31:53Z | 376 files | JavaScript, Python, Rust
+> Generated: 2026-03-16T00:52:38Z | 380 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -44,6 +44,7 @@
 │   │   │   │   │   └── s3.rs
 │   │   │   │   ├── datasource.rs
 │   │   │   │   ├── detector.rs
+│   │   │   │   ├── detector_state_store.rs
 │   │   │   │   ├── graph.rs
 │   │   │   │   ├── ledger.rs
 │   │   │   │   ├── ledger_trigger.rs
@@ -77,9 +78,11 @@
 │   │   │   │       │   ├── mod.rs
 │   │   │   │       │   ├── queries.rs
 │   │   │   │       │   └── state.rs
+│   │   │   │       ├── detector_state_dal.rs
 │   │   │   │       ├── execution_event.rs
 │   │   │   │       ├── mod.rs
 │   │   │   │       ├── models.rs
+│   │   │   │       ├── pending_boundary_dal.rs
 │   │   │   │       ├── pipeline_execution.rs
 │   │   │   │       ├── recovery_event.rs
 │   │   │   │       ├── task_execution/
@@ -235,7 +238,8 @@
 │   │           ├── context.rs
 │   │           ├── continuous/
 │   │           │   ├── accumulator_persistence.rs
-│   │           │   └── mod.rs
+│   │           │   ├── mod.rs
+│   │           │   └── recovery_e2e.rs
 │   │           ├── dal/
 │   │           │   ├── context.rs
 │   │           │   ├── execution_events.rs
@@ -1145,45 +1149,58 @@
 
 #### crates/cloacina/src/continuous/accumulator.rs
 
-- pub `AccumulatorMetrics` struct L34-47 — `{ buffered_count: usize, oldest_boundary_emitted_at: Option<DateTime<Utc>>, newe...` — Observable state for monitoring and backpressure detection.
-- pub `EdgeMetrics` struct L51-58 — `{ source: String, task: String, accumulator: AccumulatorMetrics }` — Per-edge metrics snapshot for the scheduler.
-- pub `SignalAccumulator` interface L61-78 — `{ fn receive(), fn is_ready(), fn drain(), fn metrics(), fn consumer_watermark()...` — Per-edge stateful component that buffers boundaries and decides when to fire.
-- pub `SimpleAccumulator` struct L84-90 — `{ buffer: Vec<BufferedBoundary>, policy: Box<dyn TriggerPolicy>, watermark: Opti...` — Simple accumulator with no watermark awareness.
-- pub `new` function L94-102 — `(policy: Box<dyn TriggerPolicy>) -> Self` — Create a new SimpleAccumulator with the given trigger policy.
-- pub `WatermarkMode` enum L179-184 — `WaitForWatermark | BestEffort` — How the accumulator uses source watermarks for readiness.
-- pub `WindowedAccumulator` struct L191-200 — `{ buffer: Vec<BufferedBoundary>, policy: Box<dyn TriggerPolicy>, watermark: Opti...` — Windowed accumulator with source watermark awareness.
-- pub `new` function L204-220 — `( policy: Box<dyn TriggerPolicy>, watermark_mode: WatermarkMode, boundary_ledger...` — Create a new WindowedAccumulator.
-- pub `pending_boundary` function L223-227 — `(&self) -> Option<ComputationBoundary>` — Get the coalesced pending boundary without draining.
--  `SimpleAccumulator` type L92-103 — `= SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
--  `SimpleAccumulator` type L105-175 — `impl SignalAccumulator for SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
--  `receive` function L106-109 — `(&mut self, boundary: ComputationBoundary)` — See CLOACI-S-0005 for the full specification.
--  `is_ready` function L111-113 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
--  `drain` function L115-155 — `(&mut self) -> Context<serde_json::Value>` — See CLOACI-S-0005 for the full specification.
--  `metrics` function L157-170 — `(&self) -> AccumulatorMetrics` — See CLOACI-S-0005 for the full specification.
--  `consumer_watermark` function L172-174 — `(&self) -> Option<&ComputationBoundary>` — See CLOACI-S-0005 for the full specification.
--  `WindowedAccumulator` type L202-228 — `= WindowedAccumulator` — See CLOACI-S-0005 for the full specification.
--  `WindowedAccumulator` type L230-305 — `impl SignalAccumulator for WindowedAccumulator` — See CLOACI-S-0005 for the full specification.
--  `receive` function L231-234 — `(&mut self, boundary: ComputationBoundary)` — See CLOACI-S-0005 for the full specification.
--  `is_ready` function L236-251 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
--  `drain` function L253-286 — `(&mut self) -> Context<serde_json::Value>` — See CLOACI-S-0005 for the full specification.
--  `metrics` function L288-300 — `(&self) -> AccumulatorMetrics` — See CLOACI-S-0005 for the full specification.
--  `consumer_watermark` function L302-304 — `(&self) -> Option<&ComputationBoundary>` — See CLOACI-S-0005 for the full specification.
--  `tests` module L308-573 — `-` — See CLOACI-S-0005 for the full specification.
--  `make_offset_boundary` function L313-319 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
--  `make_cursor_boundary` function L321-329 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_receive_and_drain` function L332-346 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_coalesces_on_drain` function L349-361 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_updates_consumer_watermark` function L364-381 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_empty_drain` function L384-390 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_metrics` function L393-407 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_lag_tracking` function L410-426 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_simple_accumulator_multiple_drain_cycles` function L429-450 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_best_effort_fires_immediately` function L455-466 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_wait_for_watermark_blocks_without_watermark` function L469-481 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_wait_for_watermark_fires_when_covered` function L484-503 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_wait_for_watermark_blocks_when_not_covered` function L506-525 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_watermark_advance_unblocks` function L528-548 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_windowed_drain_produces_context` function L551-572 — `()` — See CLOACI-S-0005 for the full specification.
+- pub `AccumulatorMetrics` struct L36-49 — `{ buffered_count: usize, oldest_boundary_emitted_at: Option<DateTime<Utc>>, newe...` — Observable state for monitoring and backpressure detection.
+- pub `EdgeMetrics` struct L53-60 — `{ source: String, task: String, accumulator: AccumulatorMetrics }` — Per-edge metrics snapshot for the scheduler.
+- pub `ReceiveResult` enum L64-69 — `Accepted | AcceptedWithDrop` — Result of receiving a boundary into an accumulator.
+- pub `SignalAccumulator` interface L72-105 — `{ fn receive(), fn is_ready(), fn drain(), fn metrics(), fn consumer_watermark()...` — Per-edge stateful component that buffers boundaries and decides when to fire.
+- pub `SimpleAccumulator` struct L114-126 — `{ buffer: Vec<BufferedBoundary>, policy: Box<dyn TriggerPolicy>, watermark: Opti...` — Simple accumulator with no watermark awareness.
+- pub `new` function L130-143 — `(policy: Box<dyn TriggerPolicy>) -> Self` — Create a new SimpleAccumulator with the given trigger policy.
+- pub `with_max_buffer` function L146-159 — `(policy: Box<dyn TriggerPolicy>, max_buffer_size: usize) -> Self` — Create a new SimpleAccumulator with a custom buffer size limit.
+- pub `WatermarkMode` enum L267-272 — `WaitForWatermark | BestEffort` — How the accumulator uses source watermarks for readiness.
+- pub `WindowedAccumulator` struct L279-293 — `{ buffer: Vec<BufferedBoundary>, policy: Box<dyn TriggerPolicy>, watermark: Opti...` — Windowed accumulator with source watermark awareness.
+- pub `new` function L297-318 — `( policy: Box<dyn TriggerPolicy>, watermark_mode: WatermarkMode, boundary_ledger...` — Create a new WindowedAccumulator.
+- pub `with_max_buffer` function L321-343 — `( policy: Box<dyn TriggerPolicy>, watermark_mode: WatermarkMode, boundary_ledger...` — Create a new WindowedAccumulator with a custom buffer size limit.
+- pub `pending_boundary` function L346-350 — `(&self) -> Option<ComputationBoundary>` — Get the coalesced pending boundary without draining.
+-  `try_drain` function L98-104 — `(&mut self) -> Option<Context<serde_json::Value>>` — Atomically check readiness and drain if ready.
+-  `DEFAULT_MAX_BUFFER_SIZE` variable L108 — `: usize` — Default maximum buffer size for accumulators.
+-  `SimpleAccumulator` type L128-160 — `= SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `SimpleAccumulator` type L162-263 — `impl SignalAccumulator for SimpleAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `receive` function L163-192 — `(&mut self, boundary: ComputationBoundary) -> ReceiveResult` — See CLOACI-S-0005 for the full specification.
+-  `is_ready` function L194-196 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `drain` function L198-243 — `(&mut self) -> Context<serde_json::Value>` — See CLOACI-S-0005 for the full specification.
+-  `metrics` function L245-254 — `(&self) -> AccumulatorMetrics` — See CLOACI-S-0005 for the full specification.
+-  `consumer_watermark` function L256-258 — `(&self) -> Option<&ComputationBoundary>` — See CLOACI-S-0005 for the full specification.
+-  `set_consumer_watermark` function L260-262 — `(&mut self, watermark: ComputationBoundary)` — See CLOACI-S-0005 for the full specification.
+-  `WindowedAccumulator` type L295-351 — `= WindowedAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `WindowedAccumulator` type L353-457 — `impl SignalAccumulator for WindowedAccumulator` — See CLOACI-S-0005 for the full specification.
+-  `receive` function L354-381 — `(&mut self, boundary: ComputationBoundary) -> ReceiveResult` — See CLOACI-S-0005 for the full specification.
+-  `is_ready` function L383-398 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `drain` function L400-437 — `(&mut self) -> Context<serde_json::Value>` — See CLOACI-S-0005 for the full specification.
+-  `metrics` function L439-448 — `(&self) -> AccumulatorMetrics` — See CLOACI-S-0005 for the full specification.
+-  `consumer_watermark` function L450-452 — `(&self) -> Option<&ComputationBoundary>` — See CLOACI-S-0005 for the full specification.
+-  `set_consumer_watermark` function L454-456 — `(&mut self, watermark: ComputationBoundary)` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L460-824 — `-` — See CLOACI-S-0005 for the full specification.
+-  `make_offset_boundary` function L465-471 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
+-  `make_cursor_boundary` function L473-481 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_receive_and_drain` function L484-498 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_coalesces_on_drain` function L501-513 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_updates_consumer_watermark` function L516-533 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_empty_drain` function L536-542 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_metrics` function L545-559 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_lag_tracking` function L562-578 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_multiple_drain_cycles` function L581-602 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_best_effort_fires_immediately` function L607-618 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_wait_for_watermark_blocks_without_watermark` function L621-633 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_wait_for_watermark_fires_when_covered` function L636-655 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_wait_for_watermark_blocks_when_not_covered` function L658-677 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_watermark_advance_unblocks` function L680-700 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_windowed_drain_produces_context` function L703-724 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_buffer_overflow_drops_oldest` function L729-747 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_simple_accumulator_buffer_within_limit` function L750-758 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_metrics_accurate_after_interleaved_receive_drain` function L761-790 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_set_consumer_watermark_enables_late_detection` function L793-807 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_try_drain_when_not_ready` function L810-814 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_try_drain_when_ready` function L817-823 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/continuous/boundary.rs
 
@@ -1193,32 +1210,37 @@
 - pub `new` function L75-80 — `(boundary: ComputationBoundary) -> Self` — Create a new buffered boundary with the current time as receipt time.
 - pub `lag` function L83-86 — `(&self) -> chrono::Duration` — Calculate ingestion lag (received_at - emitted_at).
 - pub `CustomBoundarySchema` struct L91-96 — `{ kind: String, schema: serde_json::Value }` — Schema definition for custom boundary types.
-- pub `register_custom_boundary` function L106-115 — `(kind: &str, schema: serde_json::Value)` — Register a custom boundary schema.
-- pub `validate_custom_boundary` function L120-127 — `(kind: &str, value: &serde_json::Value) -> Result<(), String>` — Validate a custom boundary payload against its registered schema.
-- pub `validate_boundary` function L133-139 — `(boundary: &ComputationBoundary) -> Result<(), String>` — Validate a `ComputationBoundary`.
-- pub `clear_custom_schemas` function L143-146 — `()` — Clear all registered custom boundary schemas (for testing).
-- pub `coalesce` function L225-291 — `(boundaries: &[ComputationBoundary]) -> Option<ComputationBoundary>` — Coalesce a slice of computation boundaries into a single boundary.
+- pub `register_custom_boundary` function L124-147 — `(kind: &str, schema: serde_json::Value)` — Register a custom boundary schema.
+- pub `validate_custom_boundary` function L153-169 — `(kind: &str, value: &serde_json::Value) -> Result<(), String>` — Validate a custom boundary payload against its registered schema.
+- pub `validate_boundary` function L175-181 — `(boundary: &ComputationBoundary) -> Result<(), String>` — Validate a `ComputationBoundary`.
+- pub `clear_custom_schemas` function L185-188 — `()` — Clear all registered custom boundary schemas (for testing).
+- pub `coalesce` function L206-275 — `(boundaries: &[ComputationBoundary]) -> Option<ComputationBoundary>` — Coalesce a slice of computation boundaries into a single boundary.
 -  `BufferedBoundary` type L73-87 — `= BufferedBoundary` — See CLOACI-S-0002 for the full specification.
--  `CUSTOM_SCHEMAS` variable L99-100 — `: std::sync::LazyLock<RwLock<HashMap<String, CustomBoundarySchema>>>` — Global registry for custom boundary schemas.
--  `validate_against_schema` function L152-212 — `( value: &serde_json::Value, schema: &serde_json::Value, ) -> Result<(), String>` — Simple JSON schema validation.
--  `tests` module L294-526 — `-` — See CLOACI-S-0002 for the full specification.
--  `make_time_boundary` function L298-308 — `(start_offset_hours: i64, end_offset_hours: i64) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
--  `make_offset_boundary` function L310-316 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
--  `make_cursor_boundary` function L318-326 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
--  `make_fullstate_boundary` function L328-336 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_empty` function L341-343 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_single` function L346-350 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_time_ranges` function L353-372 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_offset_ranges` function L375-385 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_cursors_latest_wins` function L388-400 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_coalesce_fullstate_latest_wins` function L403-414 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_buffered_boundary_lag` function L419-429 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_boundary_serialization_roundtrip` function L434-443 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_boundary_kind_tagged_serialization` function L446-453 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_custom_schema_validation_passes` function L458-481 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_custom_schema_missing_required_field` function L484-496 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_custom_schema_unregistered_kind` function L499-507 — `()` — See CLOACI-S-0002 for the full specification.
--  `test_custom_schema_wrong_type` function L510-525 — `()` — See CLOACI-S-0002 for the full specification.
+-  `CompiledSchema` struct L99-104 — `{ definition: CustomBoundarySchema, validator: jsonschema::Validator }` — Compiled schema entry for the registry.
+-  `CompiledSchema` type L107-113 — `= CompiledSchema` — See CLOACI-S-0002 for the full specification.
+-  `fmt` function L108-112 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0002 for the full specification.
+-  `CUSTOM_SCHEMAS` variable L116-117 — `: std::sync::LazyLock<RwLock<HashMap<String, CompiledSchema>>>` — Global registry for custom boundary schemas with compiled validators.
+-  `tests` module L278-595 — `-` — See CLOACI-S-0002 for the full specification.
+-  `make_time_boundary` function L282-292 — `(start_offset_hours: i64, end_offset_hours: i64) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_offset_boundary` function L294-300 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_cursor_boundary` function L302-310 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `make_fullstate_boundary` function L312-320 — `(value: &str, emitted_at: DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_empty` function L325-327 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_single` function L330-334 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_time_ranges` function L337-356 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_offset_ranges` function L359-369 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_cursors_latest_wins` function L372-384 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_coalesce_fullstate_latest_wins` function L387-398 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_buffered_boundary_lag` function L403-413 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_serialization_roundtrip` function L418-427 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_kind_tagged_serialization` function L430-437 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_validation_passes` function L442-465 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_missing_required_field` function L468-486 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_unregistered_kind` function L489-497 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_custom_schema_wrong_type` function L500-520 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_json_roundtrip_offset_range` function L525-546 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_json_roundtrip_cursor` function L549-567 — `()` — See CLOACI-S-0002 for the full specification.
+-  `test_boundary_json_roundtrip_time_range` function L570-594 — `()` — See CLOACI-S-0002 for the full specification.
 
 #### crates/cloacina/src/continuous/datasource.rs
 
@@ -1245,7 +1267,7 @@
 -  `default` function L188-190 — `() -> Self` — See CLOACI-S-0003 for the full specification.
 -  `DataSourceMap` type L193-199 — `= DataSourceMap` — See CLOACI-S-0003 for the full specification.
 -  `fmt` function L194-198 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — See CLOACI-S-0003 for the full specification.
--  `tests` module L202-341 — `-` — See CLOACI-S-0003 for the full specification.
+-  `tests` module L202-460 — `-` — See CLOACI-S-0003 for the full specification.
 -  `TestStringConnection` struct L206-208 — `{ value: String }` — Simple test connection that returns a String handle.
 -  `TestStringConnection` type L210-225 — `impl DataConnection for TestStringConnection` — See CLOACI-S-0003 for the full specification.
 -  `connect` function L211-213 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0003 for the full specification.
@@ -1263,107 +1285,164 @@
 -  `test_datasource_map_multiple_sources` function L304-317 — `()` — See CLOACI-S-0003 for the full specification.
 -  `test_connection_descriptor` function L320-328 — `()` — See CLOACI-S-0003 for the full specification.
 -  `test_datasource_debug` function L331-340 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_new_is_empty` function L343-347 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_default_is_empty` function L350-354 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_insert_and_len` function L357-372 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_get_returns_source` function L375-389 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_get_returns_none_for_missing` function L392-395 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_names` function L398-417 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_names_empty` function L420-424 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_insert_overwrites_existing` function L427-445 — `()` — See CLOACI-S-0003 for the full specification.
+-  `test_datasource_map_debug_format` function L448-459 — `()` — See CLOACI-S-0003 for the full specification.
 
 #### crates/cloacina/src/continuous/detector.rs
 
 - pub `DETECTOR_OUTPUT_KEY` variable L29 — `: &str` — Well-known context key for detector output.
 - pub `DetectorOutput` enum L38-50 — `Change | WatermarkAdvance | Both` — Output produced by a detector workflow.
-- pub `from_context` function L56-59 — `(context: &cloacina_workflow::Context<serde_json::Value>) -> Option<Self>` — Extract `DetectorOutput` from a task output context.
-- pub `boundaries` function L62-68 — `(&self) -> &[ComputationBoundary]` — Get all change boundaries from this output (empty for WatermarkAdvance-only).
-- pub `watermark` function L71-77 — `(&self) -> Option<&ComputationBoundary>` — Get the watermark boundary if present.
--  `DetectorOutput` type L52-78 — `= DetectorOutput` — See CLOACI-S-0004 for the full specification.
--  `tests` module L81-144 — `-` — See CLOACI-S-0004 for the full specification.
--  `make_boundary` function L86-92 — `() -> ComputationBoundary` — See CLOACI-S-0004 for the full specification.
--  `test_detector_output_change_serialization` function L95-105 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_detector_output_watermark_advance` function L108-114 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_detector_output_both` function L117-124 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_detector_output_from_context` function L127-137 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_detector_output_from_context_missing` function L140-143 — `()` — See CLOACI-S-0004 for the full specification.
+- pub `from_context` function L56-69 — `(context: &cloacina_workflow::Context<serde_json::Value>) -> Option<Self>` — Extract `DetectorOutput` from a task output context.
+- pub `boundaries` function L72-78 — `(&self) -> &[ComputationBoundary]` — Get all change boundaries from this output (empty for WatermarkAdvance-only).
+- pub `watermark` function L81-87 — `(&self) -> Option<&ComputationBoundary>` — Get the watermark boundary if present.
+-  `DetectorOutput` type L52-88 — `= DetectorOutput` — See CLOACI-S-0004 for the full specification.
+-  `tests` module L91-154 — `-` — See CLOACI-S-0004 for the full specification.
+-  `make_boundary` function L96-102 — `() -> ComputationBoundary` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_change_serialization` function L105-115 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_watermark_advance` function L118-124 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_both` function L127-134 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_from_context` function L137-147 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_detector_output_from_context_missing` function L150-153 — `()` — See CLOACI-S-0004 for the full specification.
+
+#### crates/cloacina/src/continuous/detector_state_store.rs
+
+- pub `DetectorCheckpoint` struct L25-32 — `{ latest: Option<serde_json::Value>, committed: Option<serde_json::Value>, edge_...` — Per-source detector checkpoint with latest/committed split.
+- pub `DetectorStateStore` struct L39-41 — `{ inner: Arc<RwLock<HashMap<String, DetectorCheckpoint>>> }` — Thread-safe in-memory store for detector state checkpoints.
+- pub `new` function L44-48 — `() -> Self` — In-memory detector state store with committed/latest checkpoint tracking.
+- pub `load_committed` function L51-55 — `(&self, source_name: &str, committed_state: serde_json::Value)` — Load committed states from DB on startup.
+- pub `get_committed` function L58-61 — `(&self, source_name: &str) -> Option<serde_json::Value>` — Get the committed (safe-to-resume) state for a source.
+- pub `update_latest` function L64-68 — `(&self, source_name: &str, state: serde_json::Value)` — Update the latest (not yet committed) state from a detector completion.
+- pub `record_edge_drain` function L73-87 — `(&self, source_name: &str, edge_id: &str) -> Option<serde_json::Value>` — Record that an edge drained, capturing the current latest state for that edge.
+- pub `commit` function L90-102 — `(&self, source_name: &str) -> Option<serde_json::Value>` — Commit: promote latest -> committed.
+- pub `get_latest` function L105-108 — `(&self, source_name: &str) -> Option<serde_json::Value>` — Get the latest (uncommitted) state for a source.
+-  `DetectorStateStore` type L43-109 — `= DetectorStateStore` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `DetectorStateStore` type L111-115 — `impl Default for DetectorStateStore` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `default` function L112-114 — `() -> Self` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `tests` module L118-288 — `-` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_update_latest_and_get_committed` function L123-137 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_commit_promotes_latest` function L140-148 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_update_without_commit_preserves_old_committed` function L151-165 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_load_committed_from_db` function L168-176 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_record_edge_drain` function L179-191 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_commit_clears_edge_drain_states` function L194-204 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_multiple_sources_independent` function L207-216 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_commit_gate_multi_edge_slowest_wins` function L219-246 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_commit_preserves_state_across_cycles` function L249-266 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
+-  `test_record_edge_drain_captures_latest_at_drain_time` function L269-287 — `()` — In-memory detector state store with committed/latest checkpoint tracking.
 
 #### crates/cloacina/src/continuous/graph.rs
 
-- pub `JoinMode` enum L33-38 — `Any | All` — How to combine accumulator readiness for multi-input tasks.
-- pub `LateArrivalPolicy` enum L45-54 — `Discard | AccumulateForward | Retrigger | RouteToSideChannel` — Late arrival policy for boundaries arriving after consumer watermark.
-- pub `GraphEdge` struct L63-72 — `{ source: String, task: String, accumulator: Arc<Mutex<Box<dyn SignalAccumulator...` — An edge in the continuous graph: data source → accumulator → task.
-- pub `ContinuousTaskConfig` struct L86-93 — `{ triggered_edges: Vec<usize>, referenced_sources: Vec<String>, join_mode: JoinM...` — Configuration for a continuous task within the graph.
-- pub `DataSourceGraph` struct L99-106 — `{ data_sources: HashMap<String, DataSource>, tasks: HashMap<String, ContinuousTa...` — The continuous reactive graph.
-- pub `new` function L110-116 — `() -> Self` — Create a new empty graph.
-- pub `edges_for_task` function L119-130 — `(&self, task_id: &str) -> Vec<&GraphEdge>` — Get all edges for a given task.
-- pub `edges_for_source` function L133-138 — `(&self, source_name: &str) -> Vec<&GraphEdge>` — Get all edges for a given data source.
-- pub `task_ids` function L141-143 — `(&self) -> Vec<&str>` — Get all task IDs in the graph.
-- pub `ContinuousTaskRegistration` struct L167-174 — `{ id: String, sources: Vec<String>, referenced: Vec<String> }` — Registration for a continuous task (used during graph assembly).
-- pub `GraphAssemblyError` enum L178-191 — `UnknownSource | UnknownDetectorWorkflow | DuplicateTask` — Errors during graph assembly.
-- pub `assemble_graph` function L197-261 — `( data_sources: Vec<DataSource>, task_registrations: Vec<ContinuousTaskRegistrat...` — Assemble a `DataSourceGraph` from registered data sources and task declarations.
--  `LateArrivalPolicy` type L56-60 — `impl Default for LateArrivalPolicy` — See CLOACI-S-0008 for the full specification.
--  `default` function L57-59 — `() -> Self` — See CLOACI-S-0008 for the full specification.
--  `GraphEdge` type L74-82 — `= GraphEdge` — See CLOACI-S-0008 for the full specification.
--  `fmt` function L75-81 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
--  `DataSourceGraph` type L108-144 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
--  `DataSourceGraph` type L146-150 — `impl Default for DataSourceGraph` — See CLOACI-S-0008 for the full specification.
--  `default` function L147-149 — `() -> Self` — See CLOACI-S-0008 for the full specification.
--  `DataSourceGraph` type L152-163 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
--  `fmt` function L153-162 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
--  `tests` module L264-428 — `-` — See CLOACI-S-0008 for the full specification.
--  `MockConnection` struct L271 — `-` — See CLOACI-S-0008 for the full specification.
--  `MockConnection` type L272-285 — `impl DataConnection for MockConnection` — See CLOACI-S-0008 for the full specification.
--  `connect` function L273-275 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
--  `descriptor` function L276-281 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
--  `system_metadata` function L282-284 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
--  `make_data_source` function L287-294 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
--  `test_assemble_simple_graph` function L297-314 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_assemble_multi_source_task` function L317-328 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_assemble_unknown_source` function L331-347 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_assemble_unknown_referenced_source` function L350-360 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_assemble_duplicate_task` function L363-384 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_edges_for_task` function L387-398 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_edges_for_source` function L401-419 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_empty_graph` function L422-427 — `()` — See CLOACI-S-0008 for the full specification.
+- pub `JoinMode` enum L34-39 — `Any | All` — How to combine accumulator readiness for multi-input tasks.
+- pub `LateArrivalPolicy` enum L46-56 — `Discard | AccumulateForward | Retrigger` — Late arrival policy for boundaries arriving after consumer watermark.
+- pub `GraphEdge` struct L65-74 — `{ source: String, task: String, accumulator: Arc<Mutex<Box<dyn SignalAccumulator...` — An edge in the continuous graph: data source → accumulator → task.
+- pub `ContinuousTaskConfig` struct L88-95 — `{ triggered_edges: Vec<usize>, referenced_sources: Vec<String>, join_mode: JoinM...` — Configuration for a continuous task within the graph.
+- pub `DataSourceGraph` struct L101-108 — `{ data_sources: HashMap<String, DataSource>, tasks: HashMap<String, ContinuousTa...` — The continuous reactive graph.
+- pub `new` function L112-118 — `() -> Self` — Create a new empty graph.
+- pub `edges_for_task` function L121-132 — `(&self, task_id: &str) -> Vec<&GraphEdge>` — Get all edges for a given task.
+- pub `edges_for_source` function L135-140 — `(&self, source_name: &str) -> Vec<&GraphEdge>` — Get all edges for a given data source.
+- pub `task_ids` function L143-145 — `(&self) -> Vec<&str>` — Get all task IDs in the graph.
+- pub `ContinuousTaskRegistration` struct L169-176 — `{ id: String, sources: Vec<String>, referenced: Vec<String> }` — Registration for a continuous task (used during graph assembly).
+- pub `GraphAssemblyError` enum L180-201 — `UnknownSource | UnknownDetectorWorkflow | DuplicateTask | DuplicateDetectorWorkf...` — Errors during graph assembly.
+- pub `assemble_graph` function L207-343 — `( data_sources: Vec<DataSource>, task_registrations: Vec<ContinuousTaskRegistrat...` — Assemble a `DataSourceGraph` from registered data sources and task declarations.
+-  `LateArrivalPolicy` type L58-62 — `impl Default for LateArrivalPolicy` — See CLOACI-S-0008 for the full specification.
+-  `default` function L59-61 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `GraphEdge` type L76-84 — `= GraphEdge` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L77-83 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L110-146 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L148-152 — `impl Default for DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `default` function L149-151 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `DataSourceGraph` type L154-165 — `= DataSourceGraph` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L155-164 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `tests` module L346-634 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConnection` struct L353 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConnection` type L354-367 — `impl DataConnection for MockConnection` — See CLOACI-S-0008 for the full specification.
+-  `connect` function L355-357 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
+-  `descriptor` function L358-363 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
+-  `system_metadata` function L364-366 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
+-  `make_data_source` function L369-376 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_simple_graph` function L379-396 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_multi_source_task` function L399-410 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_unknown_source` function L413-429 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_unknown_referenced_source` function L432-442 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_assemble_duplicate_task` function L445-466 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_edges_for_task` function L469-480 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_edges_for_source` function L483-501 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_empty_graph` function L504-509 — `()` — See CLOACI-S-0008 for the full specification.
+-  `make_data_source_with_detector` function L513-520 — `(name: &str, detector: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
+-  `test_cycle_detection_simple_cycle` function L523-552 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_diamond_dependency_is_valid` function L555-589 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_linear_chain_is_valid` function L592-613 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_shared_detector_workflow_allowed` function L616-633 — `()` — See CLOACI-S-0008 for the full specification.
 
 #### crates/cloacina/src/continuous/ledger.rs
 
-- pub `LedgerEvent` enum L30-54 — `TaskCompleted | TaskFailed | BoundaryEmitted | AccumulatorDrained` — Events recorded in the execution ledger.
-- pub `task_name` function L58-65 — `(&self) -> Option<&str>` — Get the task name if this event is task-related.
-- pub `is_task_completed` function L68-70 — `(&self) -> bool` — Returns true if this is a TaskCompleted event.
-- pub `is_task_failed` function L73-75 — `(&self) -> bool` — Returns true if this is a TaskFailed event.
-- pub `ExecutionLedger` struct L85-87 — `{ events: Vec<LedgerEvent> }` — In-memory append-only log of graph activity.
-- pub `new` function L91-93 — `() -> Self` — Create a new empty ledger.
-- pub `append` function L96-98 — `(&mut self, event: LedgerEvent)` — Append an event to the ledger.
-- pub `events_since` function L104-110 — `(&self, cursor: usize) -> &[LedgerEvent]` — Get all events since the given cursor position.
-- pub `len` function L113-115 — `(&self) -> usize` — Get the current length of the ledger (usable as next cursor position).
-- pub `is_empty` function L118-120 — `(&self) -> bool` — Check if the ledger is empty.
-- pub `get` function L123-125 — `(&self, index: usize) -> Option<&LedgerEvent>` — Get a specific event by index.
--  `LedgerEvent` type L56-76 — `= LedgerEvent` — See CLOACI-S-0007 for the full specification.
--  `ExecutionLedger` type L89-126 — `= ExecutionLedger` — See CLOACI-S-0007 for the full specification.
--  `tests` module L129-248 — `-` — See CLOACI-S-0007 for the full specification.
--  `make_completed_event` function L133-139 — `(task: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
--  `make_failed_event` function L141-147 — `(task: &str, error: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
--  `make_boundary_event` function L149-160 — `(source: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
--  `test_ledger_append_and_len` function L163-174 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_ledger_events_since` function L177-195 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_ledger_cursor_advancement` function L198-222 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_ledger_event_helpers` function L225-238 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_ledger_get` function L241-247 — `()` — See CLOACI-S-0007 for the full specification.
+- pub `LedgerEvent` enum L34-58 — `TaskCompleted | TaskFailed | BoundaryEmitted | AccumulatorDrained` — Events recorded in the execution ledger.
+- pub `task_name` function L62-69 — `(&self) -> Option<&str>` — Get the task name if this event is task-related.
+- pub `is_task_completed` function L72-74 — `(&self) -> bool` — Returns true if this is a TaskCompleted event.
+- pub `is_task_failed` function L77-79 — `(&self) -> bool` — Returns true if this is a TaskFailed event.
+- pub `LedgerConfig` struct L87-90 — `{ max_events: usize }` — Configuration for the execution ledger.
+- pub `ExecutionLedger` struct L111-120 — `{ events: VecDeque<LedgerEvent>, base_offset: usize, config: LedgerConfig, notif...` — In-memory log of graph activity with bounded size.
+- pub `new` function L130-137 — `() -> Self` — Create a new empty ledger with default configuration.
+- pub `with_config` function L140-147 — `(config: LedgerConfig) -> Self` — Create a new empty ledger with the given configuration.
+- pub `subscribe` function L151-153 — `(&self) -> Arc<Notify>` — Get a handle to the notification channel.
+- pub `append` function L157-173 — `(&mut self, event: LedgerEvent)` — Append an event to the ledger, evicting the oldest if at capacity.
+- pub `events_since` function L180-192 — `(&self, cursor: usize) -> Vec<&LedgerEvent>` — Get all events since the given cursor position.
+- pub `len` function L196-198 — `(&self) -> usize` — Get the current length (absolute index of next append).
+- pub `is_empty` function L201-203 — `(&self) -> bool` — Check if the ledger is empty.
+- pub `get` function L206-211 — `(&self, index: usize) -> Option<&LedgerEvent>` — Get a specific event by absolute index.
+- pub `base_offset` function L214-216 — `(&self) -> usize` — Get the base offset (number of evicted events).
+- pub `retained_count` function L219-221 — `(&self) -> usize` — Get the number of events currently retained.
+-  `LedgerEvent` type L60-80 — `= LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `DEFAULT_MAX_EVENTS` variable L83 — `: usize` — Default maximum number of events in the ledger.
+-  `LedgerConfig` type L92-98 — `impl Default for LedgerConfig` — See CLOACI-S-0007 for the full specification.
+-  `default` function L93-97 — `() -> Self` — See CLOACI-S-0007 for the full specification.
+-  `ExecutionLedger` type L122-126 — `impl Default for ExecutionLedger` — See CLOACI-S-0007 for the full specification.
+-  `default` function L123-125 — `() -> Self` — See CLOACI-S-0007 for the full specification.
+-  `ExecutionLedger` type L128-222 — `= ExecutionLedger` — See CLOACI-S-0007 for the full specification.
+-  `tests` module L225-469 — `-` — See CLOACI-S-0007 for the full specification.
+-  `make_completed_event` function L229-235 — `(task: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `make_failed_event` function L237-243 — `(task: &str, error: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `make_boundary_event` function L245-256 — `(source: &str) -> LedgerEvent` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_append_and_len` function L259-270 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_events_since` function L273-291 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_cursor_advancement` function L294-318 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_event_helpers` function L321-334 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_get` function L337-343 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_eviction_on_overflow` function L348-369 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_cursor_adjustment_after_eviction` function L372-389 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_cursor_before_base_offset_returns_all_retained` function L392-405 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_heavy_eviction_stress` function L410-430 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_cursor_tracking_through_eviction` function L433-460 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_ledger_notify_on_append` function L463-468 — `()` — See CLOACI-S-0007 for the full specification.
 
 #### crates/cloacina/src/continuous/ledger_trigger.rs
 
-- pub `LedgerMatchMode` enum L34-39 — `Any | All` — How to match watched task completions.
-- pub `LedgerTrigger` struct L46-59 — `{ trigger_name: String, watch_tasks: Vec<String>, match_mode: LedgerMatchMode, l...` — A trigger that watches the `ExecutionLedger` for task completions.
-- pub `new` function L63-77 — `( trigger_name: String, watch_tasks: Vec<String>, match_mode: LedgerMatchMode, l...` — Create a new LedgerTrigger.
--  `LedgerTrigger` type L61-78 — `= LedgerTrigger` — See CLOACI-S-0007 for the full specification.
--  `LedgerTrigger` type L81-152 — `impl Trigger for LedgerTrigger` — See CLOACI-S-0007 for the full specification.
--  `name` function L82-84 — `(&self) -> &str` — See CLOACI-S-0007 for the full specification.
--  `poll_interval` function L86-89 — `(&self) -> Duration` — See CLOACI-S-0007 for the full specification.
--  `allow_concurrent` function L91-93 — `(&self) -> bool` — See CLOACI-S-0007 for the full specification.
--  `poll` function L95-151 — `(&self) -> Result<TriggerResult, TriggerError>` — See CLOACI-S-0007 for the full specification.
--  `tests` module L155-309 — `-` — See CLOACI-S-0007 for the full specification.
--  `make_ledger_with_completions` function L160-170 — `(tasks: &[&str]) -> Arc<RwLock<ExecutionLedger>>` — See CLOACI-S-0007 for the full specification.
--  `test_any_mode_fires_on_single_match` function L173-184 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_any_mode_skips_on_no_match` function L187-198 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_all_mode_waits_for_all` function L201-227 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_all_mode_resets_after_fire` function L230-246 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_cursor_idempotency` function L249-279 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_empty_ledger_skips` function L282-293 — `()` — See CLOACI-S-0007 for the full specification.
--  `test_trigger_metadata` function L296-308 — `()` — See CLOACI-S-0007 for the full specification.
+- pub `LedgerMatchMode` enum L36-41 — `Any | All` — How to match watched task completions.
+- pub `LedgerTrigger` struct L48-65 — `{ trigger_name: String, watch_tasks: Vec<String>, match_mode: LedgerMatchMode, l...` — A trigger that watches the `ExecutionLedger` for task completions.
+- pub `new` function L69-89 — `( trigger_name: String, watch_tasks: Vec<String>, match_mode: LedgerMatchMode, l...` — Create a new LedgerTrigger.
+- pub `notify_handle` function L93-95 — `(&self) -> Option<&Arc<Notify>>` — Get the notification handle for event-driven wake-up.
+-  `LedgerTrigger` type L67-96 — `= LedgerTrigger` — See CLOACI-S-0007 for the full specification.
+-  `LedgerTrigger` type L99-169 — `impl Trigger for LedgerTrigger` — See CLOACI-S-0007 for the full specification.
+-  `name` function L100-102 — `(&self) -> &str` — See CLOACI-S-0007 for the full specification.
+-  `poll_interval` function L104-108 — `(&self) -> Duration` — See CLOACI-S-0007 for the full specification.
+-  `allow_concurrent` function L110-112 — `(&self) -> bool` — See CLOACI-S-0007 for the full specification.
+-  `poll` function L114-168 — `(&self) -> Result<TriggerResult, TriggerError>` — See CLOACI-S-0007 for the full specification.
+-  `tests` module L172-326 — `-` — See CLOACI-S-0007 for the full specification.
+-  `make_ledger_with_completions` function L177-187 — `(tasks: &[&str]) -> Arc<RwLock<ExecutionLedger>>` — See CLOACI-S-0007 for the full specification.
+-  `test_any_mode_fires_on_single_match` function L190-201 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_any_mode_skips_on_no_match` function L204-215 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_all_mode_waits_for_all` function L218-244 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_all_mode_resets_after_fire` function L247-263 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_cursor_idempotency` function L266-296 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_empty_ledger_skips` function L299-310 — `()` — See CLOACI-S-0007 for the full specification.
+-  `test_trigger_metadata` function L313-325 — `()` — See CLOACI-S-0007 for the full specification.
 
 #### crates/cloacina/src/continuous/mod.rs
 
@@ -1372,120 +1451,128 @@
 - pub `connections` module L28 — `-` — See CLOACI-S-0001 for the full specification.
 - pub `datasource` module L29 — `-` — See CLOACI-S-0001 for the full specification.
 - pub `detector` module L30 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `graph` module L31 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `ledger` module L32 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `ledger_trigger` module L33 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `scheduler` module L34 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `state_management` module L35 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `trigger_policy` module L36 — `-` — See CLOACI-S-0001 for the full specification.
-- pub `watermark` module L37 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `detector_state_store` module L31 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `graph` module L32 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `ledger` module L33 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `ledger_trigger` module L34 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `scheduler` module L35 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `state_management` module L36 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `trigger_policy` module L37 — `-` — See CLOACI-S-0001 for the full specification.
+- pub `watermark` module L38 — `-` — See CLOACI-S-0001 for the full specification.
 
 #### crates/cloacina/src/continuous/scheduler.rs
 
-- pub `ContinuousSchedulerConfig` struct L38-41 — `{ poll_interval: Duration }` — Configuration for the continuous scheduler.
-- pub `ContinuousScheduler` struct L55-72 — `{ graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, boundary_ledger:...` — The continuous reactive scheduler.
-- pub `new` function L76-98 — `( graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, config: Continuo...` — Create a new continuous scheduler.
-- pub `register_task` function L104-111 — `( &mut self, task: Arc<dyn cloacina_workflow::Task>, ) -> &mut Self` — Register a continuous task implementation.
-- pub `with_dal` function L117-120 — `(mut self, dal: Arc<crate::dal::DAL>) -> Self` — Enable accumulator state persistence via DAL.
-- pub `restore_from_persisted_state` function L127-173 — `(&self)` — Restore accumulator consumer watermarks from persisted state.
-- pub `boundary_ledger` function L176-178 — `(&self) -> &Arc<RwLock<BoundaryLedger>>` — Get a reference to the boundary ledger (for WindowedAccumulator integration).
-- pub `graph_metrics` function L181-194 — `(&self) -> Vec<super::accumulator::EdgeMetrics>` — Get per-edge accumulator metrics for observability.
-- pub `add_exit_edge` function L197-202 — `(&mut self, task_id: String, workflow_name: String)` — Register an exit edge: when `task_id` completes, fire `workflow_name`.
-- pub `run` function L212-403 — `(&self, mut shutdown: watch::Receiver<bool>) -> Vec<FiredTask>` — Run the continuous scheduling loop.
-- pub `FiredTask` struct L543-554 — `{ task_id: String, fired_at: chrono::DateTime<Utc>, boundary_context: Vec<cloaci...` — A task that was fired by the scheduler.
--  `ContinuousSchedulerConfig` type L43-49 — `impl Default for ContinuousSchedulerConfig` — See CLOACI-S-0008 for the full specification.
--  `default` function L44-48 — `() -> Self` — See CLOACI-S-0008 for the full specification.
--  `ContinuousScheduler` type L74-539 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
--  `process_detector_output` function L406-489 — `(&self, detector_task: &str, output: &DetectorOutput)` — Process a detector output: route watermarks and boundaries.
--  `check_readiness` function L492-538 — `(&self) -> Vec<(String, Vec<cloacina_workflow::Context<serde_json::Value>>)>` — Check all tasks for readiness based on their JoinMode.
--  `ContinuousScheduler` type L556-565 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
--  `fmt` function L557-564 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
--  `tests` module L568-1187 — `-` — See CLOACI-S-0008 for the full specification.
--  `MockConn` struct L577 — `-` — See CLOACI-S-0008 for the full specification.
--  `MockConn` type L578-591 — `impl DataConnection for MockConn` — See CLOACI-S-0008 for the full specification.
--  `connect` function L579-581 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
--  `descriptor` function L582-587 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
--  `system_metadata` function L588-590 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
--  `make_source` function L593-600 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
--  `make_boundary` function L602-608 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0008 for the full specification.
--  `test_scheduler_processes_detector_output` function L611-641 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_scheduler_run_loop_with_shutdown` function L644-696 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_scheduler_empty_graph_runs_cleanly` function L699-718 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_watermark_advance_updates_boundary_ledger` function L721-750 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_both_output_routes_watermark_and_boundaries` function L753-788 — `()` — See CLOACI-S-0008 for the full specification.
--  `setup_scheduler_with_watermark` function L794-835 — `( policy: super::super::graph::LateArrivalPolicy, ) -> (ContinuousScheduler, Arc...` — Helper: create a scheduler, drain once to set consumer watermark,
--  `test_late_arrival_discard_drops_boundary` function L838-854 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_late_arrival_accumulate_forward` function L857-874 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_late_arrival_retrigger` function L877-894 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_late_arrival_route_to_side_channel` function L897-916 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_non_late_boundary_passes_through_regardless_of_policy` function L919-937 — `()` — See CLOACI-S-0008 for the full specification.
--  `RealTask` struct L942-944 — `{ id: String }` — A test task that writes to context proving it ran.
--  `RealTask` type L947-965 — `= RealTask` — See CLOACI-S-0008 for the full specification.
--  `execute` function L948-958 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — See CLOACI-S-0008 for the full specification.
--  `id` function L959-961 — `(&self) -> &str` — See CLOACI-S-0008 for the full specification.
--  `dependencies` function L962-964 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — See CLOACI-S-0008 for the full specification.
--  `test_scheduler_actually_executes_registered_task` function L968-1042 — `()` — See CLOACI-S-0008 for the full specification.
--  `test_scheduler_handles_task_failure` function L1045-1134 — `()` — See CLOACI-S-0008 for the full specification.
--  `FailingTask` struct L1046 — `-` — See CLOACI-S-0008 for the full specification.
--  `FailingTask` type L1049-1069 — `= FailingTask` — See CLOACI-S-0008 for the full specification.
--  `execute` function L1050-1062 — `( &self, _context: cloacina_workflow::Context<serde_json::Value>, ) -> Result< c...` — See CLOACI-S-0008 for the full specification.
--  `id` function L1063-1065 — `(&self) -> &str` — See CLOACI-S-0008 for the full specification.
--  `dependencies` function L1066-1068 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — See CLOACI-S-0008 for the full specification.
--  `test_unregistered_task_records_not_executed` function L1137-1186 — `()` — See CLOACI-S-0008 for the full specification.
+- pub `ContinuousSchedulerConfig` struct L40-50 — `{ poll_interval: Duration, max_fired_tasks: usize, task_timeout: Option<Duration...` — Configuration for the continuous scheduler.
+- pub `ContinuousScheduler` struct L66-85 — `{ graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, boundary_ledger:...` — The continuous reactive scheduler.
+- pub `new` function L89-112 — `( graph: DataSourceGraph, ledger: Arc<RwLock<ExecutionLedger>>, config: Continuo...` — Create a new continuous scheduler.
+- pub `register_task` function L118-122 — `(&mut self, task: Arc<dyn cloacina_workflow::Task>) -> &mut Self` — Register a continuous task implementation.
+- pub `with_dal` function L128-131 — `(mut self, dal: Arc<crate::dal::DAL>) -> Self` — Enable accumulator state persistence via DAL.
+- pub `detector_state_store` function L134-136 — `(&self) -> &DetectorStateStore` — Get a reference to the detector state store.
+- pub `restore_from_persisted_state` function L143-214 — `(&self)` — Restore accumulator consumer watermarks from persisted state.
+- pub `boundary_ledger` function L217-219 — `(&self) -> &Arc<RwLock<BoundaryLedger>>` — Get a reference to the boundary ledger (for WindowedAccumulator integration).
+- pub `graph_metrics` function L222-235 — `(&self) -> Vec<super::accumulator::EdgeMetrics>` — Get per-edge accumulator metrics for observability.
+- pub `add_exit_edge` function L238-243 — `(&mut self, task_id: String, workflow_name: String)` — Register an exit edge: when `task_id` completes, fire `workflow_name`.
+- pub `restore_pending_boundaries` function L247-295 — `(&self)` — Restore pending boundaries from WAL into accumulators on startup.
+- pub `restore_detector_state` function L298-330 — `(&self)` — Restore detector states from DB into the detector state store.
+- pub `init_drain_cursors` function L333-349 — `(&self)` — Initialize edge drain cursors for all edges in the graph.
+- pub `run` function L359-681 — `(&self, mut shutdown: watch::Receiver<bool>) -> Vec<FiredTask>` — Run the continuous scheduling loop.
+- pub `FiredTask` struct L847-858 — `{ task_id: String, fired_at: chrono::DateTime<Utc>, boundary_context: Vec<cloaci...` — A task that was fired by the scheduler.
+-  `ContinuousSchedulerConfig` type L52-60 — `impl Default for ContinuousSchedulerConfig` — See CLOACI-S-0008 for the full specification.
+-  `default` function L53-59 — `() -> Self` — See CLOACI-S-0008 for the full specification.
+-  `ContinuousScheduler` type L87-843 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
+-  `process_detector_output` function L684-775 — `(&self, detector_task: &str, output: &DetectorOutput)` — Process a detector output: route watermarks and boundaries.
+-  `check_readiness` function L778-842 — `(&self) -> Vec<(String, Vec<cloacina_workflow::Context<serde_json::Value>>)>` — Check all tasks for readiness based on their JoinMode.
+-  `ContinuousScheduler` type L860-869 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
+-  `fmt` function L861-868 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
+-  `tests` module L872-1487 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConn` struct L881 — `-` — See CLOACI-S-0008 for the full specification.
+-  `MockConn` type L882-895 — `impl DataConnection for MockConn` — See CLOACI-S-0008 for the full specification.
+-  `connect` function L883-885 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
+-  `descriptor` function L886-891 — `(&self) -> ConnectionDescriptor` — See CLOACI-S-0008 for the full specification.
+-  `system_metadata` function L892-894 — `(&self) -> serde_json::Value` — See CLOACI-S-0008 for the full specification.
+-  `make_source` function L897-904 — `(name: &str) -> DataSource` — See CLOACI-S-0008 for the full specification.
+-  `make_boundary` function L906-912 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_processes_detector_output` function L915-947 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_run_loop_with_shutdown` function L950-1004 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_empty_graph_runs_cleanly` function L1007-1028 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_watermark_advance_updates_boundary_ledger` function L1031-1062 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_both_output_routes_watermark_and_boundaries` function L1065-1102 — `()` — See CLOACI-S-0008 for the full specification.
+-  `setup_scheduler_with_watermark` function L1108-1151 — `( policy: super::super::graph::LateArrivalPolicy, ) -> (ContinuousScheduler, Arc...` — Helper: create a scheduler, drain once to set consumer watermark,
+-  `test_late_arrival_discard_drops_boundary` function L1154-1169 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_late_arrival_accumulate_forward` function L1172-1188 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_late_arrival_retrigger` function L1191-1207 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_non_late_boundary_passes_through_regardless_of_policy` function L1213-1230 — `()` — See CLOACI-S-0008 for the full specification.
+-  `RealTask` struct L1235-1237 — `{ id: String }` — A test task that writes to context proving it ran.
+-  `RealTask` type L1240-1256 — `= RealTask` — See CLOACI-S-0008 for the full specification.
+-  `execute` function L1241-1249 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — See CLOACI-S-0008 for the full specification.
+-  `id` function L1250-1252 — `(&self) -> &str` — See CLOACI-S-0008 for the full specification.
+-  `dependencies` function L1253-1255 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_actually_executes_registered_task` function L1259-1335 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_scheduler_handles_task_failure` function L1338-1429 — `()` — See CLOACI-S-0008 for the full specification.
+-  `FailingTask` struct L1339 — `-` — See CLOACI-S-0008 for the full specification.
+-  `FailingTask` type L1342-1360 — `= FailingTask` — See CLOACI-S-0008 for the full specification.
+-  `execute` function L1343-1353 — `( &self, _context: cloacina_workflow::Context<serde_json::Value>, ) -> Result<cl...` — See CLOACI-S-0008 for the full specification.
+-  `id` function L1354-1356 — `(&self) -> &str` — See CLOACI-S-0008 for the full specification.
+-  `dependencies` function L1357-1359 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — See CLOACI-S-0008 for the full specification.
+-  `test_unregistered_task_records_not_executed` function L1432-1486 — `()` — See CLOACI-S-0008 for the full specification.
 
 #### crates/cloacina/src/continuous/state_management.rs
 
 - pub `list_orphaned_states` function L29-49 — `( graph: &DataSourceGraph, dal: &DAL, ) -> Result<Vec<String>, String>` — List orphaned accumulator state edge IDs.
-- pub `prune_orphaned_states` function L54-65 — `( graph: &DataSourceGraph, dal: &DAL, ) -> Result<usize, String>` — Prune (delete) orphaned accumulator states.
+- pub `prune_orphaned_states` function L54-62 — `(graph: &DataSourceGraph, dal: &DAL) -> Result<usize, String>` — Prune (delete) orphaned accumulator states.
 
 #### crates/cloacina/src/continuous/trigger_policy.rs
 
-- pub `TriggerPolicy` interface L32-35 — `{ fn should_fire() }` — Trait controlling when an accumulator should fire.
-- pub `Immediate` struct L38 — `-` — Fires on every boundary — as soon as the buffer is non-empty.
-- pub `WallClockWindow` struct L51-56 — `{ duration: Duration, last_drain_at: Instant }` — Fires when wall clock time since last drain exceeds a configured duration.
-- pub `new` function L60-65 — `(duration: Duration) -> Self` — Create a new WallClockWindow policy with the given duration.
-- pub `mark_drained` function L68-70 — `(&mut self)` — Notify the policy that a drain occurred.
-- pub `AnyPolicy` struct L91 — `-` — Fires when ANY sub-policy returns true (OR combinator).
-- pub `AllPolicy` struct L108 — `-` — Fires when ALL sub-policies return true (AND combinator).
-- pub `BoundaryCount` struct L117-120 — `{ count: usize }` — Fires when N boundaries are buffered.
-- pub `new` function L124-126 — `(count: usize) -> Self` — Create a new BoundaryCount policy.
-- pub `WallClockDebounce` struct L140-143 — `{ duration: Duration }` — Fires when no new boundary has been received for `duration` (debounce).
-- pub `new` function L147-149 — `(duration: Duration) -> Self` — Create a new WallClockDebounce policy.
--  `Immediate` type L40-44 — `impl TriggerPolicy for Immediate` — See CLOACI-S-0005 for the full specification.
--  `should_fire` function L41-43 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `WallClockWindow` type L58-71 — `= WallClockWindow` — See CLOACI-S-0005 for the full specification.
--  `WallClockWindow` type L73-80 — `impl TriggerPolicy for WallClockWindow` — See CLOACI-S-0005 for the full specification.
+- pub `TriggerPolicy` interface L32-40 — `{ fn should_fire(), fn mark_drained() }` — Trait controlling when an accumulator should fire.
+- pub `Immediate` struct L43 — `-` — Fires on every boundary — as soon as the buffer is non-empty.
+- pub `WallClockWindow` struct L56-61 — `{ duration: Duration, last_drain_at: Instant }` — Fires when wall clock time since last drain exceeds a configured duration.
+- pub `new` function L65-70 — `(duration: Duration) -> Self` — Create a new WallClockWindow policy with the given duration.
+- pub `AnyPolicy` struct L95 — `-` — Fires when ANY sub-policy returns true (OR combinator).
+- pub `AllPolicy` struct L118 — `-` — Fires when ALL sub-policies return true (AND combinator).
+- pub `BoundaryCount` struct L133-136 — `{ count: usize }` — Fires when N boundaries are buffered.
+- pub `new` function L140-142 — `(count: usize) -> Self` — Create a new BoundaryCount policy.
+- pub `WallClockDebounce` struct L156-159 — `{ chrono_duration: chrono::Duration }` — Fires when no new boundary has been received for `duration` (debounce).
+- pub `try_new` function L167-171 — `(duration: Duration) -> Result<Self, String>` — Create a new WallClockDebounce policy.
+- pub `new` function L177-179 — `(duration: Duration) -> Self` — Create a new WallClockDebounce policy (panics on invalid duration).
+-  `mark_drained` function L39 — `(&mut self)` — Notify the policy that a drain occurred.
+-  `Immediate` type L45-49 — `impl TriggerPolicy for Immediate` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L46-48 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `WallClockWindow` type L63-71 — `= WallClockWindow` — See CLOACI-S-0005 for the full specification.
+-  `WallClockWindow` type L73-84 — `impl TriggerPolicy for WallClockWindow` — See CLOACI-S-0005 for the full specification.
 -  `should_fire` function L74-79 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `AnyPolicy` type L93-97 — `impl TriggerPolicy for AnyPolicy` — See CLOACI-S-0005 for the full specification.
--  `should_fire` function L94-96 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `AllPolicy` type L110-114 — `impl TriggerPolicy for AllPolicy` — See CLOACI-S-0005 for the full specification.
--  `should_fire` function L111-113 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `BoundaryCount` type L122-127 — `= BoundaryCount` — See CLOACI-S-0005 for the full specification.
--  `BoundaryCount` type L129-133 — `impl TriggerPolicy for BoundaryCount` — See CLOACI-S-0005 for the full specification.
--  `should_fire` function L130-132 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `WallClockDebounce` type L145-150 — `= WallClockDebounce` — See CLOACI-S-0005 for the full specification.
--  `WallClockDebounce` type L152-167 — `impl TriggerPolicy for WallClockDebounce` — See CLOACI-S-0005 for the full specification.
--  `should_fire` function L153-166 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
--  `tests` module L170-342 — `-` — See CLOACI-S-0005 for the full specification.
--  `make_buffered` function L175-183 — `() -> BufferedBoundary` — See CLOACI-S-0005 for the full specification.
--  `test_immediate_fires_on_non_empty` function L186-189 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_immediate_does_not_fire_on_empty` function L192-195 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_wall_clock_window_fires_after_duration` function L198-204 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_wall_clock_window_does_not_fire_early` function L207-210 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_wall_clock_window_does_not_fire_on_empty` function L213-219 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_wall_clock_window_mark_drained` function L222-232 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_boundary_count_fires_at_threshold` function L237-241 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_boundary_count_does_not_fire_below` function L244-248 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_boundary_count_fires_above` function L251-255 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_debounce_fires_after_silence` function L260-267 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_debounce_does_not_fire_during_burst` function L270-274 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_debounce_empty_buffer` function L277-280 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_any_fires_when_one_matches` function L285-291 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_any_does_not_fire_when_none_match` function L294-300 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_all_fires_when_all_match` function L305-311 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_all_does_not_fire_when_one_fails` function L314-320 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_all_empty_policies_does_not_fire` function L323-326 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_nested_any_all` function L331-341 — `()` — See CLOACI-S-0005 for the full specification.
+-  `mark_drained` function L81-83 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+-  `AnyPolicy` type L97-107 — `impl TriggerPolicy for AnyPolicy` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L98-100 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `mark_drained` function L102-106 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+-  `AllPolicy` type L120-130 — `impl TriggerPolicy for AllPolicy` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L121-123 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `mark_drained` function L125-129 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+-  `BoundaryCount` type L138-143 — `= BoundaryCount` — See CLOACI-S-0005 for the full specification.
+-  `BoundaryCount` type L145-149 — `impl TriggerPolicy for BoundaryCount` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L146-148 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `WallClockDebounce` type L161-180 — `= WallClockDebounce` — See CLOACI-S-0005 for the full specification.
+-  `WallClockDebounce` type L182-191 — `impl TriggerPolicy for WallClockDebounce` — See CLOACI-S-0005 for the full specification.
+-  `should_fire` function L183-190 — `(&self, buffer: &[BufferedBoundary]) -> bool` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L194-363 — `-` — See CLOACI-S-0005 for the full specification.
+-  `make_buffered` function L199-207 — `() -> BufferedBoundary` — See CLOACI-S-0005 for the full specification.
+-  `test_immediate_fires_on_non_empty` function L210-213 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_immediate_does_not_fire_on_empty` function L216-219 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_fires_after_duration` function L222-228 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_does_not_fire_early` function L231-234 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_does_not_fire_on_empty` function L237-243 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_wall_clock_window_mark_drained` function L246-256 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_boundary_count_fires_at_threshold` function L261-265 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_boundary_count_does_not_fire_below` function L268-272 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_boundary_count_fires_above` function L275-279 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_debounce_fires_after_silence` function L284-291 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_debounce_does_not_fire_during_burst` function L294-298 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_debounce_empty_buffer` function L301-304 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_any_fires_when_one_matches` function L309-315 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_any_does_not_fire_when_none_match` function L318-324 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_all_fires_when_all_match` function L329-332 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_all_does_not_fire_when_one_fails` function L335-341 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_all_empty_policies_does_not_fire` function L344-347 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_nested_any_all` function L352-362 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/continuous/watermark.rs
 
@@ -1497,32 +1584,37 @@
 - pub `watermark` function L89-91 — `(&self, source_name: &str) -> Option<&ComputationBoundary>` — Get the current watermark for a data source.
 - pub `sources` function L94-96 — `(&self) -> impl Iterator<Item = &str>` — Get all tracked source names.
 -  `BoundaryLedger` type L50-97 — `= BoundaryLedger` — See CLOACI-S-0006 for the full specification.
--  `is_backward` function L106-141 — `( existing: &ComputationBoundary, proposed: &ComputationBoundary, ) -> Result<bo...` — Check if a new watermark would be a backward movement.
--  `boundary_covered` function L149-169 — `(watermark: &ComputationBoundary, boundary: &ComputationBoundary) -> bool` — Check if a watermark covers a boundary.
--  `tests` module L172-431 — `-` — See CLOACI-S-0006 for the full specification.
--  `time_boundary` function L176-186 — `(end_offset_hours: i64) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `offset_boundary` function L188-194 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `cursor_boundary` function L196-204 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `cursor_boundary_at` function L206-214 — `(value: &str, emitted_at: chrono::DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `fullstate_boundary` function L216-224 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `fullstate_boundary_at` function L226-237 — `( value: &str, emitted_at: chrono::DateTime<Utc>, ) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
--  `test_advance_first_watermark_succeeds` function L242-246 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_forward_succeeds` function L249-253 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_backward_rejected_offset` function L256-267 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_same_value_accepted` function L270-274 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_cursor_forward_accepted` function L277-287 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_cursor_backward_rejected` function L290-302 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_fullstate_forward_accepted` function L305-314 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_fullstate_backward_rejected` function L317-328 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_advance_fullstate_same_emitted_at_accepted` function L331-341 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_offset_within_watermark` function L346-351 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_offset_beyond_watermark` function L354-358 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_missing_source` function L361-364 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_cursor_by_timestamp` function L367-386 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_fullstate_by_timestamp` function L389-405 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_covers_different_kinds_returns_false` function L408-412 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_watermark_returns_none_for_unknown` function L417-420 — `()` — See CLOACI-S-0006 for the full specification.
--  `test_sources_iterator` function L423-430 — `()` — See CLOACI-S-0006 for the full specification.
+-  `is_backward` function L106-146 — `( source_name: &str, existing: &ComputationBoundary, proposed: &ComputationBound...` — Check if a new watermark would be a backward movement.
+-  `boundary_covered` function L154-174 — `(watermark: &ComputationBoundary, boundary: &ComputationBoundary) -> bool` — Check if a watermark covers a boundary.
+-  `tests` module L177-503 — `-` — See CLOACI-S-0006 for the full specification.
+-  `time_boundary` function L181-191 — `(end_offset_hours: i64) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `offset_boundary` function L193-199 — `(start: i64, end: i64) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `cursor_boundary` function L201-209 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `cursor_boundary_at` function L211-219 — `(value: &str, emitted_at: chrono::DateTime<Utc>) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `fullstate_boundary` function L221-229 — `(value: &str) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `fullstate_boundary_at` function L231-242 — `( value: &str, emitted_at: chrono::DateTime<Utc>, ) -> ComputationBoundary` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_first_watermark_succeeds` function L247-251 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_forward_succeeds` function L254-258 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_backward_rejected_offset` function L261-272 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_same_value_accepted` function L275-279 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_cursor_forward_accepted` function L282-295 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_cursor_backward_rejected` function L298-310 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_fullstate_forward_accepted` function L313-325 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_fullstate_backward_rejected` function L328-339 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_advance_fullstate_same_emitted_at_accepted` function L342-352 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_offset_within_watermark` function L357-362 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_offset_beyond_watermark` function L365-369 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_missing_source` function L372-375 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_cursor_by_timestamp` function L378-397 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_fullstate_by_timestamp` function L400-416 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_different_kinds_returns_false` function L419-423 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_watermark_returns_none_for_unknown` function L428-431 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_sources_iterator` function L434-441 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_watermark_kind_mixing_rejected` function L446-459 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_watermark_same_kind_different_values_ok` function L462-470 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_watermark_backward_movement_rejected` function L473-482 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_watermark_monotonicity_many_advances` function L485-494 — `()` — See CLOACI-S-0006 for the full specification.
+-  `test_covers_cross_kind_returns_false` function L497-502 — `()` — See CLOACI-S-0006 for the full specification.
 
 ### crates/cloacina/src/continuous/connections
 
@@ -1553,21 +1645,25 @@
 
 #### crates/cloacina/src/continuous/connections/postgres.rs
 
-- pub `PostgresConnection` struct L29-42 — `{ host: String, port: u16, database: String, schema: String, table: String, user...` — A PostgreSQL data connection for continuous scheduling.
-- pub `new` function L46-55 — `(host: &str, port: u16, database: &str, schema: &str, table: &str) -> Self` — Create a new PostgresConnection.
-- pub `with_username` function L58-61 — `(mut self, username: &str) -> Self` — Set the username for the connection URL.
-- pub `connection_url` function L64-72 — `(&self) -> String` — Build the connection URL.
--  `PostgresConnection` type L44-73 — `= PostgresConnection` — PostgreSQL `DataConnection` implementation.
--  `PostgresConnection` type L75-98 — `impl DataConnection for PostgresConnection` — PostgreSQL `DataConnection` implementation.
--  `connect` function L76-80 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — PostgreSQL `DataConnection` implementation.
--  `descriptor` function L82-87 — `(&self) -> ConnectionDescriptor` — PostgreSQL `DataConnection` implementation.
--  `system_metadata` function L89-97 — `(&self) -> serde_json::Value` — PostgreSQL `DataConnection` implementation.
--  `tests` module L101-144 — `-` — PostgreSQL `DataConnection` implementation.
--  `test_postgres_connection_descriptor` function L105-110 — `()` — PostgreSQL `DataConnection` implementation.
--  `test_postgres_connection_metadata` function L113-120 — `()` — PostgreSQL `DataConnection` implementation.
--  `test_postgres_connection_connect` function L123-128 — `()` — PostgreSQL `DataConnection` implementation.
--  `test_postgres_connection_with_username` function L131-137 — `()` — PostgreSQL `DataConnection` implementation.
--  `test_postgres_connection_url` function L140-143 — `()` — PostgreSQL `DataConnection` implementation.
+- pub `PostgresPoolConfig` struct L29-36 — `{ url: String, max_connections: u32, min_connections: u32 }` — Pool configuration returned by `connect()`.
+- pub `PostgresConnection` struct L44-61 — `{ host: String, port: u16, database: String, schema: String, table: String, user...` — A PostgreSQL data connection for continuous scheduling.
+- pub `new` function L65-76 — `(host: &str, port: u16, database: &str, schema: &str, table: &str) -> Self` — Create a new PostgresConnection.
+- pub `with_username` function L79-82 — `(mut self, username: &str) -> Self` — Set the username for the connection URL.
+- pub `with_max_connections` function L85-88 — `(mut self, max: u32) -> Self` — Set the maximum number of connections in the pool.
+- pub `with_min_connections` function L91-94 — `(mut self, min: u32) -> Self` — Set the minimum number of idle connections in the pool.
+- pub `connection_url` function L97-105 — `(&self) -> String` — Build the connection URL.
+-  `PostgresConnection` type L63-106 — `= PostgresConnection` — PostgreSQL `DataConnection` implementation.
+-  `PostgresConnection` type L108-138 — `impl DataConnection for PostgresConnection` — PostgreSQL `DataConnection` implementation.
+-  `connect` function L109-118 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — PostgreSQL `DataConnection` implementation.
+-  `descriptor` function L120-125 — `(&self) -> ConnectionDescriptor` — PostgreSQL `DataConnection` implementation.
+-  `system_metadata` function L127-137 — `(&self) -> serde_json::Value` — PostgreSQL `DataConnection` implementation.
+-  `tests` module L141-197 — `-` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_descriptor` function L145-150 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_metadata` function L153-160 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_returns_pool_config` function L163-172 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_with_username` function L175-181 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_postgres_connection_url` function L184-187 — `()` — PostgreSQL `DataConnection` implementation.
+-  `test_default_pool_settings` function L190-196 — `()` — PostgreSQL `DataConnection` implementation.
 
 #### crates/cloacina/src/continuous/connections/s3.rs
 
@@ -1678,18 +1774,18 @@
 
 - pub `AccumulatorStateDAL` struct L26-28 — `{ dal: &'a DAL }` — Data access layer for accumulator state operations.
 - pub `new` function L31-33 — `(dal: &'a DAL) -> Self` — DAL for accumulator state persistence (continuous scheduling).
-- pub `save` function L36-45 — `( &self, state: NewAccumulatorState, ) -> Result<(), String>` — Save or update accumulator state for an edge.
-- pub `load` function L48-58 — `( &self, edge_id: &str, ) -> Result<Option<AccumulatorStateRow>, String>` — Load accumulator state for a specific edge.
-- pub `load_all` function L61-67 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — Load all persisted accumulator states.
-- pub `delete_by_ids` function L70-79 — `( &self, edge_ids: Vec<String>, ) -> Result<usize, String>` — Delete accumulator states by edge IDs.
--  `save_postgres` function L84-108 — `(&self, state: NewAccumulatorState) -> Result<(), String>` — DAL for accumulator state persistence (continuous scheduling).
--  `load_postgres` function L111-131 — `( &self, edge_id: String, ) -> Result<Option<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
--  `load_all_postgres` function L134-149 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
--  `delete_postgres` function L152-170 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — DAL for accumulator state persistence (continuous scheduling).
--  `save_sqlite` function L175-192 — `(&self, state: NewAccumulatorState) -> Result<(), String>` — DAL for accumulator state persistence (continuous scheduling).
--  `load_sqlite` function L195-215 — `( &self, edge_id: String, ) -> Result<Option<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
--  `load_all_sqlite` function L218-233 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
--  `delete_sqlite` function L236-254 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — DAL for accumulator state persistence (continuous scheduling).
+- pub `save` function L36-42 — `(&self, state: NewAccumulatorState) -> Result<(), String>` — Save or update accumulator state for an edge.
+- pub `load` function L45-52 — `(&self, edge_id: &str) -> Result<Option<AccumulatorStateRow>, String>` — Load accumulator state for a specific edge.
+- pub `load_all` function L55-61 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — Load all persisted accumulator states.
+- pub `delete_by_ids` function L64-70 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — Delete accumulator states by edge IDs.
+-  `save_postgres` function L75-98 — `(&self, state: NewAccumulatorState) -> Result<(), String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `load_postgres` function L101-118 — `(&self, edge_id: String) -> Result<Option<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `load_all_postgres` function L121-136 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `delete_postgres` function L139-156 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `save_sqlite` function L161-178 — `(&self, state: NewAccumulatorState) -> Result<(), String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `load_sqlite` function L181-198 — `(&self, edge_id: String) -> Result<Option<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `load_all_sqlite` function L201-216 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
+-  `delete_sqlite` function L219-236 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — DAL for accumulator state persistence (continuous scheduling).
 
 #### crates/cloacina/src/dal/unified/context.rs
 
@@ -1710,6 +1806,20 @@
 -  `delete_sqlite` function L306-321 — `(&self, id: UniversalUuid) -> Result<(), ContextError>` — at runtime based on the database connection type.
 -  `list_postgres` function L339-375 — `( &self, limit: i64, offset: i64, ) -> Result<Vec<Context<T>>, ContextError>` — at runtime based on the database connection type.
 -  `list_sqlite` function L378-410 — `(&self, limit: i64, offset: i64) -> Result<Vec<Context<T>>, ContextError>` — at runtime based on the database connection type.
+
+#### crates/cloacina/src/dal/unified/detector_state_dal.rs
+
+- pub `DetectorStateDAL` struct L26-28 — `{ dal: &'a DAL }` — Data access layer for detector state operations.
+- pub `new` function L31-33 — `(dal: &'a DAL) -> Self` — DAL for detector state persistence (continuous scheduling).
+- pub `save` function L36-42 — `(&self, state: NewDetectorState) -> Result<(), String>` — Save or update detector state for a source.
+- pub `load` function L45-52 — `(&self, source_name: &str) -> Result<Option<DetectorStateRow>, String>` — Load detector state for a specific source.
+- pub `load_all` function L55-61 — `(&self) -> Result<Vec<DetectorStateRow>, String>` — Load all persisted detector states.
+-  `save_postgres` function L66-86 — `(&self, state: NewDetectorState) -> Result<(), String>` — DAL for detector state persistence (continuous scheduling).
+-  `load_postgres` function L89-106 — `(&self, source_name: String) -> Result<Option<DetectorStateRow>, String>` — DAL for detector state persistence (continuous scheduling).
+-  `load_all_postgres` function L109-124 — `(&self) -> Result<Vec<DetectorStateRow>, String>` — DAL for detector state persistence (continuous scheduling).
+-  `save_sqlite` function L129-146 — `(&self, state: NewDetectorState) -> Result<(), String>` — DAL for detector state persistence (continuous scheduling).
+-  `load_sqlite` function L149-166 — `(&self, source_name: String) -> Result<Option<DetectorStateRow>, String>` — DAL for detector state persistence (continuous scheduling).
+-  `load_all_sqlite` function L169-184 — `(&self) -> Result<Vec<DetectorStateRow>, String>` — DAL for detector state persistence (continuous scheduling).
 
 #### crates/cloacina/src/dal/unified/execution_event.rs
 
@@ -1742,115 +1852,155 @@
 
 #### crates/cloacina/src/dal/unified/mod.rs
 
-- pub `context` module L46 — `-` — ```
-- pub `cron_execution` module L47 — `-` — ```
-- pub `cron_schedule` module L48 — `-` — ```
-- pub `execution_event` module L49 — `-` — ```
-- pub `accumulator_state` module L50 — `-` — ```
-- pub `models` module L51 — `-` — ```
-- pub `pipeline_execution` module L52 — `-` — ```
-- pub `recovery_event` module L53 — `-` — ```
-- pub `task_execution` module L54 — `-` — ```
-- pub `task_execution_metadata` module L55 — `-` — ```
-- pub `task_outbox` module L56 — `-` — ```
-- pub `trigger_execution` module L57 — `-` — ```
-- pub `trigger_schedule` module L58 — `-` — ```
-- pub `workflow_packages` module L59 — `-` — ```
-- pub `workflow_registry` module L60 — `-` — ```
-- pub `workflow_registry_storage` module L61 — `-` — ```
-- pub `DAL` struct L168-171 — `{ database: Database }` — The unified Data Access Layer struct.
-- pub `new` function L183-185 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L188-190 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L193-195 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L198-200 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `context` function L203-205 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `pipeline_execution` function L208-210 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
-- pub `task_execution` function L213-215 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L218-220 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L223-225 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L228-230 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L233-235 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `cron_schedule` function L238-240 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
-- pub `cron_execution` function L243-245 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
-- pub `trigger_schedule` function L248-250 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
-- pub `trigger_execution` function L253-255 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
-- pub `workflow_packages` function L258-260 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `workflow_registry` function L272-278 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L291-302 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `backend_dispatch` macro L97-117 — `-` — Helper macro for dispatching operations based on backend type.
--  `connection_match` macro L136-156 — `-` — Helper macro for matching on AnyConnection variants.
--  `DAL` type L173-303 — `= DAL` — ```
+- pub `accumulator_state` module L46 — `-` — ```
+- pub `context` module L47 — `-` — ```
+- pub `cron_execution` module L48 — `-` — ```
+- pub `cron_schedule` module L49 — `-` — ```
+- pub `detector_state_dal` module L50 — `-` — ```
+- pub `execution_event` module L51 — `-` — ```
+- pub `models` module L52 — `-` — ```
+- pub `pending_boundary_dal` module L53 — `-` — ```
+- pub `pipeline_execution` module L54 — `-` — ```
+- pub `recovery_event` module L55 — `-` — ```
+- pub `task_execution` module L56 — `-` — ```
+- pub `task_execution_metadata` module L57 — `-` — ```
+- pub `task_outbox` module L58 — `-` — ```
+- pub `trigger_execution` module L59 — `-` — ```
+- pub `trigger_schedule` module L60 — `-` — ```
+- pub `workflow_packages` module L61 — `-` — ```
+- pub `workflow_registry` module L62 — `-` — ```
+- pub `workflow_registry_storage` module L63 — `-` — ```
+- pub `DAL` struct L172-175 — `{ database: Database }` — The unified Data Access Layer struct.
+- pub `new` function L187-189 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L192-194 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L197-199 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L202-204 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `context` function L207-209 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `pipeline_execution` function L212-214 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
+- pub `task_execution` function L217-219 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L222-224 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L227-229 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `recovery_event` function L232-234 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L237-239 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `cron_schedule` function L242-244 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
+- pub `cron_execution` function L247-249 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
+- pub `trigger_schedule` function L252-254 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
+- pub `trigger_execution` function L257-259 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
+- pub `workflow_packages` function L262-264 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `workflow_registry` function L276-282 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L295-306 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `backend_dispatch` macro L101-121 — `-` — Helper macro for dispatching operations based on backend type.
+-  `connection_match` macro L140-160 — `-` — Helper macro for matching on AnyConnection variants.
+-  `DAL` type L177-307 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
-- pub `UnifiedDbContext` struct L40-45 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Unified context model that works with both PostgreSQL and SQLite.
-- pub `NewUnifiedDbContext` struct L50-55 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
-- pub `UnifiedPipelineExecution` struct L63-78 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPipelineExecution` struct L82-91 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecution` struct L99-118 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecution` struct L122-133 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecutionMetadata` struct L141-149 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecutionMetadata` struct L153-161 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedRecoveryEvent` struct L169-178 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedRecoveryEvent` struct L182-191 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedExecutionEvent` struct L201-210 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
-- pub `NewUnifiedExecutionEvent` struct L214-222 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskOutbox` struct L232-236 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
-- pub `NewUnifiedTaskOutbox` struct L240-243 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronSchedule` struct L251-264 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronSchedule` struct L268-280 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronExecution` struct L288-296 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronExecution` struct L300-308 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerSchedule` struct L316-326 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerSchedule` struct L330-339 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerExecution` struct L347-356 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerExecution` struct L360-368 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L376-380 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L384-388 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L396-407 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L411-422 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L430-439 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L443-451 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L459-467 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L471-478 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L486-492 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L496-501 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L509-515 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L519-525 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `AccumulatorStateRow` struct L802-809 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
-- pub `NewAccumulatorState` struct L814-818 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
--  `DbContext` type L550-559 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L551-558 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L561-580 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L562-579 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L582-605 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L583-604 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L607-619 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L608-618 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L621-634 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L622-633 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L636-649 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L637-648 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronSchedule` type L651-668 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L652-667 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronExecution` type L670-682 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L671-681 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L684-692 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L685-691 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L694-709 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L695-708 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerSchedule` type L711-725 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L712-724 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerExecution` type L727-740 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L728-739 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L742-755 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L743-754 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L757-769 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L758-768 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L771-781 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L772-780 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L783-793 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L784-792 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedDbContext` struct L41-46 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Unified context model that works with both PostgreSQL and SQLite.
+- pub `NewUnifiedDbContext` struct L51-56 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
+- pub `UnifiedPipelineExecution` struct L64-79 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPipelineExecution` struct L83-92 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecution` struct L100-119 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecution` struct L123-134 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecutionMetadata` struct L142-150 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecutionMetadata` struct L154-162 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedRecoveryEvent` struct L170-179 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedRecoveryEvent` struct L183-192 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedExecutionEvent` struct L202-211 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
+- pub `NewUnifiedExecutionEvent` struct L215-223 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskOutbox` struct L233-237 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
+- pub `NewUnifiedTaskOutbox` struct L241-244 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronSchedule` struct L252-265 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronSchedule` struct L269-281 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronExecution` struct L289-297 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronExecution` struct L301-309 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerSchedule` struct L317-327 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerSchedule` struct L331-340 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerExecution` struct L348-357 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerExecution` struct L361-369 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L377-381 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L385-389 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L397-408 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L412-423 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L431-440 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L444-452 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L460-468 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L472-479 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L487-493 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L497-502 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L510-516 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L520-526 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `AccumulatorStateRow` struct L803-810 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
+- pub `NewAccumulatorState` struct L815-819 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
+- pub `DetectorStateRow` struct L828-832 — `{ source_name: String, committed_state: Option<String>, updated_at: UniversalTim...` — Persisted detector state row.
+- pub `NewDetectorState` struct L837-840 — `{ source_name: String, committed_state: Option<String> }` — New detector state for insertion.
+- pub `PendingBoundaryRow` struct L849-854 — `{ id: i64, source_name: String, boundary_json: String, received_at: UniversalTim...` — Pending boundary row from the WAL.
+- pub `NewPendingBoundary` struct L859-862 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
+- pub `EdgeDrainCursorRow` struct L871-875 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
+- pub `NewEdgeDrainCursor` struct L880-884 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
+-  `DbContext` type L551-560 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L552-559 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L562-581 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L563-580 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L583-606 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L584-605 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L608-620 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L609-619 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L622-635 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L623-634 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L637-650 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L638-649 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronSchedule` type L652-669 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L653-668 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronExecution` type L671-683 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L672-682 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L685-693 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L686-692 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L695-710 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L696-709 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerSchedule` type L712-726 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L713-725 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerExecution` type L728-741 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L729-740 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L743-756 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L744-755 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L758-770 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L759-769 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L772-782 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L773-781 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L784-794 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L785-793 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+
+#### crates/cloacina/src/dal/unified/pending_boundary_dal.rs
+
+- pub `PendingBoundaryDAL` struct L28-30 — `{ dal: &'a DAL }` — Data access layer for pending boundary and edge drain cursor operations.
+- pub `new` function L33-35 — `(dal: &'a DAL) -> Self` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+- pub `append` function L38-48 — `(&self, source_name: String, boundary_json: String) -> Result<i64, String>` — Append a boundary to the WAL, returning the new row ID.
+- pub `load_after_cursor` function L51-62 — `( &self, source_name: String, cursor_id: i64, ) -> Result<Vec<PendingBoundaryRow...` — Load all boundaries after a cursor position for a source.
+- pub `advance_cursor` function L65-72 — `(&self, edge_id: String, drain_id: i64) -> Result<(), String>` — Advance the drain cursor for an edge.
+- pub `load_cursor` function L75-81 — `(&self, edge_id: String) -> Result<i64, String>` — Load the last drain ID for an edge cursor.
+- pub `init_cursor` function L84-95 — `(&self, edge_id: String, source_name: String) -> Result<(), String>` — Initialize a drain cursor for an edge (no-op if already exists).
+- pub `min_cursor_for_source` function L98-105 — `(&self, source_name: String) -> Result<i64, String>` — Get the minimum cursor position across all edges for a source.
+- pub `max_id_for_source` function L108-114 — `(&self, source_name: String) -> Result<Option<i64>, String>` — Get the maximum boundary ID for a source (most recent boundary).
+- pub `cleanup` function L117-123 — `(&self, source_name: String, up_to_id: i64) -> Result<usize, String>` — Delete consumed boundaries up to (and including) a given ID for a source.
+- pub `load_all_cursors` function L126-132 — `(&self) -> Result<Vec<EdgeDrainCursorRow>, String>` — Load all edge drain cursors.
+-  `append_postgres` function L139-156 — `(&self, boundary: NewPendingBoundary) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_after_cursor_postgres` function L159-181 — `( &self, source_name: String, cursor_id: i64, ) -> Result<Vec<PendingBoundaryRow...` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `advance_cursor_postgres` function L184-203 — `(&self, edge_id: String, drain_id: i64) -> Result<(), String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_cursor_postgres` function L206-225 — `(&self, edge_id: String) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `init_cursor_postgres` function L228-247 — `(&self, cursor: NewEdgeDrainCursor) -> Result<(), String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `min_cursor_for_source_postgres` function L250-269 — `(&self, source_name: String) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `max_id_for_source_postgres` function L272-290 — `(&self, source_name: String) -> Result<Option<i64>, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `cleanup_postgres` function L293-312 — `(&self, source_name: String, up_to_id: i64) -> Result<usize, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_all_cursors_postgres` function L315-330 — `(&self) -> Result<Vec<EdgeDrainCursorRow>, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `append_sqlite` function L337-360 — `(&self, boundary: NewPendingBoundary) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_after_cursor_sqlite` function L363-385 — `( &self, source_name: String, cursor_id: i64, ) -> Result<Vec<PendingBoundaryRow...` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `advance_cursor_sqlite` function L388-407 — `(&self, edge_id: String, drain_id: i64) -> Result<(), String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_cursor_sqlite` function L410-429 — `(&self, edge_id: String) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `init_cursor_sqlite` function L432-449 — `(&self, cursor: NewEdgeDrainCursor) -> Result<(), String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `min_cursor_for_source_sqlite` function L452-471 — `(&self, source_name: String) -> Result<i64, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `max_id_for_source_sqlite` function L474-492 — `(&self, source_name: String) -> Result<Option<i64>, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `cleanup_sqlite` function L495-514 — `(&self, source_name: String, up_to_id: i64) -> Result<usize, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
+-  `load_all_cursors_sqlite` function L517-532 — `(&self) -> Result<Vec<EdgeDrainCursorRow>, String>` — DAL for pending boundary WAL and edge drain cursors (continuous scheduling).
 
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
@@ -2351,12 +2501,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L973-975 — `-`
-- pub `postgres` module L980-982 — `-`
-- pub `sqlite` module L985-987 — `-`
--  `unified_schema` module L25-358 — `-`
--  `postgres_schema` module L365-697 — `-`
--  `sqlite_schema` module L700-968 — `-`
+- pub `unified` module L1069-1071 — `-`
+- pub `postgres` module L1076-1078 — `-`
+- pub `sqlite` module L1081-1083 — `-`
+-  `unified_schema` module L25-395 — `-`
+-  `postgres_schema` module L402-765 — `-`
+-  `sqlite_schema` module L768-1064 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -4418,40 +4568,88 @@
 
 #### crates/cloacina/tests/integration/continuous/accumulator_persistence.rs
 
--  `get_fresh_dal` function L25-31 — `() -> cloacina::dal::DAL` — Get a DAL with fresh migrations (resets and re-initializes the fixture).
--  `test_save_and_load_accumulator_state` function L35-67 — `()` — Integration tests for accumulator state persistence with a real database.
--  `test_save_upserts_on_conflict` function L71-105 — `()` — Integration tests for accumulator state persistence with a real database.
--  `test_load_all_and_delete` function L109-158 — `()` — Integration tests for accumulator state persistence with a real database.
--  `test_load_nonexistent_returns_none` function L162-172 — `()` — Integration tests for accumulator state persistence with a real database.
+-  `get_fresh_dal` function L30-36 — `() -> cloacina::dal::DAL` — Get a DAL with fresh migrations (resets and re-initializes the fixture).
+-  `test_save_and_load_accumulator_state` function L40-69 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_save_upserts_on_conflict` function L73-110 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_load_all_and_delete` function L114-160 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_load_nonexistent_returns_none` function L164-174 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_detector_state_save_and_load` function L182-216 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_detector_state_upserts` function L220-260 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_detector_state_load_nonexistent` function L264-290 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_detector_state_load_all` function L294-334 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_detector_state_save_with_null_committed_state` function L338-378 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_pending_boundary_append_and_load` function L386-468 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_edge_drain_cursor_lifecycle` function L472-550 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_boundary_cleanup_after_all_consumers_drain` function L554-628 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_init_cursor_idempotent` function L632-669 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_max_id_for_source` function L673-715 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_multi_source_isolation` function L719-802 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_load_all_cursors` function L806-865 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_list_orphaned_states` function L873-955 — `()` — code paths are exercised at runtime, not just compiled.
+-  `MockConn` struct L913 — `-` — code paths are exercised at runtime, not just compiled.
+-  `MockConn` type L914-927 — `impl DataConnection for MockConn` — code paths are exercised at runtime, not just compiled.
+-  `connect` function L915-917 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — code paths are exercised at runtime, not just compiled.
+-  `descriptor` function L918-923 — `(&self) -> ConnectionDescriptor` — code paths are exercised at runtime, not just compiled.
+-  `system_metadata` function L924-926 — `(&self) -> serde_json::Value` — code paths are exercised at runtime, not just compiled.
+-  `test_prune_orphaned_states` function L959-1002 — `()` — code paths are exercised at runtime, not just compiled.
+-  `test_prune_no_orphans` function L1006-1028 — `()` — code paths are exercised at runtime, not just compiled.
 
 #### crates/cloacina/tests/integration/continuous/mod.rs
 
 - pub `accumulator_persistence` module L22 — `-` — Integration tests for the continuous scheduling pipeline.
--  `PassthroughTask` struct L41-43 — `{ id: String }` — A simple continuous task for integration tests that passes through context.
--  `PassthroughTask` type L45-49 — `= PassthroughTask` — detector output → accumulator → task fires → ledger records completion
--  `new` function L46-48 — `(id: &str) -> Self` — detector output → accumulator → task fires → ledger records completion
--  `PassthroughTask` type L52-66 — `impl Task for PassthroughTask` — detector output → accumulator → task fires → ledger records completion
--  `execute` function L53-59 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — detector output → accumulator → task fires → ledger records completion
--  `id` function L60-62 — `(&self) -> &str` — detector output → accumulator → task fires → ledger records completion
--  `dependencies` function L63-65 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — detector output → accumulator → task fires → ledger records completion
--  `MockConn` struct L73 — `-` — detector output → accumulator → task fires → ledger records completion
--  `MockConn` type L74-87 — `impl DataConnection for MockConn` — detector output → accumulator → task fires → ledger records completion
--  `connect` function L75-77 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — detector output → accumulator → task fires → ledger records completion
--  `descriptor` function L78-83 — `(&self) -> ConnectionDescriptor` — detector output → accumulator → task fires → ledger records completion
--  `system_metadata` function L84-86 — `(&self) -> serde_json::Value` — detector output → accumulator → task fires → ledger records completion
--  `make_source` function L89-96 — `(name: &str) -> DataSource` — detector output → accumulator → task fires → ledger records completion
--  `make_boundary` function L98-104 — `(start: i64, end: i64) -> ComputationBoundary` — detector output → accumulator → task fires → ledger records completion
--  `make_detector_completion` function L106-116 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — detector output → accumulator → task fires → ledger records completion
--  `test_full_reactive_loop` function L120-181 — `()` — Full reactive loop: detector emits boundaries → accumulator receives → task fires.
--  `test_multiple_detector_outputs_accumulate` function L185-230 — `()` — Multiple detector outputs accumulate before firing.
--  `test_multi_source_task` function L234-275 — `()` — Multi-source task: boundaries arrive on two sources.
--  `test_ledger_records_drains` function L279-326 — `()` — Ledger records accumulator drains.
--  `test_windowed_accumulator_waits_for_watermark` function L332-357 — `()` — WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
--  `test_ledger_trigger_feedback_loop` function L361-396 — `()` — LedgerTrigger completes the reactive feedback loop.
--  `test_ledger_trigger_all_mode_multi_dependency` function L400-436 — `()` — LedgerTrigger All mode: waits for both upstream tasks.
--  `test_scheduler_watermark_advance_via_both` function L440-486 — `()` — Full scheduler loop with watermark advance via Both output.
--  `test_multi_cycle_reactive_loop` function L499-608 — `()` — Multi-cycle reactive loop: source → task_a → derived source → task_b.
--  `test_ledger_trigger_bridges_cycles` function L613-662 — `()` — LedgerTrigger integration: verify it correctly bridges task completion
+- pub `recovery_e2e` module L23 — `-` — detector output → accumulator → task fires → ledger records completion
+-  `PassthroughTask` struct L42-44 — `{ id: String }` — A simple continuous task for integration tests that passes through context.
+-  `PassthroughTask` type L46-50 — `= PassthroughTask` — detector output → accumulator → task fires → ledger records completion
+-  `new` function L47-49 — `(id: &str) -> Self` — detector output → accumulator → task fires → ledger records completion
+-  `PassthroughTask` type L53-67 — `impl Task for PassthroughTask` — detector output → accumulator → task fires → ledger records completion
+-  `execute` function L54-60 — `( &self, mut context: cloacina_workflow::Context<serde_json::Value>, ) -> Result...` — detector output → accumulator → task fires → ledger records completion
+-  `id` function L61-63 — `(&self) -> &str` — detector output → accumulator → task fires → ledger records completion
+-  `dependencies` function L64-66 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — detector output → accumulator → task fires → ledger records completion
+-  `MockConn` struct L75 — `-` — detector output → accumulator → task fires → ledger records completion
+-  `MockConn` type L76-89 — `impl DataConnection for MockConn` — detector output → accumulator → task fires → ledger records completion
+-  `connect` function L77-79 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — detector output → accumulator → task fires → ledger records completion
+-  `descriptor` function L80-85 — `(&self) -> ConnectionDescriptor` — detector output → accumulator → task fires → ledger records completion
+-  `system_metadata` function L86-88 — `(&self) -> serde_json::Value` — detector output → accumulator → task fires → ledger records completion
+-  `make_source` function L91-98 — `(name: &str) -> DataSource` — detector output → accumulator → task fires → ledger records completion
+-  `make_boundary` function L100-106 — `(start: i64, end: i64) -> ComputationBoundary` — detector output → accumulator → task fires → ledger records completion
+-  `make_detector_completion` function L108-118 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — detector output → accumulator → task fires → ledger records completion
+-  `test_full_reactive_loop` function L122-187 — `()` — Full reactive loop: detector emits boundaries → accumulator receives → task fires.
+-  `test_multiple_detector_outputs_accumulate` function L191-238 — `()` — Multiple detector outputs accumulate before firing.
+-  `test_multi_source_task` function L242-285 — `()` — Multi-source task: boundaries arrive on two sources.
+-  `test_ledger_records_drains` function L289-338 — `()` — Ledger records accumulator drains.
+-  `test_windowed_accumulator_waits_for_watermark` function L344-369 — `()` — WindowedAccumulator with WaitForWatermark blocks until watermark covers boundary.
+-  `test_ledger_trigger_feedback_loop` function L373-408 — `()` — LedgerTrigger completes the reactive feedback loop.
+-  `test_ledger_trigger_all_mode_multi_dependency` function L412-448 — `()` — LedgerTrigger All mode: waits for both upstream tasks.
+-  `test_scheduler_watermark_advance_via_both` function L452-500 — `()` — Full scheduler loop with watermark advance via Both output.
+-  `test_multi_cycle_reactive_loop` function L513-624 — `()` — Multi-cycle reactive loop: source → task_a → derived source → task_b.
+-  `test_ledger_trigger_bridges_cycles` function L629-681 — `()` — LedgerTrigger integration: verify it correctly bridges task completion
+
+#### crates/cloacina/tests/integration/continuous/recovery_e2e.rs
+
+-  `MockConn` struct L46 — `-` — - Multi-consumer fan-out recovers correctly per-edge
+-  `MockConn` type L47-60 — `impl DataConnection for MockConn` — - Multi-consumer fan-out recovers correctly per-edge
+-  `connect` function L48-50 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — - Multi-consumer fan-out recovers correctly per-edge
+-  `descriptor` function L51-56 — `(&self) -> ConnectionDescriptor` — - Multi-consumer fan-out recovers correctly per-edge
+-  `system_metadata` function L57-59 — `(&self) -> serde_json::Value` — - Multi-consumer fan-out recovers correctly per-edge
+-  `make_source` function L62-69 — `(name: &str) -> DataSource` — - Multi-consumer fan-out recovers correctly per-edge
+-  `make_boundary` function L71-77 — `(start: i64, end: i64) -> ComputationBoundary` — - Multi-consumer fan-out recovers correctly per-edge
+-  `make_detector_completion_with_state` function L79-94 — `( task_name: &str, boundaries: Vec<ComputationBoundary>, last_known_state: serde...` — - Multi-consumer fan-out recovers correctly per-edge
+-  `make_detector_completion` function L96-106 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — - Multi-consumer fan-out recovers correctly per-edge
+-  `PassthroughTask` struct L108-110 — `{ id: String }` — - Multi-consumer fan-out recovers correctly per-edge
+-  `PassthroughTask` type L112-116 — `= PassthroughTask` — - Multi-consumer fan-out recovers correctly per-edge
+-  `new` function L113-115 — `(id: &str) -> Self` — - Multi-consumer fan-out recovers correctly per-edge
+-  `PassthroughTask` type L119-133 — `impl Task for PassthroughTask` — - Multi-consumer fan-out recovers correctly per-edge
+-  `execute` function L120-126 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — - Multi-consumer fan-out recovers correctly per-edge
+-  `id` function L127-129 — `(&self) -> &str` — - Multi-consumer fan-out recovers correctly per-edge
+-  `dependencies` function L130-132 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — - Multi-consumer fan-out recovers correctly per-edge
+-  `get_fresh_dal` function L135-141 — `() -> cloacina::dal::DAL` — - Multi-consumer fan-out recovers correctly per-edge
+-  `make_config` function L143-149 — `() -> ContinuousSchedulerConfig` — - Multi-consumer fan-out recovers correctly per-edge
+-  `test_e2e_crash_recovery_single_consumer` function L159-247 — `()` — Full cycle: emit boundaries → run scheduler → task drains → persist state →
+-  `test_e2e_multi_consumer_partial_drain_recovery` function L253-343 — `()` — Multi-consumer fan-out: 2 edges from same source, only one drains before crash.
+-  `test_e2e_detector_state_roundtrip` function L348-388 — `()` — Verify detector state committed state is accessible via the store after restart.
+-  `test_e2e_boundary_wal_restore_fires_task` function L393-454 — `()` — Verify pending boundary WAL → restore into accumulator → task fires.
+-  `test_e2e_cursor_skips_already_consumed_boundaries` function L459-519 — `()` — Verify cursor-based restore only re-injects unconsumed boundaries.
+-  `test_e2e_commit_gate_requires_all_consumers` function L524-601 — `()` — Verify the commit gate: detector state only commits when ALL consumers drain.
 
 ### crates/cloacina/tests/integration/dal
 
@@ -4833,21 +5031,21 @@
 
 #### crates/cloacina/tests/integration/task/continuous_macro.rs
 
--  `aggregate_hourly` function L26-31 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_compiles_and_creates` function L34-37 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_sources` function L40-42 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_referenced_empty` function L45-47 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_is_continuous` function L50-52 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_has_fingerprint` function L55-58 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_execute_runs_function` function L61-68 — `()` — Tests for the #[continuous_task] proc macro.
--  `join_metrics` function L77-82 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_multiple_sources` function L85-87 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_with_referenced` function L90-92 — `()` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_with_referenced_executes` function L95-100 — `()` — Tests for the #[continuous_task] proc macro.
--  `process_boundaries` function L105-115 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_reads_boundary_from_context` function L118-129 — `()` — Tests for the #[continuous_task] proc macro.
--  `failing_task` function L134-142 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
--  `test_continuous_task_failure_propagates` function L145-150 — `()` — Tests for the #[continuous_task] proc macro.
+-  `aggregate_hourly` function L26-29 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_compiles_and_creates` function L32-35 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_sources` function L38-40 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_referenced_empty` function L43-45 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_is_continuous` function L48-50 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_has_fingerprint` function L53-56 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_execute_runs_function` function L59-66 — `()` — Tests for the #[continuous_task] proc macro.
+-  `join_metrics` function L75-78 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_multiple_sources` function L81-83 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_with_referenced` function L86-88 — `()` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_with_referenced_executes` function L91-96 — `()` — Tests for the #[continuous_task] proc macro.
+-  `process_boundaries` function L101-109 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_reads_boundary_from_context` function L112-123 — `()` — Tests for the #[continuous_task] proc macro.
+-  `failing_task` function L128-134 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Tests for the #[continuous_task] proc macro.
+-  `test_continuous_task_failure_propagates` function L137-142 — `()` — Tests for the #[continuous_task] proc macro.
 
 #### crates/cloacina/tests/integration/task/debug_macro.rs
 
@@ -5354,7 +5552,7 @@
 -  `KeyCommands` enum L120-152 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 -  `TrustCommands` enum L155-174 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 -  `AdminCommands` enum L177-195 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `main` function L198-337 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `main` function L198-344 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 
 ### docs/themes/hugo-geekdoc/static/js
 
@@ -7491,17 +7689,17 @@
 
 #### examples/features/continuous-scheduling/src/main.rs
 
--  `AggregateHourlyTask` struct L41 — `-` — The actual continuous task that processes aggregated data.
--  `AggregateHourlyTask` type L44-82 — `impl Task for AggregateHourlyTask` — 4.
--  `execute` function L45-73 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — 4.
--  `id` function L75-77 — `(&self) -> &str` — 4.
--  `dependencies` function L79-81 — `(&self) -> &[TaskNamespace]` — 4.
--  `SimulatedDbConnection` struct L85-87 — `{ table: String }` — Simulated database connection for the example.
--  `SimulatedDbConnection` type L89-104 — `impl DataConnection for SimulatedDbConnection` — 4.
--  `connect` function L90-92 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — 4.
--  `descriptor` function L94-99 — `(&self) -> ConnectionDescriptor` — 4.
--  `system_metadata` function L101-103 — `(&self) -> serde_json::Value` — 4.
--  `main` function L107-265 — `()` — 4.
+-  `AggregateHourlyTask` struct L42 — `-` — The actual continuous task that processes aggregated data.
+-  `AggregateHourlyTask` type L45-83 — `impl Task for AggregateHourlyTask` — 4.
+-  `execute` function L46-74 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — 4.
+-  `id` function L76-78 — `(&self) -> &str` — 4.
+-  `dependencies` function L80-82 — `(&self) -> &[TaskNamespace]` — 4.
+-  `SimulatedDbConnection` struct L86-88 — `{ table: String }` — Simulated database connection for the example.
+-  `SimulatedDbConnection` type L90-105 — `impl DataConnection for SimulatedDbConnection` — 4.
+-  `connect` function L91-93 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — 4.
+-  `descriptor` function L95-100 — `(&self) -> ConnectionDescriptor` — 4.
+-  `system_metadata` function L102-104 — `(&self) -> serde_json::Value` — 4.
+-  `main` function L108-268 — `()` — 4.
 
 ### examples/features/cron-scheduling/src
 
