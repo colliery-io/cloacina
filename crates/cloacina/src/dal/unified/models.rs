@@ -20,11 +20,11 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    accumulator_state, contexts, cron_executions, cron_schedules, detector_state,
-    edge_drain_cursors, execution_events, key_trust_acls, package_signatures, pending_boundaries,
-    pipeline_executions, recovery_events, signing_keys, task_execution_metadata, task_executions,
-    task_outbox, trigger_executions, trigger_schedules, trusted_keys, workflow_packages,
-    workflow_registry,
+    accumulator_state, api_key_workflow_patterns, api_keys, contexts, cron_executions,
+    cron_schedules, detector_state, edge_drain_cursors, execution_events, key_trust_acls,
+    package_signatures, pending_boundaries, pipeline_executions, recovery_events, signing_keys,
+    task_execution_metadata, task_executions, task_outbox, tenants, trigger_executions,
+    trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -881,4 +881,82 @@ pub struct NewEdgeDrainCursor {
     pub edge_id: String,
     pub source_name: String,
     pub last_drain_id: i64,
+}
+
+// ============================================================================
+// Auth: Tenant Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = tenants)]
+pub struct TenantRow {
+    pub id: UniversalUuid,
+    pub name: String,
+    pub schema_name: String,
+    pub status: String,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = tenants)]
+pub struct NewTenant {
+    pub id: UniversalUuid,
+    pub name: String,
+    pub schema_name: String,
+}
+
+// ============================================================================
+// Auth: API Key Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = api_keys)]
+pub struct ApiKeyRow {
+    pub id: UniversalUuid,
+    pub tenant_id: Option<UniversalUuid>,
+    pub key_hash: String,
+    pub key_prefix: String,
+    pub name: Option<String>,
+    pub can_read: UniversalBool,
+    pub can_write: UniversalBool,
+    pub can_execute: UniversalBool,
+    pub can_admin: UniversalBool,
+    pub created_at: UniversalTimestamp,
+    pub expires_at: Option<UniversalTimestamp>,
+    pub revoked_at: Option<UniversalTimestamp>,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = api_keys)]
+pub struct NewApiKey {
+    pub id: UniversalUuid,
+    pub tenant_id: Option<UniversalUuid>,
+    pub key_hash: String,
+    pub key_prefix: String,
+    pub name: Option<String>,
+    pub can_read: UniversalBool,
+    pub can_write: UniversalBool,
+    pub can_execute: UniversalBool,
+    pub can_admin: UniversalBool,
+}
+
+// ============================================================================
+// Auth: Workflow Pattern Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = api_key_workflow_patterns)]
+pub struct WorkflowPatternRow {
+    pub id: UniversalUuid,
+    pub api_key_id: UniversalUuid,
+    pub pattern: String,
+}
+
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = api_key_workflow_patterns)]
+pub struct NewWorkflowPattern {
+    pub id: UniversalUuid,
+    pub api_key_id: UniversalUuid,
+    pub pattern: String,
 }

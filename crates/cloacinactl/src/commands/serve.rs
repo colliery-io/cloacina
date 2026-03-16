@@ -90,9 +90,28 @@ struct ApiDoc;
 ///
 /// Separated from `run()` so it can be tested independently.
 pub fn app(state: Arc<AppState>) -> Router {
-    Router::new()
+    // Public routes — no auth required
+    let public_routes = Router::new()
         .route("/health", get(health::health))
-        .merge(SwaggerUi::new("/api-docs/").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/api-docs/").url("/api-docs/openapi.json", ApiDoc::openapi()));
+
+    // Protected routes — auth required
+    let protected_routes =
+        Router::new().route("/auth-test", get(crate::routes::auth_test::auth_test));
+
+    // Apply auth middleware to protected routes only (if auth is configured)
+    let protected_routes = if let Some(ref auth) = state.auth_state {
+        protected_routes.layer(axum::middleware::from_fn_with_state(
+            auth.clone(),
+            crate::auth::middleware::auth_middleware,
+        ))
+    } else {
+        protected_routes
+    };
+
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
         .with_state(state)
 }
 
@@ -187,9 +206,29 @@ pub async fn run(args: &ServeArgs) -> Result<()> {
 
     // Start HTTP server if this mode needs API
     if needs_api {
+        // Create auth state if database is available
+        let auth_state = if !config.database.url.is_empty() {
+            let auth_database = cloacina::Database::try_new_with_schema(
+                &config.database.url,
+                "",
+                config.database.pool_size,
+                None,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create auth database pool: {}", e))?;
+            let auth_dal = Arc::new(cloacina::dal::DAL::new(auth_database));
+            let auth_cache = crate::auth::cache::AuthCache::new(std::time::Duration::from_secs(60));
+            Some(crate::auth::middleware::AuthState {
+                cache: auth_cache,
+                dal: auth_dal,
+            })
+        } else {
+            None
+        };
+
         let state = Arc::new(AppState {
             startup_instant: Instant::now(),
             mode: config.server.mode.clone(),
+            auth_state,
         });
 
         let bind_addr = format!("{}:{}", config.server.bind, config.server.port);
@@ -233,6 +272,7 @@ mod tests {
         let state = Arc::new(AppState {
             startup_instant: Instant::now(),
             mode: "api".to_string(),
+            auth_state: None,
         });
 
         // Bind to port 0 (OS assigns random available port)
@@ -291,6 +331,7 @@ mod tests {
         let state = Arc::new(AppState {
             startup_instant: Instant::now(),
             mode: "scheduler".to_string(),
+            auth_state: None,
         });
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -321,6 +362,7 @@ mod tests {
         let state = Arc::new(AppState {
             startup_instant: Instant::now(),
             mode: "api".to_string(),
+            auth_state: None,
         });
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -341,6 +383,157 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 404);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    /// Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+    fn app_with_auth_cache(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>) {
+        // Create a dummy DAL — won't be hit because cache is pre-populated
+        // We need a valid DAL struct but it won't make DB calls
+        let auth_state = crate::auth::middleware::AuthState {
+            cache,
+            dal: std::sync::Arc::new(cloacina::dal::DAL::new(cloacina::Database::new(
+                "sqlite://:memory:",
+                "test",
+                1,
+            ))),
+        };
+
+        let state = Arc::new(AppState {
+            startup_instant: Instant::now(),
+            mode: "api".to_string(),
+            auth_state: Some(auth_state),
+        });
+
+        (app(state.clone()), state)
+    }
+
+    #[tokio::test]
+    async fn test_auth_protected_endpoint_requires_auth() {
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let (router, _state) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // No auth header → 401
+        let resp = reqwest::get(format!("http://{}/auth-test", addr))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
+
+        // Health is still public
+        let resp = reqwest::get(format!("http://{}/health", addr))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_auth_valid_key_returns_200() {
+        use crate::auth::cache::CachedKey;
+
+        // Pre-populate cache with a known key
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let key_hash =
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+        cache.insert(
+            "test_demo".to_string(),
+            vec![CachedKey {
+                key_hash,
+                key_id: uuid::Uuid::new_v4(),
+                tenant_id: None,
+                can_read: true,
+                can_write: false,
+                can_execute: false,
+                can_admin: false,
+                expires_at: None,
+                revoked_at: None,
+                workflow_patterns: vec![],
+            }],
+        );
+
+        let (router, _state) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Valid auth header → 200
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://{}/auth-test", addr))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["can_read"], true);
+        assert_eq!(body["can_write"], false);
+        assert_eq!(body["is_global"], true);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_auth_invalid_key_returns_401() {
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        // Cache has an entry but the hash won't match
+        cache.insert_not_found("bad_prefix".to_string());
+
+        let (router, _state) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://{}/auth-test", addr))
+            .header("Authorization", "Bearer cloacina_bad_prefix_invalidkey")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401);
 
         let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
     }

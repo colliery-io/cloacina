@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-//! HTTP route handlers for the Cloacina server.
-
-pub mod auth_test;
-pub mod health;
+pub mod cache;
+pub mod context;
+pub mod middleware;
+pub mod pattern;

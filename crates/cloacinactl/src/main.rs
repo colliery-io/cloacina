@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+pub mod auth;
 mod commands;
 pub mod config;
 pub mod routes;
@@ -66,6 +67,12 @@ enum Commands {
     Admin {
         #[command(subcommand)]
         command: AdminCommands,
+    },
+
+    /// API key management
+    ApiKey {
+        #[command(subcommand)]
+        command: ApiKeyCommands,
     },
 }
 
@@ -199,6 +206,60 @@ enum AdminCommands {
     },
 }
 
+#[derive(Subcommand)]
+enum ApiKeyCommands {
+    /// Create a new API key
+    Create {
+        /// Tenant name (omit for global/super-admin key)
+        #[arg(long)]
+        tenant: Option<String>,
+
+        /// Human-readable name/label for the key
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Grant read permission
+        #[arg(long)]
+        read: bool,
+
+        /// Grant write permission
+        #[arg(long)]
+        write: bool,
+
+        /// Grant execute permission
+        #[arg(long)]
+        execute: bool,
+
+        /// Grant admin permission
+        #[arg(long)]
+        admin: bool,
+
+        /// Workflow patterns to restrict access (glob, e.g., "etl::*")
+        #[arg(long)]
+        pattern: Vec<String>,
+    },
+
+    /// List API keys for a tenant
+    List {
+        /// Tenant name (omit to list all)
+        #[arg(long)]
+        tenant: Option<String>,
+    },
+
+    /// Revoke an API key
+    Revoke {
+        /// Key ID to revoke (UUID)
+        key_id: String,
+    },
+
+    /// Create a global super-admin key (bootstrap command)
+    CreateAdmin {
+        /// Human-readable name for the admin key
+        #[arg(long, default_value = "admin")]
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -297,6 +358,47 @@ async fn main() -> Result<()> {
                         commands::key_trust::revoke(database_url, &key_id).await?;
                     }
                 },
+            }
+        }
+
+        Commands::ApiKey { command } => {
+            let database_url = cli
+                .database_url
+                .as_deref()
+                .context("Database URL is required. Set --database-url or DATABASE_URL env var")?;
+            let dal = commands::connect_db(database_url)?;
+
+            match command {
+                ApiKeyCommands::Create {
+                    tenant,
+                    name,
+                    read,
+                    write,
+                    execute,
+                    admin,
+                    pattern,
+                } => {
+                    commands::api_key::create(
+                        &dal,
+                        tenant.as_deref(),
+                        name.as_deref(),
+                        read,
+                        write,
+                        execute,
+                        admin,
+                        &pattern,
+                    )
+                    .await?;
+                }
+                ApiKeyCommands::List { tenant } => {
+                    commands::api_key::list(&dal, tenant.as_deref()).await?;
+                }
+                ApiKeyCommands::Revoke { key_id } => {
+                    commands::api_key::revoke(&dal, &key_id).await?;
+                }
+                ApiKeyCommands::CreateAdmin { name } => {
+                    commands::api_key::create_admin(&dal, &name).await?;
+                }
             }
         }
 

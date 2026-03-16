@@ -16,6 +16,7 @@
 
 //! cloacinactl command implementations.
 
+pub mod api_key;
 pub mod cleanup_events;
 pub mod key;
 pub mod key_trust;

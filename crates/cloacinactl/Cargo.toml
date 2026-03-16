@@ -28,6 +28,7 @@ tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4" }
 dirs = { version = "5.0" }
 hex = { version = "0.4" }
+parking_lot = { version = "0.12" }
 pyo3 = { version = "0.25", features = ["auto-initialize"] }
 uuid = { version = "1.0", features = ["v4"] }
 serde = { version = "1.0", features = ["derive"] }

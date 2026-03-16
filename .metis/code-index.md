@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-16T13:42:39Z | 385 files | JavaScript, Python, Rust
+> Generated: 2026-03-16T20:41:04Z | 395 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -67,6 +67,7 @@
 │   │   │   │   ├── mod.rs
 │   │   │   │   └── unified/
 │   │   │   │       ├── accumulator_state.rs
+│   │   │   │       ├── api_key_dal.rs
 │   │   │   │       ├── context.rs
 │   │   │   │       ├── cron_execution/
 │   │   │   │       │   ├── crud.rs
@@ -94,6 +95,7 @@
 │   │   │   │       │   └── state.rs
 │   │   │   │       ├── task_execution_metadata.rs
 │   │   │   │       ├── task_outbox.rs
+│   │   │   │       ├── tenant_dal.rs
 │   │   │   │       ├── trigger_execution/
 │   │   │   │       │   ├── crud.rs
 │   │   │   │       │   └── mod.rs
@@ -206,6 +208,7 @@
 │   │   │   │   │   └── services.rs
 │   │   │   │   └── mod.rs
 │   │   │   ├── security/
+│   │   │   │   ├── api_keys.rs
 │   │   │   │   ├── audit.rs
 │   │   │   │   ├── db_key_manager.rs
 │   │   │   │   ├── key_manager.rs
@@ -330,7 +333,14 @@
 │   └── cloacinactl/
 │       ├── build.rs
 │       └── src/
+│           ├── auth/
+│           │   ├── cache.rs
+│           │   ├── context.rs
+│           │   ├── middleware.rs
+│           │   ├── mod.rs
+│           │   └── pattern.rs
 │           ├── commands/
+│           │   ├── api_key.rs
 │           │   ├── cleanup_events.rs
 │           │   ├── key.rs
 │           │   ├── key_trust.rs
@@ -340,6 +350,7 @@
 │           ├── config.rs
 │           ├── main.rs
 │           └── routes/
+│               ├── auth_test.rs
 │               ├── health.rs
 │               └── mod.rs
 ├── docs/
@@ -1793,6 +1804,29 @@
 -  `load_all_sqlite` function L201-216 — `(&self) -> Result<Vec<AccumulatorStateRow>, String>` — DAL for accumulator state persistence (continuous scheduling).
 -  `delete_sqlite` function L219-236 — `(&self, edge_ids: Vec<String>) -> Result<usize, String>` — DAL for accumulator state persistence (continuous scheduling).
 
+#### crates/cloacina/src/dal/unified/api_key_dal.rs
+
+- pub `ApiKeyDAL` struct L27-29 — `{ dal: &'a DAL }` — Data access layer for API key operations.
+- pub `new` function L32-34 — `(dal: &'a DAL) -> Self` — DAL for API key operations (auth system).
+- pub `create` function L37-43 — `(&self, new_key: NewApiKey) -> Result<(), String>` — Create a new API key.
+- pub `create_patterns` function L46-55 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — Create workflow patterns in batch.
+- pub `load_by_prefix` function L58-68 — `( &self, prefix: &str, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, St...` — Load API keys by prefix, along with their workflow patterns.
+- pub `list_by_tenant` function L71-80 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — List API keys for a specific tenant.
+- pub `list_all` function L83-89 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — List all API keys (across all tenants).
+- pub `revoke` function L92-98 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — Revoke an API key by setting revoked_at to now.
+-  `create_postgres` function L103-120 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_patterns_postgres` function L123-143 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `load_by_prefix_postgres` function L146-186 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
+-  `list_by_tenant_postgres` function L189-208 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `list_all_postgres` function L211-227 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `revoke_postgres` function L230-250 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_sqlite` function L255-272 — `(&self, new_key: NewApiKey) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `create_patterns_sqlite` function L275-297 — `( &self, patterns: Vec<NewWorkflowPattern>, ) -> Result<(), String>` — DAL for API key operations (auth system).
+-  `load_by_prefix_sqlite` function L300-332 — `( &self, prefix: String, ) -> Result<Vec<(ApiKeyRow, Vec<WorkflowPatternRow>)>, ...` — DAL for API key operations (auth system).
+-  `list_by_tenant_sqlite` function L335-354 — `( &self, tenant_id: UniversalUuid, ) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `list_all_sqlite` function L357-373 — `(&self) -> Result<Vec<ApiKeyRow>, String>` — DAL for API key operations (auth system).
+-  `revoke_sqlite` function L376-396 — `(&self, key_id: UniversalUuid) -> Result<(), String>` — DAL for API key operations (auth system).
+
 #### crates/cloacina/src/dal/unified/context.rs
 
 - pub `ContextDAL` struct L32-34 — `{ dal: &'a DAL }` — Data access layer for context operations with runtime backend selection.
@@ -1859,45 +1893,47 @@
 #### crates/cloacina/src/dal/unified/mod.rs
 
 - pub `accumulator_state` module L46 — `-` — ```
-- pub `context` module L47 — `-` — ```
-- pub `cron_execution` module L48 — `-` — ```
-- pub `cron_schedule` module L49 — `-` — ```
-- pub `detector_state_dal` module L50 — `-` — ```
-- pub `execution_event` module L51 — `-` — ```
-- pub `models` module L52 — `-` — ```
-- pub `pending_boundary_dal` module L53 — `-` — ```
-- pub `pipeline_execution` module L54 — `-` — ```
-- pub `recovery_event` module L55 — `-` — ```
-- pub `task_execution` module L56 — `-` — ```
-- pub `task_execution_metadata` module L57 — `-` — ```
-- pub `task_outbox` module L58 — `-` — ```
-- pub `trigger_execution` module L59 — `-` — ```
-- pub `trigger_schedule` module L60 — `-` — ```
-- pub `workflow_packages` module L61 — `-` — ```
-- pub `workflow_registry` module L62 — `-` — ```
-- pub `workflow_registry_storage` module L63 — `-` — ```
-- pub `DAL` struct L172-175 — `{ database: Database }` — The unified Data Access Layer struct.
-- pub `new` function L187-189 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L192-194 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L197-199 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L202-204 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `context` function L207-209 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `pipeline_execution` function L212-214 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
-- pub `task_execution` function L217-219 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L222-224 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L227-229 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L232-234 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L237-239 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `cron_schedule` function L242-244 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
-- pub `cron_execution` function L247-249 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
-- pub `trigger_schedule` function L252-254 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
-- pub `trigger_execution` function L257-259 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
-- pub `workflow_packages` function L262-264 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `workflow_registry` function L276-282 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L295-306 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `backend_dispatch` macro L101-121 — `-` — Helper macro for dispatching operations based on backend type.
--  `connection_match` macro L140-160 — `-` — Helper macro for matching on AnyConnection variants.
--  `DAL` type L177-307 — `= DAL` — ```
+- pub `api_key_dal` module L47 — `-` — ```
+- pub `context` module L48 — `-` — ```
+- pub `cron_execution` module L49 — `-` — ```
+- pub `cron_schedule` module L50 — `-` — ```
+- pub `detector_state_dal` module L51 — `-` — ```
+- pub `execution_event` module L52 — `-` — ```
+- pub `models` module L53 — `-` — ```
+- pub `pending_boundary_dal` module L54 — `-` — ```
+- pub `pipeline_execution` module L55 — `-` — ```
+- pub `recovery_event` module L56 — `-` — ```
+- pub `task_execution` module L57 — `-` — ```
+- pub `task_execution_metadata` module L58 — `-` — ```
+- pub `task_outbox` module L59 — `-` — ```
+- pub `tenant_dal` module L60 — `-` — ```
+- pub `trigger_execution` module L61 — `-` — ```
+- pub `trigger_schedule` module L62 — `-` — ```
+- pub `workflow_packages` module L63 — `-` — ```
+- pub `workflow_registry` module L64 — `-` — ```
+- pub `workflow_registry_storage` module L65 — `-` — ```
+- pub `DAL` struct L176-179 — `{ database: Database }` — The unified Data Access Layer struct.
+- pub `new` function L191-193 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L196-198 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L201-203 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L206-208 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `context` function L211-213 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `pipeline_execution` function L216-218 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
+- pub `task_execution` function L221-223 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L226-228 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L231-233 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `recovery_event` function L236-238 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L241-243 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `cron_schedule` function L246-248 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
+- pub `cron_execution` function L251-253 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
+- pub `trigger_schedule` function L256-258 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
+- pub `trigger_execution` function L261-263 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
+- pub `workflow_packages` function L266-268 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `workflow_registry` function L280-286 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L299-310 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `backend_dispatch` macro L105-125 — `-` — Helper macro for dispatching operations based on backend type.
+-  `connection_match` macro L144-164 — `-` — Helper macro for matching on AnyConnection variants.
+-  `DAL` type L181-311 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
@@ -1943,6 +1979,12 @@
 - pub `NewPendingBoundary` struct L859-862 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
 - pub `EdgeDrainCursorRow` struct L871-875 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
 - pub `NewEdgeDrainCursor` struct L880-884 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
+- pub `TenantRow` struct L892-899 — `{ id: UniversalUuid, name: String, schema_name: String, status: String, created_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewTenant` struct L903-907 — `{ id: UniversalUuid, name: String, schema_name: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `ApiKeyRow` struct L915-928 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewApiKey` struct L932-942 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `WorkflowPatternRow` struct L950-954 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewWorkflowPattern` struct L958-962 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
 -  `DbContext` type L551-560 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
 -  `from` function L552-559 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 -  `PipelineExecution` type L562-581 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
@@ -2118,6 +2160,26 @@
 -  `count_pending_sqlite` function L288-302 — `(&self) -> Result<i64, ValidationError>` — for claiming and cleanup.
 -  `delete_older_than_postgres` function L320-340 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — for claiming and cleanup.
 -  `delete_older_than_sqlite` function L343-363 — `( &self, cutoff: UniversalTimestamp, ) -> Result<i64, ValidationError>` — for claiming and cleanup.
+
+#### crates/cloacina/src/dal/unified/tenant_dal.rs
+
+- pub `TenantDAL` struct L27-29 — `{ dal: &'a DAL }` — Data access layer for tenant operations.
+- pub `new` function L32-34 — `(dal: &'a DAL) -> Self` — DAL for tenant operations (auth system).
+- pub `create` function L37-43 — `(&self, new_tenant: NewTenant) -> Result<(), String>` — Create a new tenant.
+- pub `list` function L46-52 — `(&self) -> Result<Vec<TenantRow>, String>` — List all active tenants.
+- pub `get` function L55-61 — `(&self, id: UniversalUuid) -> Result<Option<TenantRow>, String>` — Get a tenant by ID.
+- pub `get_by_name` function L64-71 — `(&self, name: &str) -> Result<Option<TenantRow>, String>` — Get a tenant by name.
+- pub `deactivate` function L74-80 — `(&self, id: UniversalUuid) -> Result<(), String>` — Deactivate a tenant (set status to 'deactivated').
+-  `create_postgres` function L85-102 — `(&self, new_tenant: NewTenant) -> Result<(), String>` — DAL for tenant operations (auth system).
+-  `list_postgres` function L105-121 — `(&self) -> Result<Vec<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `get_postgres` function L124-141 — `(&self, id: UniversalUuid) -> Result<Option<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `get_by_name_postgres` function L144-161 — `(&self, name: String) -> Result<Option<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `deactivate_postgres` function L164-181 — `(&self, id: UniversalUuid) -> Result<(), String>` — DAL for tenant operations (auth system).
+-  `create_sqlite` function L186-203 — `(&self, new_tenant: NewTenant) -> Result<(), String>` — DAL for tenant operations (auth system).
+-  `list_sqlite` function L206-222 — `(&self) -> Result<Vec<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `get_sqlite` function L225-242 — `(&self, id: UniversalUuid) -> Result<Option<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `get_by_name_sqlite` function L245-262 — `(&self, name: String) -> Result<Option<TenantRow>, String>` — DAL for tenant operations (auth system).
+-  `deactivate_sqlite` function L265-282 — `(&self, id: UniversalUuid) -> Result<(), String>` — DAL for tenant operations (auth system).
 
 #### crates/cloacina/src/dal/unified/workflow_packages.rs
 
@@ -2507,12 +2569,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1069-1071 — `-`
-- pub `postgres` module L1076-1078 — `-`
-- pub `sqlite` module L1081-1083 — `-`
--  `unified_schema` module L25-395 — `-`
--  `postgres_schema` module L402-765 — `-`
--  `sqlite_schema` module L768-1064 — `-`
+- pub `unified` module L1210-1212 — `-`
+- pub `postgres` module L1217-1219 — `-`
+- pub `sqlite` module L1222-1224 — `-`
+-  `unified_schema` module L25-449 — `-`
+-  `postgres_schema` module L456-864 — `-`
+-  `sqlite_schema` module L867-1205 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -3807,29 +3869,29 @@
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
-- pub `DefaultRunner` struct L69-96 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
-- pub `new` function L136-138 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
-- pub `builder` function L152-154 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L172-178 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L195-267 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L270-272 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L275-277 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `trigger_scheduler` function L282-284 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
-- pub `register_data_source` function L290-292 — `(&self, source: crate::continuous::datasource::DataSource)` — Register a data source for continuous scheduling.
-- pub `register_continuous_task` function L297-305 — `( &self, registration: crate::continuous::graph::ContinuousTaskRegistration, )` — Register a continuous task declaration for graph assembly.
-- pub `register_continuous_task_impl` function L310-315 — `( &self, task: Arc<dyn cloacina_workflow::Task>, )` — Register a continuous task implementation.
-- pub `shutdown` function L327-379 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `DefaultRunner` struct L69-95 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
+- pub `new` function L135-137 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
+- pub `builder` function L151-153 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
+- pub `with_schema` function L171-177 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L194-266 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L269-271 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L274-276 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `trigger_scheduler` function L281-283 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
+- pub `register_data_source` function L289-291 — `(&self, source: crate::continuous::datasource::DataSource)` — Register a data source for continuous scheduling.
+- pub `register_continuous_task` function L296-304 — `( &self, registration: crate::continuous::graph::ContinuousTaskRegistration, )` — Register a continuous task declaration for graph assembly.
+- pub `register_continuous_task_impl` function L309-311 — `(&self, task: Arc<dyn cloacina_workflow::Task>)` — Register a continuous task implementation.
+- pub `shutdown` function L323-375 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `RuntimeHandles` struct L102-121 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L123-380 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L382-399 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L383-398 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L402-408 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L403-407 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `RuntimeHandles` struct L101-120 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
+-  `DefaultRunner` type L122-376 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L378-395 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L379-394 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L398-404 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L399-403 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -3852,14 +3914,14 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L38-499 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L38-497 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L40-58 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
 -  `start_background_services` function L70-136 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
 -  `start_cron_services` function L139-199 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
 -  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
 -  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
 -  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
--  `start_continuous_scheduler` function L416-498 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the continuous reactive scheduler.
+-  `start_continuous_scheduler` function L416-496 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the continuous reactive scheduler.
 
 ### crates/cloacina/src/runner
 
@@ -3872,6 +3934,20 @@
 ### crates/cloacina/src/security
 
 > *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina/src/security/api_keys.rs
+
+- pub `generate_api_key` function L30-46 — `(env: &str, tenant_name: &str) -> (String, String, String)` — Generate a new API key.
+- pub `extract_prefix` function L49-57 — `(full_key: &str) -> String` — Extract the prefix from a full PAK key for cache lookup.
+- pub `hash_key` function L60-67 — `(key: &str) -> String` — Hash a key using argon2.
+- pub `verify_key` function L70-78 — `(key: &str, hash: &str) -> bool` — Verify a key against a stored hash.
+-  `tests` module L81-122 — `-` — PAK (Prefixed API Key) generation and verification.
+-  `test_generate_api_key_format` function L85-90 — `()` — PAK (Prefixed API Key) generation and verification.
+-  `test_verify_key_correct` function L93-96 — `()` — PAK (Prefixed API Key) generation and verification.
+-  `test_verify_key_wrong` function L99-102 — `()` — PAK (Prefixed API Key) generation and verification.
+-  `test_extract_prefix` function L105-108 — `()` — PAK (Prefixed API Key) generation and verification.
+-  `test_extract_prefix_global` function L111-114 — `()` — PAK (Prefixed API Key) generation and verification.
+-  `test_unique_keys` function L117-121 — `()` — PAK (Prefixed API Key) generation and verification.
 
 #### crates/cloacina/src/security/audit.rs
 
@@ -3988,11 +4064,12 @@
 
 #### crates/cloacina/src/security/mod.rs
 
-- pub `audit` module L25 — `-` — Security module for package signing and key management.
--  `db_key_manager` module L26 — `-` — - Security audit logging for SIEM integration
--  `key_manager` module L27 — `-` — - Security audit logging for SIEM integration
--  `package_signer` module L28 — `-` — - Security audit logging for SIEM integration
--  `verification` module L29 — `-` — - Security audit logging for SIEM integration
+- pub `api_keys` module L25 — `-` — Security module for package signing and key management.
+- pub `audit` module L26 — `-` — - Security audit logging for SIEM integration
+-  `db_key_manager` module L27 — `-` — - Security audit logging for SIEM integration
+-  `key_manager` module L28 — `-` — - Security audit logging for SIEM integration
+-  `package_signer` module L29 — `-` — - Security audit logging for SIEM integration
+-  `verification` module L30 — `-` — - Security audit logging for SIEM integration
 
 #### crates/cloacina/src/security/package_signer.rs
 
@@ -5503,9 +5580,77 @@
 
 -  `main` function L22-46 — `()` — Build script for cloacinactl.
 
+### crates/cloacinactl/src/auth
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/auth/cache.rs
+
+- pub `CachedKey` struct L27-38 — `{ key_hash: String, key_id: Uuid, tenant_id: Option<Uuid>, can_read: bool, can_w...` — Cached API key with pre-loaded permissions and workflow patterns.
+- pub `AuthCache` struct L49-52 — `{ inner: Arc<RwLock<HashMap<String, CacheEntry>>>, ttl: Duration }` — In-memory auth cache with configurable TTL.
+- pub `new` function L55-60 — `(ttl: Duration) -> Self` — In-memory auth cache with TTL for API key lookups.
+- pub `lookup` function L63-82 — `(&self, prefix: &str) -> Option<Vec<CachedKey>>` — Look up cached keys by prefix.
+- pub `insert` function L85-88 — `(&self, prefix: String, keys: Vec<CachedKey>)` — Insert found keys into cache.
+- pub `insert_not_found` function L91-94 — `(&self, prefix: String)` — Insert negative cache entry (prefix not found in DB).
+- pub `invalidate` function L97-100 — `(&self, prefix: &str)` — Invalidate a specific prefix (e.g., after key creation or revocation).
+-  `CacheEntry` enum L42-45 — `Found | NotFound` — Cache entry: either found keys or negative cache.
+-  `AuthCache` type L54-101 — `= AuthCache` — In-memory auth cache with TTL for API key lookups.
+-  `tests` module L104-179 — `-` — In-memory auth cache with TTL for API key lookups.
+-  `make_cached_key` function L107-120 — `(name: &str) -> CachedKey` — In-memory auth cache with TTL for API key lookups.
+-  `test_insert_and_lookup` function L123-133 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_ttl_expiry` function L136-149 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_negative_cache` function L152-159 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_invalidation` function L162-172 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_miss_returns_none` function L175-178 — `()` — In-memory auth cache with TTL for API key lookups.
+
+#### crates/cloacinactl/src/auth/context.rs
+
+- pub `AuthContext` struct L23-31 — `{ key_id: Uuid, tenant_id: Option<Uuid>, can_read: bool, can_write: bool, can_ex...` — Authenticated request context, available via axum extensions.
+- pub `is_global` function L35-37 — `(&self) -> bool` — Check if this key has global (super-admin) scope.
+-  `AuthContext` type L33-38 — `= AuthContext` — Authentication context injected into request extensions.
+
+#### crates/cloacinactl/src/auth/middleware.rs
+
+- pub `AuthState` struct L32-35 — `{ cache: AuthCache, dal: Arc<cloacina::dal::DAL> }` — Auth middleware state, shared across requests.
+- pub `auth_middleware` function L39-157 — `( axum::extract::State(auth_state): axum::extract::State<AuthState>, mut request...` — Middleware function for authentication.
+- pub `Permission` enum L174-179 — `Read | Write | Execute | Admin` — Permission types for route-level authorization.
+- pub `require_read` function L182-184 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Read permission.
+- pub `require_write` function L187-189 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Write permission.
+- pub `require_execute` function L192-194 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Execute permission.
+- pub `require_admin` function L197-199 — `(request: Request, next: Next) -> Response` — Middleware function that checks the Admin permission.
+-  `extract_bearer_token` function L159-166 — `(request: &Request) -> Option<String>` — Authentication and authorization middleware for axum.
+-  `check_permission` function L201-229 — `(request: Request, next: Next, required: Permission) -> Response` — Authentication and authorization middleware for axum.
+
+#### crates/cloacinactl/src/auth/mod.rs
+
+- pub `cache` module L17 — `-`
+- pub `context` module L18 — `-`
+- pub `middleware` module L19 — `-`
+- pub `pattern` module L20 — `-`
+
+#### crates/cloacinactl/src/auth/pattern.rs
+
+- pub `check_workflow_access` function L25-30 — `(patterns: &[String], workflow_name: &str) -> bool` — Check if a workflow name matches any of the allowed patterns.
+-  `glob_match` function L33-65 — `(pattern: &str, text: &str) -> bool` — Simple glob matching: `*` matches any sequence of characters.
+-  `tests` module L68-122 — `-` — Glob pattern matching for workflow-level ABAC.
+-  `test_empty_patterns_allows_all` function L72-74 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_exact_match` function L77-81 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_glob_star` function L84-89 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_multiple_patterns` function L92-97 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_star_matches_everything` function L100-103 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_no_match` function L106-109 — `()` — Glob pattern matching for workflow-level ABAC.
+-  `test_glob_match_basic` function L112-121 — `()` — Glob pattern matching for workflow-level ABAC.
+
 ### crates/cloacinactl/src/commands
 
 > *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacinactl/src/commands/api_key.rs
+
+- pub `create` function L26-103 — `( dal: &DAL, tenant: Option<&str>, name: Option<&str>, read: bool, write: bool, ...` — Create a new API key.
+- pub `list` function L106-181 — `(dal: &DAL, tenant: Option<&str>) -> Result<()>` — List API keys.
+- pub `revoke` function L184-196 — `(dal: &DAL, key_id: &str) -> Result<()>` — Revoke an API key.
+- pub `create_admin` function L199-201 — `(dal: &DAL, name: &str) -> Result<()>` — Create a global super-admin key (bootstrap command).
 
 #### crates/cloacinactl/src/commands/cleanup_events.rs
 
@@ -5539,15 +5684,16 @@
 
 #### crates/cloacinactl/src/commands/mod.rs
 
-- pub `cleanup_events` module L19 — `-` — cloacinactl command implementations.
-- pub `key` module L20 — `-` — cloacinactl command implementations.
-- pub `key_trust` module L21 — `-` — cloacinactl command implementations.
-- pub `package` module L22 — `-` — cloacinactl command implementations.
-- pub `serve` module L23 — `-` — cloacinactl command implementations.
-- pub `connect_db` function L33-37 — `(database_url: &str) -> Result<DAL>` — Connect to the database and return a DAL instance.
-- pub `read_master_key` function L40-55 — `() -> Result<[u8; 32]>` — Read the master encryption key from CLOACINA_MASTER_KEY env var (hex-encoded).
-- pub `parse_uuid` function L58-61 — `(s: &str) -> Result<cloacina::database::universal_types::UniversalUuid>` — Parse a UUID string into a UniversalUuid.
--  `CLI_POOL_SIZE` variable L30 — `: u32` — Default connection pool size for CLI operations.
+- pub `api_key` module L19 — `-` — cloacinactl command implementations.
+- pub `cleanup_events` module L20 — `-` — cloacinactl command implementations.
+- pub `key` module L21 — `-` — cloacinactl command implementations.
+- pub `key_trust` module L22 — `-` — cloacinactl command implementations.
+- pub `package` module L23 — `-` — cloacinactl command implementations.
+- pub `serve` module L24 — `-` — cloacinactl command implementations.
+- pub `connect_db` function L34-38 — `(database_url: &str) -> Result<DAL>` — Connect to the database and return a DAL instance.
+- pub `read_master_key` function L41-56 — `() -> Result<[u8; 32]>` — Read the master encryption key from CLOACINA_MASTER_KEY env var (hex-encoded).
+- pub `parse_uuid` function L59-62 — `(s: &str) -> Result<cloacina::database::universal_types::UniversalUuid>` — Parse a UUID string into a UniversalUuid.
+-  `CLI_POOL_SIZE` variable L31 — `: u32` — Default connection pool size for CLI operations.
 
 #### crates/cloacinactl/src/commands/package.rs
 
@@ -5560,17 +5706,21 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-97 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L156-223 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-116 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L175-263 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L100-124 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L127-153 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L226-347 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L231-287 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L290-317 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L320-346 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L119-143 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L146-172 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L266-539 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L271-328 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L331-359 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L362-389 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L392-413 — `( cache: crate::auth::cache::AuthCache, ) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L416-447 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L450-504 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L507-538 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5613,30 +5763,38 @@
 
 #### crates/cloacinactl/src/main.rs
 
-- pub `config` module L24 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
-- pub `routes` module L25 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `commands` module L23 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `Cli` struct L31-46 — `{ database_url: Option<String>, org_id: Option<String>, verbose: bool, command: ...` — cloacinactl - Control tool for the Cloacina task orchestration engine
--  `Commands` enum L49-70 — `Serve | Package | Key | Admin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `PackageCommands` enum L73-122 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `KeyCommands` enum L125-157 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `TrustCommands` enum L160-179 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `AdminCommands` enum L182-200 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `main` function L203-353 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+- pub `auth` module L23 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+- pub `config` module L25 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+- pub `routes` module L26 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `commands` module L24 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `Cli` struct L32-47 — `{ database_url: Option<String>, org_id: Option<String>, verbose: bool, command: ...` — cloacinactl - Control tool for the Cloacina task orchestration engine
+-  `Commands` enum L50-77 — `Serve | Package | Key | Admin | ApiKey` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `PackageCommands` enum L80-129 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `KeyCommands` enum L132-164 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `TrustCommands` enum L167-186 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L189-207 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `ApiKeyCommands` enum L210-261 — `Create | List | Revoke | CreateAdmin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `main` function L264-455 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 
 ### crates/cloacinactl/src/routes
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacinactl/src/routes/auth_test.rs
+
+- pub `AuthTestResponse` struct L30-39 — `{ key_id: String, tenant_id: Option<String>, can_read: bool, can_write: bool, ca...` — Response from /auth-test — echoes the authenticated context.
+- pub `auth_test` function L42-55 — `(Extension(auth): Extension<AuthContext>) -> impl IntoResponse` — GET /auth-test — returns the authenticated context (protected endpoint).
+
 #### crates/cloacinactl/src/routes/health.rs
 
-- pub `AppState` struct L29-34 — `{ startup_instant: Instant, mode: String }` — Shared application state available to all handlers.
-- pub `HealthResponse` struct L38-47 — `{ status: String, version: String, mode: String, uptime_seconds: u64 }` — Health check response body.
-- pub `health` function L59-70 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
+- pub `AppState` struct L29-36 — `{ startup_instant: Instant, mode: String, auth_state: Option<crate::auth::middle...` — Shared application state available to all handlers.
+- pub `HealthResponse` struct L40-49 — `{ status: String, version: String, mode: String, uptime_seconds: u64 }` — Health check response body.
+- pub `health` function L61-72 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
 
 #### crates/cloacinactl/src/routes/mod.rs
 
-- pub `health` module L19 — `-` — HTTP route handlers for the Cloacina server.
+- pub `auth_test` module L19 — `-` — HTTP route handlers for the Cloacina server.
+- pub `health` module L20 — `-` — HTTP route handlers for the Cloacina server.
 
 ### docs/themes/hugo-geekdoc/static/js
 

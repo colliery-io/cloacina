@@ -14,7 +14,25 @@
  *  limitations under the License.
  */
 
-//! HTTP route handlers for the Cloacina server.
+//! Authentication context injected into request extensions.
 
-pub mod auth_test;
-pub mod health;
+use uuid::Uuid;
+
+/// Authenticated request context, available via axum extensions.
+#[derive(Debug, Clone)]
+pub struct AuthContext {
+    pub key_id: Uuid,
+    pub tenant_id: Option<Uuid>,
+    pub can_read: bool,
+    pub can_write: bool,
+    pub can_execute: bool,
+    pub can_admin: bool,
+    pub workflow_patterns: Vec<String>,
+}
+
+impl AuthContext {
+    /// Check if this key has global (super-admin) scope.
+    pub fn is_global(&self) -> bool {
+        self.tenant_id.is_none()
+    }
+}

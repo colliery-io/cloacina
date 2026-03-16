@@ -31,6 +31,8 @@ pub struct AppState {
     pub startup_instant: Instant,
     /// The configured server mode.
     pub mode: String,
+    /// Auth middleware state. None when running in api-only mode without a database.
+    pub auth_state: Option<crate::auth::middleware::AuthState>,
 }
 
 /// Health check response body.

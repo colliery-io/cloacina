@@ -355,6 +355,55 @@ mod unified_schema {
         }
     }
 
+    // =========================================================================
+    // Auth Tables
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        tenants (id) {
+            id -> DbUuid,
+            name -> Text,
+            schema_name -> Text,
+            status -> Text,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        api_keys (id) {
+            id -> DbUuid,
+            tenant_id -> Nullable<DbUuid>,
+            key_hash -> Text,
+            key_prefix -> Text,
+            name -> Nullable<Text>,
+            can_read -> DbBool,
+            can_write -> DbBool,
+            can_execute -> DbBool,
+            can_admin -> DbBool,
+            created_at -> DbTimestamp,
+            expires_at -> Nullable<DbTimestamp>,
+            revoked_at -> Nullable<DbTimestamp>,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        api_key_workflow_patterns (id) {
+            id -> DbUuid,
+            api_key_id -> DbUuid,
+            pattern -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -368,9 +417,13 @@ mod unified_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(api_keys -> tenants (tenant_id));
+    diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_state,
+        api_keys,
+        api_key_workflow_patterns,
         contexts,
         cron_executions,
         cron_schedules,
@@ -386,6 +439,7 @@ mod unified_schema {
         task_executions,
         task_execution_metadata,
         task_outbox,
+        tenants,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -692,6 +746,43 @@ mod postgres_schema {
         }
     }
 
+    // Auth Tables
+    diesel::table! {
+        tenants (id) {
+            id -> Uuid,
+            name -> Varchar,
+            schema_name -> Varchar,
+            status -> Varchar,
+            created_at -> Timestamp,
+            updated_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        api_keys (id) {
+            id -> Uuid,
+            tenant_id -> Nullable<Uuid>,
+            key_hash -> Text,
+            key_prefix -> Varchar,
+            name -> Nullable<Varchar>,
+            can_read -> Bool,
+            can_write -> Bool,
+            can_execute -> Bool,
+            can_admin -> Bool,
+            created_at -> Timestamp,
+            expires_at -> Nullable<Timestamp>,
+            revoked_at -> Nullable<Timestamp>,
+        }
+    }
+
+    diesel::table! {
+        api_key_workflow_patterns (id) {
+            id -> Uuid,
+            api_key_id -> Uuid,
+            pattern -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -706,6 +797,8 @@ mod postgres_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(api_keys -> tenants (tenant_id));
+    diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
@@ -714,6 +807,8 @@ mod postgres_schema {
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_state,
+        api_keys,
+        api_key_workflow_patterns,
         contexts,
         cron_executions,
         cron_schedules,
@@ -729,6 +824,7 @@ mod postgres_schema {
         task_executions,
         task_execution_metadata,
         task_outbox,
+        tenants,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -739,6 +835,8 @@ mod postgres_schema {
     #[cfg(feature = "auth")]
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_state,
+        api_keys,
+        api_key_workflow_patterns,
         auth_audit_log,
         auth_tokens,
         contexts,
@@ -756,6 +854,7 @@ mod postgres_schema {
         task_executions,
         task_execution_metadata,
         task_outbox,
+        tenants,
         trigger_executions,
         trigger_schedules,
         trusted_keys,
@@ -1026,6 +1125,43 @@ mod sqlite_schema {
         }
     }
 
+    // Auth Tables
+    diesel::table! {
+        tenants (id) {
+            id -> Text,
+            name -> Text,
+            schema_name -> Text,
+            status -> Text,
+            created_at -> Text,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        api_keys (id) {
+            id -> Text,
+            tenant_id -> Nullable<Text>,
+            key_hash -> Text,
+            key_prefix -> Text,
+            name -> Nullable<Text>,
+            can_read -> Bool,
+            can_write -> Bool,
+            can_execute -> Bool,
+            can_admin -> Bool,
+            created_at -> Text,
+            expires_at -> Nullable<Text>,
+            revoked_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        api_key_workflow_patterns (id) {
+            id -> Text,
+            api_key_id -> Text,
+            pattern -> Text,
+        }
+    }
+
     diesel::joinable!(pipeline_executions -> contexts (context_id));
     diesel::joinable!(task_executions -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(task_execution_metadata -> task_executions (task_execution_id));
@@ -1039,9 +1175,13 @@ mod sqlite_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(api_keys -> tenants (tenant_id));
+    diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         accumulator_state,
+        api_keys,
+        api_key_workflow_patterns,
         contexts,
         cron_executions,
         cron_schedules,
@@ -1057,6 +1197,7 @@ mod sqlite_schema {
         task_executions,
         task_execution_metadata,
         task_outbox,
+        tenants,
         trigger_executions,
         trigger_schedules,
         trusted_keys,

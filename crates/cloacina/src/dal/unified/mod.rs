@@ -44,6 +44,7 @@ use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
 pub mod accumulator_state;
+pub mod api_key_dal;
 pub mod context;
 pub mod cron_execution;
 pub mod cron_schedule;
@@ -56,6 +57,7 @@ pub mod recovery_event;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
+pub mod tenant_dal;
 pub mod trigger_execution;
 pub mod trigger_schedule;
 pub mod workflow_packages;
@@ -64,6 +66,7 @@ pub mod workflow_registry_storage;
 
 // Re-export DAL components
 pub use accumulator_state::AccumulatorStateDAL;
+pub use api_key_dal::ApiKeyDAL;
 pub use context::ContextDAL;
 pub use cron_execution::CronExecutionDAL;
 pub use cron_schedule::CronScheduleDAL;
@@ -75,6 +78,7 @@ pub use recovery_event::RecoveryEventDAL;
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use task_outbox::TaskOutboxDAL;
+pub use tenant_dal::TenantDAL;
 pub use trigger_execution::TriggerExecutionDAL;
 pub use trigger_schedule::TriggerScheduleDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
