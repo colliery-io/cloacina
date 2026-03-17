@@ -4,14 +4,14 @@ level: initiative
 title: "Server Phase 5: Tenant Management API"
 short_code: "CLOACI-I-0033"
 created_at: 2026-03-16T01:32:36.540330+00:00
-updated_at: 2026-03-16T01:32:36.540330+00:00
+updated_at: 2026-03-17T00:46:32.795899+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,102 +40,50 @@ Multi-tenancy via schema isolation already exists, but tenants are hardcoded at 
 - `DELETE /tenants/{tenant}/api-keys/{id}` — revoke key
 - Optional scheduler tenant affinity: `--tenants=a,b` flag for QoS isolation
 
-## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
+## Detailed Design
 
-{Delete if not a requirements-focused initiative}
+### Existing Infrastructure (from I-0031)
 
-### User Requirements
-- **User Characteristics**: {Technical background, experience level, etc.}
-- **System Functionality**: {What users expect the system to do}
-- **User Interfaces**: {How users will interact with the system}
+- `TenantDAL`: create, list, get, get_by_name, deactivate — already implemented
+- `ApiKeyDAL`: create, create_patterns, load_by_prefix, list_by_tenant, list_all, revoke — already implemented
+- `generate_api_key()`, `hash_key()` — already implemented in security/api_keys.rs
+- `AuthContext` with `can_admin` bit — already checked by PermissionGuard
+- `require_admin` middleware — already implemented
 
-### System Requirements
-- **Functional Requirements**: {What the system should do - use unique identifiers}
-  - REQ-001: {Functional requirement 1}
-  - REQ-002: {Functional requirement 2}
-- **Non-Functional Requirements**: {How the system should behave}
-  - NFR-001: {Performance requirement}
-  - NFR-002: {Security requirement}
+### Endpoint Design
 
-## Use Cases **[CONDITIONAL: User-Facing Initiative]**
+All tenant management endpoints require `can_admin` permission.
 
-{Delete if not user-facing}
+| Endpoint | Method | Request | Response | Notes |
+|---|---|---|---|---|
+| `/tenants` | POST | `{"name": "acme", "schema_name": "tenant_acme"}` | 201 `{"id": uuid, "name": ..., "initial_api_key": secret}` | Creates Postgres schema + runs migrations + generates admin key |
+| `/tenants` | GET | — | 200 `[{"id", "name", "schema_name", "status", "created_at"}]` | Admin only |
+| `/tenants/{id}` | GET | — | 200 `{"id", "name", "schema_name", "status", ...}` | Admin or own tenant |
+| `/tenants/{id}` | DELETE | — | 200 `{"status": "deactivated"}` | Soft delete via deactivate |
+| `/tenants/{id}/api-keys` | POST | `{"name": "ci-key", "read": true, "execute": true, ...}` | 201 `{"id": uuid, "secret": key}` | Secret shown once |
+| `/tenants/{id}/api-keys` | GET | — | 200 `[{"id", "name", "permissions", "created_at", ...}]` | No secrets |
+| `/tenants/{id}/api-keys/{key_id}` | DELETE | — | 200 `{"status": "revoked"}` | Invalidates auth cache |
 
-### Use Case 1: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+### Schema Provisioning
 
-### Use Case 2: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+`POST /tenants` must:
+1. Insert into `tenants` table
+2. Create Postgres schema: `CREATE SCHEMA IF NOT EXISTS tenant_<name>`
+3. Run migrations within the new schema (same migrations as main schema)
+4. Generate an initial admin API key for the tenant
+5. Return the tenant info + the initial key secret
 
-## Architecture **[CONDITIONAL: Technically Complex Initiative]**
+This uses the existing `Database::try_new_with_schema()` pattern for schema creation.
 
-{Delete if not technically complex}
+### Auth Cache Invalidation
 
-### Overview
-{High-level architectural approach}
+When a key is created or revoked via the API, call `auth_cache.invalidate(prefix)` so the change takes effect immediately on the same server instance. Other instances pick it up within TTL.
 
-### Component Diagrams
-{Describe or link to component diagrams}
+## Implementation Plan
 
-### Class Diagrams
-{Describe or link to class diagrams - for OOP systems}
-
-### Sequence Diagrams
-{Describe or link to sequence diagrams - for interaction flows}
-
-### Deployment Diagrams
-{Describe or link to deployment diagrams - for infrastructure}
-
-## Detailed Design **[REQUIRED]**
-
-{Technical approach and implementation details}
-
-## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
-
-{Delete if no UI components}
-
-### User Interface Mockups
-{Describe or link to UI mockups}
-
-### User Flows
-{Describe key user interaction flows}
-
-### Design System Integration
-{How this fits with existing design patterns}
-
-## Testing Strategy **[CONDITIONAL: Separate Testing Initiative]**
-
-{Delete if covered by separate testing initiative}
-
-### Unit Testing
-- **Strategy**: {Approach to unit testing}
-- **Coverage Target**: {Expected coverage percentage}
-- **Tools**: {Testing frameworks and tools}
-
-### Integration Testing
-- **Strategy**: {Approach to integration testing}
-- **Test Environment**: {Where integration tests run}
-- **Data Management**: {Test data strategy}
-
-### System Testing
-- **Strategy**: {End-to-end testing approach}
-- **User Acceptance**: {How UAT will be conducted}
-- **Performance Testing**: {Load and stress testing}
-
-### Test Selection
-{Criteria for determining what to test}
-
-### Bug Tracking
-{How defects will be managed and prioritized}
-
-## Alternatives Considered **[REQUIRED]**
-
-{Alternative approaches and why they were rejected}
-
-## Implementation Plan **[REQUIRED]**
-
-{Phases and timeline for execution}
+- [ ] Create `routes/tenants.rs` with all 7 endpoint handlers
+- [ ] Tenant CRUD handlers: create (with schema provisioning), list, get, deactivate
+- [ ] Tenant API key handlers: create (with auth cache invalidation), list, revoke (with cache invalidation)
+- [ ] Wire tenant routes into protected Router with require_admin guard
+- [ ] utoipa annotations on all tenant endpoints
+- [ ] Integration tests: create tenant, create key for tenant, list, revoke, deactivate

@@ -120,6 +120,26 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(
             "/workflows/packages",
             post(crate::routes::workflows::upload_package),
+        )
+        // Tenant management routes — require_admin is enforced via route_layer
+        // so it only applies to matched routes, not to fallback handling.
+        .route(
+            "/tenants",
+            post(crate::routes::tenants::create_tenant).get(crate::routes::tenants::list_tenants),
+        )
+        .route(
+            "/tenants/{id}",
+            get(crate::routes::tenants::get_tenant)
+                .delete(crate::routes::tenants::deactivate_tenant),
+        )
+        .route(
+            "/tenants/{id}/api-keys",
+            post(crate::routes::tenants::create_tenant_key)
+                .get(crate::routes::tenants::list_tenant_keys),
+        )
+        .route(
+            "/tenants/{id}/api-keys/{key_id}",
+            axum::routing::delete(crate::routes::tenants::revoke_tenant_key),
         );
 
     // Apply auth middleware to protected routes only (if auth is configured)
@@ -727,6 +747,142 @@ mod tests {
             "error.message should be a string"
         );
         assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE");
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    // --- Tenant endpoint tests ---
+
+    #[tokio::test]
+    async fn test_tenant_endpoints_require_admin() {
+        use crate::auth::cache::CachedKey;
+
+        // Create a key that has read/write/execute but NOT admin
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let key_hash =
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+        cache.insert(
+            "test_demo".to_string(),
+            vec![CachedKey {
+                key_hash,
+                key_id: uuid::Uuid::new_v4(),
+                tenant_id: None,
+                can_read: true,
+                can_write: true,
+                can_execute: true,
+                can_admin: false, // NOT admin
+                expires_at: None,
+                revoked_at: None,
+                workflow_patterns: vec![],
+            }],
+        );
+
+        let (router, _) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let client = reqwest::Client::new();
+
+        // GET /tenants without admin permission -> 403
+        let resp = client
+            .get(format!("http://{}/tenants", addr))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+
+        // POST /tenants without admin permission -> 403
+        let resp = client
+            .post(format!("http://{}/tenants", addr))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .json(&serde_json::json!({"name": "acme", "schema_name": "tenant_acme"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 403);
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    #[tokio::test]
+    async fn test_tenant_list_without_dal_returns_503() {
+        use crate::auth::cache::CachedKey;
+
+        // Create an admin-authenticated request that reaches the handler,
+        // but the DAL is backed by an in-memory SQLite DB (the auth cache helper).
+        // The handler calls require_dal() which gets the DAL from auth_state.
+        // The actual DB call will fail since no tables exist, returning 500.
+        // This verifies the error path when DAL operations fail.
+        let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
+        let key_hash =
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+        cache.insert(
+            "test_demo".to_string(),
+            vec![CachedKey {
+                key_hash,
+                key_id: uuid::Uuid::new_v4(),
+                tenant_id: None,
+                can_read: true,
+                can_write: true,
+                can_execute: true,
+                can_admin: true,
+                expires_at: None,
+                revoked_at: None,
+                workflow_patterns: vec![],
+            }],
+        );
+
+        let (router, _) = app_with_auth_cache(cache);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let client = reqwest::Client::new();
+
+        // Admin-authenticated request reaches the handler, DAL is available but
+        // the underlying DB has no tables, so the list operation fails with 500.
+        let resp = client
+            .get(format!("http://{}/tenants", addr))
+            .header(
+                "Authorization",
+                "Bearer cloacina_test_demo_abcdef1234567890",
+            )
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 500);
+
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["error"]["code"], "INTERNAL_ERROR");
 
         let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
     }

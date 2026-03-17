@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-16T21:07:04Z | 395 files | JavaScript, Python, Rust
+> Generated: 2026-03-16T22:10:21Z | 398 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -351,8 +351,11 @@
 │           ├── main.rs
 │           └── routes/
 │               ├── auth_test.rs
+│               ├── error.rs
+│               ├── executions.rs
 │               ├── health.rs
-│               └── mod.rs
+│               ├── mod.rs
+│               └── workflows.rs
 ├── docs/
 │   └── themes/
 │       └── hugo-geekdoc/
@@ -5706,21 +5709,24 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-116 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L175-262 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-139 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L198-286 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L119-143 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L146-172 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L265-540 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L270-327 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L330-358 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L361-388 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L391-410 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L413-444 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L447-505 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L508-539 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L142-166 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L169-195 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L289-733 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L294-352 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L355-384 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L387-415 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L418-438 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L441-472 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L475-533 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L536-567 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_workflows_without_runner_returns_503` function L572-625 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_executions_without_auth_returns_401` function L628-665 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_error_format_consistency` function L668-732 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5785,16 +5791,60 @@
 - pub `AuthTestResponse` struct L30-39 — `{ key_id: String, tenant_id: Option<String>, can_read: bool, can_write: bool, ca...` — Response from /auth-test — echoes the authenticated context.
 - pub `auth_test` function L42-55 — `(Extension(auth): Extension<AuthContext>) -> impl IntoResponse` — GET /auth-test — returns the authenticated context (protected endpoint).
 
+#### crates/cloacinactl/src/routes/error.rs
+
+- pub `ApiErrorBody` struct L25-27 — `{ error: ApiErrorDetail }` — Consistent API error responses.
+- pub `ApiErrorDetail` struct L30-33 — `{ code: String, message: String }` — Consistent API error responses.
+- pub `ApiError` struct L35-39 — `{ status: StatusCode, code: String, message: String }` — Consistent API error responses.
+- pub `not_found` function L42-48 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+- pub `bad_request` function L49-55 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+- pub `internal` function L56-62 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+- pub `service_unavailable` function L63-69 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+- pub `conflict` function L70-76 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+- pub `timeout` function L77-83 — `(message: impl Into<String>) -> Self` — Consistent API error responses.
+-  `ApiError` type L41-84 — `= ApiError` — Consistent API error responses.
+-  `ApiError` type L86-96 — `impl IntoResponse for ApiError` — Consistent API error responses.
+-  `into_response` function L87-95 — `(self) -> Response` — Consistent API error responses.
+-  `ApiError` type L99-113 — `= ApiError` — Consistent API error responses.
+-  `from` function L100-112 — `(e: cloacina::executor::pipeline_executor::PipelineError) -> Self` — Consistent API error responses.
+
+#### crates/cloacinactl/src/routes/executions.rs
+
+- pub `ExecutionRequest` struct L38-42 — `{ workflow_name: String, context: serde_json::Value }` — Request body for triggering an execution.
+- pub `ExecutionCreatedResponse` struct L46-49 — `{ execution_id: String, status: String }` — Response for execution creation.
+- pub `ExecutionStatusResponse` struct L53-61 — `{ execution_id: String, workflow_name: String, status: String, started_at: Optio...` — Response for execution status.
+- pub `TaskResultResponse` struct L64-68 — `{ task_name: String, status: String, error_message: Option<String> }` — Execution management endpoints.
+- pub `create_execution` function L71-97 — `( State(state): State<Arc<AppState>>, Json(body): Json<ExecutionRequest>, ) -> R...` — POST /executions — trigger a workflow execution.
+- pub `list_executions` function L100-129 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /executions — list recent executions.
+- pub `get_execution` function L132-164 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — GET /executions/{id} — get execution status and result.
+- pub `PauseRequest` struct L168-170 — `{ reason: Option<String> }` — Request body for pause (optional reason).
+- pub `ControlResponse` struct L174-177 — `{ execution_id: String, status: String }` — Simple status response for control operations.
+- pub `pause_execution` function L180-200 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, body: Option<Json<...` — POST /executions/{id}/pause
+- pub `resume_execution` function L203-220 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — POST /executions/{id}/resume
+- pub `cancel_execution` function L223-240 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /executions/{id}
+-  `require_runner` function L30-34 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Execution management endpoints.
+
 #### crates/cloacinactl/src/routes/health.rs
 
-- pub `AppState` struct L29-36 — `{ startup_instant: Instant, mode: String, auth_state: Option<crate::auth::middle...` — Shared application state available to all handlers.
-- pub `HealthResponse` struct L40-49 — `{ status: String, version: String, mode: String, uptime_seconds: u64 }` — Health check response body.
-- pub `health` function L61-72 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
+- pub `AppState` struct L29-38 — `{ startup_instant: Instant, mode: String, auth_state: Option<crate::auth::middle...` — Shared application state available to all handlers.
+- pub `HealthResponse` struct L42-51 — `{ status: String, version: String, mode: String, uptime_seconds: u64 }` — Health check response body.
+- pub `health` function L63-74 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
 
 #### crates/cloacinactl/src/routes/mod.rs
 
 - pub `auth_test` module L19 — `-` — HTTP route handlers for the Cloacina server.
-- pub `health` module L20 — `-` — HTTP route handlers for the Cloacina server.
+- pub `error` module L20 — `-` — HTTP route handlers for the Cloacina server.
+- pub `executions` module L21 — `-` — HTTP route handlers for the Cloacina server.
+- pub `health` module L22 — `-` — HTTP route handlers for the Cloacina server.
+- pub `workflows` module L23 — `-` — HTTP route handlers for the Cloacina server.
+
+#### crates/cloacinactl/src/routes/workflows.rs
+
+- pub `PackageUploadResponse` struct L38-41 — `{ id: String, message: String }` — Response for package upload.
+- pub `upload_package` function L44-81 — `( State(state): State<Arc<AppState>>, mut multipart: Multipart, ) -> Result<impl...` — POST /workflows/packages — upload a workflow package.
+- pub `WorkflowListItem` struct L85-90 — `{ name: String, version: String, description: Option<String>, tasks: Vec<String>...` — Response for workflow list.
+- pub `list_workflows` function L93-105 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /workflows — list registered workflows.
+-  `require_runner` function L30-34 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Helper to get runner or return 503.
 
 ### docs/themes/hugo-geekdoc/static/js
 
