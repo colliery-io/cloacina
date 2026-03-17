@@ -16,6 +16,7 @@
 
 pub mod context;
 pub mod execution_events;
+pub mod pipeline_claiming;
 pub mod sub_status;
 pub mod task_claiming;
 pub mod workflow_packages;

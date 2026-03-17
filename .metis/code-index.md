@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-16T22:10:21Z | 398 files | JavaScript, Python, Rust
+> Generated: 2026-03-17T01:32:07Z | 399 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -355,6 +355,7 @@
 │               ├── executions.rs
 │               ├── health.rs
 │               ├── mod.rs
+│               ├── tenants.rs
 │               └── workflows.rs
 ├── docs/
 │   └── themes/
@@ -5709,24 +5710,26 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-139 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L198-286 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-159 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L218-306 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L142-166 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L169-195 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L289-733 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L294-352 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L355-384 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L387-415 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L418-438 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L441-472 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L475-533 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L536-567 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_workflows_without_runner_returns_503` function L572-625 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_executions_without_auth_returns_401` function L628-665 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_error_format_consistency` function L668-732 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L162-186 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L189-215 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L309-889 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L314-372 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L375-404 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L407-435 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L438-458 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L461-492 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L495-553 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L556-587 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_workflows_without_runner_returns_503` function L592-645 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_executions_without_auth_returns_401` function L648-685 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_error_format_consistency` function L688-752 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_endpoints_require_admin` function L757-823 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_list_without_dal_returns_503` function L826-888 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5836,7 +5839,26 @@
 - pub `error` module L20 — `-` — HTTP route handlers for the Cloacina server.
 - pub `executions` module L21 — `-` — HTTP route handlers for the Cloacina server.
 - pub `health` module L22 — `-` — HTTP route handlers for the Cloacina server.
-- pub `workflows` module L23 — `-` — HTTP route handlers for the Cloacina server.
+- pub `tenants` module L23 — `-` — HTTP route handlers for the Cloacina server.
+- pub `workflows` module L24 — `-` — HTTP route handlers for the Cloacina server.
+
+#### crates/cloacinactl/src/routes/tenants.rs
+
+- pub `CreateTenantRequest` struct L50-53 — `{ name: String, schema_name: String }` — Request body for creating a tenant.
+- pub `CreateTenantResponse` struct L57-62 — `{ id: String, name: String, schema_name: String, initial_api_key: String }` — Response for tenant creation (includes the initial admin API key).
+- pub `TenantResponse` struct L66-73 — `{ id: String, name: String, schema_name: String, status: String, created_at: Str...` — Response for a single tenant.
+- pub `StatusResponse` struct L77-79 — `{ status: String }` — Simple status response.
+- pub `CreateApiKeyRequest` struct L83-95 — `{ name: String, read: bool, write: bool, execute: bool, admin: bool, patterns: V...` — Request body for creating an API key.
+- pub `CreateApiKeyResponse` struct L99-103 — `{ id: String, secret: String, prefix: String }` — Response for API key creation (secret shown once).
+- pub `ApiKeyMetadataResponse` struct L107-117 — `{ id: String, name: Option<String>, key_prefix: String, can_read: bool, can_writ...` — Response for an API key (metadata only, no secret or hash).
+- pub `create_tenant` function L124-189 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, J...` — POST /tenants -- create a new tenant with an initial admin API key.
+- pub `list_tenants` function L192-224 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, )...` — GET /tenants -- list all active tenants.
+- pub `get_tenant` function L227-272 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — GET /tenants/{id} -- get a single tenant by ID.
+- pub `deactivate_tenant` function L275-302 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — DELETE /tenants/{id} -- soft-deactivate a tenant.
+- pub `create_tenant_key` function L309-389 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — POST /tenants/{id}/api-keys -- create a new API key for a tenant.
+- pub `list_tenant_keys` function L392-431 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — GET /tenants/{id}/api-keys -- list API keys for a tenant (metadata only).
+- pub `revoke_tenant_key` function L434-468 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — DELETE /tenants/{id}/api-keys/{key_id} -- revoke an API key.
+-  `require_dal` function L36-42 — `(state: &AppState) -> Result<&Arc<DAL>, ApiError>` — Get the DAL from the AppState's auth_state.
 
 #### crates/cloacinactl/src/routes/workflows.rs
 

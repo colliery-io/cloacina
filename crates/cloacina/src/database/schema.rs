@@ -134,6 +134,19 @@ mod unified_schema {
         use diesel::sql_types::*;
         use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
 
+        /// Pipeline outbox table for work distribution.
+        /// Transient: rows are deleted immediately upon claiming.
+        pipeline_outbox (id) {
+            id -> BigInt,
+            pipeline_execution_id -> DbUuid,
+            created_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
         task_execution_metadata (id) {
             id -> DbUuid,
             task_execution_id -> DbUuid,
@@ -417,6 +430,7 @@ mod unified_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(pipeline_outbox -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(api_keys -> tenants (tenant_id));
     diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
@@ -434,6 +448,7 @@ mod unified_schema {
         package_signatures,
         pending_boundaries,
         pipeline_executions,
+        pipeline_outbox,
         recovery_events,
         signing_keys,
         task_executions,
@@ -536,6 +551,14 @@ mod postgres_schema {
         task_outbox (id) {
             id -> Int8,
             task_execution_id -> Uuid,
+            created_at -> Timestamp,
+        }
+    }
+
+    diesel::table! {
+        pipeline_outbox (id) {
+            id -> Int8,
+            pipeline_execution_id -> Uuid,
             created_at -> Timestamp,
         }
     }
@@ -797,6 +820,7 @@ mod postgres_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(pipeline_outbox -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(api_keys -> tenants (tenant_id));
     diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
@@ -819,6 +843,7 @@ mod postgres_schema {
         package_signatures,
         pending_boundaries,
         pipeline_executions,
+        pipeline_outbox,
         recovery_events,
         signing_keys,
         task_executions,
@@ -849,6 +874,7 @@ mod postgres_schema {
         package_signatures,
         pending_boundaries,
         pipeline_executions,
+        pipeline_outbox,
         recovery_events,
         signing_keys,
         task_executions,
@@ -947,6 +973,14 @@ mod sqlite_schema {
         task_outbox (id) {
             id -> BigInt,
             task_execution_id -> Binary,
+            created_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        pipeline_outbox (id) {
+            id -> BigInt,
+            pipeline_execution_id -> Binary,
             created_at -> Text,
         }
     }
@@ -1175,6 +1209,7 @@ mod sqlite_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(pipeline_outbox -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(api_keys -> tenants (tenant_id));
     diesel::joinable!(api_key_workflow_patterns -> api_keys (api_key_id));
 
@@ -1192,6 +1227,7 @@ mod sqlite_schema {
         package_signatures,
         pending_boundaries,
         pipeline_executions,
+        pipeline_outbox,
         recovery_events,
         signing_keys,
         task_executions,

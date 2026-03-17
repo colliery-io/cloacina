@@ -22,9 +22,9 @@
 use crate::database::schema::unified::{
     accumulator_state, api_key_workflow_patterns, api_keys, contexts, cron_executions,
     cron_schedules, detector_state, edge_drain_cursors, execution_events, key_trust_acls,
-    package_signatures, pending_boundaries, pipeline_executions, recovery_events, signing_keys,
-    task_execution_metadata, task_executions, task_outbox, tenants, trigger_executions,
-    trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
+    package_signatures, pending_boundaries, pipeline_executions, pipeline_outbox, recovery_events,
+    signing_keys, task_execution_metadata, task_executions, task_outbox, tenants,
+    trigger_executions, trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -241,6 +241,26 @@ pub struct UnifiedTaskOutbox {
 pub struct NewUnifiedTaskOutbox {
     pub task_execution_id: UniversalUuid,
     pub created_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Pipeline Outbox Models
+// ============================================================================
+
+/// Unified pipeline outbox model for work distribution.
+/// Transient: rows are deleted immediately upon claiming.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = pipeline_outbox)]
+pub struct UnifiedPipelineOutbox {
+    pub id: i64,
+    pub pipeline_execution_id: UniversalUuid,
+    pub created_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = pipeline_outbox)]
+pub struct NewUnifiedPipelineOutbox {
+    pub pipeline_execution_id: UniversalUuid,
 }
 
 // ============================================================================

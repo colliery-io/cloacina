@@ -4,14 +4,14 @@ level: initiative
 title: "Server Phase 6: Pipeline Claiming — Scheduler Horizontal Scaling"
 short_code: "CLOACI-I-0034"
 created_at: 2026-03-16T01:32:38.179956+00:00
-updated_at: 2026-03-16T01:32:38.179956+00:00
+updated_at: 2026-03-17T01:33:51.056719+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -37,102 +37,69 @@ Currently only task-level claiming exists (`FOR UPDATE SKIP LOCKED` in `task_exe
 - Multiple schedulers claim non-overlapping batches (true throughput scaling, not just HA)
 - Existing task claiming continues to work within the scope of claimed pipelines
 
-## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
+## Detailed Design
 
-{Delete if not a requirements-focused initiative}
+### Approach: Pipeline Outbox (matching task claiming pattern)
 
-### User Requirements
-- **User Characteristics**: {Technical background, experience level, etc.}
-- **System Functionality**: {What users expect the system to do}
-- **User Interfaces**: {How users will interact with the system}
+The existing task claiming uses a `task_outbox` table with `FOR UPDATE SKIP LOCKED` — pipelines should use the same proven pattern rather than adding columns to `pipeline_executions`.
 
-### System Requirements
-- **Functional Requirements**: {What the system should do - use unique identifiers}
-  - REQ-001: {Functional requirement 1}
-  - REQ-002: {Functional requirement 2}
-- **Non-Functional Requirements**: {How the system should behave}
-  - NFR-001: {Performance requirement}
-  - NFR-002: {Security requirement}
+**Current flow** (single scheduler):
+```
+scheduler_loop.tick()
+  → get_active_executions()  // scans ALL Pending|Running pipelines
+  → process_pipelines_batch(all)
+```
 
-## Use Cases **[CONDITIONAL: User-Facing Initiative]**
+**New flow** (multi-scheduler):
+```
+scheduler_loop.tick()
+  → claim_pipeline_batch(scheduler_id, limit=100)  // FOR UPDATE SKIP LOCKED on pipeline_outbox
+  → process_pipelines_batch(claimed_only)
+```
 
-{Delete if not user-facing}
+### New Table: `pipeline_outbox`
 
-### Use Case 1: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+```sql
+CREATE TABLE pipeline_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    pipeline_execution_id UUID NOT NULL REFERENCES pipeline_executions(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE INDEX idx_pipeline_outbox_created ON pipeline_outbox(created_at);
+```
 
-### Use Case 2: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+Entries are inserted when a pipeline is created (`schedule_workflow_execution()`), and deleted when claimed by a scheduler. The scheduler processes the claimed pipelines, and completed pipelines are not re-inserted.
 
-## Architecture **[CONDITIONAL: Technically Complex Initiative]**
+For pipelines that need continued processing (Running state, multiple poll cycles), the scheduler re-inserts them into the outbox after each processing cycle if they're not yet complete.
 
-{Delete if not technically complex}
+### Claiming SQL (Postgres)
 
-### Overview
-{High-level architectural approach}
+```sql
+WITH claimed AS (
+    DELETE FROM pipeline_outbox
+    WHERE id IN (
+        SELECT id FROM pipeline_outbox
+        ORDER BY created_at ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING pipeline_execution_id
+)
+SELECT pe.* FROM pipeline_executions pe
+INNER JOIN claimed c ON pe.id = c.pipeline_execution_id
+WHERE pe.status IN ('Pending', 'Running');
+```
 
-### Component Diagrams
-{Describe or link to component diagrams}
+### Backward Compatibility
 
-### Class Diagrams
-{Describe or link to class diagrams - for OOP systems}
+When only one scheduler is running, this is equivalent to the current all-scan — the outbox drains to the single scheduler. No configuration change needed for single-instance deployments.
 
-### Sequence Diagrams
-{Describe or link to sequence diagrams - for interaction flows}
+## Implementation Plan
 
-### Deployment Diagrams
-{Describe or link to deployment diagrams - for infrastructure}
-
-## Detailed Design **[REQUIRED]**
-
-{Technical approach and implementation details}
-
-## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
-
-{Delete if no UI components}
-
-### User Interface Mockups
-{Describe or link to UI mockups}
-
-### User Flows
-{Describe key user interaction flows}
-
-### Design System Integration
-{How this fits with existing design patterns}
-
-## Testing Strategy **[CONDITIONAL: Separate Testing Initiative]**
-
-{Delete if covered by separate testing initiative}
-
-### Unit Testing
-- **Strategy**: {Approach to unit testing}
-- **Coverage Target**: {Expected coverage percentage}
-- **Tools**: {Testing frameworks and tools}
-
-### Integration Testing
-- **Strategy**: {Approach to integration testing}
-- **Test Environment**: {Where integration tests run}
-- **Data Management**: {Test data strategy}
-
-### System Testing
-- **Strategy**: {End-to-end testing approach}
-- **User Acceptance**: {How UAT will be conducted}
-- **Performance Testing**: {Load and stress testing}
-
-### Test Selection
-{Criteria for determining what to test}
-
-### Bug Tracking
-{How defects will be managed and prioritized}
-
-## Alternatives Considered **[REQUIRED]**
-
-{Alternative approaches and why they were rejected}
-
-## Implementation Plan **[REQUIRED]**
-
-{Phases and timeline for execution}
+- [ ] Migration: `pipeline_outbox` table (Postgres + SQLite)
+- [ ] Schema + model: diesel table declaration, PipelineOutboxRow, NewPipelineOutbox
+- [ ] DAL: `claim_pipeline_batch()`, `insert_pipeline_outbox()`, `requeue_pipeline()`
+- [ ] Modify `schedule_workflow_execution()` to insert outbox entry on pipeline creation
+- [ ] Modify `scheduler_loop` to use `claim_pipeline_batch()` instead of `get_active_executions()`
+- [ ] Re-insert Running pipelines into outbox after processing (if not completed)
+- [ ] Integration test: two claim calls return non-overlapping batches

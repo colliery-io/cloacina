@@ -20,10 +20,11 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::models::{
-    NewUnifiedExecutionEvent, NewUnifiedPipelineExecution, UnifiedPipelineExecution,
+    NewUnifiedExecutionEvent, NewUnifiedPipelineExecution, NewUnifiedPipelineOutbox,
+    UnifiedPipelineExecution, UnifiedPipelineOutbox,
 };
 use super::DAL;
-use crate::database::schema::unified::{execution_events, pipeline_executions};
+use crate::database::schema::unified::{execution_events, pipeline_executions, pipeline_outbox};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
@@ -1140,5 +1141,272 @@ impl<'a> PipelineExecutionDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(executions.into_iter().map(Into::into).collect())
+    }
+
+    // =========================================================================
+    // Pipeline Outbox Operations
+    // =========================================================================
+
+    /// Inserts a pipeline execution into the outbox for work distribution.
+    pub async fn insert_outbox(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.insert_outbox_postgres(pipeline_execution_id).await,
+            self.insert_outbox_sqlite(pipeline_execution_id).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn insert_outbox_postgres(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let new_entry = NewUnifiedPipelineOutbox {
+            pipeline_execution_id,
+        };
+
+        conn.interact(move |conn| {
+            diesel::insert_into(pipeline_outbox::table)
+                .values(&new_entry)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn insert_outbox_sqlite(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let new_entry = NewUnifiedPipelineOutbox {
+            pipeline_execution_id,
+        };
+
+        conn.interact(move |conn| {
+            diesel::insert_into(pipeline_outbox::table)
+                .values(&new_entry)
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    /// Atomically claims up to `limit` pipeline executions from the outbox.
+    ///
+    /// Uses FOR UPDATE SKIP LOCKED on Postgres to prevent duplicate claiming
+    /// across concurrent scheduler instances. Returns the joined pipeline
+    /// execution records with status Pending or Running.
+    pub async fn claim_pipeline_batch(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.claim_pipeline_batch_postgres(limit).await,
+            self.claim_pipeline_batch_sqlite(limit).await
+        )
+    }
+
+    #[cfg(feature = "postgres")]
+    async fn claim_pipeline_batch_postgres(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+        use uuid::Uuid;
+
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        #[derive(Debug, QueryableByName, Clone)]
+        #[diesel(check_for_backend(diesel::pg::Pg))]
+        struct PgClaimedPipeline {
+            #[diesel(sql_type = diesel::sql_types::Uuid)]
+            id: Uuid,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            pipeline_name: String,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            pipeline_version: String,
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            status: String,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
+            context_id: Option<Uuid>,
+            #[diesel(sql_type = diesel::sql_types::Timestamp)]
+            started_at: chrono::NaiveDateTime,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamp>)]
+            completed_at: Option<chrono::NaiveDateTime>,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+            error_details: Option<String>,
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            recovery_attempts: i32,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamp>)]
+            last_recovery_at: Option<chrono::NaiveDateTime>,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamp>)]
+            paused_at: Option<chrono::NaiveDateTime>,
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+            pause_reason: Option<String>,
+            #[diesel(sql_type = diesel::sql_types::Timestamp)]
+            created_at: chrono::NaiveDateTime,
+            #[diesel(sql_type = diesel::sql_types::Timestamp)]
+            updated_at: chrono::NaiveDateTime,
+        }
+
+        let pg_results: Vec<PgClaimedPipeline> = conn
+            .interact(move |conn| {
+                diesel::sql_query(format!(
+                    r#"
+                    WITH claimed AS (
+                        DELETE FROM pipeline_outbox
+                        WHERE id IN (
+                            SELECT id FROM pipeline_outbox
+                            ORDER BY created_at ASC
+                            LIMIT {}
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        RETURNING pipeline_execution_id
+                    )
+                    SELECT pe.*
+                    FROM pipeline_executions pe
+                    INNER JOIN claimed c ON pe.id = c.pipeline_execution_id
+                    WHERE pe.status IN ('Pending', 'Running')
+                    "#,
+                    limit
+                ))
+                .load(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(pg_results
+            .into_iter()
+            .map(|pg| PipelineExecution {
+                id: UniversalUuid(pg.id),
+                pipeline_name: pg.pipeline_name,
+                pipeline_version: pg.pipeline_version,
+                status: pg.status,
+                context_id: pg.context_id.map(UniversalUuid),
+                started_at: UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(
+                    pg.started_at,
+                    chrono::Utc,
+                )),
+                completed_at: pg.completed_at.map(|t| {
+                    UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(t, chrono::Utc))
+                }),
+                error_details: pg.error_details,
+                recovery_attempts: pg.recovery_attempts,
+                last_recovery_at: pg.last_recovery_at.map(|t| {
+                    UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(t, chrono::Utc))
+                }),
+                paused_at: pg.paused_at.map(|t| {
+                    UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(t, chrono::Utc))
+                }),
+                pause_reason: pg.pause_reason,
+                created_at: UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(
+                    pg.created_at,
+                    chrono::Utc,
+                )),
+                updated_at: UniversalTimestamp(chrono::DateTime::from_naive_utc_and_offset(
+                    pg.updated_at,
+                    chrono::Utc,
+                )),
+            })
+            .collect())
+    }
+
+    #[cfg(feature = "sqlite")]
+    async fn claim_pipeline_batch_sqlite(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+        use diesel::connection::Connection;
+
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let executions: Vec<UnifiedPipelineExecution> = conn
+            .interact(
+                move |conn| -> Result<Vec<UnifiedPipelineExecution>, diesel::result::Error> {
+                    // Use IMMEDIATE transaction to acquire write lock immediately
+                    conn.transaction::<Vec<UnifiedPipelineExecution>, diesel::result::Error, _>(
+                        |conn| {
+                            // Select oldest outbox entries
+                            let outbox_entries: Vec<UnifiedPipelineOutbox> = pipeline_outbox::table
+                                .order(pipeline_outbox::created_at.asc())
+                                .limit(limit)
+                                .load(conn)?;
+
+                            if outbox_entries.is_empty() {
+                                return Ok(Vec::new());
+                            }
+
+                            // Collect IDs
+                            let pipeline_ids: Vec<_> = outbox_entries
+                                .iter()
+                                .map(|o| o.pipeline_execution_id)
+                                .collect();
+                            let outbox_ids: Vec<_> = outbox_entries.iter().map(|o| o.id).collect();
+
+                            // Delete outbox entries
+                            diesel::delete(pipeline_outbox::table)
+                                .filter(pipeline_outbox::id.eq_any(&outbox_ids))
+                                .execute(conn)?;
+
+                            // Load pipeline executions for the claimed entries
+                            let claimed: Vec<UnifiedPipelineExecution> = pipeline_executions::table
+                                .filter(pipeline_executions::id.eq_any(&pipeline_ids))
+                                .filter(
+                                    pipeline_executions::status.eq_any(vec!["Pending", "Running"]),
+                                )
+                                .load(conn)?;
+
+                            Ok(claimed)
+                        },
+                    )
+                },
+            )
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(executions.into_iter().map(Into::into).collect())
+    }
+
+    /// Re-inserts a pipeline into the outbox for continued processing.
+    ///
+    /// Used after processing a pipeline that is still active (Pending/Running)
+    /// to ensure it gets picked up again in the next scheduling cycle.
+    pub async fn requeue_pipeline(
+        &self,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        self.insert_outbox(pipeline_execution_id).await
     }
 }

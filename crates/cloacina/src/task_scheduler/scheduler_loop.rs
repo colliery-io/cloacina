@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -95,24 +95,61 @@ impl<'a> SchedulerLoop<'a> {
         }
     }
 
-    /// Processes all active pipeline executions to update task readiness.
+    /// Processes active pipeline executions to update task readiness.
+    ///
+    /// Uses outbox-based claiming to prevent duplicate processing across
+    /// concurrent scheduler instances. Falls back to the old scan-based
+    /// approach for backward compatibility during rolling upgrades.
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
-        let active_executions = self
+        // Try outbox-based claiming first
+        let claimed = self
             .dal
             .pipeline_execution()
-            .get_active_executions()
+            .claim_pipeline_batch(100)
             .await?;
 
-        if active_executions.is_empty() {
-            // Even with no active pipelines, dispatch any Ready tasks (e.g., retries)
-            if self.dispatcher.is_some() {
-                self.dispatch_ready_tasks().await?;
+        let active_executions = if claimed.is_empty() {
+            // Fallback: if outbox is empty, check for active pipelines that
+            // may not have outbox entries (e.g., created before the migration).
+            // This ensures backward compatibility during rolling upgrades.
+            let fallback = self
+                .dal
+                .pipeline_execution()
+                .get_active_executions()
+                .await?;
+
+            if fallback.is_empty() {
+                // No active pipelines at all -- dispatch any Ready tasks (e.g., retries)
+                if self.dispatcher.is_some() {
+                    self.dispatch_ready_tasks().await?;
+                }
+                return Ok(());
             }
-            return Ok(());
-        }
+
+            fallback
+        } else {
+            claimed
+        };
 
         // Batch process all active pipelines (evaluates pending tasks, marks them Ready)
-        self.process_pipelines_batch(active_executions).await?;
+        self.process_pipelines_batch(active_executions.clone())
+            .await?;
+
+        // Re-queue pipelines that are still active (not completed/failed/cancelled)
+        for pipeline in &active_executions {
+            // Re-read the pipeline status in case it was completed during processing
+            let current = self.dal.pipeline_execution().get_by_id(pipeline.id).await?;
+            if current.status == "Pending" || current.status == "Running" {
+                if let Err(e) = self
+                    .dal
+                    .pipeline_execution()
+                    .requeue_pipeline(pipeline.id)
+                    .await
+                {
+                    warn!("Failed to requeue pipeline {}: {}", pipeline.id, e);
+                }
+            }
+        }
 
         // Dispatch all Ready tasks (including newly marked and retry tasks)
         if self.dispatcher.is_some() {

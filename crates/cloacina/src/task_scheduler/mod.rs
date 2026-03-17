@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -130,9 +130,11 @@ use diesel::Connection;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::dal::unified::models::{NewUnifiedPipelineExecution, NewUnifiedTaskExecution};
+use crate::dal::unified::models::{
+    NewUnifiedPipelineExecution, NewUnifiedPipelineOutbox, NewUnifiedTaskExecution,
+};
 use crate::dal::DAL;
-use crate::database::schema::unified::{pipeline_executions, task_executions};
+use crate::database::schema::unified::{pipeline_executions, pipeline_outbox, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
@@ -470,6 +472,13 @@ impl TaskScheduler {
                         .execute(conn)?;
                 }
 
+                // Insert pipeline outbox entry for work distribution
+                diesel::insert_into(pipeline_outbox::table)
+                    .values(&NewUnifiedPipelineOutbox {
+                        pipeline_execution_id: pipeline_id,
+                    })
+                    .execute(conn)?;
+
                 Ok::<_, diesel::result::Error>(())
             })
         })
@@ -530,6 +539,13 @@ impl TaskScheduler {
                         })
                         .execute(conn)?;
                 }
+
+                // Insert pipeline outbox entry for work distribution
+                diesel::insert_into(pipeline_outbox::table)
+                    .values(&NewUnifiedPipelineOutbox {
+                        pipeline_execution_id: pipeline_id,
+                    })
+                    .execute(conn)?;
 
                 Ok::<_, diesel::result::Error>(())
             })
