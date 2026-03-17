@@ -31,6 +31,7 @@ pub struct ServerConfig {
     pub scheduler: SchedulerSection,
     pub worker: WorkerSection,
     pub logging: LoggingSection,
+    pub observability: ObservabilitySection,
 }
 
 impl Default for ServerConfig {
@@ -41,6 +42,7 @@ impl Default for ServerConfig {
             scheduler: SchedulerSection::default(),
             worker: WorkerSection::default(),
             logging: LoggingSection::default(),
+            observability: ObservabilitySection::default(),
         }
     }
 }
@@ -129,6 +131,24 @@ impl Default for LoggingSection {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ObservabilitySection {
+    /// OpenTelemetry OTLP endpoint. Empty string disables OTLP export.
+    pub otlp_endpoint: String,
+    /// Service name reported to the OTLP collector.
+    pub otlp_service_name: String,
+}
+
+impl Default for ObservabilitySection {
+    fn default() -> Self {
+        Self {
+            otlp_endpoint: String::new(),
+            otlp_service_name: "cloacina".to_string(),
+        }
+    }
+}
+
 /// Load configuration with layered precedence: defaults → TOML → env vars → CLI flags.
 pub fn load_config(cli_config_path: Option<&str>, cli_args: &ServeArgs) -> Result<ServerConfig> {
     // Start with defaults
@@ -210,6 +230,12 @@ fn apply_env_overrides(config: &mut ServerConfig) {
     }
     if let Ok(val) = std::env::var("CLOACINA_LOG_LEVEL") {
         config.logging.level = val;
+    }
+    if let Ok(val) = std::env::var("CLOACINA_OTLP_ENDPOINT") {
+        config.observability.otlp_endpoint = val;
+    }
+    if let Ok(val) = std::env::var("CLOACINA_OTLP_SERVICE_NAME") {
+        config.observability.otlp_service_name = val;
     }
 }
 

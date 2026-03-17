@@ -61,6 +61,7 @@ pub struct HealthResponse {
     tag = "system"
 )]
 pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    metrics::counter!("cloacina_health_checks_total").increment(1);
     let uptime = state.startup_instant.elapsed().as_secs();
 
     let response = HealthResponse {

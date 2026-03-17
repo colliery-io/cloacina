@@ -20,5 +20,6 @@ pub mod auth_test;
 pub mod error;
 pub mod executions;
 pub mod health;
+pub mod metrics;
 pub mod tenants;
 pub mod workflows;

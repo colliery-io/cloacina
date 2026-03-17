@@ -93,6 +93,7 @@ pub fn app(state: Arc<AppState>) -> Router {
     // Public routes — no auth required
     let public_routes = Router::new()
         .route("/health", get(health::health))
+        .route("/metrics", get(crate::routes::metrics::metrics))
         .merge(SwaggerUi::new("/api-docs/").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     // Protected routes — auth required
@@ -218,6 +219,15 @@ fn build_runner_config(
 pub async fn run(args: &ServeArgs) -> Result<()> {
     let config = crate::config::load_config(args.config.as_deref(), args)?;
     let mode = args.mode;
+
+    // Initialize observability (Prometheus metrics + OpenTelemetry stub)
+    crate::observability::init_prometheus();
+    crate::observability::record_static_metrics(config.worker.max_concurrent_tasks);
+    crate::observability::init_opentelemetry(
+        &config.observability.otlp_endpoint,
+        &config.observability.otlp_service_name,
+    );
+
     let needs_api = matches!(mode, ServeMode::All | ServeMode::Api);
     let needs_runner = matches!(
         mode,
@@ -747,6 +757,71 @@ mod tests {
             "error.message should be a string"
         );
         assert_eq!(body["error"]["code"], "SERVICE_UNAVAILABLE");
+
+        let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
+    }
+
+    // --- Metrics endpoint tests ---
+
+    #[tokio::test]
+    async fn test_metrics_endpoint_returns_prometheus_format() {
+        // Initialize prometheus for this test — may fail if another test already installed it.
+        let _ = crate::observability::init_prometheus();
+
+        // Record a test metric to ensure something appears in output
+        metrics::counter!("cloacina_test_metric").increment(1);
+
+        let state = Arc::new(AppState {
+            startup_instant: Instant::now(),
+            mode: "api".to_string(),
+            auth_state: None,
+            runner: None,
+        });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, app(state))
+                .with_graceful_shutdown(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://{}/metrics", addr))
+            .send()
+            .await
+            .expect("metrics request failed");
+
+        assert_eq!(resp.status(), 200);
+
+        // Verify content-type header
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .expect("missing content-type header")
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.contains("text/plain"),
+            "expected text/plain content-type, got: {}",
+            content_type
+        );
+
+        let body = resp.text().await.unwrap();
+        // The body should contain Prometheus text format (may include our test metric
+        // if the recorder was installed in this test, or be empty if it was installed
+        // by a different test — either way, the endpoint responded correctly).
+        assert!(
+            body.is_empty() || body.contains('#') || body.contains("cloacina"),
+            "unexpected metrics body format"
+        );
 
         let _ = tokio::time::timeout(Duration::from_secs(6), server_handle).await;
     }

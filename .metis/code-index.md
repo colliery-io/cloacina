@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-17T01:32:07Z | 399 files | JavaScript, Python, Rust
+> Generated: 2026-03-17T01:51:15Z | 400 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -248,6 +248,7 @@
 │   │           │   ├── context.rs
 │   │           │   ├── execution_events.rs
 │   │           │   ├── mod.rs
+│   │           │   ├── pipeline_claiming.rs
 │   │           │   ├── sub_status.rs
 │   │           │   ├── task_claiming.rs
 │   │           │   ├── workflow_packages.rs
@@ -1955,72 +1956,74 @@
 - pub `NewUnifiedExecutionEvent` struct L215-223 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedTaskOutbox` struct L233-237 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
 - pub `NewUnifiedTaskOutbox` struct L241-244 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronSchedule` struct L252-265 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronSchedule` struct L269-281 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronExecution` struct L289-297 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronExecution` struct L301-309 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerSchedule` struct L317-327 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerSchedule` struct L331-340 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerExecution` struct L348-357 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerExecution` struct L361-369 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L377-381 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L385-389 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L397-408 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L412-423 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L431-440 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L444-452 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L460-468 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L472-479 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L487-493 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L497-502 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L510-516 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L520-526 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `AccumulatorStateRow` struct L803-810 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
-- pub `NewAccumulatorState` struct L815-819 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
-- pub `DetectorStateRow` struct L828-832 — `{ source_name: String, committed_state: Option<String>, updated_at: UniversalTim...` — Persisted detector state row.
-- pub `NewDetectorState` struct L837-840 — `{ source_name: String, committed_state: Option<String> }` — New detector state for insertion.
-- pub `PendingBoundaryRow` struct L849-854 — `{ id: i64, source_name: String, boundary_json: String, received_at: UniversalTim...` — Pending boundary row from the WAL.
-- pub `NewPendingBoundary` struct L859-862 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
-- pub `EdgeDrainCursorRow` struct L871-875 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
-- pub `NewEdgeDrainCursor` struct L880-884 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
-- pub `TenantRow` struct L892-899 — `{ id: UniversalUuid, name: String, schema_name: String, status: String, created_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewTenant` struct L903-907 — `{ id: UniversalUuid, name: String, schema_name: String }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `ApiKeyRow` struct L915-928 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewApiKey` struct L932-942 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `WorkflowPatternRow` struct L950-954 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewWorkflowPattern` struct L958-962 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L551-560 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L552-559 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L562-581 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L563-580 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L583-606 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L584-605 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L608-620 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L609-619 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L622-635 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L623-634 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L637-650 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L638-649 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronSchedule` type L652-669 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L653-668 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronExecution` type L671-683 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L672-682 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L685-693 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L686-692 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L695-710 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L696-709 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerSchedule` type L712-726 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L713-725 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerExecution` type L728-741 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L729-740 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L743-756 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L744-755 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L758-770 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L759-769 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L772-782 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L773-781 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L784-794 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L785-793 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPipelineOutbox` struct L254-258 — `{ id: i64, pipeline_execution_id: UniversalUuid, created_at: UniversalTimestamp ...` — Unified pipeline outbox model for work distribution.
+- pub `NewUnifiedPipelineOutbox` struct L262-264 — `{ pipeline_execution_id: UniversalUuid }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronSchedule` struct L272-285 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronSchedule` struct L289-301 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronExecution` struct L309-317 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronExecution` struct L321-329 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerSchedule` struct L337-347 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerSchedule` struct L351-360 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerExecution` struct L368-377 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerExecution` struct L381-389 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L397-401 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L405-409 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L417-428 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L432-443 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L451-460 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L464-472 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L480-488 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L492-499 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L507-513 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L517-522 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L530-536 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L540-546 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `AccumulatorStateRow` struct L823-830 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
+- pub `NewAccumulatorState` struct L835-839 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
+- pub `DetectorStateRow` struct L848-852 — `{ source_name: String, committed_state: Option<String>, updated_at: UniversalTim...` — Persisted detector state row.
+- pub `NewDetectorState` struct L857-860 — `{ source_name: String, committed_state: Option<String> }` — New detector state for insertion.
+- pub `PendingBoundaryRow` struct L869-874 — `{ id: i64, source_name: String, boundary_json: String, received_at: UniversalTim...` — Pending boundary row from the WAL.
+- pub `NewPendingBoundary` struct L879-882 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
+- pub `EdgeDrainCursorRow` struct L891-895 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
+- pub `NewEdgeDrainCursor` struct L900-904 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
+- pub `TenantRow` struct L912-919 — `{ id: UniversalUuid, name: String, schema_name: String, status: String, created_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewTenant` struct L923-927 — `{ id: UniversalUuid, name: String, schema_name: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `ApiKeyRow` struct L935-948 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewApiKey` struct L952-962 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `WorkflowPatternRow` struct L970-974 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewWorkflowPattern` struct L978-982 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L571-580 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L572-579 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L582-601 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L583-600 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L603-626 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L604-625 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L628-640 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L629-639 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L642-655 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L643-654 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L657-670 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L658-669 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronSchedule` type L672-689 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L673-688 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronExecution` type L691-703 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L692-702 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L705-713 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L706-712 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L715-730 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L716-729 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerSchedule` type L732-746 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L733-745 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerExecution` type L748-761 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L749-760 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L763-776 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L764-775 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L778-790 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L779-789 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L792-802 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L793-801 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L804-814 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L805-813 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/pending_boundary_dal.rs
 
@@ -2056,47 +2059,55 @@
 
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
-- pub `PipelineExecutionDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for pipeline execution operations with compile-time backend selection.
-- pub `new` function L40-42 — `(dal: &'a DAL) -> Self` — are written atomically.
-- pub `create` function L48-57 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — Creates a new pipeline execution record in the database.
-- pub `get_by_id` function L185-191 — `(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError>` — are written atomically.
-- pub `get_active_executions` function L233-239 — `(&self) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
-- pub `update_status` function L287-297 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `mark_completed` function L361-367 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a pipeline execution as completed.
-- pub `get_last_version` function L463-472 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
-- pub `mark_failed` function L534-544 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
-- pub `increment_recovery_attempts` function L654-663 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `cancel` function L723-729 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
-- pub `pause` function L738-748 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
-- pub `resume` function L864-870 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
-- pub `update_final_context` function L1018-1029 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
-- pub `list_recent` function L1087-1093 — `(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
--  `create_postgres` function L60-120 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — are written atomically.
--  `create_sqlite` function L123-183 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — are written atomically.
--  `get_by_id_postgres` function L194-211 — `( &self, id: UniversalUuid, ) -> Result<PipelineExecution, ValidationError>` — are written atomically.
--  `get_by_id_sqlite` function L214-231 — `( &self, id: UniversalUuid, ) -> Result<PipelineExecution, ValidationError>` — are written atomically.
--  `get_active_executions_postgres` function L242-262 — `( &self, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
--  `get_active_executions_sqlite` function L265-285 — `( &self, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
--  `update_status_postgres` function L300-326 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `update_status_sqlite` function L329-355 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_postgres` function L370-414 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_sqlite` function L417-461 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `get_last_version_postgres` function L475-500 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `get_last_version_sqlite` function L503-528 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `mark_failed_postgres` function L547-598 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_failed_sqlite` function L601-652 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_postgres` function L666-692 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_sqlite` function L695-721 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `pause_postgres` function L751-802 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `pause_sqlite` function L805-856 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `resume_postgres` function L873-918 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `resume_sqlite` function L921-966 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_postgres` function L969-991 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_sqlite` function L994-1016 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `update_final_context_postgres` function L1032-1057 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `update_final_context_sqlite` function L1060-1085 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `list_recent_postgres` function L1096-1118 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
--  `list_recent_sqlite` function L1121-1143 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+- pub `PipelineExecutionDAL` struct L36-38 — `{ dal: &'a DAL }` — Data access layer for pipeline execution operations with compile-time backend selection.
+- pub `new` function L41-43 — `(dal: &'a DAL) -> Self` — are written atomically.
+- pub `create` function L49-58 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — Creates a new pipeline execution record in the database.
+- pub `get_by_id` function L186-192 — `(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError>` — are written atomically.
+- pub `get_active_executions` function L234-240 — `(&self) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+- pub `update_status` function L288-298 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `mark_completed` function L362-368 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a pipeline execution as completed.
+- pub `get_last_version` function L464-473 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+- pub `mark_failed` function L535-545 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
+- pub `increment_recovery_attempts` function L655-664 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `cancel` function L724-730 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+- pub `pause` function L739-749 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
+- pub `resume` function L865-871 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
+- pub `update_final_context` function L1019-1030 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+- pub `list_recent` function L1088-1094 — `(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+- pub `insert_outbox` function L1151-1160 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<(), ValidationError>` — Inserts a pipeline execution into the outbox for work distribution.
+- pub `claim_pipeline_batch` function L1221-1230 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — Atomically claims up to `limit` pipeline executions from the outbox.
+- pub `requeue_pipeline` function L1406-1411 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<(), ValidationError>` — Re-inserts a pipeline into the outbox for continued processing.
+-  `create_postgres` function L61-121 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — are written atomically.
+-  `create_sqlite` function L124-184 — `( &self, new_execution: NewPipelineExecution, ) -> Result<PipelineExecution, Val...` — are written atomically.
+-  `get_by_id_postgres` function L195-212 — `( &self, id: UniversalUuid, ) -> Result<PipelineExecution, ValidationError>` — are written atomically.
+-  `get_by_id_sqlite` function L215-232 — `( &self, id: UniversalUuid, ) -> Result<PipelineExecution, ValidationError>` — are written atomically.
+-  `get_active_executions_postgres` function L243-263 — `( &self, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+-  `get_active_executions_sqlite` function L266-286 — `( &self, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+-  `update_status_postgres` function L301-327 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `update_status_sqlite` function L330-356 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_postgres` function L371-415 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_sqlite` function L418-462 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `get_last_version_postgres` function L476-501 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `get_last_version_sqlite` function L504-529 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `mark_failed_postgres` function L548-599 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_failed_sqlite` function L602-653 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_postgres` function L667-693 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_sqlite` function L696-722 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `pause_postgres` function L752-803 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `pause_sqlite` function L806-857 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `resume_postgres` function L874-919 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `resume_sqlite` function L922-967 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_postgres` function L970-992 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_sqlite` function L995-1017 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `update_final_context_postgres` function L1033-1058 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `update_final_context_sqlite` function L1061-1086 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `list_recent_postgres` function L1097-1119 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+-  `list_recent_sqlite` function L1122-1144 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+-  `insert_outbox_postgres` function L1163-1187 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `insert_outbox_sqlite` function L1190-1214 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `claim_pipeline_batch_postgres` function L1233-1339 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
+-  `PgClaimedPipeline` struct L1248-1277 — `{ id: Uuid, pipeline_name: String, pipeline_version: String, status: String, con...` — are written atomically.
+-  `claim_pipeline_batch_sqlite` function L1342-1400 — `( &self, limit: i64, ) -> Result<Vec<PipelineExecution>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -2573,12 +2584,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1210-1212 — `-`
-- pub `postgres` module L1217-1219 — `-`
-- pub `sqlite` module L1222-1224 — `-`
--  `unified_schema` module L25-449 — `-`
--  `postgres_schema` module L456-864 — `-`
--  `sqlite_schema` module L867-1205 — `-`
+- pub `unified` module L1246-1248 — `-`
+- pub `postgres` module L1253-1255 — `-`
+- pub `sqlite` module L1258-1260 — `-`
+-  `unified_schema` module L25-464 — `-`
+-  `postgres_schema` module L471-890 — `-`
+-  `sqlite_schema` module L893-1241 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -4158,25 +4169,25 @@
 
 #### crates/cloacina/src/task_scheduler/mod.rs
 
-- pub `TaskScheduler` struct L185-191 — `{ dal: DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<Arc<d...` — The main Task Scheduler that manages workflow execution and task readiness.
-- pub `new` function L221-224 — `(database: Database) -> Result<Self, ValidationError>` — Creates a new TaskScheduler instance with default configuration using global workflow registry.
-- pub `with_poll_interval` function L242-250 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
-- pub `with_dispatcher` function L276-279 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
-- pub `dispatcher` function L282-284 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
-- pub `schedule_workflow_execution` function L329-419 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
-- pub `run_scheduling_loop` function L581-589 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L592-600 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
+- pub `TaskScheduler` struct L187-193 — `{ dal: DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<Arc<d...` — The main Task Scheduler that manages workflow execution and task readiness.
+- pub `new` function L223-226 — `(database: Database) -> Result<Self, ValidationError>` — Creates a new TaskScheduler instance with default configuration using global workflow registry.
+- pub `with_poll_interval` function L244-252 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
+- pub `with_dispatcher` function L278-281 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
+- pub `dispatcher` function L284-286 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
+- pub `schedule_workflow_execution` function L331-421 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
+- pub `run_scheduling_loop` function L597-605 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
+- pub `process_active_pipelines` function L608-616 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
 -  `context_manager` module L116 — `-` — # Task Scheduler
 -  `recovery` module L117 — `-` — ```
 -  `scheduler_loop` module L118 — `-` — ```
 -  `state_manager` module L119 — `-` — ```
 -  `trigger_rules` module L120 — `-` — ```
--  `TaskScheduler` type L193-623 — `= TaskScheduler` — ```
--  `with_poll_interval_sync` function L253-262 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
--  `create_pipeline_postgres` function L423-480 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in PostgreSQL.
--  `create_pipeline_sqlite` function L484-541 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in SQLite.
--  `get_task_trigger_rules` function L603-612 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
--  `get_task_configuration` function L615-622 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
+-  `TaskScheduler` type L195-639 — `= TaskScheduler` — ```
+-  `with_poll_interval_sync` function L255-264 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
+-  `create_pipeline_postgres` function L425-489 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in PostgreSQL.
+-  `create_pipeline_sqlite` function L493-557 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in SQLite.
+-  `get_task_trigger_rules` function L619-628 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
+-  `get_task_configuration` function L631-638 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
 
 #### crates/cloacina/src/task_scheduler/recovery.rs
 
@@ -4197,11 +4208,11 @@
 - pub `new` function L50-57 — `(dal: &'a DAL, instance_id: Uuid, poll_interval: Duration) -> Self` — Creates a new SchedulerLoop.
 - pub `with_dispatcher` function L60-72 — `( dal: &'a DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<A...` — Creates a new SchedulerLoop with an optional dispatcher.
 - pub `run` function L81-96 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L99-123 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
--  `process_pipelines_batch` function L131-182 — `( &self, active_executions: Vec<PipelineExecution>, ) -> Result<(), ValidationEr...` — Processes multiple pipelines in batch for better performance.
--  `dispatch_ready_tasks` function L189-217 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
--  `complete_pipeline` function L220-255 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
--  `update_pipeline_final_context` function L262-319 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
+- pub `process_active_pipelines` function L103-160 — `(&self) -> Result<(), ValidationError>` — Processes active pipeline executions to update task readiness.
+-  `process_pipelines_batch` function L168-219 — `( &self, active_executions: Vec<PipelineExecution>, ) -> Result<(), ValidationEr...` — Processes multiple pipelines in batch for better performance.
+-  `dispatch_ready_tasks` function L226-254 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
+-  `complete_pipeline` function L257-292 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
+-  `update_pipeline_final_context` function L299-356 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
 
 #### crates/cloacina/src/task_scheduler/state_manager.rs
 
@@ -4779,11 +4790,19 @@
 
 - pub `context` module L17 — `-`
 - pub `execution_events` module L18 — `-`
-- pub `sub_status` module L19 — `-`
-- pub `task_claiming` module L20 — `-`
-- pub `workflow_packages` module L21 — `-`
-- pub `workflow_registry` module L22 — `-`
-- pub `workflow_registry_reconciler_integration` module L23 — `-`
+- pub `pipeline_claiming` module L19 — `-`
+- pub `sub_status` module L20 — `-`
+- pub `task_claiming` module L21 — `-`
+- pub `workflow_packages` module L22 — `-`
+- pub `workflow_registry` module L23 — `-`
+- pub `workflow_registry_reconciler_integration` module L24 — `-`
+
+#### crates/cloacina/tests/integration/dal/pipeline_claiming.rs
+
+-  `test_pipeline_claiming_no_duplicates` function L37-158 — `()` — Test that two sequential claim_pipeline_batch calls return non-overlapping results.
+-  `NUM_PIPELINES` variable L51 — `: usize` — Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
+-  `test_pipeline_requeue_and_reclaim` function L162-245 — `()` — Test that requeued pipelines can be reclaimed.
+-  `test_claim_filters_by_status` function L249-323 — `()` — Test that only Pending/Running pipelines are returned from claims.
 
 #### crates/cloacina/tests/integration/dal/sub_status.rs
 

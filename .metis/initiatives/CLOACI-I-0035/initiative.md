@@ -4,14 +4,14 @@ level: initiative
 title: "Server Phase 7: Observability — Prometheus + OpenTelemetry"
 short_code: "CLOACI-I-0035"
 created_at: 2026-03-16T01:32:38.927304+00:00
-updated_at: 2026-03-16T01:32:38.927304+00:00
+updated_at: 2026-03-17T01:52:14.872047+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,102 +40,72 @@ Zero metrics or tracing infrastructure exists beyond developer-facing `tracing` 
 - OpenTelemetry: OTLP exporter configurable via cloacina.toml (optional, disabled by default)
 - `tracing-opentelemetry` integration for distributed traces
 
-## Requirements **[CONDITIONAL: Requirements-Heavy Initiative]**
+## Detailed Design
 
-{Delete if not a requirements-focused initiative}
+### Crate Selection
 
-### User Requirements
-- **User Characteristics**: {Technical background, experience level, etc.}
-- **System Functionality**: {What users expect the system to do}
-- **User Interfaces**: {How users will interact with the system}
+- **`metrics`** crate — facade for recording metrics (counters, gauges, histograms)
+- **`metrics-exporter-prometheus`** — renders metrics in Prometheus exposition format
+- **`opentelemetry`** + **`opentelemetry-otlp`** — OTLP exporter for traces
+- **`tracing-opentelemetry`** — bridges existing `tracing` spans to OpenTelemetry
 
-### System Requirements
-- **Functional Requirements**: {What the system should do - use unique identifiers}
-  - REQ-001: {Functional requirement 1}
-  - REQ-002: {Functional requirement 2}
-- **Non-Functional Requirements**: {How the system should behave}
-  - NFR-001: {Performance requirement}
-  - NFR-002: {Security requirement}
+### Metrics to Instrument
 
-## Use Cases **[CONDITIONAL: User-Facing Initiative]**
+**Resource utilization (gauges):**
+- `cloacina_workers_active` — currently executing tasks
+- `cloacina_workers_capacity` — max concurrent tasks configured
+- `cloacina_db_pool_active` — active DB connections
+- `cloacina_db_pool_idle` — idle DB connections
 
-{Delete if not user-facing}
+**System pressure (counters + histograms):**
+- `cloacina_scheduler_claims_total` — counter of pipeline claim operations
+- `cloacina_scheduler_claim_batch_size` — histogram of batch sizes per claim
+- `cloacina_task_queue_depth` — gauge of tasks in Ready state
+- `cloacina_task_execution_duration_seconds` — histogram of task durations
+- `cloacina_pipeline_execution_duration_seconds` — histogram of pipeline durations
 
-### Use Case 1: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+**Health indicators (counters + gauges):**
+- `cloacina_pipelines_active` — gauge of Running pipelines
+- `cloacina_pipelines_pending` — gauge of Pending pipelines
+- `cloacina_tasks_completed_total` — counter
+- `cloacina_tasks_failed_total` — counter
+- `cloacina_recovery_orphaned_total` — counter of recovered tasks
 
-### Use Case 2: {Use Case Name}
-- **Actor**: {Who performs this action}
-- **Scenario**: {Step-by-step interaction}
-- **Expected Outcome**: {What should happen}
+**Continuous scheduling (gauges):**
+- `cloacina_continuous_edges_buffered` — gauge per edge (from graph_metrics())
+- `cloacina_continuous_edges_max_lag_ms` — gauge per edge
 
-## Architecture **[CONDITIONAL: Technically Complex Initiative]**
+### /metrics Endpoint
 
-{Delete if not technically complex}
+Public (no auth), returns Prometheus text format. The `metrics-exporter-prometheus` crate provides a `PrometheusBuilder` that installs a global recorder and provides a render function.
 
-### Overview
-{High-level architectural approach}
+### OpenTelemetry Config
 
-### Component Diagrams
-{Describe or link to component diagrams}
+```toml
+[observability]
+otlp_endpoint = ""  # empty = disabled. e.g., "http://localhost:4317"
+otlp_service_name = "cloacina"
+```
 
-### Class Diagrams
-{Describe or link to class diagrams - for OOP systems}
+When configured, `tracing-opentelemetry` layer is added to the subscriber stack. All existing `tracing::info!`/`debug!` spans become OTel spans automatically.
 
-### Sequence Diagrams
-{Describe or link to sequence diagrams - for interaction flows}
+### Instrumentation Points
 
-### Deployment Diagrams
-{Describe or link to deployment diagrams - for infrastructure}
+Metrics are recorded at these points in the codebase:
+- **Task execution**: instrument `ThreadTaskExecutor::execute()` with duration histogram + success/failure counter
+- **Pipeline lifecycle**: instrument `schedule_workflow_execution()` and completion/failure paths
+- **Scheduler loop**: instrument `claim_pipeline_batch()` with batch size + claim duration
+- **Recovery**: increment orphaned counter on each recovery
+- **Continuous scheduling**: read `graph_metrics()` periodically and set gauges
 
-## Detailed Design **[REQUIRED]**
+The `metrics` crate records are zero-cost when no exporter is installed — safe to sprinkle throughout without performance concern.
 
-{Technical approach and implementation details}
+## Implementation Plan
 
-## UI/UX Design **[CONDITIONAL: Frontend Initiative]**
-
-{Delete if no UI components}
-
-### User Interface Mockups
-{Describe or link to UI mockups}
-
-### User Flows
-{Describe key user interaction flows}
-
-### Design System Integration
-{How this fits with existing design patterns}
-
-## Testing Strategy **[CONDITIONAL: Separate Testing Initiative]**
-
-{Delete if covered by separate testing initiative}
-
-### Unit Testing
-- **Strategy**: {Approach to unit testing}
-- **Coverage Target**: {Expected coverage percentage}
-- **Tools**: {Testing frameworks and tools}
-
-### Integration Testing
-- **Strategy**: {Approach to integration testing}
-- **Test Environment**: {Where integration tests run}
-- **Data Management**: {Test data strategy}
-
-### System Testing
-- **Strategy**: {End-to-end testing approach}
-- **User Acceptance**: {How UAT will be conducted}
-- **Performance Testing**: {Load and stress testing}
-
-### Test Selection
-{Criteria for determining what to test}
-
-### Bug Tracking
-{How defects will be managed and prioritized}
-
-## Alternatives Considered **[REQUIRED]**
-
-{Alternative approaches and why they were rejected}
-
-## Implementation Plan **[REQUIRED]**
-
-{Phases and timeline for execution}
+- [ ] Add `metrics`, `metrics-exporter-prometheus` dependencies to cloacinactl
+- [ ] Install PrometheusBuilder recorder in serve startup
+- [ ] GET /metrics public endpoint rendering Prometheus text
+- [ ] Instrument core metrics: pipelines_active/pending, tasks_completed/failed
+- [ ] Add `opentelemetry`, `opentelemetry-otlp`, `tracing-opentelemetry` dependencies
+- [ ] OTLP config in cloacina.toml, conditional tracing layer setup
+- [ ] Integration test: GET /metrics returns valid Prometheus format

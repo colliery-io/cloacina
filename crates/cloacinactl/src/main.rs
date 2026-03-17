@@ -23,6 +23,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 pub mod auth;
 mod commands;
 pub mod config;
+pub mod observability;
 pub mod routes;
 
 /// cloacinactl - Control tool for the Cloacina task orchestration engine
