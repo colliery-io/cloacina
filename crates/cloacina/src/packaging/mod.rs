@@ -68,5 +68,47 @@ pub fn package_workflow(
     // Step 2: Create the package archive
     create_package_archive(&compile_result, &output_path)?;
 
+    // Step 3: Validate the package (including FFI smoke test)
+    validate_built_package(&output_path)?;
+
+    Ok(())
+}
+
+/// Validate a built package by running it through the full PackageValidator
+/// pipeline, including the FFI smoke test.
+fn validate_built_package(package_path: &PathBuf) -> Result<()> {
+    use crate::registry::loader::validator::PackageValidator;
+
+    let package_data = std::fs::read(package_path)
+        .map_err(|e| anyhow::anyhow!("Failed to read built package: {}", e))?;
+
+    let validator = PackageValidator::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create validator: {}", e))?;
+
+    // Run validation in a tokio runtime (the FFI smoke test is async)
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create runtime for validation: {}", e))?;
+
+    let result = rt
+        .block_on(validator.validate_package(&package_data, None))
+        .map_err(|e| anyhow::anyhow!("Validation failed: {}", e))?;
+
+    if !result.is_valid {
+        let errors = result.errors.join("\n  - ");
+        anyhow::bail!(
+            "Package validation failed:\n  - {}\n\n\
+             See https://docs.cloacina.dev/explanation/packaged-workflow-validation/ \
+             for troubleshooting guidance.",
+            errors
+        );
+    }
+
+    if !result.warnings.is_empty() {
+        for warning in &result.warnings {
+            tracing::warn!("Package validation warning: {}", warning);
+        }
+    }
+
+    tracing::info!("Package validation passed (FFI smoke test OK)");
     Ok(())
 }

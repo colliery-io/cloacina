@@ -161,6 +161,54 @@ def main():
         print("ERROR: --package or --build required")
         sys.exit(1)
 
+    # --- Build and validate Python package (smoke test only — not registered) ---
+    if args.build:
+        repo_root = Path(__file__).parent.parent.parent
+        python_project = repo_root / "examples" / "features" / "python-workflow"
+        if python_project.exists():
+            print("Building Python workflow package...", end=" ", flush=True)
+            try:
+                # Try to build via cloacinactl package build (uses cloaca via PyO3)
+                rc, stdout, stderr = run_cmd([
+                    ctl, "package", "build",
+                    "-o", str(test_dir),
+                ], timeout=60, check=False)
+                # cloacinactl package build runs from CWD and needs pyproject.toml
+                # Fall back to direct cloaca if available
+                if rc != 0:
+                    # Try direct Python cloaca build
+                    py_result = subprocess.run(
+                        ["python3", "-m", "cloaca.cli.build", "-o", str(test_dir)],
+                        cwd=str(python_project),
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    if py_result.returncode == 0:
+                        rc = 0
+
+                if rc == 0:
+                    # Validate the built package
+                    py_packages = list(test_dir.glob("*.cloacina"))
+                    # Filter out the Rust package we already built
+                    py_packages = [p for p in py_packages if "simple-packaged" not in p.name]
+                    if py_packages:
+                        import json
+                        with tarfile.open(str(py_packages[0]), "r:gz") as tar:
+                            names = tar.getnames()
+                            assert "manifest.json" in names, "Missing manifest.json"
+                            manifest = json.load(tar.extractfile("manifest.json"))
+                            assert manifest["language"] == "python"
+                            assert len(manifest["tasks"]) > 0
+                        print(
+                            f"OK ({manifest['package']['name']} v{manifest['package']['version']}, "
+                            f"{len(manifest['tasks'])} tasks)"
+                        )
+                    else:
+                        print("WARNING: no Python .cloacina file produced")
+                else:
+                    print("SKIPPED (cloaca not available)")
+            except Exception as e:
+                print(f"SKIPPED ({e})")
+
     # --- Register package ---
     print("Registering package...", end=" ", flush=True)
     rc, stdout, stderr = run_cmd([

@@ -33,7 +33,7 @@ pub async fn build(output: &str, targets: &[String], dry_run: bool, verbose: boo
     let targets = targets.to_vec();
 
     Python::with_gil(|py| {
-        let mut args: Vec<String> = vec!["-o".to_string(), output];
+        let mut args: Vec<String> = vec!["-o".to_string(), output.clone()];
 
         for target in &targets {
             args.push("--target".to_string());
@@ -74,8 +74,79 @@ pub async fn build(output: &str, targets: &[String], dry_run: bool, verbose: boo
             .call((py_args,), Some(&kwargs))
             .map_err(|e| anyhow!("cloaca build failed: {}", e))?;
 
-        Ok(())
-    })
+        Ok::<(), anyhow::Error>(())
+    })?;
+
+    // Validate built packages (unless dry run)
+    if !dry_run {
+        validate_output_packages(&output).await?;
+    }
+
+    Ok(())
+}
+
+/// Find and validate all .cloacina packages in the output directory.
+async fn validate_output_packages(output_dir: &str) -> Result<()> {
+    use cloacina::registry::loader::validator::PackageValidator;
+
+    let output_path = std::path::Path::new(output_dir);
+
+    // Collect .cloacina files from the output directory
+    let packages: Vec<_> = if output_path.is_file()
+        && output_path.extension().and_then(|e| e.to_str()) == Some("cloacina")
+    {
+        vec![output_path.to_path_buf()]
+    } else if output_path.is_dir() {
+        std::fs::read_dir(output_path)
+            .context("Failed to read output directory")?
+            .flatten()
+            .filter(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("cloacina"))
+            .map(|e| e.path())
+            .collect()
+    } else {
+        return Ok(()); // Nothing to validate
+    };
+
+    if packages.is_empty() {
+        return Ok(());
+    }
+
+    let validator =
+        PackageValidator::new().map_err(|e| anyhow!("Failed to create validator: {}", e))?;
+
+    for package_path in &packages {
+        info!("Validating {}...", package_path.display());
+
+        let package_data = std::fs::read(package_path)
+            .with_context(|| format!("Failed to read {}", package_path.display()))?;
+
+        let result = validator
+            .validate_package(&package_data, None)
+            .await
+            .map_err(|e| anyhow!("Validation error: {}", e))?;
+
+        if !result.is_valid {
+            let errors = result.errors.join("\n  - ");
+            anyhow::bail!(
+                "Package validation failed for {}:\n  - {}\n\n\
+                 See https://docs.cloacina.dev/explanation/packaged-workflow-validation/ \
+                 for troubleshooting guidance.",
+                package_path.display(),
+                errors
+            );
+        }
+
+        for warning in &result.warnings {
+            info!("Validation warning: {}", warning);
+        }
+
+        info!(
+            "Package {} validated (FFI smoke test OK)",
+            package_path.display()
+        );
+    }
+
+    Ok(())
 }
 
 /// Sign a package and write a detached .sig file.

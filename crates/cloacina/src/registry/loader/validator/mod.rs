@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 //! they are registered and loaded, including security checks, symbol validation,
 //! metadata verification, and compatibility testing.
 
+mod ffi_smoke;
 mod format;
 mod metadata;
 mod security;
@@ -145,6 +146,13 @@ impl PackageValidator {
 
         // Symbol validation
         self.validate_symbols(&temp_path, &mut result).await;
+
+        // FFI smoke test — actually call each task through the FFI boundary
+        // to catch panics, ABI mismatches, and runtime issues that symbol
+        // validation alone can't detect.
+        if result.errors.is_empty() {
+            self.smoke_test_ffi(&temp_path, &mut result).await;
+        }
 
         // Metadata validation
         if let Some(metadata) = metadata {

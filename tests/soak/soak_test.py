@@ -495,8 +495,9 @@ def main():
             print("ERROR: Failed to build workflow package")
             sys.exit(1)
 
+    # Upload Rust package
     if package_path:
-        print(f"Uploading package {os.path.basename(package_path)}...", end=" ", flush=True)
+        print(f"Uploading Rust package {os.path.basename(package_path)}...", end=" ", flush=True)
         resp = authed.post_file("/workflows/packages", package_path)
         if resp and resp.status_code in (200, 201):
             print(f"OK ({resp.json()})")
@@ -505,6 +506,25 @@ def main():
             text = resp.text[:200] if resp else ""
             print(f"WARNING: upload returned {status}: {text}")
             print("  (Continuing — workflow may already be registered)")
+
+    # Upload Python package if available (containerized soak builds both)
+    python_package = os.path.join(os.path.dirname(package_path or ""), "python-workflow.cloacina")
+    if not os.path.isfile(python_package):
+        # Also check in the soak test's own directory
+        python_package = os.path.join(os.path.dirname(__file__) or ".", "python-workflow.cloacina")
+    if not os.path.isfile(python_package):
+        python_package = "/opt/soak/python-workflow.cloacina"
+
+    if os.path.isfile(python_package):
+        print(f"Uploading Python package {os.path.basename(python_package)}...", end=" ", flush=True)
+        resp = authed.post_file("/workflows/packages", python_package)
+        if resp and resp.status_code in (200, 201):
+            print(f"OK ({resp.json()})")
+        else:
+            status = resp.status_code if resp else "no response"
+            text = resp.text[:200] if resp else ""
+            print(f"WARNING: Python package upload returned {status}: {text}")
+            print("  (Continuing — Python workflows may not be supported in this mode)")
 
     # --- Wait for reconciler to load the workflow into global registry ---
     if package_path:
