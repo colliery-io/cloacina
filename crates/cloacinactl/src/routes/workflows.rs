@@ -16,10 +16,12 @@
 
 //! Workflow package management endpoints.
 
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use cloacina::dal::UnifiedRegistryStorage;
+use cloacina::registry::{WorkflowRegistry, WorkflowRegistryImpl};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -33,10 +35,21 @@ fn require_runner(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, 
     })
 }
 
+/// Build a WorkflowRegistryImpl from the runner's database.
+fn build_registry(
+    runner: &cloacina::runner::DefaultRunner,
+) -> Result<WorkflowRegistryImpl<UnifiedRegistryStorage>, ApiError> {
+    let db = runner.database().clone();
+    let storage = UnifiedRegistryStorage::new(db.clone());
+    WorkflowRegistryImpl::new(storage, db)
+        .map_err(|e| ApiError::internal(format!("Failed to initialize workflow registry: {}", e)))
+}
+
 /// Response for package upload.
 #[derive(Serialize)]
 pub struct PackageUploadResponse {
     pub id: String,
+    pub package_name: String,
     pub message: String,
 }
 
@@ -45,7 +58,7 @@ pub async fn upload_package(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _runner = require_runner(&state)?;
+    let runner = require_runner(&state)?;
 
     // Read package bytes from multipart
     let mut package_data: Option<Vec<u8>> = None;
@@ -67,15 +80,19 @@ pub async fn upload_package(
         ApiError::bad_request("Missing 'package' or 'file' field in multipart upload")
     })?;
 
-    // TODO: DefaultRunner needs a method to access workflow_registry for package upload
+    let data_len = data.len();
+    let mut registry = build_registry(runner)?;
+
+    let package_id = registry.register_workflow(data).await.map_err(|e| {
+        ApiError::bad_request(format!("Failed to register workflow package: {}", e))
+    })?;
+
     Ok((
         StatusCode::CREATED,
         Json(PackageUploadResponse {
-            id: "placeholder".to_string(),
-            message: format!(
-                "Package upload received ({} bytes). Registry integration pending.",
-                data.len()
-            ),
+            id: package_id.to_string(),
+            package_name: format!("registered ({} bytes)", data_len),
+            message: "Workflow package registered successfully".to_string(),
         }),
     ))
 }
@@ -83,6 +100,7 @@ pub async fn upload_package(
 /// Response for workflow list.
 #[derive(Serialize)]
 pub struct WorkflowListItem {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub description: Option<String>,
@@ -93,13 +111,42 @@ pub struct WorkflowListItem {
 pub async fn list_workflows(
     State(state): State<Arc<AppState>>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _runner = require_runner(&state)?;
+    let runner = require_runner(&state)?;
+    let registry = build_registry(runner)?;
 
-    // TODO: Access workflow registry through DefaultRunner
-    // runner.workflow_registry() returns Arc<RwLock<Option<Arc<dyn WorkflowRegistry>>>>
-    // Need to read lock, check if Some, then call list_workflows()
+    let workflows = registry
+        .list_workflows()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to list workflows: {}", e)))?;
 
-    let workflows: Vec<WorkflowListItem> = vec![];
+    let items: Vec<WorkflowListItem> = workflows
+        .into_iter()
+        .map(|w| WorkflowListItem {
+            id: w.id.to_string(),
+            name: w.package_name,
+            version: w.version,
+            description: w.description,
+            tasks: w.tasks,
+        })
+        .collect();
 
-    Ok(Json(workflows))
+    Ok(Json(items))
+}
+
+/// DELETE /workflows/packages/{id} — unregister a workflow package.
+pub async fn delete_package(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let runner = require_runner(&state)?;
+    let mut registry = build_registry(runner)?;
+    let uuid = uuid::Uuid::parse_str(&id)
+        .map_err(|_| ApiError::bad_request(format!("Invalid UUID: {}", id)))?;
+
+    registry
+        .unregister_workflow_package_by_id(uuid)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to delete package: {}", e)))?;
+
+    Ok(StatusCode::NO_CONTENT)
 }

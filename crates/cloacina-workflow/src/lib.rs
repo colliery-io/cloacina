@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -81,3 +81,10 @@ pub use task::{Task, TaskState};
 // Re-export macros when the feature is enabled
 #[cfg(feature = "macros")]
 pub use cloacina_macros::{packaged_workflow, task, workflow};
+
+/// Private re-exports used by macro-generated code. Not part of the public API.
+#[cfg(feature = "macros")]
+#[doc(hidden)]
+pub mod __private {
+    pub use tokio;
+}

@@ -1,0 +1,57 @@
+---
+# Cloacina Soak Test — Fully Containerized
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.soak.yml up --build --abort-on-container-exit
+#
+# This starts postgres, the cloacina server, and runs the soak test.
+# Exits when the soak test completes (pass or fail).
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  cloacina:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      CLOACINA_DATABASE_URL: "postgres://cloacina:cloacina@postgres:5432/cloacina"
+      CLOACINA_LOG_LEVEL: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  soak:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.soak
+    depends_on:
+      cloacina:
+        condition: service_healthy
+    environment:
+      CLOACINA_DATABASE_URL: "postgres://cloacina:cloacina@postgres:5432/cloacina"
+    command:
+      - "--url=http://cloacina:8080"
+      - "--package=/opt/soak/simple-packaged-demo.cloacina"
+      - "--bootstrap"
+      - "--cloacinactl=/usr/local/bin/cloacinactl"
+      - "--database-url=postgres://cloacina:cloacina@postgres:5432/cloacina"
+      - "--duration=${SOAK_DURATION:-2m}"
+      - "--profile=${SOAK_PROFILE:-medium}"
+      - "--concurrency=${SOAK_CONCURRENCY:-2}"

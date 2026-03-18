@@ -871,13 +871,34 @@ pub fn generate_packaged_workflow_impl(
                     }
                 };
 
-                // Use futures executor for async task execution (lighter than tokio)
-                let task_result = futures::executor::block_on(async {
-                    match task_name_str {
-                        #(#task_execution_cases)*
-                        _ => Err(format!("Unknown task: {}", task_name_str))
+                // Execute async task: try to use existing tokio runtime (e.g. when loaded
+                // into a server that already has one), otherwise spin up a temporary runtime.
+                // Uses cloacina_workflow's re-exported tokio so user crates don't need it directly.
+                let task_result = match cloacina_workflow::__private::tokio::runtime::Handle::try_current() {
+                    Ok(handle) => {
+                        // We're inside a tokio runtime — use block_in_place to run the future
+                        // on the current thread without deadlocking the runtime.
+                        cloacina_workflow::__private::tokio::task::block_in_place(|| {
+                            handle.block_on(async {
+                                match task_name_str {
+                                    #(#task_execution_cases)*
+                                    _ => Err(format!("Unknown task: {}", task_name_str))
+                                }
+                            })
+                        })
                     }
-                });
+                    Err(_) => {
+                        // No tokio runtime — create a temporary one for this task.
+                        let rt = cloacina_workflow::__private::tokio::runtime::Runtime::new()
+                            .expect("Failed to create tokio runtime for task execution");
+                        rt.block_on(async {
+                            match task_name_str {
+                                #(#task_execution_cases)*
+                                _ => Err(format!("Unknown task: {}", task_name_str))
+                            }
+                        })
+                    }
+                };
 
                 // Handle the result and write to output buffer
                 match task_result {

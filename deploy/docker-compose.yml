@@ -1,0 +1,47 @@
+---
+# Cloacina Server — Quick Start
+#
+# Usage:
+#   docker-compose -f deploy/docker-compose.yml up -d
+#
+# This starts:
+#   - PostgreSQL 16 on port 5432
+#   - Cloacina server on port 8080 (all-in-one mode)
+#
+# Endpoints:
+#   http://localhost:8080/health       — Health check
+#   http://localhost:8080/metrics      — Prometheus metrics
+#   http://localhost:8080/api-docs/    — Swagger UI
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: cloacina
+      POSTGRES_PASSWORD: cloacina
+      POSTGRES_DB: cloacina
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloacina"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cloacina:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      CLOACINA_DATABASE_URL: "postgres://cloacina:cloacina@postgres:5432/cloacina"
+      CLOACINA_LOG_LEVEL: "info"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

@@ -122,6 +122,10 @@ pub fn app(state: Arc<AppState>) -> Router {
             "/workflows/packages",
             post(crate::routes::workflows::upload_package),
         )
+        .route(
+            "/workflows/packages/{id}",
+            axum::routing::delete(crate::routes::workflows::delete_package),
+        )
         // Tenant management routes — require_admin is enforced via route_layer
         // so it only applies to matched routes, not to fallback handling.
         .route(
@@ -211,6 +215,13 @@ fn build_runner_config(
     if config.scheduler.enable_continuous && enable_scheduling {
         builder = builder.enable_continuous_scheduling(true);
     }
+
+    // Enable registry reconciler with database storage for all modes that have a runner.
+    // This ensures uploaded workflow packages are loaded into the global registries.
+    builder = builder
+        .enable_registry_reconciler(true)
+        .registry_storage_backend("database")
+        .registry_reconcile_interval(std::time::Duration::from_secs(5));
 
     builder.build()
 }

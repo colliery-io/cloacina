@@ -1,0 +1,56 @@
+# Cloacina Server Configuration
+# All values shown are defaults. Uncomment and modify as needed.
+
+[server]
+# Bind address for the HTTP server.
+bind = "0.0.0.0"
+
+# Port to listen on.
+port = 8080
+
+# Operational mode: "all", "api", "worker", "scheduler"
+#   all       - Run API server + all background services (default)
+#   api       - Run only the HTTP API (no scheduler, no executor)
+#   worker    - Run only the task executor (no API, no scheduler)
+#   scheduler - Run only the scheduler + cron + recovery (no API, no executor)
+mode = "all"
+
+[database]
+# PostgreSQL connection URL (required for all modes except api-only).
+# Example: "postgres://user:password@localhost:5432/cloacina"
+url = ""
+
+# Connection pool size.
+pool_size = 10
+
+[scheduler]
+# How often the scheduler polls for new work (milliseconds).
+poll_interval_ms = 100
+
+# Enable the continuous reactive scheduling engine.
+enable_continuous = false
+
+# Poll interval for the continuous scheduler (milliseconds).
+continuous_poll_interval_ms = 100
+
+[worker]
+# Maximum number of tasks executing concurrently.
+max_concurrent_tasks = 10
+
+# Task execution timeout (seconds). 0 = no timeout.
+task_timeout_seconds = 300
+
+[logging]
+# Log level: "trace", "debug", "info", "warn", "error"
+level = "info"
+
+# Log format: "json" (structured) or "pretty" (human-readable)
+format = "json"
+
+[observability]
+# OpenTelemetry OTLP endpoint. Empty = disabled.
+# Example: "http://localhost:4317"
+otlp_endpoint = ""
+
+# Service name reported to OpenTelemetry.
+otlp_service_name = "cloacina"

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-17T01:51:15Z | 400 files | JavaScript, Python, Rust
+> Generated: 2026-03-18T01:46:08Z | 403 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -350,11 +350,13 @@
 │           │   └── serve.rs
 │           ├── config.rs
 │           ├── main.rs
+│           ├── observability.rs
 │           └── routes/
 │               ├── auth_test.rs
 │               ├── error.rs
 │               ├── executions.rs
 │               ├── health.rs
+│               ├── metrics.rs
 │               ├── mod.rs
 │               ├── tenants.rs
 │               └── workflows.rs
@@ -494,36 +496,38 @@
 │           ├── 06_multi_tenancy.py
 │           └── 07_event_triggers.py
 └── tests/
-    └── python/
-        ├── conftest.py
-        ├── test_scenario_01_basic_api.py
-        ├── test_scenario_02_single_task_workflow_execution.py
-        ├── test_scenario_03_function_based_dag_topology.py
-        ├── test_scenario_08_multi_task_workflow_execution.py
-        ├── test_scenario_09_context_propagation.py
-        ├── test_scenario_10_workflow_error_handling.py
-        ├── test_scenario_11_retry_mechanisms.py
-        ├── test_scenario_12_workflow_performance.py
-        ├── test_scenario_13_complex_dependency_chains.py
-        ├── test_scenario_14_trigger_rules.py
-        ├── test_scenario_15_workflow_versioning.py
-        ├── test_scenario_16_registry_management.py
-        ├── test_scenario_17_advanced_error_handling.py
-        ├── test_scenario_18_basic_shared_runner_functionality.py
-        ├── test_scenario_19_context_passing_runner.py
-        ├── test_scenario_20_multiple_workflow_execution_runner.py
-        ├── test_scenario_21_success_validation_runner.py
-        ├── test_scenario_22_simple_workflow_context_manager.py
-        ├── test_scenario_23_multi_task_workflow_dependencies_builder.py
-        ├── test_scenario_24_parameterized_workflows.py
-        ├── test_scenario_25_async_task_support.py
-        ├── test_scenario_26_simple_workflow_execution.py
-        ├── test_scenario_27_cron_scheduling.py
-        ├── test_scenario_28_multi_tenancy.py
-        ├── test_scenario_29_event_triggers.py
-        ├── test_scenario_30_task_callbacks.py
-        ├── test_scenario_31_task_handle.py
-        └── utilities.py
+    ├── python/
+    │   ├── conftest.py
+    │   ├── test_scenario_01_basic_api.py
+    │   ├── test_scenario_02_single_task_workflow_execution.py
+    │   ├── test_scenario_03_function_based_dag_topology.py
+    │   ├── test_scenario_08_multi_task_workflow_execution.py
+    │   ├── test_scenario_09_context_propagation.py
+    │   ├── test_scenario_10_workflow_error_handling.py
+    │   ├── test_scenario_11_retry_mechanisms.py
+    │   ├── test_scenario_12_workflow_performance.py
+    │   ├── test_scenario_13_complex_dependency_chains.py
+    │   ├── test_scenario_14_trigger_rules.py
+    │   ├── test_scenario_15_workflow_versioning.py
+    │   ├── test_scenario_16_registry_management.py
+    │   ├── test_scenario_17_advanced_error_handling.py
+    │   ├── test_scenario_18_basic_shared_runner_functionality.py
+    │   ├── test_scenario_19_context_passing_runner.py
+    │   ├── test_scenario_20_multiple_workflow_execution_runner.py
+    │   ├── test_scenario_21_success_validation_runner.py
+    │   ├── test_scenario_22_simple_workflow_context_manager.py
+    │   ├── test_scenario_23_multi_task_workflow_dependencies_builder.py
+    │   ├── test_scenario_24_parameterized_workflows.py
+    │   ├── test_scenario_25_async_task_support.py
+    │   ├── test_scenario_26_simple_workflow_execution.py
+    │   ├── test_scenario_27_cron_scheduling.py
+    │   ├── test_scenario_28_multi_tenancy.py
+    │   ├── test_scenario_29_event_triggers.py
+    │   ├── test_scenario_30_task_callbacks.py
+    │   ├── test_scenario_31_task_handle.py
+    │   └── utilities.py
+    └── soak/
+        └── soak_test.py
 ```
 
 ## Modules
@@ -5303,8 +5307,8 @@
 - pub `calculate_levenshtein_distance` function L273-308 — `(a: &str, b: &str) -> usize`
 - pub `find_similar_package_task_names` function L320-333 — `(target: &str, available: &[String]) -> Vec<String>` — Find task names similar to the given name for typo suggestions in packaged workflows
 - pub `build_package_graph_data` function L347-423 — `( detected_tasks: &HashMap<String, syn::Ident>, task_dependencies: &HashMap<Stri...` — Build graph data structure for a packaged workflow
-- pub `generate_packaged_workflow_impl` function L497-1173 — `( attrs: PackagedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate packaged workflow implementation
-- pub `packaged_workflow` function L1213-1245 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The packaged_workflow macro for creating distributable workflow packages
+- pub `generate_packaged_workflow_impl` function L497-1194 — `( attrs: PackagedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate packaged workflow implementation
+- pub `packaged_workflow` function L1234-1266 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The packaged_workflow macro for creating distributable workflow packages
 -  `TaskMetadata` type L48 — `impl Send for TaskMetadata`
 -  `TaskMetadata` type L49 — `impl Sync for TaskMetadata`
 -  `TaskMetadataCollection` type L67 — `impl Send for TaskMetadataCollection`
@@ -5523,6 +5527,7 @@
 - pub `namespace` module L70 — `-` — ```
 - pub `retry` module L71 — `-` — ```
 - pub `task` module L72 — `-` — ```
+- pub `__private` module L88-90 — `-` — Private re-exports used by macro-generated code.
 
 #### crates/cloacina-workflow/src/namespace.rs
 
@@ -5729,26 +5734,27 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-159 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L218-306 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-164 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L230-327 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L162-186 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L189-215 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L309-889 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L314-372 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L375-404 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L407-435 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L438-458 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L461-492 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L495-553 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L556-587 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_workflows_without_runner_returns_503` function L592-645 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_executions_without_auth_returns_401` function L648-685 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_error_format_consistency` function L688-752 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_endpoints_require_admin` function L757-823 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_list_without_dal_returns_503` function L826-888 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L167-191 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L194-227 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L330-975 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L335-393 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L396-425 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L428-456 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L459-479 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L482-513 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L516-574 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L577-608 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_workflows_without_runner_returns_503` function L613-666 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_executions_without_auth_returns_401` function L669-706 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_error_format_consistency` function L709-773 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_metrics_endpoint_returns_prometheus_format` function L778-838 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_endpoints_require_admin` function L843-909 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_list_without_dal_returns_503` function L912-974 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5756,53 +5762,65 @@
 
 #### crates/cloacinactl/src/config.rs
 
-- pub `ServerConfig` struct L28-34 — `{ server: ServerSection, database: DatabaseSection, scheduler: SchedulerSection,...` — Top-level server configuration.
-- pub `ServerSection` struct L50-54 — `{ bind: String, port: u16, mode: String }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
-- pub `DatabaseSection` struct L68-71 — `{ url: String, pool_size: u32 }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
-- pub `SchedulerSection` struct L84-88 — `{ poll_interval_ms: u64, enable_continuous: bool, continuous_poll_interval_ms: u...` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
-- pub `WorkerSection` struct L102-105 — `{ max_concurrent_tasks: usize, task_timeout_seconds: u64 }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
-- pub `LoggingSection` struct L118-121 — `{ level: String, format: String }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
-- pub `load_config` function L133-154 — `(cli_config_path: Option<&str>, cli_args: &ServeArgs) -> Result<ServerConfig>` — Load configuration with layered precedence: defaults → TOML → env vars → CLI flags.
--  `ServerConfig` type L36-46 — `impl Default for ServerConfig` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L37-45 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `ServerSection` type L56-64 — `impl Default for ServerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L57-63 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `DatabaseSection` type L73-80 — `impl Default for DatabaseSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L74-79 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `SchedulerSection` type L90-98 — `impl Default for SchedulerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L91-97 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `WorkerSection` type L107-114 — `impl Default for WorkerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L108-113 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `LoggingSection` type L123-130 — `impl Default for LoggingSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default` function L124-129 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `discover_config_file` function L157-178 — `(cli_path: Option<&str>) -> Option<String>` — Discover the config file path from CLI flag, CWD, or user config dir.
--  `apply_env_overrides` function L181-214 — `(config: &mut ServerConfig)` — Apply environment variable overrides with CLOACINA_ prefix.
--  `apply_cli_overrides` function L217-221 — `(config: &mut ServerConfig, args: &ServeArgs)` — Apply CLI flag overrides (highest precedence).
--  `tests` module L224-358 — `-` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `default_args` function L228-235 — `() -> ServeArgs` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_default_config` function L238-247 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_toml_parsing` function L250-281 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_partial_toml_uses_defaults` function L284-294 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_env_var_overlay` function L297-310 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_cli_overrides_take_precedence` function L313-330 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_load_config_no_file` function L333-338 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_missing_config_file_is_not_error` function L341-346 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
--  `test_explicit_missing_config_file_is_error` function L349-357 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `ServerConfig` struct L28-35 — `{ server: ServerSection, database: DatabaseSection, scheduler: SchedulerSection,...` — Top-level server configuration.
+- pub `ServerSection` struct L52-56 — `{ bind: String, port: u16, mode: String }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `DatabaseSection` struct L70-73 — `{ url: String, pool_size: u32 }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `SchedulerSection` struct L86-90 — `{ poll_interval_ms: u64, enable_continuous: bool, continuous_poll_interval_ms: u...` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `WorkerSection` struct L104-107 — `{ max_concurrent_tasks: usize, task_timeout_seconds: u64 }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `LoggingSection` struct L120-123 — `{ level: String, format: String }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `ObservabilitySection` struct L136-141 — `{ otlp_endpoint: String, otlp_service_name: String }` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+- pub `load_config` function L153-174 — `(cli_config_path: Option<&str>, cli_args: &ServeArgs) -> Result<ServerConfig>` — Load configuration with layered precedence: defaults → TOML → env vars → CLI flags.
+-  `ServerConfig` type L37-48 — `impl Default for ServerConfig` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L38-47 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `ServerSection` type L58-66 — `impl Default for ServerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L59-65 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `DatabaseSection` type L75-82 — `impl Default for DatabaseSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L76-81 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `SchedulerSection` type L92-100 — `impl Default for SchedulerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L93-99 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `WorkerSection` type L109-116 — `impl Default for WorkerSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L110-115 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `LoggingSection` type L125-132 — `impl Default for LoggingSection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L126-131 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `ObservabilitySection` type L143-150 — `impl Default for ObservabilitySection` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default` function L144-149 — `() -> Self` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `discover_config_file` function L177-198 — `(cli_path: Option<&str>) -> Option<String>` — Discover the config file path from CLI flag, CWD, or user config dir.
+-  `apply_env_overrides` function L201-240 — `(config: &mut ServerConfig)` — Apply environment variable overrides with CLOACINA_ prefix.
+-  `apply_cli_overrides` function L243-247 — `(config: &mut ServerConfig, args: &ServeArgs)` — Apply CLI flag overrides (highest precedence).
+-  `tests` module L250-384 — `-` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `default_args` function L254-261 — `() -> ServeArgs` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_default_config` function L264-273 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_toml_parsing` function L276-307 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_partial_toml_uses_defaults` function L310-320 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_env_var_overlay` function L323-336 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_cli_overrides_take_precedence` function L339-356 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_load_config_no_file` function L359-364 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_missing_config_file_is_not_error` function L367-372 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
+-  `test_explicit_missing_config_file_is_error` function L375-383 — `()` — Server configuration with layered loading: defaults → TOML file → env vars → CLI flags.
 
 #### crates/cloacinactl/src/main.rs
 
 - pub `auth` module L23 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 - pub `config` module L25 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
-- pub `routes` module L26 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+- pub `observability` module L26 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+- pub `routes` module L27 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 -  `commands` module L24 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `Cli` struct L32-47 — `{ database_url: Option<String>, org_id: Option<String>, verbose: bool, command: ...` — cloacinactl - Control tool for the Cloacina task orchestration engine
--  `Commands` enum L50-77 — `Serve | Package | Key | Admin | ApiKey` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `PackageCommands` enum L80-129 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `KeyCommands` enum L132-164 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `TrustCommands` enum L167-186 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `AdminCommands` enum L189-207 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `ApiKeyCommands` enum L210-261 — `Create | List | Revoke | CreateAdmin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `main` function L264-455 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `Cli` struct L33-48 — `{ database_url: Option<String>, org_id: Option<String>, verbose: bool, command: ...` — cloacinactl - Control tool for the Cloacina task orchestration engine
+-  `Commands` enum L51-78 — `Serve | Package | Key | Admin | ApiKey` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `PackageCommands` enum L81-130 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `KeyCommands` enum L133-165 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `TrustCommands` enum L168-187 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L190-208 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `ApiKeyCommands` enum L211-262 — `Create | List | Revoke | CreateAdmin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `main` function L265-456 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+
+#### crates/cloacinactl/src/observability.rs
+
+- pub `init_prometheus` function L28-45 — `() -> Option<PrometheusHandle>` — Initialize the Prometheus metrics recorder.
+- pub `prometheus_handle` function L48-50 — `() -> Option<&'static PrometheusHandle>` — Get the Prometheus handle for rendering metrics.
+- pub `record_static_metrics` function L53-55 — `(max_concurrent_tasks: usize)` — Record some initial/static metrics at startup.
+- pub `init_opentelemetry` function L64-73 — `(endpoint: &str, service_name: &str)` — Initialize OpenTelemetry tracing (stub).
+-  `PROMETHEUS_HANDLE` variable L23 — `: OnceLock<PrometheusHandle>` — Observability setup: Prometheus metrics recorder and OpenTelemetry tracing stubs.
 
 ### crates/cloacinactl/src/routes
 
@@ -5850,7 +5868,11 @@
 
 - pub `AppState` struct L29-38 — `{ startup_instant: Instant, mode: String, auth_state: Option<crate::auth::middle...` — Shared application state available to all handlers.
 - pub `HealthResponse` struct L42-51 — `{ status: String, version: String, mode: String, uptime_seconds: u64 }` — Health check response body.
-- pub `health` function L63-74 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
+- pub `health` function L63-75 — `(State(state): State<Arc<AppState>>) -> impl IntoResponse` — Health check endpoint.
+
+#### crates/cloacinactl/src/routes/metrics.rs
+
+- pub `metrics` function L24-42 — `() -> impl IntoResponse` — GET /metrics — Prometheus-compatible scrape endpoint.
 
 #### crates/cloacinactl/src/routes/mod.rs
 
@@ -5858,8 +5880,9 @@
 - pub `error` module L20 — `-` — HTTP route handlers for the Cloacina server.
 - pub `executions` module L21 — `-` — HTTP route handlers for the Cloacina server.
 - pub `health` module L22 — `-` — HTTP route handlers for the Cloacina server.
-- pub `tenants` module L23 — `-` — HTTP route handlers for the Cloacina server.
-- pub `workflows` module L24 — `-` — HTTP route handlers for the Cloacina server.
+- pub `metrics` module L23 — `-` — HTTP route handlers for the Cloacina server.
+- pub `tenants` module L24 — `-` — HTTP route handlers for the Cloacina server.
+- pub `workflows` module L25 — `-` — HTTP route handlers for the Cloacina server.
 
 #### crates/cloacinactl/src/routes/tenants.rs
 
@@ -5881,11 +5904,13 @@
 
 #### crates/cloacinactl/src/routes/workflows.rs
 
-- pub `PackageUploadResponse` struct L38-41 — `{ id: String, message: String }` — Response for package upload.
-- pub `upload_package` function L44-81 — `( State(state): State<Arc<AppState>>, mut multipart: Multipart, ) -> Result<impl...` — POST /workflows/packages — upload a workflow package.
-- pub `WorkflowListItem` struct L85-90 — `{ name: String, version: String, description: Option<String>, tasks: Vec<String>...` — Response for workflow list.
-- pub `list_workflows` function L93-105 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /workflows — list registered workflows.
--  `require_runner` function L30-34 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Helper to get runner or return 503.
+- pub `PackageUploadResponse` struct L51-55 — `{ id: String, package_name: String, message: String }` — Response for package upload.
+- pub `upload_package` function L58-99 — `( State(state): State<Arc<AppState>>, mut multipart: Multipart, ) -> Result<impl...` — POST /workflows/packages — upload a workflow package.
+- pub `WorkflowListItem` struct L103-109 — `{ id: String, name: String, version: String, description: Option<String>, tasks:...` — Response for workflow list.
+- pub `list_workflows` function L112-134 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /workflows — list registered workflows.
+- pub `delete_package` function L137-152 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /workflows/packages/{id} — unregister a workflow package.
+-  `require_runner` function L32-36 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Helper to get runner or return 503.
+-  `build_registry` function L39-47 — `( runner: &cloacina::runner::DefaultRunner, ) -> Result<WorkflowRegistryImpl<Uni...` — Build a WorkflowRegistryImpl from the runner's database.
 
 ### docs/themes/hugo-geekdoc/static/js
 
@@ -8659,3 +8684,37 @@
 - pub `has_failures` method L147-149 — `def has_failures(self) -> bool` — Check if there are any failures.
 - pub `raise_if_failures` method L151-155 — `def raise_if_failures(self) -> None` — Raise an exception if there are failures (for pytest compatibility).
 - pub `create_test_aggregator` function L158-160 — `def create_test_aggregator(test_name: str) -> ResultsAggregator` — Factory function to create a test aggregator.
+
+### tests/soak
+
+> *Semantic summary to be generated by AI agent.*
+
+#### tests/soak/soak_test.py
+
+- pub `Stats` class L48-121 — `{ __init__, increment, record_latency, record_error, report }`
+- pub `__init__` method L49-54 — `def __init__(self)`
+- pub `increment` method L56-58 — `def increment(self, name, n=1)`
+- pub `record_latency` method L60-62 — `def record_latency(self, name, seconds)`
+- pub `record_error` method L64-67 — `def record_error(self, message)`
+- pub `report` method L69-121 — `def report(self)`
+- pub `Response` class L128-135 — `{ __init__, json }`
+- pub `__init__` method L129-132 — `def __init__(self, status_code, text, headers)`
+- pub `json` method L134-135 — `def json(self)`
+- pub `HttpClient` class L138-215 — `{ __init__, get, post, post_file, delete }`
+- pub `__init__` method L139-142 — `def __init__(self, base_url, api_key=None, stats=None)`
+- pub `get` method L189-190 — `def get(self, path)`
+- pub `post` method L192-193 — `def post(self, path, body=None)`
+- pub `post_file` method L195-212 — `def post_file(self, path, file_path)` — Upload a file via multipart form.
+- pub `delete` method L214-215 — `def delete(self, path)`
+- pub `build_package` function L222-257 — `def build_package(project_dir)` — Build a .cloacina package (tar.gz wrapping cdylib) from a Rust workflow project.
+- pub `bootstrap_admin_key` function L260-274 — `def bootstrap_admin_key(cloacinactl, db_url)` — Create an admin API key via CLI.
+- pub `trigger_and_poll` function L281-332 — `def trigger_and_poll(client, workflow_name, stats, poll_timeout=30)` — Trigger a workflow execution and poll until complete or timeout.
+- pub `health_check` function L335-341 — `def health_check(client, stats)` — Quick health check.
+- pub `metrics_check` function L344-348 — `def metrics_check(client, stats)` — Check metrics endpoint.
+- pub `light_load` function L355-359 — `def light_load(client, delay, stats, workflows)` — Light: one workflow at a time, full trigger-poll cycle.
+- pub `medium_load` function L362-372 — `def medium_load(client, delay, stats, workflows)` — Medium: mix of workflow executions and health checks.
+- pub `heavy_load` function L375-380 — `def heavy_load(client, delay, stats, workflows)` — Heavy: rapid fire-and-forget triggers with periodic polling.
+- pub `worker` function L390-397 — `def worker(base_url, api_key, profile_fn, delay, stop_event, stats, workflows, w...`
+- pub `parse_duration` function L404-410 — `def parse_duration(s)`
+- pub `main` function L417-568 — `def main()`
+-  `_request` method L144-187 — `def _request(self, method, path, body=None, raw_data=None, content_type=None)`

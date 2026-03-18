@@ -1,0 +1,10 @@
+**/target/
+.git/
+.metis/
+.claude/
+.angreal/
+docs/public/
+tests/integration/
+tests/unit/
+!tests/soak/
+*.md

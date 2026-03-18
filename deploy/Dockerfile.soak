@@ -1,0 +1,47 @@
+# Soak test runner
+# Builds the workflow package in a Rust stage, then runs the Python soak test.
+
+# --- Stage 1: Build cloacinactl + example workflow ---
+FROM rust:bookworm AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    libsqlite3-dev \
+    pkg-config \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+# Build cloacinactl (for bootstrapping admin keys)
+RUN cargo build --release -p cloacinactl && strip target/release/cloacinactl
+
+# Build the example workflow cdylib (standalone workspace, not part of main workspace)
+RUN cd examples/features/simple-packaged && cargo build --release
+
+# Package the cdylib into a .cloacina archive (tar.gz)
+RUN cd examples/features/simple-packaged/target/release && \
+    LIB=$(ls libsimple_packaged_demo.so libsimple_packaged_demo.dylib 2>/dev/null | head -1) && \
+    tar czf /build/simple-packaged-demo.cloacina "$LIB"
+
+# --- Stage 2: Soak runner (just Python + binaries) ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    python3 \
+    libpq5 \
+    libsqlite3-0 \
+    libpython3.11 \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/cloacinactl /usr/local/bin/cloacinactl
+COPY --from=builder /build/simple-packaged-demo.cloacina /opt/soak/simple-packaged-demo.cloacina
+COPY tests/soak/soak_test.py /opt/soak/soak_test.py
+
+WORKDIR /opt/soak
+
+ENTRYPOINT ["python3", "soak_test.py"]
