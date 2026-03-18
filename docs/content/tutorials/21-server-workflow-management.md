@@ -269,6 +269,7 @@ All endpoints require `Authorization: Bearer <api_key>` except `/health` and `/m
 
 ## Next Steps
 
-- Run the [containerized soak test]({{< ref "/tutorials/20-server-quickstart#soak-testing" >}}) with `angreal soak` to validate the full pipeline under load
+- [**Tutorial 22: Local Daemon Scheduler**]({{< ref "/tutorials/22-daemon-local-scheduler" >}}) — The same workflow lifecycle without Docker or Postgres, using SQLite and CLI commands
+- Run the containerized soak test with `angreal soak` to validate the full pipeline under load
 - Set up [continuous scheduling]({{< ref "/tutorials/12-continuous-scheduling" >}}) for reactive data-driven pipelines
 - Explore the [Swagger UI](http://localhost:8080/api-docs/) for interactive API exploration

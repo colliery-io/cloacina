@@ -194,6 +194,7 @@ docker-compose -f deploy/docker-compose.yml down -v
 ## Next Steps
 
 - [**Tutorial 21: Server Workflow Management**]({{< ref "/tutorials/21-server-workflow-management" >}}) — Deep dive into uploading, executing, and managing workflows through the API
+- [**Tutorial 22: Local Daemon Scheduler**]({{< ref "/tutorials/22-daemon-local-scheduler" >}}) — Run workflows locally with SQLite, no Docker required
 - Explore the [Swagger UI](http://localhost:8080/api-docs/) for interactive API documentation
 - Configure [continuous scheduling]({{< ref "/tutorials/12-continuous-scheduling" >}}) for reactive pipelines
 - Set up Prometheus scraping from `/metrics` for monitoring
