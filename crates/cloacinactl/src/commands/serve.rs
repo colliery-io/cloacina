@@ -126,6 +126,20 @@ pub fn app(state: Arc<AppState>) -> Router {
             "/workflows/packages/{id}",
             axum::routing::delete(crate::routes::workflows::delete_package),
         )
+        .route(
+            "/workflows/{name}/schedules",
+            post(crate::routes::workflows::create_schedule)
+                .get(crate::routes::workflows::list_schedules),
+        )
+        .route(
+            "/workflows/schedules/{id}",
+            get(crate::routes::workflows::get_schedule)
+                .delete(crate::routes::workflows::delete_schedule),
+        )
+        .route(
+            "/workflows/schedules/{id}/history",
+            get(crate::routes::workflows::get_schedule_history),
+        )
         // Tenant management routes — require_admin is enforced via route_layer
         // so it only applies to matched routes, not to fallback handling.
         .route(

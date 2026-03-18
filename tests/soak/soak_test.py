@@ -512,7 +512,7 @@ def main():
         time.sleep(10)
         print("OK")
 
-    # --- Smoke test ---
+    # --- Smoke test: on-demand execution ---
     print("Smoke test: triggering one execution...", end=" ", flush=True)
     smoke_stats = Stats()
     smoke_client = HttpClient(args.url, api_key, smoke_stats)
@@ -525,6 +525,68 @@ def main():
         print("WARNING: triggered but not completed (may need workflow registered)")
     else:
         print("WARNING: could not trigger execution")
+
+    # --- Smoke test: schedule CRUD ---
+    print("Smoke test: schedule API...", end=" ", flush=True)
+    schedule_ok = True
+
+    # Create schedule
+    sched_resp = authed.post(
+        f"/workflows/{args.workflow}/schedules",
+        {"cron": "*/30 * * * * *", "timezone": "UTC"},
+    )
+    if not sched_resp or sched_resp.status_code != 201:
+        status = sched_resp.status_code if sched_resp else "no response"
+        print(f"FAILED (create: {status})")
+        schedule_ok = False
+
+    schedule_id = None
+    if schedule_ok:
+        schedule_id = sched_resp.json().get("id")
+
+        # List schedules
+        list_resp = authed.get(f"/workflows/{args.workflow}/schedules")
+        if not list_resp or list_resp.status_code != 200:
+            print(f"FAILED (list: {list_resp.status_code if list_resp else 'no response'})")
+            schedule_ok = False
+        else:
+            schedules = list_resp.json()
+            if not any(s.get("id") == schedule_id for s in schedules):
+                print("FAILED (created schedule not in list)")
+                schedule_ok = False
+
+    if schedule_ok and schedule_id:
+        # Get single schedule
+        get_resp = authed.get(f"/workflows/schedules/{schedule_id}")
+        if not get_resp or get_resp.status_code != 200:
+            print(f"FAILED (get: {get_resp.status_code if get_resp else 'no response'})")
+            schedule_ok = False
+
+    if schedule_ok and schedule_id:
+        # Wait for at least one scheduled execution
+        print("waiting for scheduled run...", end=" ", flush=True)
+        scheduled_ran = False
+        for _ in range(40):
+            time.sleep(1)
+            hist_resp = authed.get(f"/workflows/schedules/{schedule_id}/history")
+            if hist_resp and hist_resp.status_code == 200:
+                history = hist_resp.json()
+                if len(history) > 0:
+                    scheduled_ran = True
+                    break
+        if not scheduled_ran:
+            print("FAILED (no scheduled execution after 40s)")
+            schedule_ok = False
+
+    if schedule_ok and schedule_id:
+        # Delete schedule
+        del_resp = authed.delete(f"/workflows/schedules/{schedule_id}")
+        if not del_resp or del_resp.status_code != 204:
+            print(f"FAILED (delete: {del_resp.status_code if del_resp else 'no response'})")
+            schedule_ok = False
+
+    if schedule_ok:
+        print("OK (create/list/get/history/delete)")
     print()
 
     # --- Run ---
