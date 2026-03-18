@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-18T01:46:08Z | 403 files | JavaScript, Python, Rust
+> Generated: 2026-03-18T03:58:41Z | 404 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -343,6 +343,7 @@
 │           ├── commands/
 │           │   ├── api_key.rs
 │           │   ├── cleanup_events.rs
+│           │   ├── daemon.rs
 │           │   ├── key.rs
 │           │   ├── key_trust.rs
 │           │   ├── mod.rs
@@ -5697,6 +5698,31 @@
 -  `test_parse_duration_invalid_unit` function L213-215 — `()` — Cleans up old execution events from the database based on a retention policy.
 -  `test_parse_duration_zero` function L218-220 — `()` — Cleans up old execution events from the database based on a retention policy.
 
+#### crates/cloacinactl/src/commands/daemon.rs
+
+- pub `DaemonArgs` struct L51-70 — `{ command: Option<DaemonCommands>, packages: Option<PathBuf>, db: PathBuf, stora...` — Arguments for the `daemon` subcommand.
+- pub `DaemonCommands` enum L73-85 — `Status | Schedule | Register` — registers them, and runs them on cron schedules.
+- pub `StatusArgs` struct L88-96 — `{ db: PathBuf, storage: PathBuf }` — registers them, and runs them on cron schedules.
+- pub `ScheduleCommands` enum L99-106 — `Set | List | Delete` — registers them, and runs them on cron schedules.
+- pub `ScheduleSetArgs` struct L109-121 — `{ workflow_name: String, cron: String, timezone: String, db: PathBuf }` — registers them, and runs them on cron schedules.
+- pub `ScheduleListArgs` struct L124-128 — `{ db: PathBuf }` — registers them, and runs them on cron schedules.
+- pub `ScheduleDeleteArgs` struct L131-137 — `{ id: String, db: PathBuf }` — registers them, and runs them on cron schedules.
+- pub `RegisterArgs` struct L140-149 — `{ package: PathBuf, db: PathBuf, storage: PathBuf }` — registers them, and runs them on cron schedules.
+- pub `dispatch` function L156-167 — `(args: &DaemonArgs) -> Result<()>` — Entry point — dispatches to run/status/schedule/register.
+-  `default_data_dir` function L35-39 — `() -> PathBuf` — Default data directory.
+-  `default_db_path` function L41-43 — `() -> PathBuf` — registers them, and runs them on cron schedules.
+-  `default_storage_path` function L45-47 — `() -> PathBuf` — registers them, and runs them on cron schedules.
+-  `run` function L174-249 — `(args: &DaemonArgs) -> Result<()>` — Run the daemon: start DefaultRunner with SQLite, spawn directory scanner, wait for shutdown.
+-  `shutdown_signal` function L252-274 — `()` — Wait for SIGTERM or Ctrl+C.
+-  `directory_scanner` function L281-310 — `( packages_dir: PathBuf, database: Database, storage_path: PathBuf, interval: Du...` — Polls a directory for .cloacina files, registers new ones, unregisters removed ones.
+-  `scan_once` function L313-381 — `( packages_dir: &PathBuf, database: &Database, storage_path: &PathBuf, known_fil...` — Single scan pass: detect added/removed .cloacina files.
+-  `register_package` function L384-406 — `( database: &Database, storage_path: &PathBuf, package_path: &PathBuf, ) -> Resu...` — Register a single .cloacina package file.
+-  `status` function L412-495 — `(args: &StatusArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `register` function L501-515 — `(args: &RegisterArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `schedule_set` function L521-546 — `(args: &ScheduleSetArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `schedule_list` function L548-582 — `(args: &ScheduleListArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `schedule_delete` function L584-602 — `(args: &ScheduleDeleteArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+
 #### crates/cloacinactl/src/commands/key.rs
 
 - pub `generate` function L26-43 — `(database_url: &str, org_id: &str, name: &str) -> Result<()>` — Generate a new signing keypair.
@@ -5714,14 +5740,15 @@
 
 - pub `api_key` module L19 — `-` — cloacinactl command implementations.
 - pub `cleanup_events` module L20 — `-` — cloacinactl command implementations.
-- pub `key` module L21 — `-` — cloacinactl command implementations.
-- pub `key_trust` module L22 — `-` — cloacinactl command implementations.
-- pub `package` module L23 — `-` — cloacinactl command implementations.
-- pub `serve` module L24 — `-` — cloacinactl command implementations.
-- pub `connect_db` function L34-38 — `(database_url: &str) -> Result<DAL>` — Connect to the database and return a DAL instance.
-- pub `read_master_key` function L41-56 — `() -> Result<[u8; 32]>` — Read the master encryption key from CLOACINA_MASTER_KEY env var (hex-encoded).
-- pub `parse_uuid` function L59-62 — `(s: &str) -> Result<cloacina::database::universal_types::UniversalUuid>` — Parse a UUID string into a UniversalUuid.
--  `CLI_POOL_SIZE` variable L31 — `: u32` — Default connection pool size for CLI operations.
+- pub `daemon` module L21 — `-` — cloacinactl command implementations.
+- pub `key` module L22 — `-` — cloacinactl command implementations.
+- pub `key_trust` module L23 — `-` — cloacinactl command implementations.
+- pub `package` module L24 — `-` — cloacinactl command implementations.
+- pub `serve` module L25 — `-` — cloacinactl command implementations.
+- pub `connect_db` function L35-39 — `(database_url: &str) -> Result<DAL>` — Connect to the database and return a DAL instance.
+- pub `read_master_key` function L42-57 — `() -> Result<[u8; 32]>` — Read the master encryption key from CLOACINA_MASTER_KEY env var (hex-encoded).
+- pub `parse_uuid` function L60-63 — `(s: &str) -> Result<cloacina::database::universal_types::UniversalUuid>` — Parse a UUID string into a UniversalUuid.
+-  `CLI_POOL_SIZE` variable L32 — `: u32` — Default connection pool size for CLI operations.
 
 #### crates/cloacinactl/src/commands/package.rs
 
@@ -5734,27 +5761,27 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-164 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L230-327 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-178 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L244-341 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L167-191 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L194-227 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L330-975 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L335-393 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L396-425 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L428-456 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L459-479 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L482-513 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L516-574 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L577-608 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_workflows_without_runner_returns_503` function L613-666 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_executions_without_auth_returns_401` function L669-706 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_error_format_consistency` function L709-773 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_metrics_endpoint_returns_prometheus_format` function L778-838 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_endpoints_require_admin` function L843-909 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_list_without_dal_returns_503` function L912-974 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `shutdown_signal` function L181-205 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L208-241 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L344-989 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L349-407 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L410-439 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L442-470 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L473-493 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L496-527 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L530-588 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L591-622 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_workflows_without_runner_returns_503` function L627-680 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_executions_without_auth_returns_401` function L683-720 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_error_format_consistency` function L723-787 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_metrics_endpoint_returns_prometheus_format` function L792-852 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_endpoints_require_admin` function L857-923 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_list_without_dal_returns_503` function L926-988 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5806,13 +5833,13 @@
 - pub `routes` module L27 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 -  `commands` module L24 — `-` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 -  `Cli` struct L33-48 — `{ database_url: Option<String>, org_id: Option<String>, verbose: bool, command: ...` — cloacinactl - Control tool for the Cloacina task orchestration engine
--  `Commands` enum L51-78 — `Serve | Package | Key | Admin | ApiKey` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `PackageCommands` enum L81-130 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `KeyCommands` enum L133-165 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `TrustCommands` enum L168-187 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `AdminCommands` enum L190-208 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `ApiKeyCommands` enum L211-262 — `Create | List | Revoke | CreateAdmin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
--  `main` function L265-456 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `Commands` enum L51-81 — `Serve | Package | Key | Admin | ApiKey | Daemon` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `PackageCommands` enum L84-133 — `Build | Sign | Verify | Inspect` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `KeyCommands` enum L136-168 — `Generate | List | Export | Revoke | Trust` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `TrustCommands` enum L171-190 — `Add | List | Revoke` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L193-211 — `CleanupEvents | ContinuousPruneState` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `ApiKeyCommands` enum L214-265 — `Create | List | Revoke | CreateAdmin` — cloacinactl - Control tool for the Cloacina task orchestration engine.
+-  `main` function L268-463 — `() -> Result<()>` — cloacinactl - Control tool for the Cloacina task orchestration engine.
 
 #### crates/cloacinactl/src/observability.rs
 
@@ -5907,10 +5934,20 @@
 - pub `PackageUploadResponse` struct L51-55 — `{ id: String, package_name: String, message: String }` — Response for package upload.
 - pub `upload_package` function L58-99 — `( State(state): State<Arc<AppState>>, mut multipart: Multipart, ) -> Result<impl...` — POST /workflows/packages — upload a workflow package.
 - pub `WorkflowListItem` struct L103-109 — `{ id: String, name: String, version: String, description: Option<String>, tasks:...` — Response for workflow list.
-- pub `list_workflows` function L112-134 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /workflows — list registered workflows.
-- pub `delete_package` function L137-152 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /workflows/packages/{id} — unregister a workflow package.
--  `require_runner` function L32-36 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Helper to get runner or return 503.
--  `build_registry` function L39-47 — `( runner: &cloacina::runner::DefaultRunner, ) -> Result<WorkflowRegistryImpl<Uni...` — Build a WorkflowRegistryImpl from the runner's database.
+- pub `list_workflows` function L112-135 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /workflows — list registered workflows.
+- pub `delete_package` function L138-153 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /workflows/packages/{id} — unregister a workflow package.
+- pub `CreateScheduleRequest` struct L161-165 — `{ cron: String, timezone: String }` — Request body for creating a cron schedule.
+- pub `ScheduleResponse` struct L173-182 — `{ id: String, workflow_name: String, cron_expression: String, timezone: String, ...` — Response for a cron schedule.
+- pub `create_schedule` function L185-207 — `( State(state): State<Arc<AppState>>, Path(name): Path<String>, Json(body): Json...` — POST /workflows/{name}/schedules — create a cron schedule for a workflow.
+- pub `list_schedules` function L210-228 — `( State(state): State<Arc<AppState>>, Path(name): Path<String>, ) -> Result<impl...` — GET /workflows/{name}/schedules — list cron schedules for a workflow.
+- pub `get_schedule` function L231-244 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — GET /workflows/schedules/{id} — get a single schedule by ID.
+- pub `delete_schedule` function L247-260 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /workflows/schedules/{id} — delete a cron schedule.
+- pub `get_schedule_history` function L263-290 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — GET /workflows/schedules/{id}/history — list recent executions for a schedule.
+-  `require_runner` function L33-37 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Helper to get runner or return 503.
+-  `build_registry` function L40-47 — `( runner: &cloacina::runner::DefaultRunner, ) -> Result<WorkflowRegistryImpl<Uni...` — Build a WorkflowRegistryImpl from the runner's database.
+-  `default_timezone` function L167-169 — `() -> String` — Workflow package management endpoints.
+-  `parse_uuid` function L292-296 — `(s: &str) -> Result<UniversalUuid, ApiError>` — Workflow package management endpoints.
+-  `schedule_to_response` function L298-309 — `(s: &cloacina::models::cron_schedule::CronSchedule) -> ScheduleResponse` — Workflow package management endpoints.
 
 ### docs/themes/hugo-geekdoc/static/js
 
@@ -8715,6 +8752,6 @@
 - pub `medium_load` function L362-372 — `def medium_load(client, delay, stats, workflows)` — Medium: mix of workflow executions and health checks.
 - pub `heavy_load` function L375-380 — `def heavy_load(client, delay, stats, workflows)` — Heavy: rapid fire-and-forget triggers with periodic polling.
 - pub `worker` function L390-397 — `def worker(base_url, api_key, profile_fn, delay, stop_event, stats, workflows, w...`
-- pub `parse_duration` function L404-410 — `def parse_duration(s)`
-- pub `main` function L417-568 — `def main()`
+- pub `parse_duration` function L404-414 — `def parse_duration(s)`
+- pub `main` function L421-634 — `def main()`
 -  `_request` method L144-187 — `def _request(self, method, path, body=None, raw_data=None, content_type=None)`

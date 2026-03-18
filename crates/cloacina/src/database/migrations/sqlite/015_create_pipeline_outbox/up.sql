@@ -6,7 +6,7 @@
 CREATE TABLE pipeline_outbox (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     pipeline_execution_id BLOB NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 -- For FIFO claiming

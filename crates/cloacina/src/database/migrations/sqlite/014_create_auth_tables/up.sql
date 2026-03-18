@@ -5,8 +5,8 @@ CREATE TABLE tenants (
     name VARCHAR(255) UNIQUE NOT NULL,
     schema_name VARCHAR(255) UNIQUE NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'active',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE api_keys (
@@ -19,7 +19,7 @@ CREATE TABLE api_keys (
     can_write BOOLEAN NOT NULL DEFAULT 0,
     can_execute BOOLEAN NOT NULL DEFAULT 0,
     can_admin BOOLEAN NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     expires_at TEXT,
     revoked_at TEXT
 );

@@ -18,6 +18,7 @@
 
 pub mod api_key;
 pub mod cleanup_events;
+pub mod daemon;
 pub mod key;
 pub mod key_trust;
 pub mod package;

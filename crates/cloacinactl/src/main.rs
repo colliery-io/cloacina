@@ -75,6 +75,9 @@ enum Commands {
         #[command(subcommand)]
         command: ApiKeyCommands,
     },
+
+    /// Run as a headless local daemon (SQLite, no HTTP API)
+    Daemon(commands::daemon::DaemonArgs),
 }
 
 #[derive(Subcommand)]
@@ -450,6 +453,10 @@ async fn main() -> Result<()> {
                 }
             }
         },
+
+        Commands::Daemon(ref args) => {
+            commands::daemon::dispatch(args).await?;
+        }
     }
 
     Ok(())

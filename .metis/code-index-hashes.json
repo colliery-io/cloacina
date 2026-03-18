@@ -32,7 +32,7 @@
     "crates/cloacina-testing/src/runner.rs": "d90c07923ea33426206d50645bfbe9dbf0207885efe5ebef942bbbd5027b537f",
     "crates/cloacina-workflow/src/context.rs": "2a811c3e56f4892084f82142b85140e4ca4d2de5b5aea24a58f659b7504c9d16",
     "crates/cloacina-workflow/src/error.rs": "c990adef758538ca8bc2b70277af2001bc59a492b68b402f64e789518a13e281",
-    "crates/cloacina-workflow/src/lib.rs": "99ef006436c48f33731381140dde77a2f3e3932ce806f5f51a291371efe9fa93",
+    "crates/cloacina-workflow/src/lib.rs": "483d4e3141f4f3ef4062ffe528ac0b7b210a15933e49112daadcc75e90f8f4f0",
     "crates/cloacina-workflow/src/namespace.rs": "4b0b6cefe755609d9fc92c0d9e671f416f77af90c63767ed0d084a07503701b1",
     "crates/cloacina-workflow/src/retry.rs": "953648f658d336149904291d8f89a3c14c716e77afc7e315bddcaf3b2845a9ed",
     "crates/cloacina-workflow/src/task.rs": "016adc838a077b492d687ea8b3f9bf78cc6697b8cc9d604d953fb8cec09842e5",
@@ -275,13 +275,14 @@
     "crates/cloacinactl/src/auth/pattern.rs": "10e983f61bdb1b2671525debf83e644876464d0231f8336cae2b349866811ce8",
     "crates/cloacinactl/src/commands/api_key.rs": "889ac706e7577d61a2bc53f776b7252578aafbcbe5a7ad795e88e79259d78630",
     "crates/cloacinactl/src/commands/cleanup_events.rs": "a7301d0fc5c97ccd9deb2358ec33672062218fec363c6a867be129185a71c47e",
+    "crates/cloacinactl/src/commands/daemon.rs": "c4902f941c24df71db5e16309b97d7e3921e37bf57387893274e95fd4e8d9ae9",
     "crates/cloacinactl/src/commands/key.rs": "0e08425e2b96ca608d3d2d92d7360aba8a81c7cf2a88c79e279cee320a0f7f4e",
     "crates/cloacinactl/src/commands/key_trust.rs": "8368c5605c3d9f682749677a6a096a173123a0c2f8d798e05d2bea4e1e4dd4a7",
-    "crates/cloacinactl/src/commands/mod.rs": "7ff12c8063f18d488127a7d64e40d298bbef2dc8d12f71efd4dcacf551593efd",
+    "crates/cloacinactl/src/commands/mod.rs": "b22c202c9faba3ff94202acb4ebdf58fd0e583a3d139e553d0c89c101a101795",
     "crates/cloacinactl/src/commands/package.rs": "6138aebc7cf4dd5649c54c37f5a7e0efa9ec56da3160d4bff9519c969fa40488",
-    "crates/cloacinactl/src/commands/serve.rs": "c4ee2aac7799a665fbff34fbc58d4fb8e0260d3d4f4f4a4840533712ed6f881a",
+    "crates/cloacinactl/src/commands/serve.rs": "aca362eee18e69d768428b0d8c537ae914c9b4913b1a8dabef368ec7a3211b7c",
     "crates/cloacinactl/src/config.rs": "c6192f59ea0966ebf19162f8750ee7068fa9fb0d8ea9a12c7b0def72223db910",
-    "crates/cloacinactl/src/main.rs": "bf4c07dfc8eddc2e5f8adf28e1112f869e1c107c3e5d55cf9adaed442529e1b4",
+    "crates/cloacinactl/src/main.rs": "73e39c1b2d0b3a2050687ebed6d7920b8aaa908c39c0789d74b3bb3feebf85bc",
     "crates/cloacinactl/src/observability.rs": "3b0254a44fcf055ba25bd71dbb63f71affdf3a753c151b506c3d7dbfa52059cb",
     "crates/cloacinactl/src/routes/auth_test.rs": "ca3b54cd784659a93a14dd4d8de6f6d7015665db8c5de05a762329a56118ef1d",
     "crates/cloacinactl/src/routes/error.rs": "59f8c086ae7718bcbdec87cf3a9e7fe6e371be813e65fd906ea6cf8deb9f0b5b",
@@ -290,7 +291,7 @@
     "crates/cloacinactl/src/routes/metrics.rs": "445560154f99148333c2803f0cc880cb4af5f586feae359af4ef0626cc060fe6",
     "crates/cloacinactl/src/routes/mod.rs": "45971ab4c31c99f340469d3993e2a117122995429585aa1d4a653ba1afc75fab",
     "crates/cloacinactl/src/routes/tenants.rs": "f31256dcf57c67880327f13a7bf912a23ab250211f5325b496ef8ebbab580f0e",
-    "crates/cloacinactl/src/routes/workflows.rs": "ee3949802e9b6c196c031c1a36711415ea71a1c422414769ab5610c1f807934b",
+    "crates/cloacinactl/src/routes/workflows.rs": "e9d3c1dd6c4879e9cca427d7035fbaf478572aa642d21c7b2fd8061039cdb3d6",
     "docs/themes/hugo-geekdoc/eslint.config.js": "415e8c2c9543cefae2d1e1775f6cc2c293c8e0aa71789c31dc5c1edf1da79a8f",
     "docs/themes/hugo-geekdoc/static/js/130-3b252fb9.chunk.min.js": "e2b454abf3960244fb1f5e3ac6402092a7b1a729743786b0641ff4da1aae57d4",
     "docs/themes/hugo-geekdoc/static/js/147-5647664f.chunk.min.js": "434a088c92f0a34f81a4106bc8420b4925762f83d739c9661f5a3b89868fb164",
@@ -402,6 +403,6 @@
     "tests/python/test_scenario_30_task_callbacks.py": "4f57085eeea1e810fee30386dbdd559de5c38261b8589539b883fa76f00e734f",
     "tests/python/test_scenario_31_task_handle.py": "713881f0f6ebbbd4aa9dbe4b4ba4270399ee36841a0596943d31a5952f9e869a",
     "tests/python/utilities.py": "a3526e1c41692deb91c580d3041d40cf580cd02379204e9e4e5472baad036f29",
-    "tests/soak/soak_test.py": "e5aa5100ef40737141b02c36256e537cbf4b754bbc2185d2b7d219373a5e4226"
+    "tests/soak/soak_test.py": "5a56c8071fcde0cfcfe2412cf653ace75ec367ba76b6cc8e0f10836e06bf9afe"
   }
 }

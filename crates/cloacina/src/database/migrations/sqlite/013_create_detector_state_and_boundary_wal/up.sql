@@ -1,14 +1,14 @@
 CREATE TABLE detector_state (
     source_name VARCHAR(255) PRIMARY KEY NOT NULL,
     committed_state TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE pending_boundaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_name VARCHAR(255) NOT NULL,
     boundary_json TEXT NOT NULL,
-    received_at TEXT NOT NULL DEFAULT (datetime('now'))
+    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX idx_pending_source ON pending_boundaries(source_name, id);
 
