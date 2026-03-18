@@ -347,16 +347,15 @@ Production registries need:
 
 ## Next Steps
 
-Congratulations! You've successfully set up and used the workflow registry. In future tutorials and guides, you'll learn:
+Congratulations! You've successfully set up and used the workflow registry as a Rust library. Next:
 
-- **Multi-tenant Registries**: Different workflows per tenant
-- **Production Deployment**: Scaling and monitoring registries
-- **Advanced Scheduling**: Complex cron patterns and dependencies
-- **Registry Security**: Access control and package validation
+- [**Tutorial 20: Server Quick Start**]({{< ref "/tutorials/20-server-quickstart/" >}}) — Deploy Cloacina as a standalone server with Docker
+- [**Tutorial 21: Server Workflow Management**]({{< ref "/tutorials/21-server-workflow-management/" >}}) — The same upload/execute lifecycle, but through the HTTP API instead of Rust code
 
 ## Related Resources
 
 - [Tutorial 07: Packaged Workflows]({{< ref "/tutorials/07-packaged-workflows/" >}})
+- [Tutorial 21: Server Workflow Management]({{< ref "/tutorials/21-server-workflow-management/" >}})
 - [API Documentation]({{< ref "/reference/api/" >}})
 
 ## Download the Example

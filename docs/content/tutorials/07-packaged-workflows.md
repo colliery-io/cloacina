@@ -97,6 +97,12 @@ Packaged workflows use **cloacina-workflow**, which contains only the types need
 The full `cloacina` crate is for host applications that load and execute packaged workflows.
 {{< /hint >}}
 
+{{< hint type=warning title="Async Tasks and the Tokio Runtime" >}}
+If your tasks use `tokio::time::sleep`, `tokio::spawn`, or other tokio APIs, they will work correctly — the `#[packaged_workflow]` macro generates FFI code that automatically detects and uses an existing tokio runtime (e.g. when loaded by the Cloacina server), or creates a temporary one if none is available.
+
+The `tokio` dependency with `rt-multi-thread` is provided automatically via `cloacina-workflow` when the `macros` feature is enabled — you don't need to add it yourself for the FFI to work. However, if your task code calls tokio APIs directly (as this tutorial does with `tokio::time::sleep`), you'll still need `tokio` in your `[dependencies]` for those calls to compile.
+{{< /hint >}}
+
 {{< hint type=warning title="Important Configuration Differences" >}}
 Packaged workflows have different requirements:
 
