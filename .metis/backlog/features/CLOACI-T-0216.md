@@ -4,15 +4,15 @@ level: task
 title: "Rewrite cloaca build in Rust — eliminate PyO3 dependency for cloacinactl package build"
 short_code: "CLOACI-T-0216"
 created_at: 2026-03-19T13:55:32.227551+00:00
-updated_at: 2026-03-19T13:55:32.227551+00:00
+updated_at: 2026-03-19T20:10:48.842097+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -23,22 +23,27 @@ initiative_id: NULL
 
 ## Objective
 
-`cloacinactl package build` for Python workflows currently delegates to `cloaca.cli.build` via PyO3. This means the system Python that cloacinactl links against must have the `cloaca` package installed — a hidden dependency that fails with a confusing "No module named 'cloaca'" error. Users shouldn't need to install anything beyond `cloacinactl` to build packages.
+Make Python workflow execution a native capability of cloacina — not a separate package that must be installed. Today, the `@cloaca.task` decorator logic (task registration via PyO3) lives in `bindings/cloaca-backend` as a separate crate that produces a Python wheel. This means:
 
-Rewrite the Python package builder in pure Rust. The build process is entirely file-based — no Python runtime needed:
+- The server needs `cloaca` installed in its Python environment to load Python packages
+- `cloacinactl package build` needs `cloaca` installed to build Python packages
+- Users get "No module named 'cloaca'" errors with no clear fix
 
-1. Parse `pyproject.toml` for package metadata and `[tool.cloaca]` config
-2. Scan Python AST for `@cloaca.task()` decorated functions
-3. Vendor dependencies (call `uv` as a subprocess)
-4. Create tar.gz archive with `manifest.json` + `workflow/` + `vendor/`
+The fix: move the PyO3 task/workflow binding code into `cloacina` core. When cloacina loads a Python `.cloacina` package, it imports the user's module directly — the decorator machinery is built into the process. No separate wheel, no installation step, no feature flags.
+
+Additionally, rewrite `cloacinactl package build` for Python projects in pure Rust: parse `pyproject.toml`, discover tasks via AST scanning, vendor dependencies via `uv`, create the archive. No Python needed at build time.
 
 ### Priority
-- [x] P1 - High (blocks Python package building for all users)
+- [x] P1 - High (blocks Python package building and execution for all users)
 
 ### Business Justification
-- **User Value**: `cloacinactl package build` just works for Python workflows without any Python package installation
-- **Business Value**: Eliminates the #1 Python onboarding friction point. Also unblocks Docker-based builds (Dockerfile.soak) and CI/CD where managing Python venvs is impractical.
-- **Effort Estimate**: M
+- **User Value**: If you can run cloacina, you can run Python workflows. No additional installs, no venv management, no "is cloaca installed?" debugging.
+- **Business Value**: Eliminates the Python onboarding friction entirely. Unblocks Docker builds, CI/CD, and daemon mode for Python workflows.
+- **Effort Estimate**: L
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
