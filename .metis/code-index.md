@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-18T14:49:12Z | 406 files | JavaScript, Python, Rust
+> Generated: 2026-03-19T13:49:11Z | 406 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3324,7 +3324,7 @@
 - pub `validation` module L30 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `package_workflow` function L57-75 — `( project_path: PathBuf, output_path: PathBuf, options: CompileOptions, ) -> Res...` — High-level function to package a workflow project.
 -  `tests` module L33 — `-` — by CLI tools, tests, or other applications that need to package workflows.
--  `validate_built_package` function L79-113 — `(package_path: &PathBuf) -> Result<()>` — Validate a built package by running it through the full PackageValidator
+-  `validate_built_package` function L79-114 — `(package_path: &PathBuf) -> Result<()>` — Validate a built package by running it through the full PackageValidator
 
 #### crates/cloacina/src/packaging/platform.rs
 
@@ -3603,9 +3603,9 @@
 -  `CPackageTasks` struct L46-51 — `{ task_count: u32, tasks: *const CTaskMetadata, _package_name: *const c_char, _g...` — C-compatible collection returned by cloacina_get_task_metadata
 -  `ExecuteTaskFn` type L54-62 — `= unsafe extern "C" fn( task_name: *const c_char, task_name_len: u32, context_js...` — Type alias for the execute task FFI function
 -  `GetMetadataFn` type L65 — `= unsafe extern "C" fn() -> *const CPackageTasks` — Type alias for the get metadata FFI function
--  `PackageValidator` type L67-233 — `= PackageValidator` — are invisible to symbol-only validation.
--  `smoke_test_ffi` function L77-197 — `( &self, package_path: &Path, result: &mut ValidationResult, )` — Run FFI smoke tests on a package library.
--  `extract_task_names` function L200-232 — `(&self, lib: &Library) -> Result<Vec<String>, String>` — Extract task names from the library's metadata symbol.
+-  `PackageValidator` type L67-223 — `= PackageValidator` — are invisible to symbol-only validation.
+-  `smoke_test_ffi` function L77-188 — `(&self, package_path: &Path, result: &mut ValidationResult)` — Run FFI smoke tests on a package library.
+-  `extract_task_names` function L191-222 — `(&self, lib: &Library) -> Result<Vec<String>, String>` — Extract task names from the library's metadata symbol.
 
 #### crates/cloacina/src/registry/loader/validator/format.rs
 
@@ -3771,23 +3771,25 @@
 - pub `with_strict_validation` function L85-98 — `(storage: S, database: Database) -> Result<Self, RegistryError>` — Create a registry with strict validation enabled.
 - pub `loaded_package_count` function L101-103 — `(&self) -> usize` — Get the number of currently loaded packages.
 - pub `total_registered_tasks` function L106-108 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
-- pub `register_workflow_package` function L118-124 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
-- pub `get_workflow_package_by_id` function L129-150 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
-- pub `get_workflow_package_by_name` function L155-165 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
-- pub `exists_by_id` function L168-170 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
-- pub `exists_by_name` function L173-182 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
-- pub `list_packages` function L187-189 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
-- pub `unregister_workflow_package_by_id` function L192-216 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
-- pub `unregister_workflow_package_by_name` function L219-235 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
+- pub `register_workflow_package` function L297-303 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
+- pub `get_workflow_package_by_id` function L308-329 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
+- pub `get_workflow_package_by_name` function L334-344 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
+- pub `exists_by_id` function L347-349 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
+- pub `exists_by_name` function L352-361 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
+- pub `list_packages` function L366-368 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
+- pub `unregister_workflow_package_by_id` function L371-395 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
+- pub `unregister_workflow_package_by_name` function L398-414 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
 -  `database` module L23 — `-` — Complete implementation of the workflow registry.
 -  `package` module L24 — `-` — cohesive system for managing packaged workflows.
--  `register_workflow` function L240-321 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
--  `get_workflow` function L323-367 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
--  `list_workflows` function L369-371 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
--  `unregister_workflow` function L373-404 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
--  `tests` module L408-431 — `-` — cohesive system for managing packaged workflows.
--  `test_registry_creation` function L413-420 — `()` — cohesive system for managing packaged workflows.
--  `test_registry_metrics` function L423-430 — `()` — cohesive system for managing packaged workflows.
+-  `register_rust_workflow` function L115-190 — `( &mut self, package_data: Vec<u8>, is_cloacina: bool, ) -> Result<WorkflowPacka...` — Register a Rust workflow package (existing path).
+-  `register_python_workflow` function L198-287 — `( &mut self, package_data: Vec<u8>, manifest: crate::packaging::manifest_v2::Man...` — Register a Python workflow package.
+-  `register_workflow` function L419-439 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
+-  `get_workflow` function L441-485 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
+-  `list_workflows` function L487-489 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
+-  `unregister_workflow` function L491-522 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
+-  `tests` module L526-549 — `-` — cohesive system for managing packaged workflows.
+-  `test_registry_creation` function L531-538 — `()` — cohesive system for managing packaged workflows.
+-  `test_registry_metrics` function L541-548 — `()` — cohesive system for managing packaged workflows.
 
 #### crates/cloacina/src/registry/workflow_registry/package.rs
 
@@ -5767,10 +5769,10 @@
 #### crates/cloacinactl/src/commands/package.rs
 
 - pub `build` function L31-86 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a .cloacina package by calling into cloaca's Python build logic via PyO3.
-- pub `sign` function L158-192 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
-- pub `verify` function L195-268 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
-- pub `inspect` function L271-283 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
--  `validate_output_packages` function L89-155 — `(output_dir: &str) -> Result<()>` — Find and validate all .cloacina packages in the output directory.
+- pub `sign` function L153-187 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
+- pub `verify` function L190-263 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
+- pub `inspect` function L266-278 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
+-  `validate_output_packages` function L89-150 — `(output_dir: &str) -> Result<()>` — Find and validate all .cloacina packages in the output directory.
 
 #### crates/cloacinactl/src/commands/serve.rs
 

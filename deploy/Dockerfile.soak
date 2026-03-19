@@ -1,5 +1,6 @@
 # Soak test runner
-# Builds both Rust and Python workflow packages, then runs the soak test.
+# Builds Rust workflow package + cloacinactl. Python packages are built
+# outside the container and mounted/copied in by the orchestrating task.
 
 # --- Stage 1: Build cloacinactl + Rust example workflow ---
 FROM rust:bookworm AS builder
@@ -11,8 +12,6 @@ RUN apt-get update && apt-get install -y \
     libsqlite3-dev \
     pkg-config \
     python3-dev \
-    python3-pip \
-    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
@@ -28,30 +27,7 @@ RUN cd examples/features/simple-packaged/target/release && \
     LIB=$(ls libsimple_packaged_demo.so libsimple_packaged_demo.dylib 2>/dev/null | head -1) && \
     tar czf /build/simple-packaged-demo.cloacina "$LIB"
 
-# Build the cloaca Python wheel (maturin + bindings)
-RUN python3 -m venv /build/.venv && \
-    /build/.venv/bin/pip install maturin click && \
-    cd bindings/cloaca-backend && \
-    /build/.venv/bin/maturin build --release --out /build/wheels && \
-    /build/.venv/bin/pip install /build/wheels/cloaca-*.whl
-
-# Build the Python example workflow package using cloaca build
-RUN cd examples/features/python-workflow && \
-    /build/.venv/bin/python -m cloaca.cli.build -o /build
-
-# Validate the Python package was built (manifest + workflow dir must exist in archive)
-RUN python3 -c "import tarfile, json, sys; \
-    t = tarfile.open('/build/data-pipeline-example-1.0.0.cloacina'); \
-    names = t.getnames(); \
-    assert 'manifest.json' in names, 'Missing manifest.json'; \
-    assert any('workflow/' in n for n in names), 'Missing workflow/ dir'; \
-    m = json.load(t.extractfile('manifest.json')); \
-    assert m['language'] == 'python', f'Expected python, got {m[\"language\"]}'; \
-    assert len(m['tasks']) > 0, 'No tasks in manifest'; \
-    print(f'Python package OK: {m[\"package\"][\"name\"]} v{m[\"package\"][\"version\"]}, {len(m[\"tasks\"])} tasks'); \
-    "
-
-# --- Stage 2: Soak runner (Python + binaries + packages) ---
+# --- Stage 2: Soak runner (Python + binaries) ---
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
@@ -65,7 +41,6 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /build/target/release/cloacinactl /usr/local/bin/cloacinactl
 COPY --from=builder /build/simple-packaged-demo.cloacina /opt/soak/simple-packaged-demo.cloacina
-COPY --from=builder /build/data-pipeline-example-1.0.0.cloacina /opt/soak/python-workflow.cloacina
 COPY tests/soak/soak_test.py /opt/soak/soak_test.py
 
 WORKDIR /opt/soak

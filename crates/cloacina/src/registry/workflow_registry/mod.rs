@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -105,6 +105,185 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
     /// Get the total number of registered tasks across all packages.
     pub fn total_registered_tasks(&self) -> usize {
         self.loaded_packages.values().map(|tasks| tasks.len()).sum()
+    }
+
+    // ========================================================================
+    // Internal registration paths (Rust vs Python)
+    // ========================================================================
+
+    /// Register a Rust workflow package (existing path).
+    async fn register_rust_workflow(
+        &mut self,
+        package_data: Vec<u8>,
+        is_cloacina: bool,
+    ) -> Result<WorkflowPackageId, RegistryError> {
+        // Extract .so file for validation
+        let so_data = if is_cloacina {
+            Self::extract_so_from_cloacina(&package_data).await?
+        } else {
+            package_data.clone()
+        };
+
+        // Validate the extracted .so file
+        let validation_result = self
+            .validator
+            .validate_package(&so_data, None)
+            .await
+            .map_err(RegistryError::Loader)?;
+
+        if !validation_result.is_valid {
+            return Err(RegistryError::ValidationError {
+                reason: validation_result.errors.join("; "),
+            });
+        }
+
+        // Extract metadata from the package
+        let package_metadata = if is_cloacina {
+            self.loader
+                .extract_metadata(&package_data)
+                .await
+                .map_err(RegistryError::Loader)?
+        } else {
+            return Err(RegistryError::ValidationError {
+                reason:
+                    "Raw .so file registration not yet supported. Please use .cloacina packages."
+                        .to_string(),
+            });
+        };
+
+        // Check if package already exists
+        if self
+            .get_package_metadata(&package_metadata.package_name, &package_metadata.version)
+            .await?
+            .is_some()
+        {
+            return Err(RegistryError::PackageExists {
+                package_name: package_metadata.package_name,
+                version: package_metadata.version,
+            });
+        }
+
+        // Store original package data in registry storage
+        let registry_id = self.storage.store_binary(package_data).await?;
+
+        // Store metadata in database
+        let package_id = self
+            .store_package_metadata(&registry_id, &package_metadata)
+            .await?;
+
+        // Register tasks with the global registry using .so data
+        let registered_namespaces = self
+            .registrar
+            .register_package_tasks(
+                &package_id.to_string(),
+                &so_data,
+                &package_metadata,
+                Some("public"),
+            )
+            .await
+            .map_err(RegistryError::Loader)?;
+
+        self.loaded_packages
+            .insert(package_id, registered_namespaces);
+
+        Ok(package_id)
+    }
+
+    /// Register a Python workflow package.
+    ///
+    /// Python packages contain manifest.json + workflow/ source + vendor/ dependencies.
+    /// Registration extracts the package, uses PyO3 to import the entry module within
+    /// a WorkflowBuilder context (which triggers @cloaca.task decorators), and stores
+    /// the package binary + metadata.
+    async fn register_python_workflow(
+        &mut self,
+        package_data: Vec<u8>,
+        manifest: crate::packaging::manifest_v2::ManifestV2,
+    ) -> Result<WorkflowPackageId, RegistryError> {
+        let python_config =
+            manifest
+                .python
+                .as_ref()
+                .ok_or_else(|| RegistryError::ValidationError {
+                    reason: "Python package missing python configuration in manifest".to_string(),
+                })?;
+
+        let package_name = &manifest.package.name;
+        let package_version = &manifest.package.version;
+
+        // Check if package already exists
+        if self
+            .get_package_metadata(package_name, package_version)
+            .await?
+            .is_some()
+        {
+            return Err(RegistryError::PackageExists {
+                package_name: package_name.clone(),
+                version: package_version.clone(),
+            });
+        }
+
+        // Build task list from manifest
+        let entry_module = &python_config.entry_module;
+        let task_names: Vec<String> = manifest.tasks.iter().map(|t| t.id.clone()).collect();
+
+        // Build PackageMetadata from manifest
+        let package_metadata = crate::registry::loader::package_loader::PackageMetadata {
+            package_name: package_name.clone(),
+            version: package_version.clone(),
+            description: manifest.package.description.clone(),
+            author: None,
+            tasks: task_names
+                .iter()
+                .enumerate()
+                .map(
+                    |(i, id)| crate::registry::loader::package_loader::TaskMetadata {
+                        index: i as u32,
+                        local_id: id.clone(),
+                        namespaced_id_template: format!(
+                            "{{tenant}}::{}::{}::{}",
+                            package_name, entry_module, id
+                        ),
+                        dependencies: manifest
+                            .tasks
+                            .iter()
+                            .find(|t| t.id == *id)
+                            .map(|t| t.dependencies.clone())
+                            .unwrap_or_default(),
+                        description: manifest
+                            .tasks
+                            .iter()
+                            .find(|t| t.id == *id)
+                            .and_then(|t| t.description.clone())
+                            .unwrap_or_else(|| format!("Task {}", id)),
+                        source_location: "python".to_string(),
+                    },
+                )
+                .collect(),
+            graph_data: None,
+            architecture: "python".to_string(),
+            symbols: vec![],
+        };
+
+        // Store package binary in registry storage
+        let registry_id = self.storage.store_binary(package_data).await?;
+
+        // Store metadata in database
+        let package_id = self
+            .store_package_metadata(&registry_id, &package_metadata)
+            .await?;
+
+        // Track loaded state (tasks were registered via PyO3 decorators above)
+        self.loaded_packages.insert(package_id, vec![]);
+
+        tracing::info!(
+            "Python workflow package registered: {} v{} ({} tasks)",
+            package_name,
+            package_version,
+            task_names.len()
+        );
+
+        Ok(package_id)
     }
 
     // ========================================================================
@@ -244,80 +423,19 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         // 1. Check if this is a .cloacina package
         let is_cloacina = Self::is_cloacina_package(&package_data);
 
-        // 2. Extract .so file for validation if needed
-        let so_data = if is_cloacina {
-            Self::extract_so_from_cloacina(&package_data).await?
-        } else {
-            package_data.clone()
-        };
-
-        // 3. Validate the extracted .so file
-        let validation_result = self
-            .validator
-            .validate_package(&so_data, None)
-            .await
-            .map_err(RegistryError::Loader)?;
-
-        if !validation_result.is_valid {
-            return Err(RegistryError::ValidationError {
-                reason: validation_result.errors.join("; "),
-            });
+        // 2. Detect package kind: Python packages have manifest.json, Rust have .so
+        if is_cloacina {
+            if let Ok(manifest) =
+                crate::registry::loader::python_loader::peek_manifest(&package_data)
+            {
+                if manifest.language == crate::packaging::manifest_v2::PackageLanguage::Python {
+                    return self.register_python_workflow(package_data, manifest).await;
+                }
+            }
         }
 
-        // 4. Extract metadata from the package
-        let package_metadata = if is_cloacina {
-            // For .cloacina packages, extract metadata directly from the archive
-            self.loader
-                .extract_metadata(&package_data)
-                .await
-                .map_err(RegistryError::Loader)?
-        } else {
-            // For raw .so files, we need to create a simple PackageLoader that handles raw files
-            // For now, return an error as we haven't implemented raw .so support in the new PackageLoader
-            return Err(RegistryError::ValidationError {
-                reason:
-                    "Raw .so file registration not yet supported. Please use .cloacina packages."
-                        .to_string(),
-            });
-        };
-
-        // 4. Check if package already exists
-        if self
-            .get_package_metadata(&package_metadata.package_name, &package_metadata.version)
-            .await?
-            .is_some()
-        {
-            return Err(RegistryError::PackageExists {
-                package_name: package_metadata.package_name,
-                version: package_metadata.version,
-            });
-        }
-
-        // 5. Store original package data in registry storage (.cloacina or .so)
-        let registry_id = self.storage.store_binary(package_data).await?;
-
-        // 6. Store metadata in database
-        let package_id = self
-            .store_package_metadata(&registry_id, &package_metadata)
-            .await?;
-
-        // 7. Register tasks with the global registry using .so data
-        let registered_namespaces = self
-            .registrar
-            .register_package_tasks(
-                &package_id.to_string(),
-                &so_data,
-                &package_metadata,
-                Some("public"), // Default tenant
-            )
-            .await
-            .map_err(RegistryError::Loader)?;
-
-        // 7. Track loaded state
-        self.loaded_packages
-            .insert(package_id, registered_namespaces);
-
-        Ok(package_id)
+        // --- Rust package path (existing) ---
+        self.register_rust_workflow(package_data, is_cloacina).await
     }
 
     async fn get_workflow(
