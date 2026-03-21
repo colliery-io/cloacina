@@ -1,11 +1,13 @@
 """
-Soak test task — fully containerized.
+Soak test task — server (containerized) or daemon (local).
 
-Builds cloacina server + example workflows in Docker, starts postgres,
-uploads the workflows, and runs the soak test against real executions.
+Server mode: builds cloacina server + workflows in Docker, starts postgres,
+uploads workflows, and runs the soak test against real HTTP executions.
 
-Rust packages are built inside the Docker container.
-Python packages are built locally (via cloaca) and mounted in.
+Daemon mode: builds packages locally, starts the daemon with SQLite,
+registers workflows, schedules cron, and verifies executions.
+
+Python packages are built using `cloacinactl package build` (pure Rust).
 """
 
 import os
@@ -23,7 +25,7 @@ COMPOSE_FILE = PROJECT_ROOT / "deploy" / "docker-compose.soak.yml"
     name="soak",
     about="run fully containerized soak test (build + server + workflows + load)",
     when_to_use=[
-        "validating server end-to-end",
+        "validating server or daemon end-to-end",
         "running real workflow executions under load",
         "pre-release smoke test",
     ],
@@ -31,6 +33,13 @@ COMPOSE_FILE = PROJECT_ROOT / "deploy" / "docker-compose.soak.yml"
         "quick unit tests — use angreal cloacina unit",
         "integration tests — use angreal cloacina integration",
     ],
+)
+@angreal.argument(
+    name="mode",
+    long="mode",
+    short="m",
+    help="test mode: server (Docker + postgres) or daemon (local + SQLite)",
+    default="server",
 )
 @angreal.argument(
     name="duration",
@@ -43,25 +52,41 @@ COMPOSE_FILE = PROJECT_ROOT / "deploy" / "docker-compose.soak.yml"
     name="concurrency",
     long="concurrency",
     short="c",
-    help="number of concurrent worker threads",
+    help="number of concurrent worker threads (server mode only)",
     default="2",
 )
 @angreal.argument(
     name="profile",
     long="profile",
     short="p",
-    help="load profile: light, medium, heavy",
+    help="load profile: light, medium, heavy (server mode only)",
     default="medium",
 )
 @angreal.argument(
     name="rebuild",
     long="rebuild",
-    help="force rebuild of all containers",
+    help="force rebuild of all containers (server mode only)",
     takes_value=False,
     is_flag=True,
 )
-def soak(duration="2m", concurrency="2", profile="medium", rebuild=False):
-    """Run the fully containerized soak test."""
+def soak(mode="server", duration="2m", concurrency="2", profile="medium", rebuild=False):
+    """Run the soak test in server or daemon mode."""
+
+    if mode == "server":
+        return _soak_server(duration, concurrency, profile, rebuild)
+    elif mode == "daemon":
+        return _soak_daemon(duration)
+    else:
+        print(f"ERROR: Unknown mode '{mode}'. Use 'server' or 'daemon'.", file=sys.stderr)
+        return 1
+
+
+# ---------------------------------------------------------------------------
+# Server mode (Docker)
+# ---------------------------------------------------------------------------
+
+def _soak_server(duration, concurrency, profile, rebuild):
+    """Run the containerized server soak test."""
 
     compose_cmd = _docker_compose_cmd()
 
@@ -73,9 +98,6 @@ def soak(duration="2m", concurrency="2", profile="medium", rebuild=False):
         capture_output=True,
     )
 
-    # Build Python package locally (platform-independent, no Docker needed)
-    python_package = _build_python_package()
-
     # Build Docker images
     build_cmd = compose_cmd + ["build"]
     if rebuild:
@@ -86,143 +108,70 @@ def soak(duration="2m", concurrency="2", profile="medium", rebuild=False):
         print("ERROR: Container build failed", file=sys.stderr)
         return rc
 
-    # Run everything with abort-on-container-exit
-    print(f"\nRunning soak test: duration={duration}, concurrency={concurrency}, profile={profile}")
+    # Run with abort-on-container-exit
+    print(f"\nRunning server soak: duration={duration}, concurrency={concurrency}, profile={profile}")
+    print(f"  PROJECT_ROOT: {PROJECT_ROOT}")
     print("=" * 70)
     env = dict(os.environ)
-    env["SOAK_DURATION"] = duration
-    env["SOAK_CONCURRENCY"] = concurrency
-    env["SOAK_PROFILE"] = profile
+    env["SOAK_DURATION"] = str(duration)
+    env["SOAK_CONCURRENCY"] = str(concurrency)
+    env["SOAK_PROFILE"] = str(profile)
 
     run_cmd = compose_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", "soak"]
-
-    # Mount the Python package into the soak container if it was built
-    if python_package:
-        # Use docker compose run with a volume mount for the Python package
-        run_cmd = compose_cmd + [
-            "run", "--rm", "--no-deps",
-            "-v", f"{python_package}:/opt/soak/python-workflow.cloacina:ro",
-            "-e", f"SOAK_DURATION={duration}",
-            "-e", f"SOAK_CONCURRENCY={concurrency}",
-            "-e", f"SOAK_PROFILE={profile}",
-            "soak",
-            "--url=http://cloacina:8080",
-            "--package=/opt/soak/simple-packaged-demo.cloacina",
-            "--bootstrap",
-            "--cloacinactl=/usr/local/bin/cloacinactl",
-            "--database-url=postgres://cloacina:cloacina@postgres:5432/cloacina",
-            f"--duration={duration}",
-            f"--profile={profile}",
-            f"--concurrency={concurrency}",
-        ]
-
-        # Start dependencies first
-        print("Starting postgres + cloacina server...")
-        dep_cmd = compose_cmd + ["up", "-d", "postgres", "cloacina"]
-        rc = subprocess.run(dep_cmd, cwd=str(PROJECT_ROOT), env=env).returncode
-        if rc != 0:
-            print("ERROR: Failed to start services", file=sys.stderr)
-            _cleanup(compose_cmd)
-            return rc
-
-        # Wait for health
-        print("Waiting for server health check...")
-        import time
-        for i in range(30):
-            check = subprocess.run(
-                compose_cmd + ["exec", "-T", "cloacina", "curl", "-sf",
-                               "http://localhost:8080/health"],
-                cwd=str(PROJECT_ROOT),
-                capture_output=True,
-            )
-            if check.returncode == 0:
-                print(f"Server healthy after {i+1}s")
-                break
-            time.sleep(1)
-        else:
-            print("ERROR: Server failed to become healthy", file=sys.stderr)
-            _cleanup(compose_cmd)
-            return 1
-
+    try:
         rc = subprocess.run(run_cmd, cwd=str(PROJECT_ROOT), env=env).returncode
-    else:
-        # No Python package — run the standard compose up
-        run_cmd = compose_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", "soak"]
-        rc = subprocess.run(run_cmd, cwd=str(PROJECT_ROOT), env=env).returncode
-
-    # Cleanup
-    _cleanup(compose_cmd)
+    finally:
+        _cleanup_server(compose_cmd)
     return rc
 
 
-def _build_python_package():
-    """Build a Python .cloacina package locally using the cloaca test harness.
+# ---------------------------------------------------------------------------
+# Daemon mode (local)
+# ---------------------------------------------------------------------------
 
-    Returns the absolute path to the built package, or None if build fails.
-    """
-    print("Building Python workflow package locally...")
+def _soak_daemon(duration):
+    """Run the daemon soak test locally with SQLite."""
 
-    try:
-        from cloaca.cloaca_utils import _build_and_install_cloaca_unified
-    except ImportError:
-        print("  SKIP: cloaca_utils not available (run from project root with angreal)")
-        return None
-
-    venv_name = "soak-cloaca-venv"
-    venv_path = PROJECT_ROOT / venv_name
-
-    try:
-        # Build and install cloaca
-        venv, python_exe, pip_exe = _build_and_install_cloaca_unified(venv_name)
-
-        # Install additional deps for cloaca build
-        subprocess.run(
-            [str(pip_exe), "install", "click", "pydantic"],
-            check=True, capture_output=True,
-        )
-
-        # Build the Python workflow package
-        output_dir = PROJECT_ROOT / "soak-packages"
-        output_dir.mkdir(exist_ok=True)
-
+    # Ensure cloacinactl is built
+    ctl = PROJECT_ROOT / "target" / "debug" / "cloacinactl"
+    if not ctl.exists():
+        print("Building cloacinactl...", end=" ", flush=True)
         result = subprocess.run(
-            [str(python_exe), "-c",
-             "from cloaca.cli.build import build; "
-             f"build(['-o', '{output_dir}'], standalone_mode=False)"],
-            cwd=str(PROJECT_ROOT / "examples" / "features" / "python-workflow"),
-            capture_output=True, text=True, timeout=60,
+            ["cargo", "build", "-p", "cloacinactl"],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True, text=True, timeout=300,
         )
-
         if result.returncode != 0:
-            print(f"  WARNING: Python package build failed: {result.stderr[:200]}")
-            return None
+            print(f"FAILED\n{result.stderr[:500]}")
+            return 1
+        print("OK")
 
-        # Find the built package
-        packages = list(output_dir.glob("*.cloacina"))
-        if packages:
-            pkg = str(packages[0].resolve())
-            print(f"  OK: {packages[0].name}")
-            return pkg
-        else:
-            print("  WARNING: No .cloacina file produced")
-            return None
+    # Run daemon soak test
+    print(f"\nRunning daemon soak: duration={duration}")
+    print("=" * 70)
 
-    except Exception as e:
-        print(f"  WARNING: Python package build failed: {e}")
-        return None
-    finally:
-        # Clean up venv
-        import shutil
-        if venv_path.exists():
-            shutil.rmtree(venv_path, ignore_errors=True)
+    cmd = [
+        sys.executable,
+        str(PROJECT_ROOT / "tests" / "soak" / "daemon_soak_test.py"),
+        "--build",
+        f"--duration={duration}",
+        f"--cloacinactl={ctl}",
+    ]
 
+    rc = subprocess.run(cmd, cwd=str(PROJECT_ROOT)).returncode
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _docker_compose_cmd():
     """Return the correct docker compose command."""
     return ["docker", "compose", "-f", str(COMPOSE_FILE)]
 
 
-def _cleanup(compose_cmd):
+def _cleanup_server(compose_cmd):
     """Tear down soak containers."""
     print("\nCleaning up soak containers...")
     subprocess.run(
@@ -230,8 +179,3 @@ def _cleanup(compose_cmd):
         cwd=str(PROJECT_ROOT),
         capture_output=True,
     )
-    # Clean up soak packages dir
-    import shutil
-    soak_pkg_dir = PROJECT_ROOT / "soak-packages"
-    if soak_pkg_dir.exists():
-        shutil.rmtree(soak_pkg_dir, ignore_errors=True)

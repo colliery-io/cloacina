@@ -26,6 +26,7 @@ pub mod debug;
 pub mod manifest;
 pub mod manifest_v2;
 pub mod platform;
+pub mod python_builder;
 pub mod types;
 pub mod validation;
 
@@ -41,6 +42,7 @@ pub use manifest_v2::{
     RustRuntime, TaskDefinitionV2,
 };
 pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
+pub use python_builder::{build_python_package, PythonBuildConfig, PythonBuildResult};
 pub use types::CompileOptions;
 pub use types::{CargoToml, CompileResult, PackageManifest};
 

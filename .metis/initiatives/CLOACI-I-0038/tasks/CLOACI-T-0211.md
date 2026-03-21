@@ -4,15 +4,15 @@ level: task
 title: "FFI Boundary Testing Framework for Packaged Workflows"
 short_code: "CLOACI-T-0211"
 created_at: 2026-03-18T01:45:15.524070+00:00
-updated_at: 2026-03-18T15:04:58.961886+00:00
-parent:
-blocked_by: []
+updated_at: 2026-03-21T01:29:29.362338+00:00
+parent: CLOACI-I-0038
+blocked_by: [CLOACI-T-0215]
 archived: false
 
 tags:
   - "#task"
   - "#feature"
-  - "#phase/blocked"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ The right place to catch these is **at the gate** — during `cloacinactl packag
 - **User Value**: Broken packages are caught at build time or upload time with a clear error, not at runtime with a cryptic panic or silent failure.
 - **Business Value**: Reduces support burden, prevents production incidents, builds trust in the packaging system.
 - **Effort Estimate**: M
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -156,13 +158,32 @@ This is a nice-to-have on top of the pipeline validation. The pipeline check is 
 - [x] Explanation doc: `docs/content/explanation/packaged-workflow-validation.md`
 - [x] Tested end-to-end: daemon soak (PASS), server soak (PASS), invalid package rejection (confirmed)
 
-**Blocked:**
-- [ ] Python package smoke test — `PackageValidator` currently rejects Python packages as "not a dynamic library" because the entire registration path assumes Rust. Filed as **CLOACI-T-0215** (P1 bug). Once T-0215 wires Python package registration, the validator needs a Python-specific smoke test path (extract, import entry module via PyO3, verify task functions exist).
+**Blocked → Unblocked by T-0215 + T-0216 + T-0217:**
 
-**Files modified:**
-- `crates/cloacina/src/registry/loader/validator/ffi_smoke.rs` — new module
-- `crates/cloacina/src/registry/loader/validator/mod.rs` — wire smoke test into validate_package
-- `crates/cloacina/src/packaging/mod.rs` — validate after Rust package_workflow build
-- `crates/cloacinactl/src/commands/package.rs` — validate after Python/cloaca build
-- `deploy/Dockerfile.soak` — builds Python package in container, validates manifest
-- `docs/content/explanation/packaged-workflow-validation.md` — new explanation doc
+### 2026-03-20 — Python path complete
+
+**Python package validation is now handled end-to-end:**
+- `validate_python_package()` validates manifest fields, task IDs, entry_module (T-0215)
+- `import_and_register_python_workflow()` is the smoke test — imports module, fires decorators, verifies tasks registered (T-0215)
+- `cloacinactl package build` validates Python packages after building (T-0216)
+- `register_python_workflow()` extracts + imports + validates before storing (T-0215)
+
+**Soak test updated for Python packages:**
+- `deploy/Dockerfile.soak` now builds Python package using `cloacinactl package build` (Rust builder)
+- Python `.cloacina` copied into soak runner stage
+- `soak_test.py` already handles Python package upload (lines 510-527)
+
+**All acceptance criteria met:**
+- [x] FFI smoke test for Rust packages — done (prior session)
+- [x] Panics caught via catch_unwind — done (prior session)
+- [x] cloacinactl package build validates — done for both Rust (prior) and Python (T-0216)
+- [x] Server upload validates — done via register_workflow → validate_python_package + import
+- [x] Daemon register validates — same path
+- [x] Clear error messages — done
+- [x] simple-packaged-demo has FFI test — exists at tests/ffi_tests.rs
+- [x] Documentation — done (prior session)
+- [x] Python package smoke test — resolved via T-0215 import_and_register flow
+- [x] Soak test includes Python package — Dockerfile updated
+
+**Files modified (this session):**
+- `deploy/Dockerfile.soak` — build + copy Python package into soak container

@@ -11,8 +11,14 @@ description = "Python bindings for Cloacina workflow orchestration engine"
 name = "cloaca"
 crate-type = ["cdylib"]
 
+[features]
+# extension-module is only needed for cdylib builds (Python wheel).
+# maturin enables this automatically. Omit for cargo test.
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
+
 [dependencies]
-pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.25", features = ["abi3-py39"] }
 cloacina = { path = "../../crates/cloacina" }
 serde_json = "1.0"
 pythonize = "0.25"
@@ -24,3 +30,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }
 url = "2.5"
+
+[dev-dependencies]
+pyo3 = { version = "0.25", features = ["auto-initialize"] }
+
+[build-dependencies]
+pyo3-build-config = "0.25"

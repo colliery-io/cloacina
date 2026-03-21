@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,15 +14,15 @@
  *  limitations under the License.
  */
 
-use crate::task::{pop_workflow_context, push_workflow_context};
-use crate::value_objects::PyWorkflowContext;
+use super::task::{pop_workflow_context, push_workflow_context};
+use super::workflow_context::PyWorkflowContext;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Python wrapper for WorkflowBuilder
 #[pyclass(name = "WorkflowBuilder")]
 pub struct PyWorkflowBuilder {
-    inner: cloacina::WorkflowBuilder,
+    inner: crate::WorkflowBuilder,
     context: PyWorkflowContext,
 }
 
@@ -43,9 +43,8 @@ impl PyWorkflowBuilder {
             workflow.unwrap_or(name),
         );
 
-        // Create workflow builder with correct tenant
         let (tenant_id, _package_name, _workflow_id) = context.as_components();
-        let workflow_builder = cloacina::Workflow::builder(name).tenant(tenant_id);
+        let workflow_builder = crate::Workflow::builder(name).tenant(tenant_id);
 
         PyWorkflowBuilder {
             inner: workflow_builder,
@@ -65,15 +64,12 @@ impl PyWorkflowBuilder {
 
     /// Add a task to the workflow by ID or function reference
     pub fn add_task(&mut self, py: Python, task: PyObject) -> PyResult<()> {
-        // Try to extract as string first
         if let Ok(task_id) = task.extract::<String>(py) {
-            // It's a string task ID - look it up in the registry
-            let registry = cloacina::task::global_task_registry();
+            let registry = crate::task::global_task_registry();
 
-            // Look up the task from the workflow context namespace
             let (tenant_id, package_name, workflow_id) = self.context.as_components();
             let task_namespace =
-                cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+                crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
             let guard = registry.read();
 
             let constructor = guard.get(&task_namespace).ok_or_else(|| {
@@ -83,10 +79,8 @@ impl PyWorkflowBuilder {
                 ))
             })?;
 
-            // Create the task instance
             let task_instance = constructor();
 
-            // Add to workflow builder
             self.inner = self
                 .inner
                 .clone()
@@ -95,19 +89,16 @@ impl PyWorkflowBuilder {
 
             Ok(())
         } else {
-            // Try to get function name from the object
             match task.bind(py).hasattr("__name__") {
                 Ok(true) => {
                     match task.getattr(py, "__name__") {
                         Ok(name_obj) => {
                             match name_obj.extract::<String>(py) {
                                 Ok(func_name) => {
-                                    // Look up by function name
-                                    let registry = cloacina::task::global_task_registry();
+                                    let registry = crate::task::global_task_registry();
 
-                                    // Look up the task from the workflow context namespace
                                     let (tenant_id, package_name, workflow_id) = self.context.as_components();
-                                    let task_namespace = cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
+                                    let task_namespace = crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &func_name);
                                     let guard = registry.read();
 
                                     let constructor = guard.get(&task_namespace).ok_or_else(|| {
@@ -117,10 +108,8 @@ impl PyWorkflowBuilder {
                                         ))
                                     })?;
 
-                                    // Create the task instance
                                     let task_instance = constructor();
 
-                                    // Add to workflow builder
                                     self.inner = self.inner.clone().add_task(task_instance)
                                         .map_err(|e| PyValueError::new_err(format!("Failed to add task: {}", e)))?;
 
@@ -181,22 +170,17 @@ impl PyWorkflowBuilder {
         _exc_value: Option<&Bound<PyAny>>,
         _traceback: Option<&Bound<PyAny>>,
     ) -> PyResult<bool> {
-        // Pop the workflow context
         pop_workflow_context();
 
         let (tenant_id, package_name, workflow_id) = self.context.as_components();
 
-        // CRITICAL: Create a new workflow with the correct namespace context
-        // following the same pattern as the Rust workflow! macro
-        let mut workflow = cloacina::Workflow::new(workflow_id);
+        let mut workflow = crate::Workflow::new(workflow_id);
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
-        // Collect all tasks registered with this workflow's namespace
-        let registry = cloacina::task::global_task_registry();
+        let registry = crate::task::global_task_registry();
         let guard = registry.read();
 
-        // Find all tasks that belong to this workflow's namespace
         for (namespace, constructor) in guard.iter() {
             if namespace.tenant_id == tenant_id
                 && namespace.package_name == package_name
@@ -209,22 +193,19 @@ impl PyWorkflowBuilder {
             }
         }
 
-        // Drop the read guard before building
         drop(guard);
 
-        // Validate and finalize the workflow
         workflow
             .validate()
             .map_err(|e| PyValueError::new_err(format!("Workflow validation failed: {}", e)))?;
         let final_workflow = workflow.finalize();
 
-        // Register it automatically
         let workflow_name = final_workflow.name().to_string();
-        cloacina::workflow::register_workflow_constructor(workflow_name, move || {
+        crate::workflow::register_workflow_constructor(workflow_name, move || {
             final_workflow.clone()
         });
 
-        Ok(false) // Don't suppress exceptions
+        Ok(false)
     }
 
     /// String representation
@@ -237,7 +218,7 @@ impl PyWorkflowBuilder {
 #[pyclass(name = "Workflow")]
 #[derive(Clone)]
 pub struct PyWorkflow {
-    inner: cloacina::Workflow,
+    inner: crate::Workflow,
 }
 
 #[pymethods]
@@ -303,8 +284,6 @@ impl PyWorkflow {
             .collect()
     }
 
-    // Note: Removed can_run_parallel - the runner handles parallelism automatically
-
     /// Validate the workflow
     pub fn validate(&self) -> PyResult<()> {
         self.inner
@@ -324,16 +303,12 @@ impl PyWorkflow {
 
 /// Register a workflow constructor function
 #[pyfunction]
-#[allow(dead_code)] // Used by PyO3 module exports
 pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyResult<()> {
-    // Pre-evaluate the constructor immediately while we have the GIL
     Python::with_gil(|py| {
-        // Call the Python constructor function immediately
         let workflow_obj = constructor.call0(py).map_err(|e| {
             PyValueError::new_err(format!("Failed to call workflow constructor: {}", e))
         })?;
 
-        // Extract the PyWorkflow wrapper
         let py_workflow: PyWorkflow = workflow_obj.extract(py).map_err(|e| {
             PyValueError::new_err(format!(
                 "Failed to extract workflow from constructor: {}",
@@ -341,12 +316,9 @@ pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyR
             ))
         })?;
 
-        // Store the pre-built workflow
         let workflow = py_workflow.inner.clone();
-        cloacina::workflow::register_workflow_constructor(name, move || workflow.clone());
+        crate::workflow::register_workflow_constructor(name, move || workflow.clone());
 
         Ok(())
     })
 }
-
-// Removed workflow decorator - using context manager pattern instead

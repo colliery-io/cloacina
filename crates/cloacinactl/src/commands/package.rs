@@ -27,8 +27,102 @@ use tracing::info;
 
 use super::{connect_db, parse_uuid, read_master_key};
 
-/// Build a .cloacina package by calling into cloaca's Python build logic via PyO3.
+/// Build a .cloacina package.
+///
+/// For Python projects (detected by `pyproject.toml` with `[tool.cloaca]`),
+/// uses the pure Rust builder — no `pip install cloaca` required.
+/// For Rust projects, delegates to cargo compilation.
 pub async fn build(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()> {
+    let project_dir = std::env::current_dir().context("Failed to get current directory")?;
+
+    // Detect Python project: pyproject.toml with [tool.cloaca]
+    let pyproject_path = project_dir.join("pyproject.toml");
+    let is_python = if pyproject_path.exists() {
+        let content =
+            std::fs::read_to_string(&pyproject_path).context("Failed to read pyproject.toml")?;
+        let table: toml::Table = content.parse().context("Failed to parse pyproject.toml")?;
+        table
+            .get("tool")
+            .and_then(|v| v.as_table())
+            .and_then(|t| t.get("cloaca"))
+            .is_some()
+    } else {
+        false
+    };
+
+    if is_python {
+        build_python(output, targets, dry_run, verbose).await
+    } else {
+        build_rust(output, targets, dry_run, verbose).await
+    }
+}
+
+/// Build a Python .cloacina package using the pure Rust builder.
+async fn build_python(
+    output: &str,
+    targets: &[String],
+    dry_run: bool,
+    verbose: bool,
+) -> Result<()> {
+    let project_dir = std::env::current_dir()?;
+
+    if dry_run {
+        let content = std::fs::read_to_string(project_dir.join("pyproject.toml"))?;
+        let table: toml::Table = content.parse()?;
+        let project = table.get("project").and_then(|v| v.as_table());
+        let name = project
+            .and_then(|p| p.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let version = project
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0");
+
+        info!("Dry run — would build Python package:");
+        info!("  Name:    {}", name);
+        info!("  Version: {}", version);
+        info!("  Output:  {}", output);
+        return Ok(());
+    }
+
+    let config = cloacina::packaging::PythonBuildConfig {
+        project_dir,
+        output_dir: std::path::PathBuf::from(output),
+        targets: targets.to_vec(),
+        verbose,
+    };
+
+    let result = cloacina::packaging::build_python_package(&config)
+        .context("Failed to build Python package")?;
+
+    info!(
+        "Built {}-{}.cloacina ({})",
+        result.package_name, result.version, result.fingerprint
+    );
+
+    // Validate with Python-specific validator
+    let package_data = std::fs::read(&result.archive_path)?;
+    let manifest = cloacina::registry::loader::python_loader::peek_manifest(&package_data)
+        .map_err(|e| anyhow!("Failed to read manifest from built package: {}", e))?;
+
+    let validator = cloacina::registry::loader::validator::PackageValidator::new()
+        .map_err(|e| anyhow!("Failed to create validator: {}", e))?;
+    let validation = validator.validate_python_package(&package_data, &manifest);
+
+    if !validation.is_valid {
+        anyhow::bail!(
+            "Package validation failed:\n  - {}",
+            validation.errors.join("\n  - ")
+        );
+    }
+
+    info!("Package validation passed");
+    Ok(())
+}
+
+/// Build a Rust .cloacina package (existing path via PyO3/cargo).
+async fn build_rust(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()> {
     let output = output.to_string();
     let targets = targets.to_vec();
 
@@ -48,8 +142,6 @@ pub async fn build(output: &str, targets: &[String], dry_run: bool, verbose: boo
             args.push("--verbose".to_string());
         }
 
-        // Import and invoke the click command with standalone_mode=False
-        // so exceptions propagate instead of calling sys.exit()
         let build_mod = py.import("cloaca.cli.build").map_err(|e| {
             anyhow!(
                 "Failed to import cloaca.cli.build: {}\n\
@@ -77,7 +169,6 @@ pub async fn build(output: &str, targets: &[String], dry_run: bool, verbose: boo
         Ok::<(), anyhow::Error>(())
     })?;
 
-    // Validate built packages (unless dry run)
     if !dry_run {
         validate_output_packages(&output).await?;
     }

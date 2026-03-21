@@ -4,14 +4,14 @@ level: initiative
 title: "Native Python Workflow Support — Move cloaca bindings into cloacina core"
 short_code: "CLOACI-I-0038"
 created_at: 2026-03-19T20:19:56.290391+00:00
-updated_at: 2026-03-19T20:19:56.290391+00:00
+updated_at: 2026-03-20T12:47:14.288512+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

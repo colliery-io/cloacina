@@ -27,6 +27,10 @@ RUN cd examples/features/simple-packaged/target/release && \
     LIB=$(ls libsimple_packaged_demo.so libsimple_packaged_demo.dylib 2>/dev/null | head -1) && \
     tar czf /build/simple-packaged-demo.cloacina "$LIB"
 
+# Build the Python example workflow using the Rust builder (no pip install needed)
+RUN cd examples/features/python-workflow && \
+    /build/target/release/cloacinactl package build -o /build/
+
 # --- Stage 2: Soak runner (Python + binaries) ---
 FROM debian:bookworm-slim
 
@@ -41,6 +45,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /build/target/release/cloacinactl /usr/local/bin/cloacinactl
 COPY --from=builder /build/simple-packaged-demo.cloacina /opt/soak/simple-packaged-demo.cloacina
+COPY --from=builder /build/data-pipeline-example-1.0.0.cloacina /opt/soak/python-workflow.cloacina
 COPY tests/soak/soak_test.py /opt/soak/soak_test.py
 
 WORKDIR /opt/soak

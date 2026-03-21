@@ -208,6 +208,19 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
                     reason: "Python package missing python configuration in manifest".to_string(),
                 })?;
 
+        // Validate the Python package manifest
+        let validation_result = self
+            .validator
+            .validate_python_package(&package_data, &manifest);
+        if !validation_result.is_valid {
+            return Err(RegistryError::ValidationError {
+                reason: format!(
+                    "Python package validation failed: {}",
+                    validation_result.errors.join("; ")
+                ),
+            });
+        }
+
         let package_name = &manifest.package.name;
         let package_version = &manifest.package.version;
 
@@ -265,23 +278,53 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             symbols: vec![],
         };
 
+        // Extract package to staging directory for PyO3 import
+        let staging_dir = tempfile::TempDir::new().map_err(|e| {
+            RegistryError::Internal(format!("Failed to create staging directory: {}", e))
+        })?;
+        let extracted = crate::registry::loader::python_loader::extract_python_package(
+            &package_data,
+            staging_dir.path(),
+        )
+        .map_err(|e| RegistryError::ValidationError {
+            reason: format!("Failed to extract Python package: {}", e),
+        })?;
+
+        // Import module via PyO3 — triggers @task decorators, registers tasks
+        let registered_namespaces = crate::python::import_and_register_python_workflow(
+            &extracted.workflow_dir,
+            &extracted.vendor_dir,
+            entry_module,
+            package_name,
+            "public",
+        )
+        .map_err(|e| RegistryError::ValidationError {
+            reason: format!("Python workflow import failed: {}", e),
+        })?;
+
         // Store package binary in registry storage
-        let registry_id = self.storage.store_binary(package_data).await?;
+        let registry_id = self.storage.store_binary(package_data.clone()).await?;
 
         // Store metadata in database
         let package_id = self
             .store_package_metadata(&registry_id, &package_metadata)
             .await?;
 
-        // Track loaded state (tasks were registered via PyO3 decorators above)
-        self.loaded_packages.insert(package_id, vec![]);
+        // Track loaded state with actual registered namespaces
+        self.loaded_packages
+            .insert(package_id, registered_namespaces.clone());
 
         tracing::info!(
-            "Python workflow package registered: {} v{} ({} tasks)",
+            "Python workflow package registered: {} v{} ({} tasks, {} namespaces)",
             package_name,
             package_version,
-            task_names.len()
+            task_names.len(),
+            registered_namespaces.len()
         );
+
+        // Keep staging dir alive for the lifetime of the package
+        // (Python tasks need the extracted files on disk for execution)
+        std::mem::forget(staging_dir);
 
         Ok(package_id)
     }

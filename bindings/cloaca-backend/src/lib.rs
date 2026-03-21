@@ -16,24 +16,26 @@
 
 use pyo3::prelude::*;
 
+// Local modules that remain in cloaca-backend
 mod admin;
 mod context;
 mod runner;
-mod task;
 mod trigger;
 mod value_objects;
-mod workflow;
 
+// Re-imports from cloacina::python (implementations now live in core)
+use cloacina::python::context::PyContext;
+use cloacina::python::namespace::PyTaskNamespace;
+use cloacina::python::task::{task as task_decorator, PyTaskHandle};
+use cloacina::python::workflow::{register_workflow_constructor, PyWorkflow, PyWorkflowBuilder};
+use cloacina::python::workflow_context::PyWorkflowContext;
+
+// Local imports (still defined in cloaca-backend)
 use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
-use context::{PyContext, PyDefaultRunnerConfig};
+use context::PyDefaultRunnerConfig;
 use runner::{PyDefaultRunner, PyPipelineResult};
-use task::{task as task_decorator, PyTaskHandle};
 use trigger::PyTriggerResult;
-use value_objects::{
-    PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder, PyTaskNamespace,
-    PyWorkflowContext,
-};
-use workflow::{register_workflow_constructor, PyWorkflow, PyWorkflowBuilder};
+use value_objects::{PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder};
 
 /// A simple hello world class for testing
 #[pyclass]
@@ -61,7 +63,7 @@ impl HelloClass {
 
 /// A simple hello world function for testing
 #[pyfunction]
-#[allow(dead_code)] // Used by PyO3 module exports
+#[allow(dead_code)]
 fn hello_world() -> String {
     "Hello from Cloaca backend!".to_string()
 }
@@ -75,30 +77,30 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Test class
     m.add_class::<HelloClass>()?;
 
-    // Context class
+    // Context class (from cloacina::python)
     m.add_class::<PyContext>()?;
 
-    // Configuration class
+    // Configuration class (local)
     m.add_class::<PyDefaultRunnerConfig>()?;
 
-    // Task decorator function and handle
+    // Task decorator function and handle (from cloacina::python)
     m.add_function(wrap_pyfunction!(task_decorator, m)?)?;
     m.add_class::<PyTaskHandle>()?;
 
-    // Trigger decorator and result class
+    // Trigger decorator and result class (local)
     m.add_function(wrap_pyfunction!(trigger::trigger, m)?)?;
     m.add_class::<PyTriggerResult>()?;
 
-    // Workflow classes and functions
+    // Workflow classes and functions (from cloacina::python)
     m.add_class::<PyWorkflowBuilder>()?;
     m.add_class::<PyWorkflow>()?;
     m.add_function(wrap_pyfunction!(register_workflow_constructor, m)?)?;
 
-    // Runner classes
+    // Runner classes (local)
     m.add_class::<PyDefaultRunner>()?;
     m.add_class::<PyPipelineResult>()?;
 
-    // Value objects
+    // Value objects (mixed: namespace/context from cloacina::python, retry local)
     m.add_class::<PyTaskNamespace>()?;
     m.add_class::<PyWorkflowContext>()?;
     m.add_class::<PyRetryPolicy>()?;
@@ -106,7 +108,7 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBackoffStrategy>()?;
     m.add_class::<PyRetryCondition>()?;
 
-    // Admin classes (PostgreSQL-specific, but available at runtime with helpful errors for SQLite)
+    // Admin classes (local)
     m.add_class::<PyDatabaseAdmin>()?;
     m.add_class::<PyTenantConfig>()?;
     m.add_class::<PyTenantCredentials>()?;
@@ -117,63 +119,61 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::task::task;
+    use cloacina::python::task::{pop_workflow_context, push_workflow_context, task};
+    use cloacina::python::workflow_context::PyWorkflowContext;
     use pyo3::ffi::c_str;
 
     #[test]
     fn test_task_registration() {
         Python::with_gil(|py| {
-            println!("=== Testing task registration ===");
+            // Push a default workflow context for task registration
+            push_workflow_context(PyWorkflowContext::default());
 
-            // Test 1: Create a task decorator
             let task_decorator = task(
                 Some("test_task".to_string()),
-                None, // dependencies
-                None, // retry_attempts
-                None, // retry_backoff
-                None, // retry_delay_ms
-                None, // retry_max_delay_ms
-                None, // retry_condition
-                None, // retry_jitter
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
             )
             .unwrap();
-            println!("✓ Task decorator created");
 
-            // Test 2: Create a mock Python function
             let mock_func = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
-            println!("✓ Mock function created");
-
-            // Test 3: Apply the decorator (this registers the task)
             let result = task_decorator.__call__(py, mock_func.into());
+            assert!(result.is_ok(), "Task registration should succeed");
 
-            match result {
-                Ok(_) => println!("✓ Task registration succeeded"),
-                Err(e) => {
-                    println!("✗ Task registration failed: {}", e);
-                    panic!("Task registration should succeed");
-                }
-            }
-
-            // Test 4: Check if task is in the registry
             let registry = cloacina::task::global_task_registry();
             let guard = registry.read();
             let namespace =
                 cloacina::TaskNamespace::new("public", "embedded", "default", "test_task");
-            let constructor = guard.get(&namespace);
+            assert!(
+                guard.get(&namespace).is_some(),
+                "Task should be found in registry"
+            );
 
-            assert!(constructor.is_some(), "Task should be found in registry");
-            println!("✓ Task found in registry with namespace: {:?}", namespace);
+            pop_workflow_context();
         });
     }
 
     #[test]
     fn test_workflow_add_task_lookup() {
         Python::with_gil(|py| {
-            println!("=== Testing workflow task lookup ===");
+            // Push context before registering tasks
+            push_workflow_context(PyWorkflowContext::new(
+                "public",
+                "embedded",
+                "lookup_test_workflow",
+            ));
 
-            // Test 1: Register a task first
             let task_decorator = task(
                 Some("lookup_test_task".to_string()),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -186,27 +186,13 @@ mod tests {
 
             let mock_func = py.eval(c_str!("lambda ctx: ctx"), None, None).unwrap();
             task_decorator.__call__(py, mock_func.into()).unwrap();
-            println!("✓ Task 'lookup_test_task' registered");
 
-            // Test 2: Create workflow builder
+            pop_workflow_context();
+
             let mut builder = PyWorkflowBuilder::new("lookup_test_workflow", None, None, None);
-            println!("✓ Workflow builder 'lookup_test_workflow' created");
-
-            // Test 3: Try to add the task (this is where it might hang)
             let task_id = py.eval(c_str!("'lookup_test_task'"), None, None).unwrap();
-
-            println!("About to call add_task with task_id: lookup_test_task");
-            println!("This is where the hang might occur...");
-
             let result = builder.add_task(py, task_id.into());
-
-            match result {
-                Ok(_) => println!("✓ Task added to workflow successfully"),
-                Err(e) => {
-                    println!("✗ Failed to add task to workflow: {}", e);
-                    // Don't panic here - let's see what the error is
-                }
-            }
+            assert!(result.is_ok(), "Task should be added to workflow");
         });
     }
 
@@ -214,16 +200,13 @@ mod tests {
     fn test_namespace_investigation() {
         println!("=== Investigating namespace issue ===");
 
-        // Test the namespace creation and lookup manually
         let registry = cloacina::task::global_task_registry();
 
-        // Register a mock task with default namespace
         let default_ns =
             cloacina::TaskNamespace::new("public", "embedded", "default", "investigation_task");
         cloacina::register_task_constructor(default_ns.clone(), {
             move || {
                 use std::sync::Arc;
-                // Create a minimal mock task
                 struct TestTask;
                 #[async_trait::async_trait]
                 impl cloacina::Task for TestTask {
@@ -248,7 +231,6 @@ mod tests {
             }
         });
 
-        // Check what namespaces exist
         {
             let guard = registry.read();
             println!("Registry check:");

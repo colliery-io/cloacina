@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ use pyo3::prelude::*;
 #[pyclass(name = "TaskNamespace")]
 #[derive(Clone, Debug)]
 pub struct PyTaskNamespace {
-    inner: cloacina::TaskNamespace,
+    inner: crate::TaskNamespace,
 }
 
 #[pymethods]
@@ -30,14 +30,14 @@ impl PyTaskNamespace {
     #[new]
     pub fn new(tenant_id: &str, package_name: &str, workflow_id: &str, task_id: &str) -> Self {
         Self {
-            inner: cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, task_id),
+            inner: crate::TaskNamespace::new(tenant_id, package_name, workflow_id, task_id),
         }
     }
 
     /// Parse TaskNamespace from string format "tenant::package::workflow::task"
     #[staticmethod]
     pub fn from_string(namespace_str: &str) -> PyResult<Self> {
-        cloacina::TaskNamespace::from_string(namespace_str)
+        crate::TaskNamespace::from_string(namespace_str)
             .map(|inner| Self { inner })
             .map_err(|e| PyValueError::new_err(format!("Invalid namespace format: {}", e)))
     }
@@ -69,7 +69,7 @@ impl PyTaskNamespace {
     /// Get parent namespace (without task_id)
     pub fn parent(&self) -> Self {
         Self {
-            inner: cloacina::TaskNamespace::new(
+            inner: crate::TaskNamespace::new(
                 &self.inner.tenant_id,
                 &self.inner.package_name,
                 &self.inner.workflow_id,
@@ -131,12 +131,12 @@ impl PyTaskNamespace {
 
 impl PyTaskNamespace {
     /// Convert from Rust TaskNamespace (for internal use)
-    pub fn from_rust(namespace: cloacina::TaskNamespace) -> Self {
+    pub fn from_rust(namespace: crate::TaskNamespace) -> Self {
         Self { inner: namespace }
     }
 
     /// Convert to Rust TaskNamespace (for internal use)
-    pub fn to_rust(&self) -> cloacina::TaskNamespace {
+    pub fn to_rust(&self) -> crate::TaskNamespace {
         self.inner.clone()
     }
 }

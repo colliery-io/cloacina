@@ -68,9 +68,15 @@ aes-gcm = { version = "0.10" }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = { version = "0.4" }
 pem = { version = "3.0" }
+pyo3 = { version = "0.25" }
+pythonize = { version = "0.25" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
 argon2 = { version = "0.5" }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
+[build-dependencies]
+pyo3-build-config = "0.25"
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)

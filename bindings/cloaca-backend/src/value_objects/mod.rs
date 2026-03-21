@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
  *  limitations under the License.
  */
 
-pub mod context;
-pub mod namespace;
-pub mod retry;
+// PyWorkflowContext and PyTaskNamespace have moved to cloacina::python.
+// Re-export for internal crate compatibility.
+pub use cloacina::python::namespace::PyTaskNamespace;
+pub use cloacina::python::workflow_context::PyWorkflowContext;
 
-pub use context::PyWorkflowContext;
-pub use namespace::PyTaskNamespace;
+// Retry value objects remain local
+pub mod retry;
 pub use retry::{PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder};

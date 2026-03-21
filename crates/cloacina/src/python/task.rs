@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use crate::value_objects::PyWorkflowContext;
+use super::workflow_context::PyWorkflowContext;
 use async_trait::async_trait;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -23,36 +23,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 /// Python wrapper for TaskHandle providing defer_until capability.
-///
-/// This class is passed as the second parameter to task functions that
-/// opt in to execution control (by accepting a `handle` parameter).
-///
-/// # Examples
-/// ```python
-/// @cloaca.task()
-/// def wait_for_data(context, handle):
-///     handle.defer_until(lambda: check_file_exists(), poll_interval_ms=500)
-///     context.set("ready", True)
-/// ```
 #[pyclass(name = "TaskHandle")]
 pub struct PyTaskHandle {
-    inner: Option<cloacina::TaskHandle>,
+    inner: Option<crate::TaskHandle>,
 }
 
 #[pymethods]
 impl PyTaskHandle {
     /// Release the concurrency slot while polling an external condition.
-    ///
-    /// This method frees the task's concurrency slot so other tasks can use it,
-    /// then polls the condition at the given interval. When the condition returns
-    /// True, the slot is reclaimed and execution continues.
-    ///
-    /// Args:
-    ///     condition: A callable that returns True when the task should resume.
-    ///     poll_interval_ms: How often to check the condition, in milliseconds (default: 1000).
-    ///
-    /// Raises:
-    ///     ValueError: If the handle has already been consumed or defer_until fails.
     #[pyo3(signature = (condition, poll_interval_ms = 1000))]
     pub fn defer_until(
         &mut self,
@@ -68,13 +46,11 @@ impl PyTaskHandle {
         let poll_interval = Duration::from_millis(poll_interval_ms);
         let rt_handle = tokio::runtime::Handle::current();
 
-        // Release GIL while doing async work (sleep + semaphore operations)
         py.allow_threads(|| {
             rt_handle.block_on(async {
                 handle
                     .defer_until(
                         move || {
-                            // Each poll: acquire GIL, call Python condition, release GIL
                             let result = Python::with_gil(|py| match condition.call0(py) {
                                 Ok(r) => r.extract::<bool>(py).unwrap_or(false),
                                 Err(e) => {
@@ -135,33 +111,27 @@ pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
 }
 
 /// Python task wrapper implementing Rust Task trait
-///
-/// This struct allows Python functions to be registered and executed
-/// as tasks within the Cloacina execution engine.
 pub struct PythonTaskWrapper {
     id: String,
-    dependencies: Vec<cloacina::TaskNamespace>,
-    retry_policy: cloacina::retry::RetryPolicy,
+    dependencies: Vec<crate::TaskNamespace>,
+    retry_policy: crate::retry::RetryPolicy,
     python_function: PyObject,
     on_success_callback: Option<PyObject>,
     on_failure_callback: Option<PyObject>,
     requires_handle: bool,
 }
 
-// Implement Send + Sync for PythonTaskWrapper
-// PyObject is already Send + Sync
 unsafe impl Send for PythonTaskWrapper {}
 unsafe impl Sync for PythonTaskWrapper {}
 
 #[async_trait]
-impl cloacina::Task for PythonTaskWrapper {
+impl crate::Task for PythonTaskWrapper {
     async fn execute(
         &self,
-        context: cloacina::Context<serde_json::Value>,
-    ) -> Result<cloacina::Context<serde_json::Value>, cloacina::TaskError> {
-        use crate::context::PyContext;
+        context: crate::Context<serde_json::Value>,
+    ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+        use super::context::PyContext;
 
-        // Clone PyObjects inside GIL context
         let function = Python::with_gil(|py| self.python_function.clone_ref(py));
         let on_success =
             Python::with_gil(|py| self.on_success_callback.as_ref().map(|f| f.clone_ref(py)));
@@ -171,24 +141,17 @@ impl cloacina::Task for PythonTaskWrapper {
         let task_id_for_error = self.id.clone();
         let needs_handle = self.requires_handle;
 
-        // If this task requires a handle, take it from task-local storage
-        // before entering spawn_blocking (task-locals are per-tokio-task).
         let task_handle = if needs_handle {
-            Some(cloacina::take_task_handle())
+            Some(crate::take_task_handle())
         } else {
             None
         };
 
-        // Execute Python function in a blocking task to avoid blocking the async runtime
         let (context_result, returned_handle) = tokio::task::spawn_blocking(move || {
             Python::with_gil(|py| {
-                // Get the original context data before moving context into PyContext
                 let original_data = context.data().clone();
-
-                // Create PyContext wrapper
                 let py_context = PyContext::from_rust_context(context);
 
-                // Call Python function — with or without handle
                 let (result, recovered_handle) = if let Some(handle) = task_handle {
                     let py_handle = Py::new(
                         py,
@@ -196,14 +159,13 @@ impl cloacina::Task for PythonTaskWrapper {
                             inner: Some(handle),
                         },
                     )
-                    .map_err(|e| cloacina::TaskError::ExecutionFailed {
+                    .map_err(|e| crate::TaskError::ExecutionFailed {
                         message: format!("Failed to create PyTaskHandle: {}", e),
                         task_id: task_id.clone(),
                         timestamp: chrono::Utc::now(),
                     })?;
                     let call_result =
                         function.call1(py, (py_context.clone(), py_handle.clone_ref(py)));
-                    // Extract handle back from PyTaskHandle
                     let recovered = py_handle.borrow_mut(py).inner.take();
                     (call_result, recovered)
                 } else {
@@ -213,9 +175,8 @@ impl cloacina::Task for PythonTaskWrapper {
 
                 match result {
                     Ok(returned) => {
-                        // Handle return value
                         let final_context = if returned.is_none(py) {
-                            let mut new_context = cloacina::Context::new();
+                            let mut new_context = crate::Context::new();
                             for (key, value) in original_data.iter() {
                                 new_context.insert(key.clone(), value.clone()).unwrap();
                             }
@@ -223,7 +184,7 @@ impl cloacina::Task for PythonTaskWrapper {
                         } else {
                             let returned_context: PyContext =
                                 returned.extract(py).map_err(|e| {
-                                    cloacina::TaskError::ExecutionFailed {
+                                    crate::TaskError::ExecutionFailed {
                                         message: format!("Python task execution failed: {}", e),
                                         task_id: task_id.clone(),
                                         timestamp: chrono::Utc::now(),
@@ -232,10 +193,9 @@ impl cloacina::Task for PythonTaskWrapper {
                             returned_context.into_inner()
                         };
 
-                        // Call on_success callback if provided
                         if let Some(callback) = on_success {
                             let cloned_data = final_context.data().clone();
-                            let mut callback_ctx = cloacina::Context::new();
+                            let mut callback_ctx = crate::Context::new();
                             for (key, value) in cloned_data.iter() {
                                 callback_ctx.insert(key.clone(), value.clone()).ok();
                             }
@@ -253,7 +213,6 @@ impl cloacina::Task for PythonTaskWrapper {
                     Err(e) => {
                         let error_message = format!("Python task execution failed: {}", e);
 
-                        // Call on_failure callback if provided
                         if let Some(callback) = on_failure {
                             if let Err(callback_err) =
                                 callback.call1(py, (&task_id, &error_message, py_context))
@@ -265,7 +224,7 @@ impl cloacina::Task for PythonTaskWrapper {
                             }
                         }
 
-                        Err(cloacina::TaskError::ExecutionFailed {
+                        Err(crate::TaskError::ExecutionFailed {
                             message: error_message,
                             task_id: task_id.clone(),
                             timestamp: chrono::Utc::now(),
@@ -275,15 +234,14 @@ impl cloacina::Task for PythonTaskWrapper {
             })
         })
         .await
-        .map_err(|e| cloacina::TaskError::ExecutionFailed {
+        .map_err(|e| crate::TaskError::ExecutionFailed {
             message: format!("Task execution panicked: {}", e),
             task_id: task_id_for_error.clone(),
             timestamp: chrono::Utc::now(),
         })??;
 
-        // Return handle to task-local storage so the executor can reclaim it
         if let Some(handle) = returned_handle {
-            cloacina::return_task_handle(handle);
+            crate::return_task_handle(handle);
         }
 
         Ok(context_result)
@@ -293,11 +251,11 @@ impl cloacina::Task for PythonTaskWrapper {
         &self.id
     }
 
-    fn dependencies(&self) -> &[cloacina::TaskNamespace] {
+    fn dependencies(&self) -> &[crate::TaskNamespace] {
         &self.dependencies
     }
 
-    fn retry_policy(&self) -> cloacina::retry::RetryPolicy {
+    fn retry_policy(&self) -> crate::retry::RetryPolicy {
         self.retry_policy.clone()
     }
 
@@ -307,24 +265,21 @@ impl cloacina::Task for PythonTaskWrapper {
 
     fn checkpoint(
         &self,
-        _context: &cloacina::Context<serde_json::Value>,
-    ) -> Result<(), cloacina::CheckpointError> {
+        _context: &crate::Context<serde_json::Value>,
+    ) -> Result<(), crate::CheckpointError> {
         Ok(())
     }
 
     fn trigger_rules(&self) -> serde_json::Value {
-        // Default to Always trigger rule (same as Rust macro default)
         serde_json::json!({"type": "Always"})
     }
 
     fn code_fingerprint(&self) -> Option<String> {
-        // Could implement Python function hashing in the future
         None
     }
 }
 
 /// Build retry policy from Python decorator parameters
-#[allow(dead_code)] // Used by task decorator function
 fn build_retry_policy(
     retry_attempts: Option<usize>,
     retry_backoff: Option<String>,
@@ -332,8 +287,8 @@ fn build_retry_policy(
     retry_max_delay_ms: Option<u64>,
     retry_condition: Option<String>,
     retry_jitter: Option<bool>,
-) -> cloacina::retry::RetryPolicy {
-    use cloacina::retry::*;
+) -> crate::retry::RetryPolicy {
+    use crate::retry::*;
     use std::time::Duration;
 
     let mut builder = RetryPolicy::builder();
@@ -383,9 +338,9 @@ fn build_retry_policy(
 /// Decorator class that holds task configuration
 #[pyclass]
 pub struct TaskDecorator {
-    id: Option<String>,          // Now optional - can be derived from function name
-    dependencies: Vec<PyObject>, // Now supports both strings and function objects
-    retry_policy: cloacina::retry::RetryPolicy,
+    id: Option<String>,
+    dependencies: Vec<PyObject>,
+    retry_policy: crate::retry::RetryPolicy,
     on_success: Option<PyObject>,
     on_failure: Option<PyObject>,
 }
@@ -393,19 +348,14 @@ pub struct TaskDecorator {
 #[pymethods]
 impl TaskDecorator {
     pub fn __call__(&self, py: Python, func: PyObject) -> PyResult<PyObject> {
-        // Get the current workflow context from the global stack
         let context = current_workflow_context()?;
 
-        // Determine task ID - use provided ID or derive from function name
         let task_id = if let Some(id) = &self.id {
             id.clone()
         } else {
-            // Extract function name
             func.getattr(py, "__name__")?.extract::<String>(py)?
         };
 
-        // Detect if the Python function accepts a handle parameter.
-        // Check parameter names via __code__.co_varnames for the second positional arg.
         let has_handle = {
             let code = func.getattr(py, "__code__")?;
             let argcount: usize = code.getattr(py, "co_argcount")?.extract(py)?;
@@ -420,7 +370,6 @@ impl TaskDecorator {
             }
         };
 
-        // Convert dependencies from mixed PyObject list to TaskNamespace list
         let deps = match self.convert_dependencies_to_namespaces(py, &context) {
             Ok(deps) => deps,
             Err(e) => {
@@ -433,20 +382,14 @@ impl TaskDecorator {
         let on_success_cb = self.on_success.as_ref().map(|f| f.clone_ref(py));
         let on_failure_cb = self.on_failure.as_ref().map(|f| f.clone_ref(py));
 
-        // Register task constructor in global registry using context
         let shared_function = Arc::new(function);
         let shared_on_success = on_success_cb.map(Arc::new);
         let shared_on_failure = on_failure_cb.map(Arc::new);
         let (tenant_id, package_name, workflow_id) = context.as_components();
-        let namespace =
-            cloacina::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
+        let namespace = crate::TaskNamespace::new(tenant_id, package_name, workflow_id, &task_id);
 
-        // Release GIL before acquiring Rust locks to prevent deadlock.
-        // Without this, a deadlock can occur:
-        //   Thread A (here): holds GIL -> wants registry write lock
-        //   Thread B (executor): holds registry read lock -> wants GIL (in constructor)
         py.allow_threads(|| {
-            cloacina::register_task_constructor(namespace.clone(), {
+            crate::register_task_constructor(namespace.clone(), {
                 let task_id_clone = task_id.clone();
                 let deps_clone = deps.clone();
                 let policy_clone = policy.clone();
@@ -467,15 +410,11 @@ impl TaskDecorator {
                         on_success_callback: on_success_clone,
                         on_failure_callback: on_failure_clone,
                         requires_handle: has_handle,
-                    }) as Arc<dyn cloacina::Task>
+                    }) as Arc<dyn crate::Task>
                 }
             });
         });
 
-        // Store task ID for the current workflow to add later
-        // For now, we'll let the workflow builder handle task collection differently
-
-        // Return the original function (decorator behavior)
         Ok(func)
     }
 }
@@ -486,15 +425,13 @@ impl TaskDecorator {
         &self,
         py: Python,
         context: &PyWorkflowContext,
-    ) -> PyResult<Vec<cloacina::TaskNamespace>> {
+    ) -> PyResult<Vec<crate::TaskNamespace>> {
         let mut namespace_deps = Vec::new();
 
         for (i, dep) in self.dependencies.iter().enumerate() {
             let task_name = if let Ok(string_dep) = dep.extract::<String>(py) {
-                // It's a string - use directly
                 string_dep
             } else {
-                // Try to get function name
                 match dep.bind(py).hasattr("__name__") {
                     Ok(true) => match dep.getattr(py, "__name__") {
                         Ok(name_obj) => match name_obj.extract::<String>(py) {
@@ -528,9 +465,8 @@ impl TaskDecorator {
                 }
             };
 
-            // Use workflow context to create proper namespace
             let (tenant_id, package_name, workflow_id) = context.as_components();
-            namespace_deps.push(cloacina::TaskNamespace::new(
+            namespace_deps.push(crate::TaskNamespace::new(
                 tenant_id,
                 package_name,
                 workflow_id,
@@ -543,44 +479,6 @@ impl TaskDecorator {
 }
 
 /// Python @task decorator function
-///
-/// This function is exposed to Python as a decorator that registers
-/// Python functions as tasks in the Cloacina execution engine.
-///
-/// # Examples
-///
-/// **Workflow-scoped approach (automatic namespace inheritance):**
-/// ```python
-/// with cloaca.WorkflowBuilder("my_workflow", tenant="acme", package="data") as workflow:
-///     @cloaca.task(
-///         id="my_task",
-///         dependencies=["other_task"],
-///         retry_attempts=3,
-///         retry_backoff="exponential"
-///     )
-///     def my_task(context):
-///         context.set("result", "processed")
-///         return context
-///
-///     @cloaca.task()  # ID automatically derived from function name
-///     def extract_data(context):
-///         return context
-///
-///     @cloaca.task(dependencies=[extract_data])  # Direct function reference
-///     def process_data(context):
-///         return context
-///
-///     # With callbacks
-///     def log_success(task_id, context):
-///         print(f"Task {task_id} succeeded!")
-///
-///     def log_failure(task_id, error, context):
-///         print(f"Task {task_id} failed: {error}")
-///
-///     @cloaca.task(on_success=log_success, on_failure=log_failure)
-///     def monitored_task(context):
-///         return context
-/// ```
 #[pyfunction]
 #[pyo3(signature = (
     *,
@@ -595,7 +493,6 @@ impl TaskDecorator {
     on_success = None,
     on_failure = None
 ))]
-#[allow(dead_code)] // Used by PyO3 module exports
 pub fn task(
     id: Option<String>,
     dependencies: Option<Vec<PyObject>>,
@@ -608,7 +505,6 @@ pub fn task(
     on_success: Option<PyObject>,
     on_failure: Option<PyObject>,
 ) -> PyResult<TaskDecorator> {
-    // Build retry policy from parameters
     let retry_policy = build_retry_policy(
         retry_attempts,
         retry_backoff,

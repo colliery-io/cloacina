@@ -184,6 +184,89 @@ impl PackageValidator {
     pub fn max_package_size(&self) -> u64 {
         self.max_package_size
     }
+
+    /// Validate a Python workflow package.
+    ///
+    /// Python packages are validated differently from Rust packages:
+    /// - Size check (same as Rust)
+    /// - Manifest fields (name, version, entry_module must be non-empty)
+    /// - Task definitions (at least one task, no duplicate IDs)
+    /// - No binary format or symbol checks (Python uses source, not .so)
+    pub fn validate_python_package(
+        &self,
+        package_data: &[u8],
+        manifest: &crate::packaging::manifest_v2::ManifestV2,
+    ) -> ValidationResult {
+        let mut result = ValidationResult {
+            is_valid: true,
+            errors: Vec::new(),
+            warnings: Vec::new(),
+            security_level: SecurityLevel::Safe,
+            compatibility: CompatibilityInfo {
+                architecture: "python".to_string(),
+                required_symbols: Vec::new(),
+                missing_symbols: Vec::new(),
+                cloacina_version: None,
+            },
+        };
+
+        // Size validation
+        self.validate_package_size(package_data, &mut result);
+
+        // Manifest field validation
+        if manifest.package.name.is_empty() {
+            result
+                .errors
+                .push("Package name cannot be empty".to_string());
+        }
+        if manifest.package.version.is_empty() {
+            result
+                .errors
+                .push("Package version cannot be empty".to_string());
+        }
+
+        // Python config validation
+        match &manifest.python {
+            Some(python_config) => {
+                if python_config.entry_module.is_empty() {
+                    result
+                        .errors
+                        .push("Python entry_module cannot be empty".to_string());
+                }
+            }
+            None => {
+                result
+                    .errors
+                    .push("Python package missing [python] configuration in manifest".to_string());
+            }
+        }
+
+        // Task validation
+        if manifest.tasks.is_empty() {
+            result
+                .warnings
+                .push("Python package contains no tasks".to_string());
+        } else {
+            let mut seen_ids = HashSet::new();
+            for task in &manifest.tasks {
+                if task.id.is_empty() {
+                    result.errors.push("Task has empty ID".to_string());
+                }
+                if !seen_ids.insert(&task.id) {
+                    result
+                        .errors
+                        .push(format!("Duplicate task ID: '{}'", task.id));
+                }
+            }
+        }
+
+        // Final decision
+        if !result.errors.is_empty() || (self.strict_mode && !result.warnings.is_empty()) {
+            result.is_valid = false;
+        }
+
+        result
+    }
 }
 
 impl Default for PackageValidator {

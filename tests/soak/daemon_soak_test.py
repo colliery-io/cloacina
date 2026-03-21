@@ -168,22 +168,14 @@ def main():
         if python_project.exists():
             print("Building Python workflow package...", end=" ", flush=True)
             try:
-                # Try to build via cloacinactl package build (uses cloaca via PyO3)
-                rc, stdout, stderr = run_cmd([
-                    ctl, "package", "build",
-                    "-o", str(test_dir),
-                ], timeout=60, check=False)
-                # cloacinactl package build runs from CWD and needs pyproject.toml
-                # Fall back to direct cloaca if available
-                if rc != 0:
-                    # Try direct Python cloaca build
-                    py_result = subprocess.run(
-                        ["python3", "-m", "cloaca.cli.build", "-o", str(test_dir)],
-                        cwd=str(python_project),
-                        capture_output=True, text=True, timeout=60,
-                    )
-                    if py_result.returncode == 0:
-                        rc = 0
+                # Build via cloacinactl package build (pure Rust — no pip install needed)
+                # Must run from the python project directory
+                py_result = subprocess.run(
+                    [ctl, "package", "build", "-o", str(test_dir)],
+                    cwd=str(python_project),
+                    capture_output=True, text=True, timeout=60,
+                )
+                rc = py_result.returncode
 
                 if rc == 0:
                     # Validate the built package
@@ -197,15 +189,15 @@ def main():
                             assert "manifest.json" in names, "Missing manifest.json"
                             manifest = json.load(tar.extractfile("manifest.json"))
                             assert manifest["language"] == "python"
-                            assert len(manifest["tasks"]) > 0
+                            # Tasks may be empty — discovered at registration via PyO3
+                            assert "workflow" in [n.split("/")[0] for n in names], "Missing workflow/"
                         print(
-                            f"OK ({manifest['package']['name']} v{manifest['package']['version']}, "
-                            f"{len(manifest['tasks'])} tasks)"
+                            f"OK ({manifest['package']['name']} v{manifest['package']['version']})"
                         )
                     else:
                         print("WARNING: no Python .cloacina file produced")
                 else:
-                    print("SKIPPED (cloaca not available)")
+                    print(f"SKIPPED (build failed: {py_result.stderr[:200]})")
             except Exception as e:
                 print(f"SKIPPED ({e})")
 
