@@ -61,6 +61,9 @@ pub mod assertions;
 pub mod result;
 pub mod runner;
 
+#[cfg(feature = "db")]
+pub mod test_db;
+
 #[cfg(feature = "continuous")]
 pub mod boundary;
 #[cfg(feature = "continuous")]
@@ -74,3 +77,6 @@ pub use runner::{TestRunner, TestRunnerError};
 pub use boundary::BoundaryEmitter;
 #[cfg(feature = "continuous")]
 pub use mock::MockDataConnection;
+
+#[cfg(feature = "db")]
+pub use test_db::{test_dal, test_db};

@@ -60,6 +60,7 @@ mod tests {
 
     #[test]
     fn test_python_workflow_via_with_gil() {
+        pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
             // Push a workflow context
             task::push_workflow_context(PyWorkflowContext::new(

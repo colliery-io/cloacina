@@ -4,14 +4,14 @@ level: initiative
 title: "Test Coverage and Code Quality — MockDAL, Stub Tests, Python Tests, DAL Dedup"
 short_code: "CLOACI-I-0041"
 created_at: 2026-03-21T18:39:28.781656+00:00
-updated_at: 2026-03-21T18:39:28.781656+00:00
+updated_at: 2026-03-22T13:19:31.632106+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -79,22 +79,19 @@ Test coverage audit revealed systemic gaps: 5+ stub tests with no assertions, ze
 
 ### Missing test infrastructure
 
-- No `MockDAL` — root cause of stub tests (can't test without real DB)
-- No `test_db()` helper for in-memory SQLite with migrations
-- No `MockKeyManager` for security testing
+- No `test_db()` helper for in-memory SQLite with migrations — root cause of stub tests
 
 ## Implementation Plan
 
 ### Phase 1: Test infrastructure (unblocks everything)
-- Create `MockDAL` in `cloacina-testing` implementing DAL trait with in-memory storage
-- Create `test_db()` helper: in-memory SQLite with migrations applied
-- Create `MockKeyManager` for security tests
+- Create `test_db()` + `test_dal()` helpers in `cloacina-testing`: in-memory SQLite with migrations applied, returns real DAL ready to use
+- No mocks — all tests run against real SQLite with real queries
 
 ### Phase 2: Fix stub tests + add critical coverage
-- Replace 5 stub tests with real assertions (cron scheduler, recovery, workflow registry)
+- Replace 5 stub tests with real assertions using `test_dal()` (cron scheduler, recovery, workflow registry)
 - Add Python subsystem tests (loader, task decorator, workflow builder, context)
 - Add cloacinactl command tests (daemon, package)
-- Add security tests (db_key_manager lifecycle, trust chains)
+- Add security tests (db_key_manager lifecycle, trust chains) against real SQLite
 
 ### Phase 3: Soak test expansion
 - Add chaos scenario: kill daemon mid-execution, verify recovery

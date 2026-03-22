@@ -53,9 +53,24 @@ def smoke(backend=None):
         print("\nStep 2: Testing basic import...")
         test_script = '''
 import cloaca
-print(f"Backend: {cloaca.get_backend()}")
 print(f"Hello: {cloaca.hello_world()}")
-assert cloaca.get_backend() == "unified", f"Expected 'unified', got {cloaca.get_backend()}"
+assert cloaca.hello_world() == "Hello from Cloaca backend!"
+
+# Verify core classes are importable
+from cloaca import (
+    Context, DefaultRunnerConfig, DefaultRunner, WorkflowBuilder,
+    Workflow, TaskNamespace, WorkflowContext, task, TaskHandle,
+    RetryPolicy, BackoffStrategy, RetryCondition,
+)
+print("All core classes imported successfully")
+
+# Quick Context smoke test
+ctx = Context({"key": "value"})
+assert ctx.get("key") == "value"
+ctx.set("num", 42)
+assert ctx.get("num") == 42
+print(f"Context works: {ctx}")
+
 print("Basic import test passed!")
 '''
         result = subprocess.run([str(python_exe), "-c", test_script], capture_output=True, text=True)
@@ -128,7 +143,7 @@ print("PostgreSQL smoke test passed!")
                 print(result.stdout)
                 if result.stderr:
                     # Filter out tracing logs
-                    stderr_lines = [l for l in result.stderr.split('\n') if not l.strip().startswith('[2m') and l.strip()]
+                    stderr_lines = [line for line in result.stderr.split('\n') if not line.strip().startswith('[2m') and line.strip()]
                     if stderr_lines:
                         print("STDERR:", '\n'.join(stderr_lines))
 

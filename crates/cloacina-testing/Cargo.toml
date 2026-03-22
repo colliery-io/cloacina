@@ -29,10 +29,12 @@ edition = "2021"
 [features]
 default = []
 continuous = ["chrono"]
+db = ["cloacina", "tokio", "uuid"]
 
 [dependencies]
 # Local dependencies
 cloacina-workflow = { workspace = true }
+cloacina = { path = "../cloacina", default-features = false, features = ["sqlite"], optional = true }
 
 # External dependencies
 async-trait = { workspace = true }
@@ -41,9 +43,15 @@ indexmap = "2.0"
 petgraph = "0.6"
 thiserror = "1.0"
 
-# Optional dependencies (continuous feature)
+# Optional dependencies
 chrono = { version = "0.4", features = ["serde"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+uuid = { version = "1.0", features = ["v4"], optional = true }
+
+[build-dependencies]
+pyo3-build-config = "0.25"
 
 [dev-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+cloacina = { path = "../cloacina", default-features = false, features = ["sqlite"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
