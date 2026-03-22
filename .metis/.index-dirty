@@ -1,7 +1,11 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/config.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/serve.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/loader/python_loader.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/loader.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/executions.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/auth/cache.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/database/connection/backend.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/context.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/task.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/security/api_keys.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/routes/tenants.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/api_key.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/serve.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/runner/default_runner/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/daemon.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/database/connection/mod.rs

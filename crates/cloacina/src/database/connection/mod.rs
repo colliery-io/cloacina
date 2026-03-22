@@ -401,6 +401,10 @@ impl Database {
                     diesel::sql_query("PRAGMA busy_timeout=30000;")
                         .execute(conn)
                         .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
+                    // Enable foreign key enforcement (off by default in SQLite)
+                    diesel::sql_query("PRAGMA foreign_keys=ON;")
+                        .execute(conn)
+                        .map_err(|e| format!("Failed to enable foreign keys: {}", e))?;
 
                     conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
                         .map(|_| ())
@@ -437,6 +441,9 @@ impl Database {
                 diesel::sql_query("PRAGMA busy_timeout=30000;")
                     .execute(conn)
                     .map_err(|e| format!("Failed to set busy_timeout: {}", e))?;
+                diesel::sql_query("PRAGMA foreign_keys=ON;")
+                    .execute(conn)
+                    .map_err(|e| format!("Failed to enable foreign keys: {}", e))?;
 
                 conn.run_pending_migrations(crate::database::SQLITE_MIGRATIONS)
                     .map(|_| ())

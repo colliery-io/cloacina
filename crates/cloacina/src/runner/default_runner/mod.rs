@@ -321,6 +321,9 @@ impl DefaultRunner {
     /// # Returns
     /// * `Result<(), PipelineError>` - Success or error status
     pub async fn shutdown(&self) -> Result<(), PipelineError> {
+        use std::time::Duration;
+
+        let shutdown_timeout = Duration::from_secs(30);
         let mut handles = self.runtime_handles.write().await;
 
         // Send shutdown signal
@@ -328,45 +331,77 @@ impl DefaultRunner {
             let _ = sender.send(());
         }
 
-        // Wait for scheduler to finish
-        if let Some(handle) = handles.scheduler_handle.take() {
-            let _ = handle.await;
-        }
-
-        // Wait for executor to finish
-        if let Some(handle) = handles.executor_handle.take() {
-            let _ = handle.await;
-        }
-
-        // Wait for cron scheduler to finish (if enabled)
-        if let Some(handle) = handles.cron_scheduler_handle.take() {
-            let _ = handle.await;
-        }
-
-        // Wait for cron recovery service to finish (if enabled)
-        if let Some(handle) = handles.cron_recovery_handle.take() {
-            let _ = handle.await;
-        }
-
-        // Wait for registry reconciler to finish (if enabled)
-        if let Some(handle) = handles.registry_reconciler_handle.take() {
-            let _ = handle.await;
-        }
-
-        // Wait for trigger scheduler to finish (if enabled)
-        if let Some(handle) = handles.trigger_scheduler_handle.take() {
-            let _ = handle.await;
-        }
-
         // Send shutdown signal to continuous scheduler (if enabled)
         if let Some(tx) = handles.continuous_shutdown_tx.take() {
             let _ = tx.send(true);
         }
 
-        // Wait for continuous scheduler to finish (if enabled)
-        if let Some(handle) = handles.continuous_scheduler_handle.take() {
-            let _ = handle.await;
+        // Helper: await handle with timeout, log errors
+        async fn await_service(
+            name: &str,
+            handle: Option<tokio::task::JoinHandle<()>>,
+            timeout: Duration,
+        ) {
+            if let Some(h) = handle {
+                match tokio::time::timeout(timeout, h).await {
+                    Ok(Ok(())) => {
+                        tracing::debug!("{} shut down cleanly", name);
+                    }
+                    Ok(Err(e)) => {
+                        if e.is_panic() {
+                            tracing::error!("{} panicked during shutdown: {:?}", name, e);
+                        } else {
+                            tracing::warn!("{} was cancelled during shutdown", name);
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "{} did not shut down within {}s — aborting",
+                            name,
+                            timeout.as_secs()
+                        );
+                    }
+                }
+            }
         }
+
+        await_service(
+            "scheduler",
+            handles.scheduler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service("executor", handles.executor_handle.take(), shutdown_timeout).await;
+        await_service(
+            "cron_scheduler",
+            handles.cron_scheduler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service(
+            "cron_recovery",
+            handles.cron_recovery_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service(
+            "registry_reconciler",
+            handles.registry_reconciler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service(
+            "trigger_scheduler",
+            handles.trigger_scheduler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service(
+            "continuous_scheduler",
+            handles.continuous_scheduler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
 
         // Close the database connection pool to release all connections
         self.database.close();

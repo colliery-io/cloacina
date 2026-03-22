@@ -316,25 +316,31 @@ async fn scan_once(
     storage_path: &PathBuf,
     known_files: &mut HashMap<String, SystemTime>,
 ) -> Result<()> {
-    // List current .cloacina files
-    let mut current_files: HashMap<String, SystemTime> = HashMap::new();
-
-    let entries = std::fs::read_dir(packages_dir).context("Failed to read packages directory")?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("cloacina") {
-            if let Ok(meta) = entry.metadata() {
-                if let Ok(modified) = meta.modified() {
-                    let filename = path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
-                    current_files.insert(filename, modified);
+    // List current .cloacina files (blocking I/O in spawn_blocking to avoid starving tokio)
+    let dir = packages_dir.clone();
+    let current_files: HashMap<String, SystemTime> =
+        tokio::task::spawn_blocking(move || -> Result<HashMap<String, SystemTime>> {
+            let mut files = HashMap::new();
+            let entries = std::fs::read_dir(&dir).context("Failed to read packages directory")?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("cloacina") {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            let filename = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
+                            files.insert(filename, modified);
+                        }
+                    }
                 }
             }
-        }
-    }
+            Ok(files)
+        })
+        .await
+        .context("Directory scan task panicked")??;
 
     // Detect new or modified files
     for (filename, modified) in &current_files {

@@ -52,6 +52,9 @@ pub struct WorkflowRegistryImpl<S: RegistryStorage> {
     validator: PackageValidator,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     pub(super) loaded_packages: HashMap<Uuid, Vec<TaskNamespace>>,
+    /// Staging directories for Python packages — kept alive for task execution,
+    /// cleaned up on unregister or drop.
+    python_staging_dirs: Vec<tempfile::TempDir>,
 }
 
 impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
@@ -78,6 +81,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             registrar,
             validator,
             loaded_packages: HashMap::new(),
+            python_staging_dirs: Vec::new(),
         })
     }
 
@@ -94,6 +98,7 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
             registrar,
             validator,
             loaded_packages: HashMap::new(),
+            python_staging_dirs: Vec::new(),
         })
     }
 
@@ -323,8 +328,9 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         );
 
         // Keep staging dir alive for the lifetime of the package
-        // (Python tasks need the extracted files on disk for execution)
-        std::mem::forget(staging_dir);
+        // (Python tasks need the extracted files on disk for execution).
+        // Stored in the registry so it's cleaned up on drop/shutdown.
+        self.python_staging_dirs.push(staging_dir);
 
         Ok(package_id)
     }

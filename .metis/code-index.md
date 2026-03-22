@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-21T14:01:55Z | 411 files | JavaScript, Python, Rust
+> Generated: 2026-03-22T00:59:16Z | 411 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3357,11 +3357,14 @@
 
 #### crates/cloacina/src/python/loader.rs
 
-- pub `PythonLoaderError` enum L35-47 — `ImportError | ValidationError | RegistrationError | RuntimeError` — Error type for Python package loading operations.
-- pub `ensure_cloaca_module` function L60-94 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
-- pub `import_and_register_python_workflow` function L115-244 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — Import a Python workflow module and register its tasks.
--  `PythonLoaderError` type L49-53 — `= PythonLoaderError` — cloacina task execution engine.
--  `from` function L50-52 — `(err: PyErr) -> Self` — cloacina task execution engine.
+- pub `PythonLoaderError` enum L69-81 — `ImportError | ValidationError | RegistrationError | RuntimeError` — Error type for Python package loading operations.
+- pub `ensure_cloaca_module` function L94-128 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
+- pub `validate_no_stdlib_shadowing` function L153-177 — `( workflow_dir: &Path, vendor_dir: &Path, ) -> Result<(), PythonLoaderError>` — Import a Python workflow module and register its tasks.
+- pub `import_and_register_python_workflow` function L179-312 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+-  `IMPORT_TIMEOUT_SECS` variable L35 — `: u64` — Default timeout for Python module import (seconds).
+-  `STDLIB_DENY_LIST` variable L39-65 — `: &[&str]` — Python stdlib module names that must never appear in extracted packages.
+-  `PythonLoaderError` type L83-87 — `= PythonLoaderError` — cloacina task execution engine.
+-  `from` function L84-86 — `(err: PyErr) -> Self` — cloacina task execution engine.
 
 #### crates/cloacina/src/python/mod.rs
 
@@ -3576,16 +3579,19 @@
 - pub `PackageKind` enum L48-53 — `Python | Rust` — Result of peeking at a manifest inside an archive.
 - pub `peek_manifest` function L56-92 — `(archive_data: &[u8]) -> Result<ManifestV2, LoaderError>` — Peek at the manifest inside a `.cloacina` archive without full extraction.
 - pub `detect_package_kind` function L95-101 — `(archive_data: &[u8]) -> Result<PackageKind, LoaderError>` — Determine the package kind (Python or Rust) from archive data.
-- pub `extract_python_package` function L108-169 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` archive.
--  `tests` module L172-336 — `-` — execution via PyO3.
--  `build_test_archive` function L183-222 — `(manifest: &ManifestV2, include_workflow: bool) -> Vec<u8>` — Build a minimal Python `.cloacina` archive in memory.
--  `make_test_manifest` function L224-251 — `() -> ManifestV2` — execution via PyO3.
--  `test_peek_manifest` function L254-261 — `()` — execution via PyO3.
--  `test_detect_package_kind_python` function L264-270 — `()` — execution via PyO3.
--  `test_extract_python_package` function L273-284 — `()` — execution via PyO3.
--  `test_extract_missing_workflow_dir` function L287-294 — `()` — execution via PyO3.
--  `test_peek_manifest_missing` function L297-315 — `()` — execution via PyO3.
--  `test_wrong_language` function L318-335 — `()` — execution via PyO3.
+- pub `extract_python_package` function L108-244 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` archive.
+-  `tests` module L247-540 — `-` — execution via PyO3.
+-  `build_test_archive` function L258-297 — `(manifest: &ManifestV2, include_workflow: bool) -> Vec<u8>` — Build a minimal Python `.cloacina` archive in memory.
+-  `make_test_manifest` function L299-326 — `() -> ManifestV2` — execution via PyO3.
+-  `test_peek_manifest` function L329-336 — `()` — execution via PyO3.
+-  `test_detect_package_kind_python` function L339-345 — `()` — execution via PyO3.
+-  `test_extract_python_package` function L348-359 — `()` — execution via PyO3.
+-  `test_extract_missing_workflow_dir` function L362-369 — `()` — execution via PyO3.
+-  `test_peek_manifest_missing` function L372-390 — `()` — execution via PyO3.
+-  `test_wrong_language` function L393-410 — `()` — execution via PyO3.
+-  `build_traversal_archive` function L413-452 — `(entry_path: &str) -> Vec<u8>` — Build an archive with a path traversal entry.
+-  `test_reject_path_traversal` function L455-498 — `()` — execution via PyO3.
+-  `test_reject_symlink` function L501-539 — `()` — execution via PyO3.
 
 ### crates/cloacina/src/registry/loader/task_registrar
 
@@ -5697,15 +5703,16 @@
 - pub `insert` function L90-99 — `(&self, prefix: String, keys: Vec<CachedKey>)` — Insert found keys into cache.
 - pub `insert_not_found` function L102-110 — `(&self, prefix: String)` — Insert negative cache entry (prefix not found in DB).
 - pub `invalidate` function L113-116 — `(&self, prefix: &str)` — Invalidate a specific prefix (e.g., after key creation or revocation).
+- pub `clear` function L119-122 — `(&self)` — Clear the entire cache (e.g., after key revocation when prefix is unknown).
 -  `CacheEntry` enum L42-50 — `Found | NotFound` — Cache entry: either found keys or negative cache.
--  `AuthCache` type L59-117 — `= AuthCache` — In-memory auth cache with TTL for API key lookups.
--  `tests` module L120-195 — `-` — In-memory auth cache with TTL for API key lookups.
--  `make_cached_key` function L123-136 — `(name: &str) -> CachedKey` — In-memory auth cache with TTL for API key lookups.
--  `test_insert_and_lookup` function L139-149 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_ttl_expiry` function L152-165 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_negative_cache` function L168-175 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_invalidation` function L178-188 — `()` — In-memory auth cache with TTL for API key lookups.
--  `test_miss_returns_none` function L191-194 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `AuthCache` type L59-123 — `= AuthCache` — In-memory auth cache with TTL for API key lookups.
+-  `tests` module L126-201 — `-` — In-memory auth cache with TTL for API key lookups.
+-  `make_cached_key` function L129-142 — `(name: &str) -> CachedKey` — In-memory auth cache with TTL for API key lookups.
+-  `test_insert_and_lookup` function L145-155 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_ttl_expiry` function L158-171 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_negative_cache` function L174-181 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_invalidation` function L184-194 — `()` — In-memory auth cache with TTL for API key lookups.
+-  `test_miss_returns_none` function L197-200 — `()` — In-memory auth cache with TTL for API key lookups.
 
 #### crates/cloacinactl/src/auth/context.rs
 
@@ -5839,27 +5846,28 @@
 
 - pub `ServeMode` enum L32-41 — `All | Api | Worker | Scheduler` — Server operational mode.
 - pub `ServeArgs` struct L56-72 — `{ mode: ServeMode, config: Option<String>, bind: String, port: u16 }` — Arguments for the `serve` subcommand.
-- pub `app` function L92-178 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
-- pub `run` function L244-341 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
+- pub `app` function L92-204 — `(state: Arc<AppState>) -> Router` — Build the axum Router with application state.
+- pub `run` function L285-382 — `(args: &ServeArgs) -> Result<()>` — Run the serve command.
 -  `ServeMode` type L43-52 — `= ServeMode` — `cloacinactl serve` command — starts the Cloacina server.
 -  `fmt` function L44-51 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `cloacinactl serve` command — starts the Cloacina server.
 -  `ApiDoc` struct L87 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `shutdown_signal` function L181-205 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
--  `build_runner_config` function L208-241 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
--  `tests` module L344-989 — `-` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_serve_health_endpoint_lifecycle` function L349-407 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_health_returns_correct_mode` function L410-439 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_unknown_route_returns_404` function L442-470 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `app_with_auth_cache` function L473-493 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
--  `test_auth_protected_endpoint_requires_auth` function L496-527 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_valid_key_returns_200` function L530-588 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_auth_invalid_key_returns_401` function L591-622 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_workflows_without_runner_returns_503` function L627-680 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_executions_without_auth_returns_401` function L683-720 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_api_error_format_consistency` function L723-787 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_metrics_endpoint_returns_prometheus_format` function L792-852 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_endpoints_require_admin` function L857-923 — `()` — `cloacinactl serve` command — starts the Cloacina server.
--  `test_tenant_list_without_dal_returns_503` function L926-988 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `reject_no_auth` function L210-219 — `( request: axum::extract::Request, next: axum::middleware::Next, ) -> axum::resp...` — Middleware that rejects all requests with 503 when auth is not configured.
+-  `shutdown_signal` function L222-246 — `()` — Wait for a shutdown signal (SIGTERM or Ctrl+C).
+-  `build_runner_config` function L249-282 — `( config: &ServerConfig, mode: ServeMode, ) -> cloacina::runner::DefaultRunnerCo...` — Build a DefaultRunnerConfig from the ServerConfig.
+-  `tests` module L385-1030 — `-` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_serve_health_endpoint_lifecycle` function L390-448 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_health_returns_correct_mode` function L451-480 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_unknown_route_returns_404` function L483-511 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `app_with_auth_cache` function L514-534 — `(cache: crate::auth::cache::AuthCache) -> (Router, Arc<AppState>)` — Helper: create an app with auth middleware using a pre-populated cache (no DB needed).
+-  `test_auth_protected_endpoint_requires_auth` function L537-568 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_valid_key_returns_200` function L571-629 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_auth_invalid_key_returns_401` function L632-663 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_workflows_without_runner_returns_503` function L668-721 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_executions_without_auth_returns_401` function L724-761 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_api_error_format_consistency` function L764-828 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_metrics_endpoint_returns_prometheus_format` function L833-893 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_endpoints_require_admin` function L898-964 — `()` — `cloacinactl serve` command — starts the Cloacina server.
+-  `test_tenant_list_without_dal_returns_503` function L967-1029 — `()` — `cloacinactl serve` command — starts the Cloacina server.
 
 ### crates/cloacinactl/src
 
@@ -5955,19 +5963,19 @@
 
 #### crates/cloacinactl/src/routes/executions.rs
 
-- pub `ExecutionRequest` struct L38-42 — `{ workflow_name: String, context: serde_json::Value }` — Request body for triggering an execution.
-- pub `ExecutionCreatedResponse` struct L46-49 — `{ execution_id: String, status: String }` — Response for execution creation.
-- pub `ExecutionStatusResponse` struct L53-61 — `{ execution_id: String, workflow_name: String, status: String, started_at: Optio...` — Response for execution status.
-- pub `TaskResultResponse` struct L64-68 — `{ task_name: String, status: String, error_message: Option<String> }` — Execution management endpoints.
-- pub `create_execution` function L71-97 — `( State(state): State<Arc<AppState>>, Json(body): Json<ExecutionRequest>, ) -> R...` — POST /executions — trigger a workflow execution.
-- pub `list_executions` function L100-129 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /executions — list recent executions.
-- pub `get_execution` function L132-164 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — GET /executions/{id} — get execution status and result.
-- pub `PauseRequest` struct L168-170 — `{ reason: Option<String> }` — Request body for pause (optional reason).
-- pub `ControlResponse` struct L174-177 — `{ execution_id: String, status: String }` — Simple status response for control operations.
-- pub `pause_execution` function L180-200 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, body: Option<Json<...` — POST /executions/{id}/pause
-- pub `resume_execution` function L203-220 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — POST /executions/{id}/resume
-- pub `cancel_execution` function L223-240 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /executions/{id}
--  `require_runner` function L30-34 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Execution management endpoints.
+- pub `ExecutionRequest` struct L39-43 — `{ workflow_name: String, context: serde_json::Value }` — Request body for triggering an execution.
+- pub `ExecutionCreatedResponse` struct L47-50 — `{ execution_id: String, status: String }` — Response for execution creation.
+- pub `ExecutionStatusResponse` struct L54-62 — `{ execution_id: String, workflow_name: String, status: String, started_at: Optio...` — Response for execution status.
+- pub `TaskResultResponse` struct L65-69 — `{ task_name: String, status: String, error_message: Option<String> }` — Execution management endpoints.
+- pub `create_execution` function L72-108 — `( State(state): State<Arc<AppState>>, auth: Option<axum::Extension<AuthContext>>...` — POST /executions — trigger a workflow execution.
+- pub `list_executions` function L111-140 — `( State(state): State<Arc<AppState>>, ) -> Result<impl IntoResponse, ApiError>` — GET /executions — list recent executions.
+- pub `get_execution` function L143-175 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — GET /executions/{id} — get execution status and result.
+- pub `PauseRequest` struct L179-181 — `{ reason: Option<String> }` — Request body for pause (optional reason).
+- pub `ControlResponse` struct L185-188 — `{ execution_id: String, status: String }` — Simple status response for control operations.
+- pub `pause_execution` function L191-211 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, body: Option<Json<...` — POST /executions/{id}/pause
+- pub `resume_execution` function L214-231 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — POST /executions/{id}/resume
+- pub `cancel_execution` function L234-251 — `( State(state): State<Arc<AppState>>, Path(id): Path<String>, ) -> Result<impl I...` — DELETE /executions/{id}
+-  `require_runner` function L31-35 — `(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError>` — Execution management endpoints.
 
 #### crates/cloacinactl/src/routes/health.rs
 
@@ -6004,7 +6012,7 @@
 - pub `deactivate_tenant` function L275-302 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — DELETE /tenants/{id} -- soft-deactivate a tenant.
 - pub `create_tenant_key` function L309-389 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — POST /tenants/{id}/api-keys -- create a new API key for a tenant.
 - pub `list_tenant_keys` function L392-431 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — GET /tenants/{id}/api-keys -- list API keys for a tenant (metadata only).
-- pub `revoke_tenant_key` function L434-468 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — DELETE /tenants/{id}/api-keys/{key_id} -- revoke an API key.
+- pub `revoke_tenant_key` function L434-470 — `( State(state): State<Arc<AppState>>, Extension(auth): Extension<AuthContext>, P...` — DELETE /tenants/{id}/api-keys/{key_id} -- revoke an API key.
 -  `require_dal` function L36-42 — `(state: &AppState) -> Result<&Arc<DAL>, ApiError>` — Get the DAL from the AppState's auth_state.
 
 #### crates/cloacinactl/src/routes/workflows.rs

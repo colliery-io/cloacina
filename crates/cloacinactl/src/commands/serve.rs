@@ -377,6 +377,8 @@ pub async fn run(args: &ServeArgs) -> Result<()> {
         }
     }
 
+    // Auth database pool is cleaned up when AppState/AuthState is dropped
+
     info!("Server stopped cleanly");
     Ok(())
 }
@@ -574,7 +576,7 @@ mod tests {
         // Pre-populate cache with a known key
         let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
         let key_hash =
-            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890").unwrap();
         cache.insert(
             "test_demo".to_string(),
             vec![CachedKey {
@@ -668,7 +670,7 @@ mod tests {
     async fn test_api_workflows_without_runner_returns_503() {
         let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
         let key_hash =
-            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890").unwrap();
         cache.insert(
             "test_demo".to_string(),
             vec![crate::auth::cache::CachedKey {
@@ -764,7 +766,7 @@ mod tests {
     async fn test_api_error_format_consistency() {
         let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
         let key_hash =
-            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890").unwrap();
         cache.insert(
             "test_demo".to_string(),
             vec![crate::auth::cache::CachedKey {
@@ -901,7 +903,7 @@ mod tests {
         // Create a key that has read/write/execute but NOT admin
         let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
         let key_hash =
-            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890").unwrap();
         cache.insert(
             "test_demo".to_string(),
             vec![CachedKey {
@@ -974,7 +976,7 @@ mod tests {
         // This verifies the error path when DAL operations fail.
         let cache = crate::auth::cache::AuthCache::new(Duration::from_secs(60));
         let key_hash =
-            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890");
+            cloacina::security::api_keys::hash_key("cloacina_test_demo_abcdef1234567890").unwrap();
         cache.insert(
             "test_demo".to_string(),
             vec![CachedKey {

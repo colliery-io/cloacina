@@ -27,7 +27,7 @@ use rand::RngCore;
 /// The full_key is the secret shown to the user once.
 /// The prefix is used for cache lookup.
 /// The hash is stored in the database.
-pub fn generate_api_key(env: &str, tenant_name: &str) -> (String, String, String) {
+pub fn generate_api_key(env: &str, tenant_name: &str) -> Result<(String, String, String), String> {
     // Generate 16 random bytes
     let mut random_bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut random_bytes);
@@ -40,9 +40,9 @@ pub fn generate_api_key(env: &str, tenant_name: &str) -> (String, String, String
     let prefix = extract_prefix(&full_key);
 
     // Hash with argon2
-    let hash = hash_key(&full_key);
+    let hash = hash_key(&full_key)?;
 
-    (full_key, prefix, hash)
+    Ok((full_key, prefix, hash))
 }
 
 /// Extract the prefix from a full PAK key for cache lookup.
@@ -57,13 +57,16 @@ pub fn extract_prefix(full_key: &str) -> String {
 }
 
 /// Hash a key using argon2.
-pub fn hash_key(key: &str) -> String {
+///
+/// Returns an error if the argon2 hashing operation fails (should not happen
+/// under normal conditions).
+pub fn hash_key(key: &str) -> Result<String, String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     argon2
         .hash_password(key.as_bytes(), &salt)
-        .expect("failed to hash key")
-        .to_string()
+        .map(|h| h.to_string())
+        .map_err(|e| format!("Failed to hash key: {}", e))
 }
 
 /// Verify a key against a stored hash.
@@ -83,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_generate_api_key_format() {
-        let (key, prefix, hash) = generate_api_key("live", "acme");
+        let (key, prefix, hash) = generate_api_key("live", "acme").unwrap();
         assert!(key.starts_with("cloacina_live_acme_"));
         assert!(!prefix.is_empty());
         assert!(hash.starts_with("$argon2"));
@@ -91,13 +94,13 @@ mod tests {
 
     #[test]
     fn test_verify_key_correct() {
-        let (key, _, hash) = generate_api_key("test", "demo");
+        let (key, _, hash) = generate_api_key("test", "demo").unwrap();
         assert!(verify_key(&key, &hash));
     }
 
     #[test]
     fn test_verify_key_wrong() {
-        let (_, _, hash) = generate_api_key("test", "demo");
+        let (_, _, hash) = generate_api_key("test", "demo").unwrap();
         assert!(!verify_key("wrong_key", &hash));
     }
 
@@ -115,8 +118,8 @@ mod tests {
 
     #[test]
     fn test_unique_keys() {
-        let (key1, _, _) = generate_api_key("live", "acme");
-        let (key2, _, _) = generate_api_key("live", "acme");
+        let (key1, _, _) = generate_api_key("live", "acme").unwrap();
+        let (key2, _, _) = generate_api_key("live", "acme").unwrap();
         assert_ne!(key1, key2);
     }
 }

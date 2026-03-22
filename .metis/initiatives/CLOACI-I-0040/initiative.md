@@ -4,14 +4,14 @@ level: initiative
 title: "Operational Resilience — Panic Elimination, Shutdown Safety, Resource Leaks, DB Integrity"
 short_code: "CLOACI-I-0040"
 created_at: 2026-03-21T18:39:28.373118+00:00
-updated_at: 2026-03-21T18:39:28.373118+00:00
+updated_at: 2026-03-22T01:17:18.138734+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

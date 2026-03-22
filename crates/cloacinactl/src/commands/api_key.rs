@@ -55,7 +55,8 @@ pub async fn create(
 
     // Generate the API key
     let env = "live";
-    let (full_key, prefix, hash) = generate_api_key(env, &tenant_name);
+    let (full_key, prefix, hash) = generate_api_key(env, &tenant_name)
+        .map_err(|e| anyhow::anyhow!("Failed to generate API key: {}", e))?;
 
     let key_id = UniversalUuid(uuid::Uuid::new_v4());
 

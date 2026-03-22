@@ -229,7 +229,9 @@ impl Clone for PyContext {
         let data = self.inner.data();
         let mut new_context = crate::Context::new();
         for (key, value) in data.iter() {
-            new_context.insert(key.clone(), value.clone()).unwrap();
+            // Insert should never fail when cloning existing valid data,
+            // but silently skip rather than panic if it does.
+            let _ = new_context.insert(key.clone(), value.clone());
         }
         PyContext { inner: new_context }
     }

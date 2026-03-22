@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -53,11 +53,18 @@ impl BackendType {
     ///
     /// # Panics
     /// Panics if the URL scheme doesn't match any enabled backend.
+    /// Prefer `try_from_url()` which returns a Result.
     #[allow(unused_variables)]
     pub fn from_url(url: &str) -> Self {
+        Self::try_from_url(url).unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Detect the backend type from a connection URL without panicking.
+    #[allow(unused_variables)]
+    pub fn try_from_url(url: &str) -> Result<Self, String> {
         #[cfg(feature = "postgres")]
         if url.starts_with("postgres://") || url.starts_with("postgresql://") {
-            return BackendType::Postgres;
+            return Ok(BackendType::Postgres);
         }
 
         // SQLite URLs can be:
@@ -76,32 +83,35 @@ impl BackendType {
             || url.ends_with(".sqlite")
             || url.ends_with(".sqlite3")
         {
-            return BackendType::Sqlite;
+            return Ok(BackendType::Sqlite);
         }
 
         #[cfg(all(feature = "postgres", feature = "sqlite"))]
-        panic!(
+        return Err(format!(
             "Unable to detect database backend from URL '{}'. \
              Expected postgres://, postgresql://, sqlite://, or a file path.",
             url
-        );
+        ));
 
         #[cfg(all(feature = "postgres", not(feature = "sqlite")))]
-        panic!(
+        return Err(format!(
             "Unable to detect database backend from URL '{}'. \
              Expected postgres:// or postgresql:// (sqlite feature not enabled).",
             url
-        );
+        ));
 
         #[cfg(all(feature = "sqlite", not(feature = "postgres")))]
-        panic!(
+        return Err(format!(
             "Unable to detect database backend from URL '{}'. \
              Expected sqlite://, file path, or :memory: (postgres feature not enabled).",
             url
-        );
+        ));
 
         #[cfg(not(any(feature = "postgres", feature = "sqlite")))]
-        panic!("No database backend enabled. Enable either 'postgres' or 'sqlite' feature.");
+        return Err(
+            "No database backend enabled. Enable either 'postgres' or 'sqlite' feature."
+                .to_string(),
+        );
     }
 }
 

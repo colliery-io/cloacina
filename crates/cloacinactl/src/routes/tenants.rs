@@ -152,7 +152,8 @@ pub async fn create_tenant(
         .map_err(|e| ApiError::internal(format!("Failed to create tenant: {}", e)))?;
 
     // Generate initial admin API key for the new tenant
-    let (full_key, prefix, hash) = generate_api_key("live", &body.name);
+    let (full_key, prefix, hash) = generate_api_key("live", &body.name)
+        .map_err(|e| ApiError::internal(format!("Key generation failed: {}", e)))?;
 
     let api_key_id = UniversalUuid::new_v4();
     let new_api_key = cloacina::dal::unified::models::NewApiKey {
@@ -333,7 +334,8 @@ pub async fn create_tenant_key(
         .ok_or_else(|| ApiError::not_found(format!("Tenant {} not found", tenant_id_str)))?;
 
     // Generate PAK key
-    let (full_key, prefix, hash) = generate_api_key("live", &tenant.name);
+    let (full_key, prefix, hash) = generate_api_key("live", &tenant.name)
+        .map_err(|e| ApiError::internal(format!("Key generation failed: {}", e)))?;
 
     let api_key_id = UniversalUuid::new_v4();
     let new_api_key = cloacina::dal::unified::models::NewApiKey {

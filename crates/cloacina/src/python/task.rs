@@ -16,10 +16,10 @@
 
 use super::workflow_context::PyWorkflowContext;
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Duration;
 
 /// Python wrapper for TaskHandle providing defer_until capability.
@@ -91,18 +91,17 @@ static WORKFLOW_CONTEXT_STACK: Mutex<Vec<WorkflowBuilderRef>> = Mutex::new(Vec::
 pub fn push_workflow_context(context: PyWorkflowContext) {
     WORKFLOW_CONTEXT_STACK
         .lock()
-        .unwrap()
         .push(WorkflowBuilderRef { context });
 }
 
 /// Pop a workflow context from the stack (called when exiting workflow scope)
 pub fn pop_workflow_context() -> Option<WorkflowBuilderRef> {
-    WORKFLOW_CONTEXT_STACK.lock().unwrap().pop()
+    WORKFLOW_CONTEXT_STACK.lock().pop()
 }
 
 /// Get the current workflow context (used by task decorator)
 pub fn current_workflow_context() -> PyResult<PyWorkflowContext> {
-    let stack = WORKFLOW_CONTEXT_STACK.lock().unwrap();
+    let stack = WORKFLOW_CONTEXT_STACK.lock();
     stack.last().map(|ref_| ref_.context.clone()).ok_or_else(|| {
         PyValueError::new_err(
             "No workflow context available. Tasks must be defined within a WorkflowBuilder context manager."
@@ -121,6 +120,12 @@ pub struct PythonTaskWrapper {
     requires_handle: bool,
 }
 
+// SAFETY: PythonTaskWrapper holds PyObject fields which are not Send/Sync.
+// This is safe because ALL access to PyObject fields goes through Python::with_gil()
+// or tokio::task::spawn_blocking + Python::with_gil(), ensuring the GIL is held
+// before any PyObject is touched. The execute() method clones PyObjects inside
+// with_gil and runs Python calls inside spawn_blocking(with_gil(...)). No code
+// path accesses PyObject fields without the GIL.
 unsafe impl Send for PythonTaskWrapper {}
 unsafe impl Sync for PythonTaskWrapper {}
 
