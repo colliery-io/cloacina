@@ -457,10 +457,12 @@ pub async fn revoke_tenant_key(
         .await
         .map_err(|e| ApiError::internal(format!("Failed to revoke API key: {}", e)))?;
 
-    // Invalidate auth cache — we don't know the prefix here without a lookup,
-    // so we invalidate based on the tenant. A more precise approach would look up
-    // the key's prefix first, but for correctness we rely on TTL expiry for the
-    // exact prefix. This is acceptable because the revoke already took effect in DB.
+    // Invalidate auth cache — clear all entries since we don't know which prefix
+    // maps to this key_id. This is conservative but correct: revoked keys are
+    // rejected immediately rather than remaining valid for up to TTL.
+    if let Some(ref auth_state) = state.auth_state {
+        auth_state.cache.clear();
+    }
 
     Ok(Json(StatusResponse {
         status: "revoked".to_string(),

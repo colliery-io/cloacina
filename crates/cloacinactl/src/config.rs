@@ -58,7 +58,7 @@ pub struct ServerSection {
 impl Default for ServerSection {
     fn default() -> Self {
         Self {
-            bind: "0.0.0.0".to_string(),
+            bind: "127.0.0.1".to_string(),
             port: 8080,
             mode: "all".to_string(),
         }
@@ -255,7 +255,7 @@ mod tests {
         ServeArgs {
             mode: ServeMode::All,
             config: None,
-            bind: "0.0.0.0".to_string(),
+            bind: "127.0.0.1".to_string(),
             port: 8080,
         }
     }
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ServerConfig::default();
-        assert_eq!(config.server.bind, "0.0.0.0");
+        assert_eq!(config.server.bind, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.server.mode, "all");
         assert_eq!(config.database.pool_size, 10);
@@ -313,7 +313,7 @@ format = "pretty"
 url = "postgres://localhost/mydb"
 "#;
         let config: ServerConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.server.bind, "0.0.0.0"); // default
+        assert_eq!(config.server.bind, "127.0.0.1"); // default
         assert_eq!(config.server.port, 8080); // default
         assert_eq!(config.database.url, "postgres://localhost/mydb"); // from file
         assert_eq!(config.database.pool_size, 10); // default

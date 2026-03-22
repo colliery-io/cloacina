@@ -4,7 +4,7 @@ level: task
 title: "FFI Boundary Testing Framework for Packaged Workflows"
 short_code: "CLOACI-T-0211"
 created_at: 2026-03-18T01:45:15.524070+00:00
-updated_at: 2026-03-21T01:29:29.362338+00:00
+updated_at: 2026-03-21T03:06:28.562424+00:00
 parent: CLOACI-I-0038
 blocked_by: [CLOACI-T-0215]
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ The right place to catch these is **at the gate** — during `cloacinactl packag
 - **User Value**: Broken packages are caught at build time or upload time with a clear error, not at runtime with a cryptic panic or silent failure.
 - **Business Value**: Reduces support burden, prevents production incidents, builds trust in the packaging system.
 - **Effort Estimate**: M
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -25,10 +25,44 @@
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::path::Path;
+use std::time::Duration;
 
 use super::task::{pop_workflow_context, push_workflow_context};
 use super::workflow_context::PyWorkflowContext;
 use crate::task::TaskNamespace;
+
+/// Default timeout for Python module import (seconds).
+const IMPORT_TIMEOUT_SECS: u64 = 60;
+
+/// Python stdlib module names that must never appear in extracted packages.
+/// A malicious package could shadow these to hijack execution.
+const STDLIB_DENY_LIST: &[&str] = &[
+    "os",
+    "sys",
+    "subprocess",
+    "shutil",
+    "socket",
+    "http",
+    "urllib",
+    "ctypes",
+    "importlib",
+    "pathlib",
+    "io",
+    "json",
+    "pickle",
+    "marshal",
+    "code",
+    "codeop",
+    "compile",
+    "compileall",
+    "builtins",
+    "signal",
+    "multiprocessing",
+    "threading",
+    "tempfile",
+    "glob",
+    "fnmatch",
+];
 
 /// Error type for Python package loading operations.
 #[derive(Debug, thiserror::Error)]
@@ -112,6 +146,36 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
 /// * `entry_module` — Dotted module path (e.g., `"workflow.tasks"`)
 /// * `package_name` — Package name from manifest
 /// * `tenant_id` — Tenant for namespace isolation (default: `"public"`)
+/// Validate that extracted package directories don't shadow stdlib modules.
+///
+/// Scans workflow_dir and vendor_dir for `.py` files or directories whose
+/// names match known stdlib modules. Returns an error if any are found.
+pub fn validate_no_stdlib_shadowing(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+) -> Result<(), PythonLoaderError> {
+    for dir in [workflow_dir, vendor_dir] {
+        if !dir.exists() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                // Check for module.py or module/ (package directory)
+                let module_name = name_str.strip_suffix(".py").unwrap_or(&name_str);
+                if STDLIB_DENY_LIST.contains(&module_name) {
+                    return Err(PythonLoaderError::ImportError(format!(
+                        "Package contains '{}' which shadows Python stdlib module '{}' — rejected for security",
+                        name_str, module_name
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn import_and_register_python_workflow(
     workflow_dir: &Path,
     vendor_dir: &Path,
@@ -119,49 +183,45 @@ pub fn import_and_register_python_workflow(
     package_name: &str,
     tenant_id: &str,
 ) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
+    // SECURITY: Check for stdlib shadowing before importing
+    validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
+
     let workflow_dir = workflow_dir.to_path_buf();
     let vendor_dir = vendor_dir.to_path_buf();
     let entry_module = entry_module.to_string();
     let package_name = package_name.to_string();
     let tenant_id = tenant_id.to_string();
+    let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
 
-    // PyO3 operations must happen on a thread that can acquire the GIL
-    let result = std::thread::spawn(move || -> Result<Vec<TaskNamespace>, PythonLoaderError> {
+    // PyO3 operations must happen on a thread that can acquire the GIL.
+    // Wrap in a timeout to catch infinite loops during import.
+    let handle = std::thread::spawn(move || -> Result<Vec<TaskNamespace>, PythonLoaderError> {
         Python::with_gil(|py| {
             // 1. Ensure cloaca module is available
             ensure_cloaca_module(py)?;
 
-            // 2. Add paths to sys.path
+            // 2. Add paths to sys.path (append, not insert — avoid shadowing stdlib)
             let sys = py.import("sys")?;
             let path = sys.getattr("path")?;
             path.call_method1(
-                "insert",
-                (
-                    0i32,
-                    workflow_dir
-                        .to_str()
-                        .ok_or(PythonLoaderError::RuntimeError(
-                            "Invalid workflow_dir path".to_string(),
-                        ))?,
-                ),
+                "append",
+                (workflow_dir
+                    .to_str()
+                    .ok_or(PythonLoaderError::RuntimeError(
+                        "Invalid workflow_dir path".to_string(),
+                    ))?,),
             )?;
             if vendor_dir.exists() {
                 path.call_method1(
-                    "insert",
-                    (
-                        0i32,
-                        vendor_dir
-                            .to_str()
-                            .ok_or(PythonLoaderError::RuntimeError(
-                                "Invalid vendor_dir path".to_string(),
-                            ))?,
-                    ),
+                    "append",
+                    (vendor_dir.to_str().ok_or(PythonLoaderError::RuntimeError(
+                        "Invalid vendor_dir path".to_string(),
+                    ))?,),
                 )?;
             }
 
             // 3. Push workflow context for @task decorators
-            let context =
-                PyWorkflowContext::new(&tenant_id, &package_name, &entry_module);
+            let context = PyWorkflowContext::new(&tenant_id, &package_name, &entry_module);
             push_workflow_context(context.clone());
 
             // 4. Import entry module — @task decorators fire, tasks registered
@@ -196,10 +256,7 @@ pub fn import_and_register_python_workflow(
                     namespaces.push(namespace.clone());
                     let task_instance = constructor();
                     workflow.add_task(task_instance).map_err(|e| {
-                        PythonLoaderError::RegistrationError(format!(
-                            "Failed to add task: {}",
-                            e
-                        ))
+                        PythonLoaderError::RegistrationError(format!("Failed to add task: {}", e))
                     })?;
                 }
             }
@@ -214,10 +271,7 @@ pub fn import_and_register_python_workflow(
 
             // 7. Validate and register workflow
             workflow.validate().map_err(|e| {
-                PythonLoaderError::ValidationError(format!(
-                    "Workflow validation failed: {}",
-                    e
-                ))
+                PythonLoaderError::ValidationError(format!("Workflow validation failed: {}", e))
             })?;
             let final_workflow = workflow.finalize();
 
@@ -236,9 +290,23 @@ pub fn import_and_register_python_workflow(
 
             Ok(namespaces)
         })
-    })
-    .join()
-    .map_err(|_| PythonLoaderError::RuntimeError("Python import thread panicked".to_string()))??;
+    });
 
-    Ok(result)
+    // Wait with timeout — catches infinite loops during import
+    let start = std::time::Instant::now();
+    loop {
+        if handle.is_finished() {
+            let result = handle.join().map_err(|_| {
+                PythonLoaderError::RuntimeError("Python import thread panicked".to_string())
+            })??;
+            return Ok(result);
+        }
+        if start.elapsed() > timeout {
+            return Err(PythonLoaderError::RuntimeError(format!(
+                "Python workflow import timed out after {}s",
+                timeout.as_secs()
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }

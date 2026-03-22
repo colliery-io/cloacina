@@ -116,16 +116,91 @@ pub fn extract_python_package(
         error: e.to_string(),
     })?;
 
-    // Extract tar.gz
+    // Extract tar.gz with path traversal protection
+    let max_decompressed_size: u64 = 500 * 1024 * 1024; // 500MB absolute limit
+    let max_ratio = 10u64; // Reject if decompressed > 10x compressed
+    let compressed_size = archive_data.len() as u64;
+
     let cursor = std::io::Cursor::new(archive_data);
     let decoder = GzDecoder::new(cursor);
     let mut archive = Archive::new(decoder);
-    archive
-        .unpack(&package_dir)
-        .map_err(|e| LoaderError::FileSystem {
+    let mut total_bytes: u64 = 0;
+
+    for entry_result in archive.entries().map_err(|e| LoaderError::FileSystem {
+        path: package_dir.display().to_string(),
+        error: format!("Failed to read archive entries: {e}"),
+    })? {
+        let mut entry = entry_result.map_err(|e| LoaderError::FileSystem {
             path: package_dir.display().to_string(),
-            error: format!("Failed to extract archive: {e}"),
+            error: format!("Failed to read archive entry: {e}"),
         })?;
+
+        let entry_path = entry
+            .path()
+            .map_err(|e| LoaderError::FileSystem {
+                path: "archive entry".to_string(),
+                error: format!("Invalid entry path: {e}"),
+            })?
+            .into_owned();
+
+        // SECURITY: Reject symlinks
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(LoaderError::FileSystem {
+                path: entry_path.display().to_string(),
+                error: "Archive contains symlink — rejected for security".to_string(),
+            });
+        }
+
+        // SECURITY: Reject paths with .. components or absolute paths
+        for component in entry_path.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    return Err(LoaderError::FileSystem {
+                        path: entry_path.display().to_string(),
+                        error: "Archive entry contains '..' — rejected for security".to_string(),
+                    });
+                }
+                std::path::Component::RootDir => {
+                    return Err(LoaderError::FileSystem {
+                        path: entry_path.display().to_string(),
+                        error: "Archive entry has absolute path — rejected for security"
+                            .to_string(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // SECURITY: Decompression bomb check
+        total_bytes += entry.header().size().unwrap_or(0);
+        if total_bytes > max_decompressed_size {
+            return Err(LoaderError::FileSystem {
+                path: package_dir.display().to_string(),
+                error: format!(
+                    "Decompressed size exceeds {}MB limit",
+                    max_decompressed_size / (1024 * 1024)
+                ),
+            });
+        }
+        if compressed_size > 0 && total_bytes > compressed_size * max_ratio {
+            return Err(LoaderError::FileSystem {
+                path: package_dir.display().to_string(),
+                error: format!(
+                    "Decompression ratio exceeds {}x — possible decompression bomb",
+                    max_ratio
+                ),
+            });
+        }
+
+        // Safe to extract
+        entry
+            .unpack_in(&package_dir)
+            .map_err(|e| LoaderError::FileSystem {
+                path: entry_path.display().to_string(),
+                error: format!("Failed to extract entry: {e}"),
+            })?;
+    }
 
     // Read manifest
     let manifest_path = package_dir.join("manifest.json");
@@ -332,5 +407,134 @@ mod tests {
 
         let err = extract_python_package(&archive, staging.path()).unwrap_err();
         assert!(matches!(err, LoaderError::WrongLanguage { .. }));
+    }
+
+    /// Build an archive with a path traversal entry.
+    fn build_traversal_archive(entry_path: &str) -> Vec<u8> {
+        let manifest = make_test_manifest();
+        let manifest_json = serde_json::to_vec_pretty(&manifest).unwrap();
+
+        let buf = Vec::new();
+        let enc = GzEncoder::new(buf, Compression::fast());
+        let mut builder = Builder::new(enc);
+
+        // manifest.json
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
+            .unwrap();
+
+        // workflow dir
+        let init_py = b"# init\n";
+        let mut h = tar::Header::new_gnu();
+        h.set_size(init_py.len() as u64);
+        h.set_mode(0o644);
+        h.set_cksum();
+        builder
+            .append_data(&mut h, "workflow/__init__.py", init_py.as_slice())
+            .unwrap();
+
+        // Malicious entry
+        let evil = b"pwned\n";
+        let mut h2 = tar::Header::new_gnu();
+        h2.set_size(evil.len() as u64);
+        h2.set_mode(0o644);
+        h2.set_cksum();
+        builder
+            .append_data(&mut h2, entry_path, evil.as_slice())
+            .unwrap();
+
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap()
+    }
+
+    #[test]
+    fn test_reject_path_traversal() {
+        // The tar crate rejects ".." at build time too, so we test with
+        // a path that contains ".." as a literal directory name component
+        // by crafting the header manually.
+        let manifest = make_test_manifest();
+        let manifest_json = serde_json::to_vec_pretty(&manifest).unwrap();
+
+        let buf = Vec::new();
+        let enc = GzEncoder::new(buf, Compression::fast());
+        let mut builder = Builder::new(enc);
+
+        // manifest.json
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
+            .unwrap();
+
+        // Evil entry: write raw header with ".." path
+        let evil = b"pwned\n";
+        let mut raw_header = tar::Header::new_gnu();
+        raw_header.set_size(evil.len() as u64);
+        raw_header.set_mode(0o644);
+        // Set path directly in the raw bytes to bypass tar crate validation
+        raw_header.as_gnu_mut().unwrap().name = [0u8; 100];
+        let path_bytes = b"../../../etc/passwd";
+        raw_header.as_gnu_mut().unwrap().name[..path_bytes.len()].copy_from_slice(path_bytes);
+        raw_header.set_cksum();
+        builder.append(&raw_header, evil.as_slice()).unwrap();
+
+        let enc = builder.into_inner().unwrap();
+        let archive = enc.finish().unwrap();
+
+        let staging = TempDir::new().unwrap();
+        let err = extract_python_package(&archive, staging.path()).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("..") || msg.contains("rejected") || msg.contains("security"),
+            "Expected path traversal rejection, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_reject_symlink() {
+        let manifest = make_test_manifest();
+        let manifest_json = serde_json::to_vec_pretty(&manifest).unwrap();
+
+        let buf = Vec::new();
+        let enc = GzEncoder::new(buf, Compression::fast());
+        let mut builder = Builder::new(enc);
+
+        // manifest.json
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
+            .unwrap();
+
+        // Symlink entry
+        let mut sym_header = tar::Header::new_gnu();
+        sym_header.set_entry_type(tar::EntryType::Symlink);
+        sym_header.set_size(0);
+        sym_header.set_mode(0o777);
+        sym_header.set_link_name("/etc/passwd").unwrap();
+        sym_header.set_cksum();
+        builder
+            .append_data(&mut sym_header, "evil_link", &[] as &[u8])
+            .unwrap();
+
+        let enc = builder.into_inner().unwrap();
+        let archive = enc.finish().unwrap();
+
+        let staging = TempDir::new().unwrap();
+        let err = extract_python_package(&archive, staging.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("symlink"),
+            "Expected symlink rejection, got: {}",
+            err
+        );
     }
 }

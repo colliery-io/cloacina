@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use super::error::ApiError;
 use super::health::AppState;
+use crate::auth::context::AuthContext;
 
 fn require_runner(state: &AppState) -> Result<&cloacina::runner::DefaultRunner, ApiError> {
     state.runner.as_ref().ok_or_else(|| {
@@ -70,9 +71,19 @@ pub struct TaskResultResponse {
 /// POST /executions — trigger a workflow execution.
 pub async fn create_execution(
     State(state): State<Arc<AppState>>,
+    auth: Option<axum::Extension<AuthContext>>,
     Json(body): Json<ExecutionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let runner = require_runner(&state)?;
+
+    // Check execution permission for tenant-scoped keys
+    if let Some(axum::Extension(ref ctx)) = auth {
+        if !ctx.can_execute {
+            return Err(ApiError::bad_request(
+                "Insufficient permissions to execute workflows",
+            ));
+        }
+    }
 
     // Build context from request body
     let mut context = cloacina::Context::new();

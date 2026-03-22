@@ -114,6 +114,12 @@ impl AuthCache {
         let mut cache = self.inner.write();
         cache.remove(prefix);
     }
+
+    /// Clear the entire cache (e.g., after key revocation when prefix is unknown).
+    pub fn clear(&self) {
+        let mut cache = self.inner.write();
+        cache.clear();
+    }
 }
 
 #[cfg(test)]

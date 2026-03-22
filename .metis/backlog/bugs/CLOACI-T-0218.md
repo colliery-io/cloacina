@@ -4,7 +4,7 @@ level: task
 title: "Cron scheduler stalls after initial catchup burst — no new executions after startup"
 short_code: "CLOACI-T-0218"
 created_at: 2026-03-21T03:04:28.900537+00:00
-updated_at: 2026-03-21T03:08:21.520075+00:00
+updated_at: 2026-03-21T14:42:51.304124+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ The daemon's cron scheduler fires a burst of catchup executions on startup, then
   4. Observe: ~5-6 executions fire in first 5 seconds (catchup burst), then nothing for remaining duration
 - **Expected**: Continuous executions every 2 seconds for the full duration
 - **Actual**: Only catchup burst on startup, then zero new executions. 6 executions in 4 minutes instead of ~120.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

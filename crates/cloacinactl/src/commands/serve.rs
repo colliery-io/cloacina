@@ -63,7 +63,7 @@ pub struct ServeArgs {
     pub config: Option<String>,
 
     /// Bind address (overrides config file).
-    #[arg(long, default_value = "0.0.0.0")]
+    #[arg(long, default_value = "127.0.0.1")]
     pub bind: String,
 
     /// Port to listen on (overrides config file).
@@ -97,8 +97,8 @@ pub fn app(state: Arc<AppState>) -> Router {
         .merge(SwaggerUi::new("/api-docs/").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     // Protected routes — auth required
-    let protected_routes = Router::new()
-        .route("/auth-test", get(crate::routes::auth_test::auth_test))
+    #[allow(unused_mut)]
+    let mut protected_routes = Router::new()
         .route(
             "/executions",
             post(crate::routes::executions::create_execution)
@@ -161,20 +161,61 @@ pub fn app(state: Arc<AppState>) -> Router {
             axum::routing::delete(crate::routes::tenants::revoke_tenant_key),
         );
 
-    // Apply auth middleware to protected routes only (if auth is configured)
+    // Auth-test endpoint only available in debug builds
+    #[cfg(debug_assertions)]
+    {
+        protected_routes =
+            protected_routes.route("/auth-test", get(crate::routes::auth_test::auth_test));
+    }
+
+    // Apply auth middleware to protected routes only (if auth is configured).
+    // SECURITY: When no database is configured, reject all protected routes
+    // with 503 instead of silently serving them without authentication.
     let protected_routes = if let Some(ref auth) = state.auth_state {
         protected_routes.layer(axum::middleware::from_fn_with_state(
             auth.clone(),
             crate::auth::middleware::auth_middleware,
         ))
     } else {
-        protected_routes
+        tracing::warn!(
+            "No database configured — protected API endpoints will return 503. \
+             Set CLOACINA_DATABASE_URL to enable authentication."
+        );
+        protected_routes.layer(axum::middleware::from_fn(reject_no_auth))
     };
 
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
+        .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers(tower_http::cors::Any)
+                .allow_origin(tower_http::cors::Any),
+        )
         .with_state(state)
+}
+
+/// Middleware that rejects all requests with 503 when auth is not configured.
+///
+/// Applied to protected routes when no database URL is set, ensuring
+/// endpoints are never silently served without authentication.
+async fn reject_no_auth(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let _ = (request, next);
+    axum::response::IntoResponse::into_response((
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        "Authentication not configured. Set CLOACINA_DATABASE_URL to enable the API.",
+    ))
 }
 
 /// Wait for a shutdown signal (SIGTERM or Ctrl+C).

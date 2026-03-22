@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-21T03:01:35Z | 411 files | JavaScript, Python, Rust
+> Generated: 2026-03-21T14:01:55Z | 411 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -546,7 +546,7 @@
 
 #### bindings/cloaca-backend/build.rs
 
--  `main` function L1-15 — `()`
+-  `main` function L17-31 — `()`
 
 ### bindings/cloaca-backend/python/cloaca
 
@@ -672,28 +672,28 @@
 
 #### bindings/cloaca-backend/src/lib.rs
 
-- pub `HelloClass` struct L46-48 — `{ message: String }` — A simple hello world class for testing
-- pub `new` function L53-57 — `() -> Self`
-- pub `get_message` function L59-61 — `(&self) -> String`
-- pub `__repr__` function L63-65 — `(&self) -> String`
+- pub `HelloClass` struct L42-44 — `{ message: String }` — A simple hello world class for testing
+- pub `new` function L49-53 — `() -> Self`
+- pub `get_message` function L55-57 — `(&self) -> String`
+- pub `__repr__` function L59-61 — `(&self) -> String`
 -  `admin` module L20 — `-`
 -  `context` module L21 — `-`
 -  `runner` module L22 — `-`
 -  `trigger` module L23 — `-`
 -  `value_objects` module L24 — `-`
--  `HelloClass` type L51-66 — `= HelloClass`
--  `hello_world` function L71-73 — `() -> String` — A simple hello world function for testing
--  `cloaca` function L77-121 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — A unified Python module supporting both PostgreSQL and SQLite backends.
--  `tests` module L124-241 — `-`
--  `test_task_registration` function L131-154 — `()`
--  `test_workflow_add_task_lookup` function L157-178 — `()`
--  `test_namespace_investigation` function L181-240 — `()`
--  `TestTask` struct L191 — `-`
--  `TestTask` type L193-210 — `= TestTask`
--  `execute` function L194-200 — `( &self, context: cloacina::Context<serde_json::Value>, ) -> Result<cloacina::Co...`
--  `id` function L201-203 — `(&self) -> &str`
--  `dependencies` function L204-206 — `(&self) -> &[cloacina::TaskNamespace]`
--  `retry_policy` function L207-209 — `(&self) -> cloacina::retry::RetryPolicy`
+-  `HelloClass` type L47-62 — `= HelloClass`
+-  `hello_world` function L67-69 — `() -> String` — A simple hello world function for testing
+-  `cloaca` function L73-117 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — A unified Python module supporting both PostgreSQL and SQLite backends.
+-  `tests` module L120-260 — `-`
+-  `test_task_registration` function L127-161 — `()`
+-  `test_workflow_add_task_lookup` function L164-197 — `()`
+-  `test_namespace_investigation` function L200-259 — `()`
+-  `TestTask` struct L210 — `-`
+-  `TestTask` type L212-229 — `= TestTask`
+-  `execute` function L213-219 — `( &self, context: cloacina::Context<serde_json::Value>, ) -> Result<cloacina::Co...`
+-  `id` function L220-222 — `(&self) -> &str`
+-  `dependencies` function L223-225 — `(&self) -> &[cloacina::TaskNamespace]`
+-  `retry_policy` function L226-228 — `(&self) -> cloacina::retry::RetryPolicy`
 
 #### bindings/cloaca-backend/src/runner.rs
 
@@ -3235,22 +3235,22 @@
 
 - pub `PythonBuildConfig` struct L42-51 — `{ project_dir: PathBuf, output_dir: PathBuf, targets: Vec<String>, verbose: bool...` — Configuration for building a Python package.
 - pub `PythonBuildResult` struct L54-63 — `{ archive_path: PathBuf, package_name: String, version: String, fingerprint: Str...` — Result of a successful Python package build.
-- pub `build_python_package` function L77-169 — `(config: &PythonBuildConfig) -> anyhow::Result<PythonBuildResult>` — Build a Python `.cloacina` package from a project directory.
+- pub `build_python_package` function L77-181 — `(config: &PythonBuildConfig) -> anyhow::Result<PythonBuildResult>` — Build a Python `.cloacina` package from a project directory.
 -  `PyProjectConfig` struct L67-74 — `{ name: String, version: String, description: Option<String>, requires_python: S...` — Parsed `pyproject.toml` fields relevant to package building.
--  `parse_pyproject` function L172-238 — `(project_dir: &Path) -> anyhow::Result<PyProjectConfig>` — Parse `pyproject.toml` for package metadata and `[tool.cloaca]` config.
--  `copy_workflow_source` function L241-272 — `( project_dir: &Path, dest: &Path, entry_module: &str, ) -> anyhow::Result<()>` — Copy the workflow source tree (entry module's top-level package) to staging.
--  `copy_dir_recursive` function L275-295 — `(src: &Path, dst: &Path) -> anyhow::Result<()>` — Recursively copy a directory tree.
--  `uv_platform` function L298-306 — `(target: &str) -> anyhow::Result<&'static str>` — UV platform mapping (matches Python vendoring.py)
--  `vendor_dependencies` function L311-398 — `( project_dir: &Path, vendor_dir: &Path, targets: &[String], verbose: bool, ) ->...` — Vendor dependencies using `uv` subprocess.
--  `extract_wheel` function L401-421 — `(whl_path: &Path, vendor_dir: &Path) -> anyhow::Result<()>` — Extract a .whl (zip) file into the vendor directory.
--  `create_archive` function L424-455 — `( archive_path: &Path, manifest_path: &Path, workflow_dir: &Path, vendor_dir: &P...` — Create a `.cloacina` tar.gz archive.
--  `compute_sha256` function L458-472 — `(path: &Path) -> anyhow::Result<String>` — Compute SHA256 hex digest of a file.
--  `tests` module L475-581 — `-` — 5.
--  `create_test_project` function L479-515 — `(dir: &Path)` — 5.
--  `test_parse_pyproject` function L518-527 — `()` — 5.
--  `test_parse_pyproject_missing_cloaca` function L530-540 — `()` — 5.
--  `test_copy_workflow_source` function L543-552 — `()` — 5.
--  `test_build_python_package_no_deps` function L555-580 — `()` — 5.
+-  `parse_pyproject` function L184-250 — `(project_dir: &Path) -> anyhow::Result<PyProjectConfig>` — Parse `pyproject.toml` for package metadata and `[tool.cloaca]` config.
+-  `copy_workflow_source` function L253-280 — `(project_dir: &Path, dest: &Path, entry_module: &str) -> anyhow::Result<()>` — Copy the workflow source tree (entry module's top-level package) to staging.
+-  `copy_dir_recursive` function L283-303 — `(src: &Path, dst: &Path) -> anyhow::Result<()>` — Recursively copy a directory tree.
+-  `uv_platform` function L306-314 — `(target: &str) -> anyhow::Result<&'static str>` — UV platform mapping (matches Python vendoring.py)
+-  `vendor_dependencies` function L319-418 — `( project_dir: &Path, vendor_dir: &Path, targets: &[String], verbose: bool, ) ->...` — Vendor dependencies using `uv` subprocess.
+-  `extract_wheel` function L421-441 — `(whl_path: &Path, vendor_dir: &Path) -> anyhow::Result<()>` — Extract a .whl (zip) file into the vendor directory.
+-  `create_archive` function L444-475 — `( archive_path: &Path, manifest_path: &Path, workflow_dir: &Path, vendor_dir: &P...` — Create a `.cloacina` tar.gz archive.
+-  `compute_sha256` function L478-492 — `(path: &Path) -> anyhow::Result<String>` — Compute SHA256 hex digest of a file.
+-  `tests` module L495-597 — `-` — 5.
+-  `create_test_project` function L499-531 — `(dir: &Path)` — 5.
+-  `test_parse_pyproject` function L534-543 — `()` — 5.
+-  `test_parse_pyproject_missing_cloaca` function L546-556 — `()` — 5.
+-  `test_copy_workflow_source` function L559-568 — `()` — 5.
+-  `test_build_python_package_no_deps` function L571-596 — `()` — 5.
 
 #### crates/cloacina/src/packaging/tests.rs
 
@@ -3372,8 +3372,8 @@
 - pub `task` module L35 — `-` — `#[pymodule]` definition.
 - pub `workflow` module L36 — `-` — `#[pymodule]` definition.
 - pub `workflow_context` module L37 — `-` — `#[pymodule]` definition.
--  `tests` module L56-107 — `-` — `#[pymodule]` definition.
--  `test_python_workflow_via_with_gil` function L62-106 — `()` — `#[pymodule]` definition.
+-  `tests` module L56-108 — `-` — `#[pymodule]` definition.
+-  `test_python_workflow_via_with_gil` function L62-107 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina/src/python/namespace.rs
 
@@ -3407,8 +3407,8 @@
 - pub `current_workflow_context` function L104-111 — `() -> PyResult<PyWorkflowContext>` — Get the current workflow context (used by task decorator)
 - pub `PythonTaskWrapper` struct L114-122 — `{ id: String, dependencies: Vec<crate::TaskNamespace>, retry_policy: crate::retr...` — Python task wrapper implementing Rust Task trait
 - pub `TaskDecorator` struct L340-346 — `{ id: Option<String>, dependencies: Vec<PyObject>, retry_policy: crate::retry::R...` — Decorator class that holds task configuration
-- pub `__call__` function L350-420 — `(&self, py: Python, func: PyObject) -> PyResult<PyObject>`
-- pub `task` function L497-525 — `( id: Option<String>, dependencies: Option<Vec<PyObject>>, retry_attempts: Optio...`
+- pub `__call__` function L350-419 — `(&self, py: Python, func: PyObject) -> PyResult<PyObject>`
+- pub `task` function L496-524 — `( id: Option<String>, dependencies: Option<Vec<PyObject>>, retry_attempts: Optio...`
 -  `PyTaskHandle` type L32-79 — `= PyTaskHandle`
 -  `WORKFLOW_CONTEXT_STACK` variable L88 — `: Mutex<Vec<WorkflowBuilderRef>>` — Global context stack for workflow-scoped task registration
 -  `PythonTaskWrapper` type L124 — `impl Send for PythonTaskWrapper`
@@ -3423,9 +3423,9 @@
 -  `trigger_rules` function L273-275 — `(&self) -> serde_json::Value`
 -  `code_fingerprint` function L277-279 — `(&self) -> Option<String>`
 -  `build_retry_policy` function L283-336 — `( retry_attempts: Option<usize>, retry_backoff: Option<String>, retry_delay_ms: ...` — Build retry policy from Python decorator parameters
--  `TaskDecorator` type L349-421 — `= TaskDecorator`
--  `TaskDecorator` type L423-480 — `= TaskDecorator`
--  `convert_dependencies_to_namespaces` function L425-479 — `( &self, py: Python, context: &PyWorkflowContext, ) -> PyResult<Vec<crate::TaskN...` — Convert mixed dependencies (strings and function objects) to TaskNamespace objects
+-  `TaskDecorator` type L349-420 — `= TaskDecorator`
+-  `TaskDecorator` type L422-479 — `= TaskDecorator`
+-  `convert_dependencies_to_namespaces` function L424-478 — `( &self, py: Python, context: &PyWorkflowContext, ) -> PyResult<Vec<crate::TaskN...` — Convert mixed dependencies (strings and function objects) to TaskNamespace objects
 
 #### crates/cloacina/src/python/workflow.rs
 
@@ -3686,7 +3686,7 @@
 - pub `temp_dir` function L174-176 — `(&self) -> &Path` — Get the temporary directory path.
 - pub `is_strict_mode` function L179-181 — `(&self) -> bool` — Check if strict mode is enabled.
 - pub `max_package_size` function L184-186 — `(&self) -> u64` — Get the maximum package size limit.
-- pub `validate_python_package` function L195-261 — `( &self, package_data: &[u8], manifest: &crate::packaging::manifest_v2::Manifest...` — Validate a Python workflow package.
+- pub `validate_python_package` function L195-269 — `( &self, package_data: &[u8], manifest: &crate::packaging::manifest_v2::Manifest...` — Validate a Python workflow package.
 -  `ffi_smoke` module L23 — `-` — Package validator for ensuring workflow package safety and compatibility.
 -  `format` module L24 — `-` — metadata verification, and compatibility testing.
 -  `metadata` module L25 — `-` — metadata verification, and compatibility testing.
@@ -3694,40 +3694,40 @@
 -  `size` module L27 — `-` — metadata verification, and compatibility testing.
 -  `symbols` module L28 — `-` — metadata verification, and compatibility testing.
 -  `types` module L29 — `-` — metadata verification, and compatibility testing.
--  `PackageValidator` type L55-262 — `= PackageValidator` — metadata verification, and compatibility testing.
--  `PackageValidator` type L264-269 — `impl Default for PackageValidator` — metadata verification, and compatibility testing.
--  `default` function L265-268 — `() -> Self` — metadata verification, and compatibility testing.
--  `tests` module L272-744 — `-` — metadata verification, and compatibility testing.
--  `create_valid_elf_header` function L277-305 — `() -> Vec<u8>` — Helper to create a valid ELF header for testing
--  `create_invalid_binary` function L308-310 — `() -> Vec<u8>` — Helper to create invalid binary data
--  `create_suspicious_binary` function L313-321 — `() -> Vec<u8>` — Helper to create binary with suspicious content
--  `create_mock_metadata` function L324-352 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata
--  `test_validator_creation` function L355-361 — `()` — metadata verification, and compatibility testing.
--  `test_validator_default` function L364-368 — `()` — metadata verification, and compatibility testing.
--  `test_strict_validator` function L371-374 — `()` — metadata verification, and compatibility testing.
--  `test_validator_with_custom_max_size` function L377-381 — `()` — metadata verification, and compatibility testing.
--  `test_validator_with_required_symbols` function L384-391 — `()` — metadata verification, and compatibility testing.
--  `test_validate_empty_package` function L394-403 — `()` — metadata verification, and compatibility testing.
--  `test_validate_oversized_package` function L406-415 — `()` — metadata verification, and compatibility testing.
--  `test_validate_invalid_elf` function L418-432 — `()` — metadata verification, and compatibility testing.
--  `test_validate_valid_elf_header` function L435-448 — `()` — metadata verification, and compatibility testing.
--  `test_validate_suspicious_content` function L451-466 — `()` — metadata verification, and compatibility testing.
--  `test_validate_with_metadata` function L469-489 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_invalid_package_name` function L492-508 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_special_characters` function L511-526 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_duplicate_task_ids` function L529-547 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_no_tasks` function L550-565 — `()` — metadata verification, and compatibility testing.
--  `test_strict_mode_validation` function L568-580 — `()` — metadata verification, and compatibility testing.
--  `test_permissive_mode_with_warnings` function L583-595 — `()` — metadata verification, and compatibility testing.
--  `test_security_assessment_levels` function L598-616 — `()` — metadata verification, and compatibility testing.
--  `test_compatibility_info` function L619-633 — `()` — metadata verification, and compatibility testing.
--  `test_concurrent_validation` function L636-663 — `()` — metadata verification, and compatibility testing.
--  `test_memory_safety_with_large_packages` function L666-681 — `()` — metadata verification, and compatibility testing.
--  `test_temp_directory_isolation` function L684-692 — `()` — metadata verification, and compatibility testing.
--  `test_validation_result_serialization` function L695-705 — `()` — metadata verification, and compatibility testing.
--  `test_error_message_quality` function L708-725 — `()` — metadata verification, and compatibility testing.
--  `test_security_level_equality` function L728-733 — `()` — metadata verification, and compatibility testing.
--  `test_validator_sync_creation` function L736-743 — `()` — metadata verification, and compatibility testing.
+-  `PackageValidator` type L55-270 — `= PackageValidator` — metadata verification, and compatibility testing.
+-  `PackageValidator` type L272-277 — `impl Default for PackageValidator` — metadata verification, and compatibility testing.
+-  `default` function L273-276 — `() -> Self` — metadata verification, and compatibility testing.
+-  `tests` module L280-752 — `-` — metadata verification, and compatibility testing.
+-  `create_valid_elf_header` function L285-313 — `() -> Vec<u8>` — Helper to create a valid ELF header for testing
+-  `create_invalid_binary` function L316-318 — `() -> Vec<u8>` — Helper to create invalid binary data
+-  `create_suspicious_binary` function L321-329 — `() -> Vec<u8>` — Helper to create binary with suspicious content
+-  `create_mock_metadata` function L332-360 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata
+-  `test_validator_creation` function L363-369 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_default` function L372-376 — `()` — metadata verification, and compatibility testing.
+-  `test_strict_validator` function L379-382 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_with_custom_max_size` function L385-389 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_with_required_symbols` function L392-399 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_empty_package` function L402-411 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_oversized_package` function L414-423 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_invalid_elf` function L426-440 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_valid_elf_header` function L443-456 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_suspicious_content` function L459-474 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_with_metadata` function L477-497 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_invalid_package_name` function L500-516 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_special_characters` function L519-534 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_duplicate_task_ids` function L537-555 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_no_tasks` function L558-573 — `()` — metadata verification, and compatibility testing.
+-  `test_strict_mode_validation` function L576-588 — `()` — metadata verification, and compatibility testing.
+-  `test_permissive_mode_with_warnings` function L591-603 — `()` — metadata verification, and compatibility testing.
+-  `test_security_assessment_levels` function L606-624 — `()` — metadata verification, and compatibility testing.
+-  `test_compatibility_info` function L627-641 — `()` — metadata verification, and compatibility testing.
+-  `test_concurrent_validation` function L644-671 — `()` — metadata verification, and compatibility testing.
+-  `test_memory_safety_with_large_packages` function L674-689 — `()` — metadata verification, and compatibility testing.
+-  `test_temp_directory_isolation` function L692-700 — `()` — metadata verification, and compatibility testing.
+-  `test_validation_result_serialization` function L703-713 — `()` — metadata verification, and compatibility testing.
+-  `test_error_message_quality` function L716-733 — `()` — metadata verification, and compatibility testing.
+-  `test_security_level_equality` function L736-741 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_sync_creation` function L744-751 — `()` — metadata verification, and compatibility testing.
 
 #### crates/cloacina/src/registry/loader/validator/security.rs
 
@@ -3830,25 +3830,25 @@
 - pub `with_strict_validation` function L85-98 — `(storage: S, database: Database) -> Result<Self, RegistryError>` — Create a registry with strict validation enabled.
 - pub `loaded_package_count` function L101-103 — `(&self) -> usize` — Get the number of currently loaded packages.
 - pub `total_registered_tasks` function L106-108 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
-- pub `register_workflow_package` function L341-347 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
-- pub `get_workflow_package_by_id` function L352-373 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
-- pub `get_workflow_package_by_name` function L378-388 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
-- pub `exists_by_id` function L391-393 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
-- pub `exists_by_name` function L396-405 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
-- pub `list_packages` function L410-412 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
-- pub `unregister_workflow_package_by_id` function L415-439 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
-- pub `unregister_workflow_package_by_name` function L442-458 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
+- pub `register_workflow_package` function L340-346 — `( &mut self, package_data: Vec<u8>, ) -> Result<Uuid, RegistryError>` — Register a workflow package (alias for register_workflow via the trait).
+- pub `get_workflow_package_by_id` function L351-372 — `( &self, package_id: Uuid, ) -> Result<Option<(WorkflowMetadata, Vec<u8>)>, Regi...` — Get a workflow package by its UUID.
+- pub `get_workflow_package_by_name` function L377-387 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(WorkflowMetadata...` — Get a workflow package by name and version.
+- pub `exists_by_id` function L390-392 — `(&self, package_id: Uuid) -> Result<bool, RegistryError>` — Check if a package exists by ID.
+- pub `exists_by_name` function L395-404 — `( &self, package_name: &str, version: &str, ) -> Result<bool, RegistryError>` — Check if a package exists by name and version.
+- pub `list_packages` function L409-411 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — List all packages in the registry.
+- pub `unregister_workflow_package_by_id` function L414-438 — `( &mut self, package_id: Uuid, ) -> Result<(), RegistryError>` — Unregister a workflow package by ID.
+- pub `unregister_workflow_package_by_name` function L441-457 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
 -  `database` module L23 — `-` — Complete implementation of the workflow registry.
 -  `package` module L24 — `-` — cohesive system for managing packaged workflows.
 -  `register_rust_workflow` function L115-190 — `( &mut self, package_data: Vec<u8>, is_cloacina: bool, ) -> Result<WorkflowPacka...` — Register a Rust workflow package (existing path).
--  `register_python_workflow` function L198-331 — `( &mut self, package_data: Vec<u8>, manifest: crate::packaging::manifest_v2::Man...` — Register a Python workflow package.
--  `register_workflow` function L463-483 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
--  `get_workflow` function L485-529 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
--  `list_workflows` function L531-533 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
--  `unregister_workflow` function L535-566 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
--  `tests` module L570-593 — `-` — cohesive system for managing packaged workflows.
--  `test_registry_creation` function L575-582 — `()` — cohesive system for managing packaged workflows.
--  `test_registry_metrics` function L585-592 — `()` — cohesive system for managing packaged workflows.
+-  `register_python_workflow` function L198-330 — `( &mut self, package_data: Vec<u8>, manifest: crate::packaging::manifest_v2::Man...` — Register a Python workflow package.
+-  `register_workflow` function L462-482 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
+-  `get_workflow` function L484-528 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
+-  `list_workflows` function L530-532 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
+-  `unregister_workflow` function L534-565 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
+-  `tests` module L569-592 — `-` — cohesive system for managing packaged workflows.
+-  `test_registry_creation` function L574-581 — `()` — cohesive system for managing packaged workflows.
+-  `test_registry_metrics` function L584-591 — `()` — cohesive system for managing packaged workflows.
 
 #### crates/cloacina/src/registry/workflow_registry/package.rs
 
@@ -5827,13 +5827,13 @@
 
 #### crates/cloacinactl/src/commands/package.rs
 
-- pub `build` function L35-60 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a .cloacina package.
-- pub `sign` function L251-285 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
-- pub `verify` function L288-361 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
-- pub `inspect` function L364-376 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
--  `build_python` function L63-124 — `( output: &str, targets: &[String], dry_run: bool, verbose: bool, ) -> Result<()...` — Build a Python .cloacina package using the pure Rust builder.
--  `build_rust` function L127-184 — `( output: &str, targets: &[String], dry_run: bool, verbose: bool, ) -> Result<()...` — Build a Rust .cloacina package (existing path via PyO3/cargo).
--  `validate_output_packages` function L187-248 — `(output_dir: &str) -> Result<()>` — Find and validate all .cloacina packages in the output directory.
+- pub `build` function L35-58 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a .cloacina package.
+- pub `sign` function L244-278 — `(database_url: &str, package: &str, key_id: &str, store: bool) -> Result<()>` — Sign a package and write a detached .sig file.
+- pub `verify` function L281-354 — `( database_url: Option<&str>, org_id: Option<&str>, package: &str, signature_pat...` — Verify a package signature.
+- pub `inspect` function L357-369 — `(signature_path: &str) -> Result<()>` — Inspect a detached signature file.
+-  `build_python` function L61-122 — `( output: &str, targets: &[String], dry_run: bool, verbose: bool, ) -> Result<()...` — Build a Python .cloacina package using the pure Rust builder.
+-  `build_rust` function L125-177 — `(output: &str, targets: &[String], dry_run: bool, verbose: bool) -> Result<()>` — Build a Rust .cloacina package (existing path via PyO3/cargo).
+-  `validate_output_packages` function L180-241 — `(output_dir: &str) -> Result<()>` — Find and validate all .cloacina packages in the output directory.
 
 #### crates/cloacinactl/src/commands/serve.rs
 
