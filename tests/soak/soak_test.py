@@ -520,6 +520,12 @@ def main():
         resp = authed.post_file("/workflows/packages", python_package)
         if resp and resp.status_code in (200, 201):
             print(f"OK ({resp.json()})")
+            # Add the Python workflow to the execution list so soak exercises both
+            # The Python workflow name comes from the manifest package name
+            python_wf_name = "data-pipeline-example"
+            if python_wf_name not in workflows:
+                workflows.append(python_wf_name)
+                print(f"  Added '{python_wf_name}' to soak workflow list")
         else:
             status = resp.status_code if resp else "no response"
             text = resp.text[:200] if resp else ""

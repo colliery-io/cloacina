@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-22T13:35:11Z | 413 files | JavaScript, Python, Rust
+> Generated: 2026-03-22T22:06:02Z | 413 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -5460,7 +5460,7 @@
 
 #### crates/cloacina-testing/build.rs
 
--  `main` function L1-20 — `()`
+-  `main` function L17-36 — `()`
 
 ### crates/cloacina-testing/src
 

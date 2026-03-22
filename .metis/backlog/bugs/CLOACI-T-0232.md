@@ -1,37 +1,35 @@
 ---
-id: fix-stub-tests-and-add-critical
+id: daemon-crash-recovery-in-flight
 level: task
-title: "Fix stub tests and add critical coverage — cron scheduler, recovery, workflow registry, Python subsystem"
-short_code: "CLOACI-T-0229"
-created_at: 2026-03-22T13:05:15.300887+00:00
-updated_at: 2026-03-22T22:12:03.536700+00:00
-parent: CLOACI-I-0041
+title: "Daemon crash recovery — in-flight pipeline executions not re-executed after restart"
+short_code: "CLOACI-T-0232"
+created_at: 2026-03-22T22:40:38.509272+00:00
+updated_at: 2026-03-22T22:40:38.509272+00:00
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/backlog"
+  - "#bug"
 
 
 exit_criteria_met: false
-initiative_id: CLOACI-I-0041
+initiative_id: NULL
 ---
 
-# Fix stub tests and add critical coverage — cron scheduler, recovery, workflow registry, Python subsystem
+# Daemon crash recovery — in-flight pipeline executions not re-executed after restart
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[CLOACI-I-0041]]
+[[Parent Initiative]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Replace 5 stub tests with real assertions using `test_dal()`, and add tests for the highest-risk zero-coverage modules. Focus on tests that catch real bugs, not getters.
-
-**Stub tests to fix:** cron_scheduler (3 stubs), cron_recovery (1 stub), workflow_registry (1 stub)
-**Zero-test modules:** Python subsystem (1,599 lines), security/db_key_manager (1,200 lines)
+{Clear statement of what this task accomplishes}
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -67,23 +65,11 @@ Replace 5 stub tests with real assertions using `test_dal()`, and add tests for 
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `test_is_schedule_active` has real time-window assertions (not empty)
-- [ ] `test_calculate_execution_times_skip_policy` tests Skip returns only current window
-- [ ] `test_calculate_execution_times_run_all_policy` tests RunAll returns all missed windows
-- [ ] `test_recovery_attempts_tracking` tests actual recovery logic against real DB
-- [ ] Workflow registry test: register package → retrieve → verify metadata
-- [ ] Python: `ensure_cloaca_module` registers module in sys.modules
-- [ ] Python: task decorator registers task in global registry (existing test in mod.rs extended)
-- [ ] Python: `validate_no_stdlib_shadowing` rejects package with os.py
-- [ ] Security: db_key_manager create + retrieve + revoke lifecycle against real SQLite
-- [ ] Zero stub tests remain (grep for "would need" / empty test bodies)
-- [ ] All existing tests still pass
+- [ ] {Specific, testable requirement 1}
+- [ ] {Specific, testable requirement 2}
+- [ ] {Specific, testable requirement 3}
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -148,24 +134,4 @@ Replace 5 stub tests with real assertions using `test_dal()`, and add tests for 
 
 ## Status Updates **[REQUIRED]**
 
-### 2026-03-22 — Complete
-
-**Cron scheduler stubs replaced (3 stubs → 5 real tests):**
-- `test_is_schedule_active_no_time_window` — verifies no-window schedule logic
-- `test_is_schedule_active_with_start_date` — tests future/past start dates
-- `test_is_schedule_active_with_end_date` — tests expired/active end dates
-- `test_execution_times_skip_policy_returns_next_run` — verifies Skip returns single time
-- `test_execution_times_run_all_policy_uses_evaluator` — verifies RunAll with CronEvaluator, asserts ~6 executions in 30s with */5s cron
-
-**Python subsystem tests added (3 new):**
-- `test_ensure_cloaca_module_registers_in_sys_modules` — verifies module in sys.modules with task, WorkflowBuilder, Context attrs
-- `test_validate_no_stdlib_shadowing_rejects_os_py` — package with os.py rejected
-- `test_validate_no_stdlib_shadowing_allows_normal_packages` — normal names pass
-
-**Not addressed (larger scope):**
-- cron_recovery stub — requires full recovery service integration test
-- workflow_registry stub — requires storage backend setup
-- db_key_manager lifecycle — requires auth DAL setup (1,200 lines)
-- These are better as separate tasks with dedicated test infrastructure
-
-495 tests pass (+5 net new)
+*To be added during implementation*

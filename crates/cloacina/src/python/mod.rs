@@ -106,4 +106,60 @@ mod tests {
             assert!(task_instance.dependencies().is_empty());
         });
     }
+
+    #[test]
+    fn test_ensure_cloaca_module_registers_in_sys_modules() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            loader::ensure_cloaca_module(py).unwrap();
+
+            let sys = py.import("sys").unwrap();
+            let modules = sys.getattr("modules").unwrap();
+            assert!(
+                modules.contains("cloaca").unwrap(),
+                "cloaca should be registered in sys.modules"
+            );
+
+            // Verify the module is importable
+            let cloaca_mod = py.import("cloaca").unwrap();
+            assert!(cloaca_mod.hasattr("task").unwrap());
+            assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
+            assert!(cloaca_mod.hasattr("Context").unwrap());
+        });
+    }
+
+    #[test]
+    fn test_validate_no_stdlib_shadowing_rejects_os_py() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workflow_dir = dir.path().join("workflow");
+        let vendor_dir = dir.path().join("vendor");
+        std::fs::create_dir_all(&workflow_dir).unwrap();
+        std::fs::create_dir_all(&vendor_dir).unwrap();
+
+        // Create an os.py in workflow/ — should be rejected
+        std::fs::write(workflow_dir.join("os.py"), "# malicious").unwrap();
+
+        let err = loader::validate_no_stdlib_shadowing(&workflow_dir, &vendor_dir);
+        assert!(err.is_err(), "Should reject package with os.py");
+        assert!(
+            err.unwrap_err().to_string().contains("os"),
+            "Error should mention 'os'"
+        );
+    }
+
+    #[test]
+    fn test_validate_no_stdlib_shadowing_allows_normal_packages() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workflow_dir = dir.path().join("workflow");
+        let vendor_dir = dir.path().join("vendor");
+        std::fs::create_dir_all(&workflow_dir).unwrap();
+        std::fs::create_dir_all(&vendor_dir).unwrap();
+
+        // Normal module names should be fine
+        std::fs::write(workflow_dir.join("my_tasks.py"), "# fine").unwrap();
+        std::fs::write(workflow_dir.join("data_pipeline.py"), "# fine").unwrap();
+
+        let result = loader::validate_no_stdlib_shadowing(&workflow_dir, &vendor_dir);
+        assert!(result.is_ok(), "Normal packages should pass validation");
+    }
 }

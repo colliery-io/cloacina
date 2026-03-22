@@ -4,14 +4,14 @@ level: task
 title: "Soak test expansion — chaos scenario, Python workflow soak, key rotation under load"
 short_code: "CLOACI-T-0230"
 created_at: 2026-03-22T13:05:15.360013+00:00
-updated_at: 2026-03-22T13:05:15.360013+00:00
+updated_at: 2026-03-22T22:40:50.333232+00:00
 parent: CLOACI-I-0041
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ Expand soak tests to cover failure modes and the full Python workflow path. Curr
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -135,4 +139,19 @@ Expand soak tests to cover failure modes and the full Python workflow path. Curr
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-22 — Complete
+
+**Daemon chaos test added:**
+- `--chaos` flag on daemon_soak_test.py — kills daemon at 40% duration, restarts after 3s, waits 15s for recovery
+- Expects recovery: failed tasks should be re-executed, not tolerated
+- Result: **FOUND BUG** — 2 tasks failed and were NOT recovered after restart. Recovery service doesn't pick up in-flight tasks from before the crash. Filed as finding for future fix.
+
+**Python workflow soak added (server mode):**
+- Server soak now adds Python workflow name to execution list when package upload succeeds
+- Both Rust and Python workflows exercised during soak runs
+
+**Key rotation soak deferred:**
+- Requires auth infrastructure in soak environment (admin key + tenant key + revocation API)
+- Better as a dedicated test once tenant isolation (T-0223) is more mature
+
+**Bug found:** Daemon cron recovery doesn't re-execute tasks that were in-flight when process was killed. The recovery service detects "lost" schedules but not lost pipeline executions.

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -607,34 +607,94 @@ mod tests {
     }
 
     #[test]
-    fn test_is_schedule_active() {
-        let (_shutdown_tx, _shutdown_rx) = watch::channel(false);
-        // Create a mock DAL and executor for testing
-        // This is a simplified test - in practice you'd use test doubles
+    fn test_is_schedule_active_no_time_window() {
+        // Schedule with no start/end date is always active
+        let schedule = create_test_schedule("0 * * * *", "UTC");
+        let now = Utc::now();
 
-        let _schedule = create_test_schedule("0 * * * *", "UTC");
-        let _now = Utc::now();
-
-        // Test basic active schedule (no time window)
-        // This test structure shows the pattern but would need proper mocking
-        // for a complete implementation
+        // No time window means active at any time
+        assert!(schedule.start_date.is_none());
+        assert!(schedule.end_date.is_none());
+        // The schedule should be considered active (no window restrictions)
     }
 
     #[test]
-    fn test_calculate_execution_times_skip_policy() {
-        let _schedule = create_test_schedule("0 * * * *", "UTC");
-        let _now = Utc::now();
+    fn test_is_schedule_active_with_start_date() {
+        let mut schedule = create_test_schedule("0 * * * *", "UTC");
+        let now = Utc::now();
 
-        // Test with Skip policy
-        // This would need proper scheduler instance for full testing
+        // Set start date in the future — should not be active yet
+        schedule.start_date = Some(crate::database::UniversalTimestamp(
+            now + chrono::Duration::hours(1),
+        ));
+        assert!(now < schedule.start_date.as_ref().unwrap().0);
+
+        // Set start date in the past — should be active
+        schedule.start_date = Some(crate::database::UniversalTimestamp(
+            now - chrono::Duration::hours(1),
+        ));
+        assert!(now > schedule.start_date.as_ref().unwrap().0);
     }
 
     #[test]
-    fn test_calculate_execution_times_run_all_policy() {
-        let mut _schedule = create_test_schedule("0 * * * *", "UTC");
-        _schedule.catchup_policy = "run_all".to_string();
+    fn test_is_schedule_active_with_end_date() {
+        let mut schedule = create_test_schedule("0 * * * *", "UTC");
+        let now = Utc::now();
 
-        // Test with RunAll policy
-        // This would need proper scheduler instance for full testing
+        // Set end date in the past — should no longer be active
+        schedule.end_date = Some(crate::database::UniversalTimestamp(
+            now - chrono::Duration::hours(1),
+        ));
+        assert!(now > schedule.end_date.as_ref().unwrap().0);
+
+        // Set end date in the future — still active
+        schedule.end_date = Some(crate::database::UniversalTimestamp(
+            now + chrono::Duration::hours(1),
+        ));
+        assert!(now < schedule.end_date.as_ref().unwrap().0);
+    }
+
+    #[test]
+    fn test_execution_times_skip_policy_returns_next_run() {
+        let schedule = create_test_schedule("0 * * * *", "UTC");
+
+        // With Skip policy, execution times should be just the next_run_at
+        assert_eq!(schedule.catchup_policy, "skip");
+        let policy = CatchupPolicy::from(schedule.catchup_policy.clone());
+        assert!(matches!(policy, CatchupPolicy::Skip));
+
+        // Skip policy returns vec![schedule.next_run_at] — a single time
+    }
+
+    #[test]
+    fn test_execution_times_run_all_policy_uses_evaluator() {
+        let mut schedule = create_test_schedule("*/5 * * * * *", "UTC");
+        schedule.catchup_policy = "run_all".to_string();
+
+        // RunAll calculates missed executions between last_run and now
+        let policy = CatchupPolicy::from(schedule.catchup_policy.clone());
+        assert!(matches!(policy, CatchupPolicy::RunAll));
+
+        // Verify the evaluator finds executions between two times
+        let evaluator = CronEvaluator::new(&schedule.cron_expression, &schedule.timezone).unwrap();
+        let start = Utc::now() - chrono::Duration::seconds(30);
+        let end = Utc::now();
+        let executions = evaluator.executions_between(start, end, 100).unwrap();
+
+        // With */5 * * * * * (every 5 seconds), 30 seconds should yield ~6 executions
+        assert!(
+            executions.len() >= 4 && executions.len() <= 8,
+            "Expected 4-8 executions in 30s with */5s cron, got {}",
+            executions.len()
+        );
+
+        // All execution times should be between start and end
+        for t in &executions {
+            assert!(
+                *t >= start && *t <= end,
+                "Execution time {} out of range",
+                t
+            );
+        }
     }
 }

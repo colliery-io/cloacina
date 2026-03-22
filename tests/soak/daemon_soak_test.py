@@ -119,6 +119,8 @@ def main():
                         help="Path to cloacinactl binary")
     parser.add_argument("--poll-interval", type=int, default=5,
                         help="How often to check daemon status (seconds)")
+    parser.add_argument("--chaos", action="store_true",
+                        help="Kill and restart daemon mid-run to test recovery")
     args = parser.parse_args()
 
     duration_secs = parse_duration(args.duration)
@@ -281,10 +283,40 @@ def main():
     report_interval = min(30, max(5, duration_secs / 10))
     prev_total = 0  # noqa: F841
     errors = []
+    chaos_done = False
 
     try:
         while time.time() < end_time:
             time.sleep(args.poll_interval)
+
+            # Chaos mode: kill daemon at ~40% of duration, restart after 5s
+            if args.chaos and not chaos_done and (time.time() - start_time) > duration_secs * 0.4:
+                print("\n  [CHAOS] Killing daemon mid-run...")
+                daemon_proc.kill()
+                daemon_proc.wait(timeout=5)
+                time.sleep(3)
+                print("  [CHAOS] Restarting daemon...")
+                daemon_proc = subprocess.Popen(
+                    [
+                        ctl, "daemon",
+                        "--packages", str(packages_dir),
+                        "--db", str(db_path),
+                        "--storage", str(storage_path),
+                        "--poll-interval", "5",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                # Wait for recovery service to detect and re-execute lost tasks
+                print("  [CHAOS] Waiting for recovery service (15s)...")
+                time.sleep(15)
+                if daemon_proc.poll() is not None:
+                    errors.append("Daemon failed to restart after chaos kill")
+                    break
+                print("  [CHAOS] Daemon restarted + recovery window elapsed, continuing...\n")
+                chaos_done = True
+                continue
 
             # Check daemon is still alive
             if daemon_proc.poll() is not None:
@@ -411,10 +443,15 @@ def main():
             print(f"    - {e}")
 
     passed = total > 0 and successful > 0 and failed == 0 and not errors
-    # Allow first execution to fail (reconciler race) — check that most succeed
+    # Allow first execution to fail (reconciler startup race)
     if not passed and total > 0 and failed <= 1 and successful >= total - 1:
         passed = True
         print(f"\n  Note: {failed} failure(s) tolerated (reconciler startup race)")
+    # In chaos mode: recovery should have resolved all in-flight tasks.
+    # If tasks remain failed after restart + recovery window, that's a real bug.
+    if args.chaos and not passed and total > 0 and failed > 0:
+        print(f"\n  CHAOS NOTE: {failed} task(s) failed and were NOT recovered after daemon restart.")
+        print("  This indicates the recovery service did not pick up lost tasks.")
 
     print(f"\n{'PASS' if passed else 'FAIL'}")
     print("=" * 60)

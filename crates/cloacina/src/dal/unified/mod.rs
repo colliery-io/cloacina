@@ -82,7 +82,6 @@ pub use tenant_dal::TenantDAL;
 pub use trigger_execution::TriggerExecutionDAL;
 pub use trigger_schedule::TriggerScheduleDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
-pub use workflow_registry::WorkflowRegistryDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
 
 /// Helper macro for dispatching operations based on backend type.

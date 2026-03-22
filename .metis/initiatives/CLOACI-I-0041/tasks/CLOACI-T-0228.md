@@ -4,14 +4,14 @@ level: task
 title: "Test infrastructure — test_db() and test_dal() helpers in cloacina-testing"
 short_code: "CLOACI-T-0228"
 created_at: 2026-03-22T13:05:15.236469+00:00
-updated_at: 2026-03-22T13:19:23.070665+00:00
+updated_at: 2026-03-22T22:07:30.852891+00:00
 parent: CLOACI-I-0041
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ Create `test_db()` and `test_dal()` helpers in `cloacina-testing` that return a 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

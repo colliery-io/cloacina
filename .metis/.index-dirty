@@ -1,2 +1,7 @@
-/Users/dstorey/Desktop/cloacina/.angreal/cloaca/smoke.py
-/Users/dstorey/Desktop/cloacina/bindings/cloaca-backend/src/lib.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/cron_scheduler.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/mod.rs
+/Users/dstorey/Desktop/cloacina/tests/soak/soak_test.py
+/Users/dstorey/Desktop/cloacina/tests/soak/daemon_soak_test.py
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/database/connection/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/workflow_registry.rs

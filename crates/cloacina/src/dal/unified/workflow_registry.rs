@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,21 +14,8 @@
  *  limitations under the License.
  */
 
-//! Workflow registry DAL for unified backend support
-
-use super::DAL;
-
-/// Data access layer for workflow registry operations.
-#[derive(Clone)]
-pub struct WorkflowRegistryDAL<'a> {
-    dal: &'a DAL,
-}
-
-impl<'a> WorkflowRegistryDAL<'a> {
-    /// Creates a new WorkflowRegistryDAL instance.
-    pub fn new(dal: &'a DAL) -> Self {
-        Self { dal }
-    }
-
-    // TODO: Implement workflow registry operations with backend dispatch
-}
+//! Workflow registry DAL — placeholder module.
+//!
+//! Workflow registry operations are currently handled by
+//! [`crate::registry::workflow_registry::WorkflowRegistryImpl`] directly.
+//! This module exists for future DAL-level registry operations if needed.
