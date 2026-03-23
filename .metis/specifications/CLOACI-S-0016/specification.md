@@ -70,11 +70,39 @@ WHERE id = :task_id AND claimed_by = :executor_id
 
 ### 4. Detect Orphans
 
-Recovery sweeper runs every 30s:
+Recovery sweeper runs every 30s with two modes:
+
+**Startup mode** (first `startup_grace` seconds, default 120s):
+Only recover tasks that were stale BEFORE this instance started — definitely orphaned from a previous session, not tasks that lost heartbeats during the restart window.
 
 ```sql
 SELECT * FROM task_executions
-WHERE status = 'Running' AND heartbeat_at < NOW() - INTERVAL '60 seconds'
+WHERE status = 'Running'
+  AND heartbeat_at < :sweeper_start_time - INTERVAL '60 seconds'
+```
+
+**Normal mode** (after grace period):
+Real-time orphan detection for tasks that go stale during operation.
+
+```sql
+SELECT * FROM task_executions
+WHERE status = 'Running'
+  AND heartbeat_at < NOW() - INTERVAL '60 seconds'
+```
+
+**Why the grace period matters:**
+A service might take 60+ seconds to restart (migrations, reconciler, package loading). Without the grace period, the sweeper would immediately recover tasks whose heartbeats are only stale because of the restart gap — not because the executor is dead. The grace period ensures we only recover tasks from the *previous* session during startup, then switch to live detection once the system is stable.
+
+```
+Timeline:
+  T+0s     crash
+  T+0-60s  no heartbeats (process dead)
+  T+60s    restart begins
+  T+65s    sweeper first tick (startup mode)
+           → only recovers tasks with heartbeat < T+0s-60s = T-60s
+           → tasks heartbeating at T+0s are NOT recovered (grace window)
+  T+180s   grace period ends, switches to normal mode
+           → any task with heartbeat > 60s stale is recovered
 ```
 
 ### 5. Recover
@@ -136,16 +164,28 @@ CREATE TABLE runner_instances (
 - `claimed_by` already stores executor identity — works for any executor type
 - Heartbeat writes go through API → database (same column, same detection)
 
-## Integration with Existing Cron Recovery
+## Cron Recovery Elimination
 
-The cron recovery service (`CronRecoveryService`) handles a different gap: cron schedule claimed → pipeline never created. It stays as-is. The new recovery sweeper handles: task claimed → executor died before completing. They don't overlap.
+The existing `CronRecoveryService` detects cron schedules that were claimed but never produced a pipeline. This gap exists because the cron scheduler performs three separate operations:
+1. Create audit record
+2. Create pipeline + tasks
+3. Link audit to pipeline
+
+If the process dies between steps 1 and 2, the audit record exists with no pipeline.
+
+**Fix:** Make steps 1-3 a single atomic transaction. Either all three commit or none do. With correct transaction boundaries, the "claimed but no pipeline" gap cannot occur.
+
+Once atomic, the heartbeat sweeper covers everything after pipeline/task creation. `CronRecoveryService` becomes unnecessary.
 
 ```
-Cron Recovery:  schedule claimed ──→ pipeline NOT created  (gap in cron → pipeline handoff)
-Task Recovery:  task claimed     ──→ task NOT completed    (gap in task execution)
-```
+Before: Two recovery systems for two gaps
+  CronRecoveryService:  schedule claimed → pipeline NOT created
+  RecoverySweeper:      task claimed     → task NOT completed
 
-Both run as background services. Both are needed.
+After: One recovery system, one gap eliminated by transaction fix
+  RecoverySweeper:      task claimed     → task NOT completed
+  (cron gap eliminated by atomic schedule claim + pipeline + task creation)
+```
 
 ## Pipeline Status Derivation
 
@@ -165,6 +205,7 @@ All under `DefaultRunnerConfig`:
 | `task_heartbeat_interval` | 10s | How often executors heartbeat |
 | `task_orphan_threshold` | 60s | Stale heartbeat = orphaned |
 | `recovery_sweep_interval` | 30s | How often sweeper runs |
+| `recovery_startup_grace` | 120s | Grace period after startup before live orphan detection |
 | `max_recovery_attempts` | 3 | Before abandoning a task |
 | `enable_recovery_sweeper` | true | Enable/disable |
 | `instance_heartbeat_interval` | 15s | Runner instance heartbeat (server) |
@@ -173,7 +214,9 @@ All under `DefaultRunnerConfig`:
 ## What Gets Removed
 
 - `task_scheduler/recovery.rs::RecoveryManager` — dead code, replaced by recovery sweeper
-- The startup-only recovery call in `TaskScheduler::with_poll_interval()` — replaced by sweeper's immediate first run
+- `cron_recovery.rs::CronRecoveryService` — gap eliminated by atomic cron transaction
+- The startup-only recovery call in `TaskScheduler::with_poll_interval()` — replaced by sweeper's startup mode
+- All `cron_recovery_*` config options — replaced by unified recovery config
 - Separate recovery designs per mode — one system for all
 
 ## System Context **[CONDITIONAL: System-Level Spec]**
