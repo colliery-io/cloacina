@@ -27,9 +27,20 @@ initiative_id: NULL
 
 [[Parent Initiative]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+**ESCALATED TO INITIATIVE SCOPE.** What started as a daemon crash recovery bug revealed systemic issues in the entire recovery system.
+
+The recovery system was designed for a pull-based execution model (executor polls outbox and claims tasks). The architecture shifted to push-based (dispatcher sends events directly to executor). This broke fundamental assumptions:
+
+1. **RecoveryManager is dead code** — only runs once at startup, never again
+2. **Executor never marks tasks "Running"** — push model skips the claiming step entirely
+3. **Outbox entry not recreated on recovery** — recovered tasks invisible to dispatcher
+4. **Pipeline marked Completed even if tasks failed**
+5. **Same bug affects server mode** — not daemon-specific
+
+### Priority
+- [x] P1 - High (blocks production reliability)
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -134,4 +145,29 @@ initiative_id: NULL
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-22 — Deep audit, escalated to initiative
+
+**Investigation path:**
+1. Found RecoveryManager dead code — wired into scheduler loop
+2. Discovered tasks never reach "Running" state in push model — recovery finds nothing
+3. Tried pipeline re-queuing on startup — user correctly identified pipelines aren't queued
+4. Deep audit revealed architecture mismatch: pull-based recovery vs push-based execution
+5. Same issue affects server mode (not just daemon)
+
+**Three design agents launched for unified recovery redesign:**
+- Server mode (multi-instance, PostgreSQL, horizontal scaling, heartbeat)
+- Daemon mode (single-instance, SQLite, startup recovery)
+- Continuous scheduling (watermarks, exactly-once, boundary ledger)
+
+All designing with future distributed executors in mind.
+
+**Critical design requirement (from user):**
+Future distributed executors are NOT pulling from a queue — they're autonomous processes on potentially different networks entirely. The scheduler has no direct access to the executor process. Therefore:
+- **Task-level heartbeating is required** — executor periodically writes "still alive" for each task it's executing
+- **Stale heartbeat = orphaned** — no heartbeat for N seconds means task is abandoned (crash, network partition, executor killed)
+- **No co-location assumptions** — can't check PID, share memory, or send signals
+- Recovery must work purely via database state (heartbeat timestamps)
+
+This is the foundational primitive: all recovery (server, daemon, continuous) should be built on task heartbeat expiry.
+
+**Status:** Waiting for design agents, then synthesizing into initiative specification with heartbeat-based recovery as the core primitive.

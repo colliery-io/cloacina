@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-22T22:06:02Z | 413 files | JavaScript, Python, Rust
+> Generated: 2026-03-22T23:46:00Z | 413 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -909,12 +909,14 @@
 -  `execute_workflow` function L460-513 — `( &self, schedule: &CronSchedule, scheduled_time: DateTime<Utc>, ) -> Result<cra...` — Executes a workflow by handing it off to the pipeline executor.
 -  `create_execution_audit` function L527-545 — `( &self, schedule_id: crate::database::UniversalUuid, scheduled_time: DateTime<U...` — Creates audit record BEFORE workflow execution for guaranteed reliability.
 -  `complete_execution_audit` function L555-571 — `( &self, audit_record_id: crate::database::UniversalUuid, pipeline_execution_id:...` — Updates audit record with pipeline execution ID after successful handoff.
--  `tests` module L575-640 — `-` — ```
+-  `tests` module L575-700 — `-` — ```
 -  `create_test_schedule` function L580-596 — `(cron_expr: &str, timezone: &str) -> CronSchedule` — ```
 -  `test_cron_scheduler_config_default` function L599-607 — `()` — ```
--  `test_is_schedule_active` function L610-621 — `()` — ```
--  `test_calculate_execution_times_skip_policy` function L624-630 — `()` — ```
--  `test_calculate_execution_times_run_all_policy` function L633-639 — `()` — ```
+-  `test_is_schedule_active_no_time_window` function L610-619 — `()` — ```
+-  `test_is_schedule_active_with_start_date` function L622-637 — `()` — ```
+-  `test_is_schedule_active_with_end_date` function L640-655 — `()` — ```
+-  `test_execution_times_skip_policy_returns_next_run` function L658-667 — `()` — ```
+-  `test_execution_times_run_all_policy_uses_evaluator` function L670-699 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -1822,28 +1824,28 @@
 - pub `workflow_packages` module L63 — `-` — ```
 - pub `workflow_registry` module L64 — `-` — ```
 - pub `workflow_registry_storage` module L65 — `-` — ```
-- pub `DAL` struct L176-179 — `{ database: Database }` — The unified Data Access Layer struct.
-- pub `new` function L191-193 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L196-198 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L201-203 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L206-208 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `context` function L211-213 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `pipeline_execution` function L216-218 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
-- pub `task_execution` function L221-223 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L226-228 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L231-233 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L236-238 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L241-243 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `cron_schedule` function L246-248 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
-- pub `cron_execution` function L251-253 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
-- pub `trigger_schedule` function L256-258 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
-- pub `trigger_execution` function L261-263 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
-- pub `workflow_packages` function L266-268 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `workflow_registry` function L280-286 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L299-310 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `backend_dispatch` macro L105-125 — `-` — Helper macro for dispatching operations based on backend type.
--  `connection_match` macro L144-164 — `-` — Helper macro for matching on AnyConnection variants.
--  `DAL` type L181-311 — `= DAL` — ```
+- pub `DAL` struct L175-178 — `{ database: Database }` — The unified Data Access Layer struct.
+- pub `new` function L190-192 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L195-197 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L200-202 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L205-207 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `context` function L210-212 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `pipeline_execution` function L215-217 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
+- pub `task_execution` function L220-222 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L225-227 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L230-232 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `recovery_event` function L235-237 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L240-242 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `cron_schedule` function L245-247 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
+- pub `cron_execution` function L250-252 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
+- pub `trigger_schedule` function L255-257 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
+- pub `trigger_execution` function L260-262 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
+- pub `workflow_packages` function L265-267 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `workflow_registry` function L279-285 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L298-309 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `backend_dispatch` macro L104-124 — `-` — Helper macro for dispatching operations based on backend type.
+-  `connection_match` macro L143-163 — `-` — Helper macro for matching on AnyConnection variants.
+-  `DAL` type L180-310 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
@@ -2643,22 +2645,22 @@
 - pub `pool` function L326-328 — `(&self) -> AnyPool` — Returns a clone of the connection pool.
 - pub `get_connection` function L331-333 — `(&self) -> AnyPool` — Alias for `pool()` for backward compatibility.
 - pub `close` function L349-352 — `(&self)` — Closes the connection pool, releasing all database connections.
-- pub `run_migrations` function L374-458 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
-- pub `setup_schema` function L470-523 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
-- pub `get_connection_with_schema` function L533-571 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
-- pub `get_postgres_connection` function L577-584 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
-- pub `get_sqlite_connection` function L590-608 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
+- pub `run_migrations` function L374-454 — `(&self) -> Result<(), String>` — Runs pending database migrations for the appropriate backend.
+- pub `setup_schema` function L466-518 — `(&self, schema: &str) -> Result<(), String>` — Sets up the PostgreSQL schema for multi-tenant isolation.
+- pub `get_connection_with_schema` function L528-566 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection with the schema search path set.
+- pub `get_postgres_connection` function L572-579 — `( &self, ) -> Result< deadpool::managed::Object<PgManager>, deadpool::managed::P...` — Gets a PostgreSQL connection.
+- pub `get_sqlite_connection` function L585-603 — `( &self, ) -> Result< deadpool::managed::Object<SqliteManager>, deadpool::manage...` — Gets a SQLite connection.
 -  `backend` module L51 — `-` — Database connection management module supporting both PostgreSQL and SQLite.
 -  `schema_validation` module L52 — `-` — ```
 -  `Database` type L125-133 — `= Database` — ```
 -  `fmt` function L126-132 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
--  `Database` type L135-609 — `= Database` — ```
+-  `Database` type L135-604 — `= Database` — ```
 -  `build_postgres_url` function L355-359 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
 -  `build_sqlite_url` function L362-369 — `(connection_string: &str) -> String` — Builds a SQLite connection URL.
--  `tests` module L612-709 — `-` — ```
--  `test_postgres_url_parsing_scenarios` function L616-640 — `()` — ```
--  `test_sqlite_connection_strings` function L643-659 — `()` — ```
--  `test_backend_type_detection` function L662-708 — `()` — ```
+-  `tests` module L607-704 — `-` — ```
+-  `test_postgres_url_parsing_scenarios` function L611-635 — `()` — ```
+-  `test_sqlite_connection_strings` function L638-654 — `()` — ```
+-  `test_backend_type_detection` function L657-703 — `()` — ```
 
 #### crates/cloacina/src/database/connection/schema_validation.rs
 
@@ -3378,8 +3380,11 @@
 - pub `task` module L35 — `-` — `#[pymodule]` definition.
 - pub `workflow` module L36 — `-` — `#[pymodule]` definition.
 - pub `workflow_context` module L37 — `-` — `#[pymodule]` definition.
--  `tests` module L56-109 — `-` — `#[pymodule]` definition.
+-  `tests` module L56-165 — `-` — `#[pymodule]` definition.
 -  `test_python_workflow_via_with_gil` function L62-108 — `()` — `#[pymodule]` definition.
+-  `test_ensure_cloaca_module_registers_in_sys_modules` function L111-129 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_rejects_os_py` function L132-148 — `()` — `#[pymodule]` definition.
+-  `test_validate_no_stdlib_shadowing_allows_normal_packages` function L151-164 — `()` — `#[pymodule]` definition.
 
 #### crates/cloacina/src/python/namespace.rs
 
@@ -8839,7 +8844,7 @@
 - pub `build_package` function L37-76 — `def build_package(project_dir)` — Build a .cloacina package from a Rust workflow project.
 - pub `run_cmd` function L79-86 — `def run_cmd(args, timeout=30, check=True)` — Run a command and return (returncode, stdout, stderr).
 - pub `parse_duration` function L93-101 — `def parse_duration(s)`
-- pub `main` function L108-425 — `def main()`
+- pub `main` function L108-462 — `def main()`
 
 #### tests/soak/soak_test.py
 
@@ -8868,5 +8873,5 @@
 - pub `heavy_load` function L375-380 — `def heavy_load(client, delay, stats, workflows)` — Heavy: rapid fire-and-forget triggers with periodic polling.
 - pub `worker` function L390-397 — `def worker(base_url, api_key, profile_fn, delay, stop_event, stats, workflows, w...`
 - pub `parse_duration` function L404-414 — `def parse_duration(s)`
-- pub `main` function L421-654 — `def main()`
+- pub `main` function L421-660 — `def main()`
 -  `_request` method L144-187 — `def _request(self, method, path, body=None, raw_data=None, content_type=None)`
