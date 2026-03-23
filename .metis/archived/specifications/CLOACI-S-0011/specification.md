@@ -7,7 +7,7 @@ created_at: 2026-03-23T02:16:54.959482+00:00
 updated_at: 2026-03-23T02:16:54.959482+00:00
 parent: CLOACI-S-0008
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#specification"

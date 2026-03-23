@@ -37,10 +37,13 @@ Deep audit of the recovery system (triggered by T-0232 chaos test failure) revea
 
 Absorbs: T-0232 (daemon crash recovery bug)
 
-Reference specifications from design agents:
-- CLOACI-S-0009 — Daemon Recovery Design
-- CLOACI-S-0010 — Server Recovery Design (instance heartbeats, task claiming)
-- CLOACI-S-0011 — Continuous Scheduling Recovery Design (WAL ordering, watermarks)
+Reference specifications:
+- **CLOACI-S-0016** — Unified Recovery System (supersedes S-0009/S-0010/S-0011)
+- CLOACI-S-0012 — Task Heartbeat Protocol (detail spec)
+- CLOACI-S-0013 — Recovery Sweeper Service (detail spec)
+- CLOACI-S-0014 — Pipeline Status Derivation (detail spec)
+
+Archived (reference material only): S-0009 (daemon), S-0010 (server), S-0011 (continuous)
 
 ## Goals & Non-Goals
 

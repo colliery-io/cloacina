@@ -9,7 +9,7 @@ updated_at: 2026-03-23T02:26:35.487343+00:00
 decision_date:
 decision_maker:
 parent:
-archived: false
+archived: true
 
 tags:
   - "#adr"
