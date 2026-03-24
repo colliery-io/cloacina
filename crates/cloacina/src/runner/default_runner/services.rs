@@ -132,6 +132,12 @@ impl DefaultRunner {
                 .await?;
         }
 
+        // Start recovery sweeper (always enabled by default)
+        if self.config.enable_recovery() {
+            self.start_recovery_sweeper(&mut handles, &shutdown_tx)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -254,6 +260,58 @@ impl DefaultRunner {
         // Store recovery service and handle
         *self.cron_recovery.write().await = Some(Arc::new(recovery_service));
         handles.cron_recovery_handle = Some(recovery_handle);
+
+        Ok(())
+    }
+
+    /// Starts the recovery sweeper service
+    async fn start_recovery_sweeper(
+        &self,
+        handles: &mut super::RuntimeHandles,
+        shutdown_tx: &broadcast::Sender<()>,
+    ) -> Result<(), PipelineError> {
+        tracing::info!("Starting recovery sweeper service");
+
+        let (sweeper_shutdown_tx, sweeper_shutdown_rx) = watch::channel(false);
+
+        let sweep_config = crate::recovery_sweep::RecoverySweepConfig {
+            sweep_interval: std::time::Duration::from_secs(30),
+            orphan_threshold: std::time::Duration::from_secs(60),
+            startup_grace: std::time::Duration::from_secs(120),
+            max_recovery_attempts: 3,
+        };
+
+        let dal = DAL::new(self.database.clone());
+        let sweep_service = crate::recovery_sweep::RecoverySweepService::new(
+            Arc::new(dal),
+            sweep_config,
+            sweeper_shutdown_rx,
+        );
+
+        let mut service_clone = sweep_service.clone();
+        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+        let span = self.create_runner_span("recovery_sweeper");
+
+        let handle = tokio::spawn(
+            async move {
+                tokio::select! {
+                    result = service_clone.run_sweep_loop() => {
+                        if let Err(e) = result {
+                            tracing::error!("Recovery sweeper failed: {}", e);
+                        } else {
+                            tracing::info!("Recovery sweeper completed");
+                        }
+                    }
+                    _ = broadcast_shutdown_rx.recv() => {
+                        tracing::info!("Recovery sweeper shutdown via broadcast");
+                        let _ = sweeper_shutdown_tx.send(true);
+                    }
+                }
+            }
+            .instrument(span),
+        );
+
+        handles.recovery_sweeper_handle = Some(handle);
 
         Ok(())
     }

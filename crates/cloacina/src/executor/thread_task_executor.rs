@@ -692,6 +692,68 @@ impl TaskExecutor for ThreadTaskExecutor {
             .await
             .map_err(|_| DispatchError::ExecutorNotFound("semaphore closed".into()))?;
 
+        // Claim the task atomically — marks Running + sets heartbeat.
+        // If another executor already claimed it, skip silently.
+        let executor_id = self.instance_id.0.to_string();
+        match self
+            .dal
+            .task_execution()
+            .claim_task(event.task_execution_id, &executor_id)
+            .await
+        {
+            Ok(true) => {
+                tracing::debug!(
+                    task = %event.task_name,
+                    "Task claimed by executor {}",
+                    executor_id
+                );
+            }
+            Ok(false) => {
+                // Another executor claimed it — not an error
+                tracing::debug!(
+                    task = %event.task_name,
+                    "Task already claimed by another executor, skipping"
+                );
+                return Ok(ExecutionResult::success(
+                    event.task_execution_id,
+                    start.elapsed(),
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    task = %event.task_name,
+                    error = %e,
+                    "Failed to claim task, proceeding without claim"
+                );
+                // Continue without claim — backward compatible with tests
+            }
+        }
+
+        // Spawn heartbeat background task
+        let heartbeat_dal = self.dal.clone();
+        let heartbeat_task_id = event.task_execution_id;
+        let heartbeat_executor_id = executor_id.clone();
+        let heartbeat_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                match heartbeat_dal
+                    .task_execution()
+                    .heartbeat(heartbeat_task_id, &heartbeat_executor_id)
+                    .await
+                {
+                    Ok(true) => {} // heartbeat accepted
+                    Ok(false) => {
+                        tracing::info!("Heartbeat rejected — task was recovered, stopping");
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Heartbeat failed: {}", e);
+                    }
+                }
+            }
+        });
+
         // Convert TaskReadyEvent to ClaimedTask format
         let claimed_task = ClaimedTask {
             task_execution_id: event.task_execution_id,
@@ -786,6 +848,9 @@ impl TaskExecutor for ThreadTaskExecutor {
             self.execute_with_timeout(task.as_ref(), context).await
         };
         let duration = start.elapsed();
+
+        // Stop heartbeating — task execution is done (success or failure)
+        heartbeat_handle.abort();
 
         match execution_result {
             Ok(result_context) => {

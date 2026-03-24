@@ -113,6 +113,8 @@ pub(super) struct RuntimeHandles {
     pub(super) trigger_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the continuous scheduler background task (if enabled)
     pub(super) continuous_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the recovery sweeper background task (if enabled)
+    pub(super) recovery_sweeper_handle: Option<tokio::task::JoinHandle<()>>,
     /// Watch sender for continuous scheduler shutdown signal
     pub(super) continuous_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     /// Channel sender for broadcasting shutdown signals
@@ -246,6 +248,7 @@ impl DefaultRunner {
                 registry_reconciler_handle: None,
                 trigger_scheduler_handle: None,
                 continuous_scheduler_handle: None,
+                recovery_sweeper_handle: None,
                 continuous_shutdown_tx: None,
                 shutdown_sender: None,
             })),
@@ -399,6 +402,12 @@ impl DefaultRunner {
         await_service(
             "continuous_scheduler",
             handles.continuous_scheduler_handle.take(),
+            shutdown_timeout,
+        )
+        .await;
+        await_service(
+            "recovery_sweeper",
+            handles.recovery_sweeper_handle.take(),
             shutdown_timeout,
         )
         .await;

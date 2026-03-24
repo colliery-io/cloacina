@@ -638,6 +638,7 @@ impl DefaultRunnerBuilder {
                 registry_reconciler_handle: None,
                 trigger_scheduler_handle: None,
                 continuous_scheduler_handle: None,
+                recovery_sweeper_handle: None,
                 continuous_shutdown_tx: None,
                 shutdown_sender: None,
             })),

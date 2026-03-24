@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-22T23:46:00Z | 413 files | JavaScript, Python, Rust
+> Generated: 2026-03-24T00:05:10Z | 414 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -87,6 +87,7 @@
 │   │   │   │       ├── task_execution/
 │   │   │   │       │   ├── claiming.rs
 │   │   │   │       │   ├── crud.rs
+│   │   │   │       │   ├── heartbeat.rs
 │   │   │   │       │   ├── mod.rs
 │   │   │   │       │   ├── queries.rs
 │   │   │   │       │   ├── recovery.rs
@@ -1853,84 +1854,84 @@
 - pub `NewUnifiedDbContext` struct L51-56 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
 - pub `UnifiedPipelineExecution` struct L64-79 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `NewUnifiedPipelineExecution` struct L83-92 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecution` struct L100-119 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecution` struct L123-134 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecutionMetadata` struct L142-150 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecutionMetadata` struct L154-162 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedRecoveryEvent` struct L170-179 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedRecoveryEvent` struct L183-192 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedExecutionEvent` struct L202-211 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
-- pub `NewUnifiedExecutionEvent` struct L215-223 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskOutbox` struct L233-237 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
-- pub `NewUnifiedTaskOutbox` struct L241-244 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPipelineOutbox` struct L254-258 — `{ id: i64, pipeline_execution_id: UniversalUuid, created_at: UniversalTimestamp ...` — Unified pipeline outbox model for work distribution.
-- pub `NewUnifiedPipelineOutbox` struct L262-264 — `{ pipeline_execution_id: UniversalUuid }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronSchedule` struct L272-285 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronSchedule` struct L289-301 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronExecution` struct L309-317 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronExecution` struct L321-329 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerSchedule` struct L337-347 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerSchedule` struct L351-360 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerExecution` struct L368-377 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerExecution` struct L381-389 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L397-401 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L405-409 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L417-428 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L432-443 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L451-460 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L464-472 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L480-488 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L492-499 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L507-513 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L517-522 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L530-536 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L540-546 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `AccumulatorStateRow` struct L823-830 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
-- pub `NewAccumulatorState` struct L835-839 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
-- pub `DetectorStateRow` struct L848-852 — `{ source_name: String, committed_state: Option<String>, updated_at: UniversalTim...` — Persisted detector state row.
-- pub `NewDetectorState` struct L857-860 — `{ source_name: String, committed_state: Option<String> }` — New detector state for insertion.
-- pub `PendingBoundaryRow` struct L869-874 — `{ id: i64, source_name: String, boundary_json: String, received_at: UniversalTim...` — Pending boundary row from the WAL.
-- pub `NewPendingBoundary` struct L879-882 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
-- pub `EdgeDrainCursorRow` struct L891-895 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
-- pub `NewEdgeDrainCursor` struct L900-904 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
-- pub `TenantRow` struct L912-919 — `{ id: UniversalUuid, name: String, schema_name: String, status: String, created_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewTenant` struct L923-927 — `{ id: UniversalUuid, name: String, schema_name: String }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `ApiKeyRow` struct L935-948 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewApiKey` struct L952-962 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `WorkflowPatternRow` struct L970-974 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewWorkflowPattern` struct L978-982 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L571-580 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L572-579 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L582-601 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L583-600 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L603-626 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L604-625 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L628-640 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L629-639 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L642-655 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L643-654 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L657-670 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L658-669 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronSchedule` type L672-689 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L673-688 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronExecution` type L691-703 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L692-702 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L705-713 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L706-712 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L715-730 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L716-729 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerSchedule` type L732-746 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L733-745 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerExecution` type L748-761 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L749-760 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L763-776 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L764-775 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L778-790 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L779-789 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L792-802 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L793-801 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L804-814 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L805-813 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecution` struct L100-121 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecution` struct L125-136 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecutionMetadata` struct L144-152 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecutionMetadata` struct L156-164 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedRecoveryEvent` struct L172-181 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedRecoveryEvent` struct L185-194 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedExecutionEvent` struct L204-213 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
+- pub `NewUnifiedExecutionEvent` struct L217-225 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskOutbox` struct L235-239 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
+- pub `NewUnifiedTaskOutbox` struct L243-246 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPipelineOutbox` struct L256-260 — `{ id: i64, pipeline_execution_id: UniversalUuid, created_at: UniversalTimestamp ...` — Unified pipeline outbox model for work distribution.
+- pub `NewUnifiedPipelineOutbox` struct L264-266 — `{ pipeline_execution_id: UniversalUuid }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronSchedule` struct L274-287 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronSchedule` struct L291-303 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronExecution` struct L311-319 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronExecution` struct L323-331 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerSchedule` struct L339-349 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerSchedule` struct L353-362 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerExecution` struct L370-379 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerExecution` struct L383-391 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L399-403 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L407-411 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L419-430 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L434-445 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L453-462 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L466-474 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L482-490 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L494-501 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L509-515 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L519-524 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L532-538 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L542-548 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `AccumulatorStateRow` struct L827-834 — `{ edge_id: String, consumer_watermark: Option<String>, last_drain_at: UniversalT...` — Persisted accumulator state for crash recovery.
+- pub `NewAccumulatorState` struct L839-843 — `{ edge_id: String, consumer_watermark: Option<String>, drain_metadata: String }` — New accumulator state for insertion.
+- pub `DetectorStateRow` struct L852-856 — `{ source_name: String, committed_state: Option<String>, updated_at: UniversalTim...` — Persisted detector state row.
+- pub `NewDetectorState` struct L861-864 — `{ source_name: String, committed_state: Option<String> }` — New detector state for insertion.
+- pub `PendingBoundaryRow` struct L873-878 — `{ id: i64, source_name: String, boundary_json: String, received_at: UniversalTim...` — Pending boundary row from the WAL.
+- pub `NewPendingBoundary` struct L883-886 — `{ source_name: String, boundary_json: String }` — New pending boundary for insertion.
+- pub `EdgeDrainCursorRow` struct L895-899 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — Edge drain cursor row.
+- pub `NewEdgeDrainCursor` struct L904-908 — `{ edge_id: String, source_name: String, last_drain_id: i64 }` — New edge drain cursor for insertion.
+- pub `TenantRow` struct L916-923 — `{ id: UniversalUuid, name: String, schema_name: String, status: String, created_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewTenant` struct L927-931 — `{ id: UniversalUuid, name: String, schema_name: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `ApiKeyRow` struct L939-952 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewApiKey` struct L956-966 — `{ id: UniversalUuid, tenant_id: Option<UniversalUuid>, key_hash: String, key_pre...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `WorkflowPatternRow` struct L974-978 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewWorkflowPattern` struct L982-986 — `{ id: UniversalUuid, api_key_id: UniversalUuid, pattern: String }` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L573-582 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L574-581 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L584-603 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L585-602 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L605-630 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L606-629 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L632-644 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L633-643 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L646-659 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L647-658 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L661-674 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L662-673 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronSchedule` type L676-693 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L677-692 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronExecution` type L695-707 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L696-706 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L709-717 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L710-716 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L719-734 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L720-733 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerSchedule` type L736-750 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L737-749 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerExecution` type L752-765 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L753-764 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L767-780 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L768-779 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L782-794 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L783-793 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L796-806 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L797-805 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L808-818 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L809-817 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/pending_boundary_dal.rs
 
@@ -2297,17 +2298,30 @@
 -  `get_all_tasks_for_pipeline_postgres` function L238-259 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
 -  `get_all_tasks_for_pipeline_sqlite` function L262-283 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<Vec<TaskExecution>, V...` — are written atomically.
 
+#### crates/cloacina/src/dal/unified/task_execution/heartbeat.rs
+
+- pub `claim_task` function L31-41 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Atomically claim a task for execution.
+- pub `heartbeat` function L118-128 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Update heartbeat timestamp for a running task.
+- pub `find_stale_heartbeats` function L193-202 — `( &self, cutoff: UniversalTimestamp, ) -> Result<Vec<crate::models::task_executi...` — Find orphaned tasks — Running with stale heartbeats.
+-  `claim_task_postgres` function L44-76 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+-  `claim_task_sqlite` function L79-111 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+-  `heartbeat_postgres` function L131-157 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+-  `heartbeat_sqlite` function L160-186 — `( &self, task_id: UniversalUuid, executor_id: &str, ) -> Result<bool, Validation...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+-  `find_stale_heartbeats_postgres` function L205-229 — `( &self, cutoff: UniversalTimestamp, ) -> Result<Vec<crate::models::task_executi...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+-  `find_stale_heartbeats_sqlite` function L232-256 — `( &self, cutoff: UniversalTimestamp, ) -> Result<Vec<crate::models::task_executi...` — Task heartbeat operations — claim, heartbeat, and orphan detection.
+
 #### crates/cloacina/src/dal/unified/task_execution/mod.rs
 
-- pub `RetryStats` struct L40-49 — `{ tasks_with_retries: i32, total_retries: i32, max_attempts_used: i32, tasks_exh...` — Statistics about retry behavior for a pipeline execution.
-- pub `ClaimResult` struct L53-62 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, at...` — Result structure for atomic task claiming operations.
-- pub `TaskExecutionDAL` struct L66-68 — `{ dal: &'a DAL }` — Data access layer for task execution operations with runtime backend selection.
-- pub `new` function L72-74 — `(dal: &'a DAL) -> Self` — Creates a new TaskExecutionDAL instance.
+- pub `RetryStats` struct L41-50 — `{ tasks_with_retries: i32, total_retries: i32, max_attempts_used: i32, tasks_exh...` — Statistics about retry behavior for a pipeline execution.
+- pub `ClaimResult` struct L54-63 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, at...` — Result structure for atomic task claiming operations.
+- pub `TaskExecutionDAL` struct L67-69 — `{ dal: &'a DAL }` — Data access layer for task execution operations with runtime backend selection.
+- pub `new` function L73-75 — `(dal: &'a DAL) -> Self` — Creates a new TaskExecutionDAL instance.
 -  `claiming` module L29 — `-` — Task Execution Data Access Layer for Unified Backend Support
 -  `crud` module L30 — `-` — - Pipeline completion and failure detection
--  `queries` module L31 — `-` — - Pipeline completion and failure detection
--  `recovery` module L32 — `-` — - Pipeline completion and failure detection
--  `state` module L33 — `-` — - Pipeline completion and failure detection
+-  `heartbeat` module L31 — `-` — - Pipeline completion and failure detection
+-  `queries` module L32 — `-` — - Pipeline completion and failure detection
+-  `recovery` module L33 — `-` — - Pipeline completion and failure detection
+-  `state` module L34 — `-` — - Pipeline completion and failure detection
 
 #### crates/cloacina/src/dal/unified/task_execution/queries.rs
 
@@ -2491,12 +2505,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L1246-1248 — `-`
-- pub `postgres` module L1253-1255 — `-`
-- pub `sqlite` module L1258-1260 — `-`
--  `unified_schema` module L25-464 — `-`
--  `postgres_schema` module L471-890 — `-`
--  `sqlite_schema` module L893-1241 — `-`
+- pub `unified` module L1265-1267 — `-`
+- pub `postgres` module L1272-1274 — `-`
+- pub `sqlite` module L1277-1279 — `-`
+-  `unified_schema` module L25-483 — `-`
+-  `postgres_schema` module L490-909 — `-`
+-  `sqlite_schema` module L912-1260 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -3056,8 +3070,8 @@
 
 #### crates/cloacina/src/models/task_execution.rs
 
-- pub `TaskExecution` struct L27-46 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
-- pub `NewTaskExecution` struct L50-58 — `{ pipeline_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
+- pub `TaskExecution` struct L27-48 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
+- pub `NewTaskExecution` struct L52-60 — `{ pipeline_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
 
 #### crates/cloacina/src/models/task_execution_metadata.rs
 

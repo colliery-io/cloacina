@@ -497,6 +497,7 @@ pub mod logging;
 pub mod models;
 pub mod packaging;
 pub mod python;
+pub mod recovery_sweep;
 pub mod registry;
 pub mod retry;
 pub mod runner;
