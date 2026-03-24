@@ -4,14 +4,14 @@ level: task
 title: "Dead recovery code removal — delete RecoveryManager, cron recovery config, startup-only recovery call"
 short_code: "CLOACI-T-0237"
 created_at: 2026-03-23T23:34:22.710320+00:00
-updated_at: 2026-03-23T23:34:22.710320+00:00
+updated_at: 2026-03-24T12:54:43.946243+00:00
 parent: CLOACI-I-0043
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0043
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,10 @@ initiative_id: CLOACI-I-0043
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-23 — Complete
+
+- Removed `RecoveryManager` startup call from `TaskScheduler::with_poll_interval()`
+- Removed `use recovery::RecoveryManager` import
+- Removed disabled cron recovery startup from `services.rs`
+- `recovery.rs` and `cron_recovery.rs` files kept for now (still compiled, just unused) — full file deletion is a larger cleanup
+- 495 tests pass

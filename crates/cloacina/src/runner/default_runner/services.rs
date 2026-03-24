@@ -196,10 +196,9 @@ impl DefaultRunner {
         *self.cron_scheduler.write().await = Some(Arc::new(cron_scheduler));
         handles.cron_scheduler_handle = Some(cron_handle);
 
-        // Start cron recovery service if enabled
-        if self.config.cron_enable_recovery() {
-            self.start_cron_recovery(handles, shutdown_tx).await?;
-        }
+        // Cron recovery service removed — cron execution now creates pipeline
+        // BEFORE audit (eliminating the gap). The heartbeat sweeper handles
+        // all task-level recovery. See I-0043/S-0016.
 
         Ok(())
     }

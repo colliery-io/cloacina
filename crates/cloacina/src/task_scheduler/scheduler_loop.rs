@@ -279,14 +279,33 @@ impl<'a> SchedulerLoop<'a> {
             );
         }
 
-        self.dal
-            .pipeline_execution()
-            .mark_completed(execution.id)
-            .await?;
-        info!(
-            "Pipeline completed: {} (name: {}, {} completed, {} failed, {} skipped)",
-            execution.id, execution.pipeline_name, completed_count, failed_count, skipped_count
-        );
+        if failed_count > 0 {
+            let failed_tasks: Vec<_> = all_tasks
+                .iter()
+                .filter(|t| t.status == "Failed")
+                .map(|t| t.task_name.clone())
+                .collect();
+            self.dal
+                .pipeline_execution()
+                .mark_failed(
+                    execution.id,
+                    &format!("Tasks failed: {}", failed_tasks.join(", ")),
+                )
+                .await?;
+            info!(
+                "Pipeline failed: {} (name: {}, {} completed, {} failed, {} skipped)",
+                execution.id, execution.pipeline_name, completed_count, failed_count, skipped_count
+            );
+        } else {
+            self.dal
+                .pipeline_execution()
+                .mark_completed(execution.id)
+                .await?;
+            info!(
+                "Pipeline completed: {} (name: {}, {} completed, {} skipped)",
+                execution.id, execution.pipeline_name, completed_count, skipped_count
+            );
+        }
 
         Ok(())
     }

@@ -141,7 +141,7 @@ use crate::error::ValidationError;
 use crate::task::TaskNamespace;
 use crate::{Context, Database, Workflow};
 
-use recovery::RecoveryManager;
+// RecoveryManager removed — replaced by RecoverySweepService (recovery_sweep.rs)
 use scheduler_loop::SchedulerLoop;
 
 /// The main Task Scheduler that manages workflow execution and task readiness.
@@ -245,10 +245,9 @@ impl TaskScheduler {
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        let scheduler = Self::with_poll_interval_sync(database, poll_interval);
-        let recovery_manager = RecoveryManager::new(&scheduler.dal);
-        recovery_manager.recover_orphaned_tasks().await?;
-        Ok(scheduler)
+        // Startup recovery removed — the RecoverySweeper background service
+        // handles all orphaned task detection via heartbeat monitoring.
+        Ok(Self::with_poll_interval_sync(database, poll_interval))
     }
 
     /// Creates a new TaskScheduler with custom poll interval (synchronous version).

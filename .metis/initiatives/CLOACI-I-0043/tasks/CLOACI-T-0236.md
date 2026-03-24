@@ -4,14 +4,14 @@ level: task
 title: "Pipeline status derivation fix — Failed if any task permanently failed, not Completed"
 short_code: "CLOACI-T-0236"
 created_at: 2026-03-23T23:34:21.356835+00:00
-updated_at: 2026-03-23T23:34:21.356835+00:00
+updated_at: 2026-03-24T12:52:21.704914+00:00
 parent: CLOACI-I-0043
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ initiative_id: CLOACI-I-0043
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -133,4 +137,6 @@ initiative_id: CLOACI-I-0043
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-23 — Complete
+
+Fixed `complete_pipeline()` in scheduler_loop.rs: now checks `failed_count > 0` before deciding status. If any tasks failed, pipeline marked Failed with list of failed task names. If all succeeded/skipped, marked Completed. 495 tests pass.

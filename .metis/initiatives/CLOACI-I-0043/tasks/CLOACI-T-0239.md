@@ -1,24 +1,24 @@
 ---
-id: atomic-cron-execution-single
+id: continuous-combined-scheduler
 level: task
-title: "Atomic cron execution — single transaction for schedule claim + pipeline + tasks, remove CronRecoveryService"
-short_code: "CLOACI-T-0235"
-created_at: 2026-03-23T23:34:19.426396+00:00
-updated_at: 2026-03-24T12:50:10.629273+00:00
+title: "Continuous + combined scheduler chaos testing — reactive recovery and dual-scheduler kill/restart"
+short_code: "CLOACI-T-0239"
+created_at: 2026-03-24T16:23:13.774700+00:00
+updated_at: 2026-03-24T16:23:13.774700+00:00
 parent: CLOACI-I-0043
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
 initiative_id: CLOACI-I-0043
 ---
 
-# Atomic cron execution — single transaction for schedule claim + pipeline + tasks, remove CronRecoveryService
+# Continuous + combined scheduler chaos testing — reactive recovery and dual-scheduler kill/restart
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -26,9 +26,14 @@ initiative_id: CLOACI-I-0043
 
 [[CLOACI-I-0043]]
 
-## Objective **[REQUIRED]**
+## Objective
 
-{Clear statement of what this task accomplishes}
+Chaos tests for continuous/reactive scheduling and for both schedulers running simultaneously. The cron daemon chaos test passes but we haven't verified:
+
+1. **Continuous scheduler recovery** — kill process while a boundary-triggered task is executing, restart, verify watermark resumes correctly and no boundaries are lost or double-processed
+2. **Combined cron + continuous** — both schedulers running in the same process, kill, verify both cron tasks AND continuous tasks recover independently
+
+Needs dedicated test harness — continuous scheduler isn't a CLI process, it's an in-process scheduler with data sources and detectors.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -64,15 +69,16 @@ initiative_id: CLOACI-I-0043
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [ ] Continuous chaos test: start process with data source + detector, feed boundaries, kill mid-execution, restart, verify watermark resumed from last committed position
+- [ ] No boundaries lost (at-least-once: boundaries before crash are re-processed or resumed)
+- [ ] No duplicate completed executions in ledger (idempotent task handles re-execution)
+- [ ] Combined chaos test: cron + continuous both running, kill, restart, both recover
+- [ ] Cron tasks resume from heartbeat recovery (existing mechanism)
+- [ ] Continuous tasks resume from watermark + WAL (continuous-specific recovery)
+- [ ] Test harness that can start/stop a full DefaultRunner with continuous scheduling enabled
+- [ ] All existing soak tests still pass
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -137,29 +143,4 @@ initiative_id: CLOACI-I-0043
 
 ## Status Updates **[REQUIRED]**
 
-### 2026-03-23 — Exploration complete
-
-**Current flow** (cron_scheduler.rs process_schedule, lines 308-357):
-1. `create_execution_audit()` — inserts cron_executions with NULL pipeline_execution_id
-2. `execute_workflow()` — calls PipelineExecutor, creates pipeline + tasks (already atomic)
-3. `complete_execution_audit()` — updates cron_executions.pipeline_execution_id
-
-Steps are separate .await calls — NOT in a transaction. Gap between 1 and 2 is the recovery target.
-
-**Good news:** Pipeline + task creation (step 2) is already atomic via `conn.transaction()`. The only non-atomic part is the cron audit linkage.
-
-**Fix approach:** Move audit creation into the same flow — create audit AFTER pipeline creation succeeds (not before). Or: create audit + pipeline in a single operation. The simplest: flip the order. Create pipeline first, then audit linking them. If crash between, the pipeline exists (heartbeat sweeper handles it) and the audit is just missing (no orphan to detect).
-
-**What to remove:**
-- `cron_recovery.rs` (entire file)
-- `CronRecoveryService` struct + all methods
-- Config: `cron_enable_recovery`, `cron_recovery_interval`, `cron_lost_threshold_minutes`, `cron_max_recovery_age`, `cron_max_recovery_attempts`
-- `services.rs`: `start_cron_recovery()` function
-- `mod.rs`: `cron_recovery` field on DefaultRunner + RuntimeHandles field
-- `lib.rs`: CronRecoveryService export
-
-### Implementation complete
-
-- Cron scheduler reordered: pipeline created FIRST, then audit linked. If crash between, pipeline exists (heartbeat sweeper handles orphaned tasks) and audit is just missing (no orphan to detect).
-- CronRecoveryService disabled (`if false &&`) — gap eliminated by reordering. Full removal deferred to T-0237 (dead code cleanup).
-- 495 tests pass.
+*To be added during implementation*

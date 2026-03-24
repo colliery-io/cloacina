@@ -304,41 +304,37 @@ impl CronScheduler {
             execution_times.len()
         );
 
-        // Execute all scheduled times using guaranteed execution pattern
+        // Execute all scheduled times.
+        // Pipeline first, then audit — if crash between, the heartbeat sweeper
+        // handles orphaned tasks. No separate cron recovery needed.
         for scheduled_time in execution_times {
-            // Step 1: Create audit record BEFORE handoff (guaranteed execution)
-            let audit_record_id = match self
-                .create_execution_audit(schedule.id, scheduled_time)
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    error!(
-                        "Failed to create execution audit for schedule {} at {}: {}",
-                        schedule.id, scheduled_time, e
-                    );
-                    // Continue with other execution times - this one is lost
-                    continue;
-                }
-            };
-
-            // Step 2: Hand off to pipeline executor
+            // Step 1: Create pipeline + tasks (already atomic via transaction)
             match self.execute_workflow(schedule, scheduled_time).await {
                 Ok(pipeline_execution_id) => {
-                    // Step 3: Complete audit trail linking
-                    if let Err(e) = self
-                        .complete_execution_audit(audit_record_id, pipeline_execution_id)
-                        .await
-                    {
-                        error!(
-                            "Failed to complete audit trail for schedule {} execution: {}",
+                    // Step 2: Create audit record linked to pipeline
+                    let audit_result = self
+                        .create_execution_audit(schedule.id, scheduled_time)
+                        .await;
+
+                    if let Ok(audit_record_id) = audit_result {
+                        if let Err(e) = self
+                            .complete_execution_audit(audit_record_id, pipeline_execution_id)
+                            .await
+                        {
+                            warn!(
+                                "Failed to link audit trail for schedule {}: {} (execution succeeded)",
+                                schedule.id, e
+                            );
+                        }
+                    } else if let Err(e) = audit_result {
+                        warn!(
+                            "Failed to create audit for schedule {}: {} (execution succeeded)",
                             schedule.id, e
                         );
-                        // Continue - the execution succeeded, just audit completion failed
                     }
 
                     info!(
-                        "Successfully executed and audited workflow {} for schedule {} (scheduled: {})",
+                        "Executed workflow {} for schedule {} (scheduled: {})",
                         schedule.workflow_name, schedule.id, scheduled_time
                     );
                 }
@@ -347,12 +343,8 @@ impl CronScheduler {
                         "Failed to execute workflow {} for schedule {} (scheduled: {}): {}",
                         schedule.workflow_name, schedule.id, scheduled_time, e
                     );
-                    // Note: Audit record exists without pipeline_execution_id
-                    // Recovery service will detect this as a "lost" execution
-                    error!(
-                        "Execution lost: audit record {} exists but pipeline execution failed",
-                        audit_record_id
-                    );
+                    // No orphaned audit record — pipeline was never created.
+                    // The cron scheduler will retry on the next window.
                 }
             }
         }
