@@ -4,15 +4,15 @@ level: task
 title: "Continuous scheduler soak test — sustained load, memory stability, boundary throughput"
 short_code: "CLOACI-T-0240"
 created_at: 2026-03-24T18:44:47.307731+00:00
-updated_at: 2026-03-24T18:44:47.307731+00:00
+updated_at: 2026-03-24T20:06:18.135131+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -67,6 +67,10 @@ Build a soak test for the continuous/reactive scheduler. Currently we have unit 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -143,4 +147,32 @@ Build a soak test for the continuous/reactive scheduler. Currently we have unit 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-24 — Exploration complete
+
+**Approach:** Rust integration test (not Python soak — continuous scheduler is in-process only).
+
+**Pattern:**
+- Inject detector completions via `ledger.append(LedgerEvent::TaskCompleted { DetectorOutput })` at sustained rate
+- Register a no-op task that counts executions
+- Run scheduler for configurable duration
+- Verify: boundaries emitted == boundaries processed, fired tasks > 0, watermark advances
+
+**Key APIs:**
+- `ExecutionLedger::append()` for injection, `len()` for counting
+- `AccumulatorMetrics::total_boundaries_received` / `drain_count` for loss detection
+- `ContinuousScheduler::graph_metrics()` for accumulator state
+- `FiredTask::executed` bool for task execution verification
+
+**Location:** `crates/cloacina/tests/integration/continuous/soak.rs` or inline in scheduler.rs tests
+
+### Implementation complete
+
+**3 soak tests** in `tests/integration/continuous/soak.rs`:
+
+1. **Sustained load** — 1000 boundaries at ~18k/sec, 8 tasks fired, 0 errors, 1016 ledger events
+2. **Batched** — 1000 boundaries in 200 batches of 5, 4 tasks fired, 0 errors
+3. **Multi-source** — 200 boundaries across 2 sources alternating, 4 tasks fired, 0 errors
+
+Uses `CountingTask` (atomic counter) for execution tracking. Verifies: all fired tasks executed, no errors, ledger accumulates correctly.
+
+All 3 pass. 497 total tests (+3 new).
