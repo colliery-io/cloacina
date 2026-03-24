@@ -44,6 +44,7 @@
 //!   SOAK_SETTLE_MS       — Wait after injection for scheduler to finish (default: 500)
 //!   SOAK_DURATION_SECS   — Max test duration in seconds, 0=unlimited (default: 0)
 //!   SOAK_SOURCES         — Number of data sources for multi-source test (default: 2)
+//!   SOAK_INJECTORS       — Number of concurrent injector tasks (default: 1)
 
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,6 +68,7 @@ struct SoakConfig {
     settle_ms: u64,
     duration_secs: u64,
     sources: u64,
+    injectors: u64,
 }
 
 impl SoakConfig {
@@ -80,6 +82,7 @@ impl SoakConfig {
             settle_ms: env_u64("SOAK_SETTLE_MS", 500),
             duration_secs: env_u64("SOAK_DURATION_SECS", 0),
             sources: env_u64("SOAK_SOURCES", 2),
+            injectors: env_u64("SOAK_INJECTORS", 1),
         }
     }
 
@@ -93,6 +96,7 @@ impl SoakConfig {
         println!("  SOAK_SETTLE_MS:     {}", self.settle_ms);
         println!("  SOAK_DURATION_SECS: {}", self.duration_secs);
         println!("  SOAK_SOURCES:       {}", self.sources);
+        println!("  SOAK_INJECTORS:     {}", self.injectors);
     }
 }
 
@@ -200,9 +204,10 @@ async fn test_continuous_soak_sustained_load() {
 
     let start = Instant::now();
 
-    // Inject boundaries at sustained rate
-    let ledger_clone = ledger.clone();
-    let batches = config.boundaries / config.batch_size.max(1);
+    // Inject boundaries at sustained rate using N concurrent injectors
+    let num_injectors = config.injectors.max(1);
+    let batches_total = config.boundaries / config.batch_size.max(1);
+    let batches_per_injector = batches_total / num_injectors;
     let batch_size = config.batch_size;
     let yield_every = config.yield_every;
     let yield_ms = config.yield_ms;
@@ -212,35 +217,45 @@ async fn test_continuous_soak_sustained_load() {
         None
     };
 
-    let inject_handle = tokio::spawn(async move {
-        let mut boundary_offset: i64 = 0;
-        for i in 0..batches {
-            if let Some(limit) = duration_limit {
-                if start.elapsed() > limit {
-                    break;
+    let mut inject_handles = Vec::new();
+    for injector_id in 0..num_injectors {
+        let ledger_clone = ledger.clone();
+        let start_clone = start;
+        let handle = tokio::spawn(async move {
+            let base_offset = (injector_id * batches_per_injector * batch_size) as i64 * 100;
+            let mut boundary_offset = base_offset;
+
+            for i in 0..batches_per_injector {
+                if let Some(limit) = duration_limit {
+                    if start_clone.elapsed() > limit {
+                        break;
+                    }
+                }
+
+                let boundaries: Vec<ComputationBoundary> = (0..batch_size)
+                    .map(|_| {
+                        let b = make_boundary(boundary_offset, boundary_offset + 100);
+                        boundary_offset += 100;
+                        b
+                    })
+                    .collect();
+
+                {
+                    let mut l = ledger_clone.write();
+                    l.append(make_detector_completion("detect_events", boundaries));
+                }
+
+                if yield_every > 0 && i % yield_every == 0 {
+                    tokio::time::sleep(Duration::from_millis(yield_ms)).await;
                 }
             }
+        });
+        inject_handles.push(handle);
+    }
 
-            let boundaries: Vec<ComputationBoundary> = (0..batch_size)
-                .map(|_| {
-                    let b = make_boundary(boundary_offset, boundary_offset + 100);
-                    boundary_offset += 100;
-                    b
-                })
-                .collect();
-
-            {
-                let mut l = ledger_clone.write();
-                l.append(make_detector_completion("detect_events", boundaries));
-            }
-
-            if yield_every > 0 && i % yield_every == 0 {
-                tokio::time::sleep(Duration::from_millis(yield_ms)).await;
-            }
-        }
-    });
-
-    inject_handle.await.unwrap();
+    for h in inject_handles {
+        h.await.unwrap();
+    }
 
     // Settle — let scheduler process remaining
     tokio::time::sleep(Duration::from_millis(config.settle_ms)).await;
