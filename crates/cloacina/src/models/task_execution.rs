@@ -41,6 +41,8 @@ pub struct TaskExecution {
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
     pub sub_status: Option<String>,
+    pub claimed_by: Option<String>,
+    pub heartbeat_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }

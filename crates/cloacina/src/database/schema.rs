@@ -78,6 +78,8 @@ mod unified_schema {
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<DbTimestamp>,
             sub_status -> Nullable<Text>,
+            claimed_by -> Nullable<Text>,
+            heartbeat_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }
@@ -252,6 +254,23 @@ mod unified_schema {
             completed_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+        }
+    }
+
+    // =========================================================================
+    // Runner Instances (recovery coordination)
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        runner_instances (id) {
+            id -> Text,
+            started_at -> DbTimestamp,
+            last_heartbeat_at -> DbTimestamp,
+            status -> Text,
+            mode -> Text,
         }
     }
 

@@ -4,14 +4,14 @@ level: initiative
 title: "Recovery System Redesign — Task Heartbeating, Orphan Detection, Crash Recovery"
 short_code: "CLOACI-I-0043"
 created_at: 2026-03-23T02:22:02.573302+00:00
-updated_at: 2026-03-23T02:23:29.587804+00:00
+updated_at: 2026-03-23T23:43:52.277224+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
