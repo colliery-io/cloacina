@@ -1484,4 +1484,79 @@ mod tests {
         );
         assert!(fired[0].error.is_some());
     }
+
+    /// Test crash recovery: persist boundaries to WAL, "crash" (drop scheduler),
+    /// create new scheduler with same DAL, restore, verify boundaries recovered.
+    #[tokio::test]
+    async fn test_crash_recovery_restores_pending_boundaries() {
+        // Create a real in-memory database
+        let db = crate::database::Database::try_new_with_schema(
+            &format!(
+                "file:cr_test_{}?mode=memory&cache=shared",
+                uuid::Uuid::new_v4()
+            ),
+            "",
+            1,
+            None,
+        )
+        .expect("db");
+        db.run_migrations().await.expect("migrations");
+        let dal = Arc::new(crate::dal::DAL::new(db.clone()));
+
+        // Session 1: simulate boundaries persisted to WAL before crash
+        {
+            let pb_dal = crate::dal::unified::PendingBoundaryDAL::new(&dal);
+
+            // Write boundaries to WAL as if the scheduler persisted them
+            let b1 = serde_json::to_string(&make_boundary(0, 100)).unwrap();
+            let b2 = serde_json::to_string(&make_boundary(100, 200)).unwrap();
+            pb_dal
+                .append("events".to_string(), b1)
+                .await
+                .expect("persist b1");
+            pb_dal
+                .append("events".to_string(), b2)
+                .await
+                .expect("persist b2");
+
+            // "Crash" — no graceful shutdown, boundaries stuck in WAL
+        }
+
+        // Session 2: new scheduler restores from WAL
+        {
+            let graph = assemble_graph(
+                vec![make_source("events")],
+                vec![ContinuousTaskRegistration {
+                    id: "agg".into(),
+                    sources: vec!["events".into()],
+                    referenced: vec![],
+                }],
+            )
+            .unwrap();
+
+            let ledger = Arc::new(RwLock::new(ExecutionLedger::new()));
+            let scheduler = ContinuousScheduler::new(
+                graph,
+                ledger.clone(),
+                ContinuousSchedulerConfig {
+                    poll_interval: Duration::from_millis(10),
+                    max_fired_tasks: 10_000,
+                    task_timeout: None,
+                },
+            )
+            .with_dal(dal.clone());
+
+            // Restore from persistence (same sequence as startup)
+            scheduler.init_drain_cursors().await;
+            scheduler.restore_pending_boundaries().await;
+
+            // Verify boundaries were restored — task should be ready
+            let ready = scheduler.check_readiness();
+            assert!(
+                !ready.is_empty(),
+                "After crash recovery, task should be ready from restored WAL boundaries"
+            );
+            assert_eq!(ready[0].0, "agg");
+        }
+    }
 }

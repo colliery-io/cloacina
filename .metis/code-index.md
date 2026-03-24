@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-24T00:05:10Z | 414 files | JavaScript, Python, Rust
+> Generated: 2026-03-24T16:42:15Z | 415 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -171,6 +171,7 @@
 │   │   │   │   ├── task.rs
 │   │   │   │   ├── workflow.rs
 │   │   │   │   └── workflow_context.rs
+│   │   │   ├── recovery_sweep.rs
 │   │   │   ├── registry/
 │   │   │   │   ├── error.rs
 │   │   │   │   ├── loader/
@@ -901,23 +902,23 @@
 - pub `run_polling_loop` function L177-205 — `(&mut self) -> Result<(), PipelineError>` — Runs the main polling loop for cron schedule processing.
 -  `CronSchedulerConfig` type L90-98 — `impl Default for CronSchedulerConfig` — ```
 -  `default` function L91-97 — `() -> Self` — ```
--  `CronScheduler` type L135-572 — `= CronScheduler` — ```
+-  `CronScheduler` type L135-564 — `= CronScheduler` — ```
 -  `check_and_execute_schedules` function L213-243 — `(&self) -> Result<(), PipelineError>` — Checks for due schedules and executes them.
--  `process_schedule` function L254-361 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<(), PipelineEr...` — Processes a single cron schedule using the saga pattern.
--  `is_schedule_active` function L364-380 — `(&self, schedule: &CronSchedule, now: DateTime<Utc>) -> bool` — Checks if a schedule is within its active time window.
--  `calculate_execution_times` function L388-433 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<U...` — Calculates execution times based on the schedule's catchup policy.
--  `calculate_next_run` function L436-453 — `( &self, schedule: &CronSchedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc...` — Calculates the next run time for a schedule.
--  `execute_workflow` function L460-513 — `( &self, schedule: &CronSchedule, scheduled_time: DateTime<Utc>, ) -> Result<cra...` — Executes a workflow by handing it off to the pipeline executor.
--  `create_execution_audit` function L527-545 — `( &self, schedule_id: crate::database::UniversalUuid, scheduled_time: DateTime<U...` — Creates audit record BEFORE workflow execution for guaranteed reliability.
--  `complete_execution_audit` function L555-571 — `( &self, audit_record_id: crate::database::UniversalUuid, pipeline_execution_id:...` — Updates audit record with pipeline execution ID after successful handoff.
--  `tests` module L575-700 — `-` — ```
--  `create_test_schedule` function L580-596 — `(cron_expr: &str, timezone: &str) -> CronSchedule` — ```
--  `test_cron_scheduler_config_default` function L599-607 — `()` — ```
--  `test_is_schedule_active_no_time_window` function L610-619 — `()` — ```
--  `test_is_schedule_active_with_start_date` function L622-637 — `()` — ```
--  `test_is_schedule_active_with_end_date` function L640-655 — `()` — ```
--  `test_execution_times_skip_policy_returns_next_run` function L658-667 — `()` — ```
--  `test_execution_times_run_all_policy_uses_evaluator` function L670-699 — `()` — ```
+-  `process_schedule` function L254-353 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<(), PipelineEr...` — Processes a single cron schedule using the saga pattern.
+-  `is_schedule_active` function L356-372 — `(&self, schedule: &CronSchedule, now: DateTime<Utc>) -> bool` — Checks if a schedule is within its active time window.
+-  `calculate_execution_times` function L380-425 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<U...` — Calculates execution times based on the schedule's catchup policy.
+-  `calculate_next_run` function L428-445 — `( &self, schedule: &CronSchedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc...` — Calculates the next run time for a schedule.
+-  `execute_workflow` function L452-505 — `( &self, schedule: &CronSchedule, scheduled_time: DateTime<Utc>, ) -> Result<cra...` — Executes a workflow by handing it off to the pipeline executor.
+-  `create_execution_audit` function L519-537 — `( &self, schedule_id: crate::database::UniversalUuid, scheduled_time: DateTime<U...` — Creates audit record BEFORE workflow execution for guaranteed reliability.
+-  `complete_execution_audit` function L547-563 — `( &self, audit_record_id: crate::database::UniversalUuid, pipeline_execution_id:...` — Updates audit record with pipeline execution ID after successful handoff.
+-  `tests` module L567-692 — `-` — ```
+-  `create_test_schedule` function L572-588 — `(cron_expr: &str, timezone: &str) -> CronSchedule` — ```
+-  `test_cron_scheduler_config_default` function L591-599 — `()` — ```
+-  `test_is_schedule_active_no_time_window` function L602-611 — `()` — ```
+-  `test_is_schedule_active_with_start_date` function L614-629 — `()` — ```
+-  `test_is_schedule_active_with_end_date` function L632-647 — `()` — ```
+-  `test_execution_times_skip_policy_returns_next_run` function L650-659 — `()` — ```
+-  `test_execution_times_run_all_policy_uses_evaluator` function L662-691 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -994,16 +995,17 @@
 - pub `models` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `packaging` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `python` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task_scheduler` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger_scheduler` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L516-518 — `()` — - [`retry`]: Retry policies and backoff strategies
+- pub `recovery_sweep` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task_scheduler` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger_scheduler` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L517-519 — `()` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1011,6 +1013,19 @@
 - pub `init_test_logging` function L170-175 — `()` — Initializes the logging system for test environments.
 -  `tests` module L178-191 — `-` — - Test logging initialization is idempotent and safe to call multiple times
 -  `test_logging_levels` function L183-190 — `()` — - Test logging initialization is idempotent and safe to call multiple times
+
+#### crates/cloacina/src/recovery_sweep.rs
+
+- pub `RecoverySweepConfig` struct L40-49 — `{ sweep_interval: Duration, orphan_threshold: Duration, startup_grace: Duration,...` — Configuration for the recovery sweeper.
+- pub `RecoverySweepService` struct L63-69 — `{ dal: Arc<DAL>, config: RecoverySweepConfig, shutdown: watch::Receiver<bool>, s...` — Background service that detects orphaned tasks and resets them for re-execution.
+- pub `new` function L72-84 — `( dal: Arc<DAL>, config: RecoverySweepConfig, shutdown: watch::Receiver<bool>, )...` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
+- pub `run_sweep_loop` function L87-114 — `(&mut self) -> Result<(), PipelineError>` — Main loop — runs until shutdown signal.
+-  `RecoverySweepConfig` type L51-60 — `impl Default for RecoverySweepConfig` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
+-  `default` function L52-59 — `() -> Self` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
+-  `RecoverySweepService` type L71-213 — `= RecoverySweepService` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
+-  `perform_sweep` function L117-212 — `(&self) -> Result<(), PipelineError>` — Single sweep iteration.
+-  `RecoverySweepService` type L215-225 — `impl Clone for RecoverySweepService` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
+-  `clone` function L216-224 — `(&self) -> Self` — - **Normal mode**: Real-time orphan detection for tasks that go stale.
 
 #### crates/cloacina/src/task.rs
 
@@ -1414,7 +1429,7 @@
 -  `check_readiness` function L778-842 — `(&self) -> Vec<(String, Vec<cloacina_workflow::Context<serde_json::Value>>)>` — Check all tasks for readiness based on their JoinMode.
 -  `ContinuousScheduler` type L860-869 — `= ContinuousScheduler` — See CLOACI-S-0008 for the full specification.
 -  `fmt` function L861-868 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0008 for the full specification.
--  `tests` module L872-1487 — `-` — See CLOACI-S-0008 for the full specification.
+-  `tests` module L872-1562 — `-` — See CLOACI-S-0008 for the full specification.
 -  `MockConn` struct L881 — `-` — See CLOACI-S-0008 for the full specification.
 -  `MockConn` type L882-895 — `impl DataConnection for MockConn` — See CLOACI-S-0008 for the full specification.
 -  `connect` function L883-885 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — See CLOACI-S-0008 for the full specification.
@@ -1445,6 +1460,7 @@
 -  `id` function L1354-1356 — `(&self) -> &str` — See CLOACI-S-0008 for the full specification.
 -  `dependencies` function L1357-1359 — `(&self) -> &[cloacina_workflow::TaskNamespace]` — See CLOACI-S-0008 for the full specification.
 -  `test_unregistered_task_records_not_executed` function L1432-1486 — `()` — See CLOACI-S-0008 for the full specification.
+-  `test_crash_recovery_restores_pending_boundaries` function L1491-1561 — `()` — Test crash recovery: persist boundaries to WAL, "crash" (drop scheduler),
 
 #### crates/cloacina/src/continuous/state_management.rs
 
@@ -2916,11 +2932,11 @@
 -  `schedule_task_retry` function L632-659 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
 -  `ThreadTaskExecutor` type L662-676 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
 -  `clone` function L663-675 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L683-871 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L684-850 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L852-854 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L856-866 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L868-870 — `(&self) -> &str` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L683-936 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L684-915 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L917-919 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L921-931 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L933-935 — `(&self) -> &str` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -3952,8 +3968,8 @@
 - pub `database_url` function L506-509 — `(mut self, url: &str) -> Self` — Sets the database URL
 - pub `schema` function L515-518 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L521-524 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L538-658 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L676-679 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L538-659 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L677-680 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L89-229 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L246-280 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L247-279 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -3962,18 +3978,18 @@
 -  `default` function L452-454 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L489-493 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L490-492 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L495-680 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L495-681 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L527-535 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L683-849 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L687-702 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L705-728 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L731-739 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L742-763 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L766-781 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L784-787 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L790-803 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L806-814 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L817-848 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L684-850 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L688-703 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L706-729 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L732-740 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L743-764 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L767-782 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L785-788 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L791-804 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L807-815 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L818-849 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3993,29 +4009,29 @@
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
 - pub `DefaultRunner` struct L69-95 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
-- pub `new` function L135-137 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
-- pub `builder` function L151-153 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L171-177 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L194-266 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L269-271 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L274-276 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `trigger_scheduler` function L281-283 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
-- pub `register_data_source` function L289-291 — `(&self, source: crate::continuous::datasource::DataSource)` — Register a data source for continuous scheduling.
-- pub `register_continuous_task` function L296-304 — `( &self, registration: crate::continuous::graph::ContinuousTaskRegistration, )` — Register a continuous task declaration for graph assembly.
-- pub `register_continuous_task_impl` function L309-311 — `(&self, task: Arc<dyn cloacina_workflow::Task>)` — Register a continuous task implementation.
-- pub `shutdown` function L323-410 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `new` function L137-139 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
+- pub `builder` function L153-155 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
+- pub `with_schema` function L173-179 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L196-269 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L272-274 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L277-279 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `trigger_scheduler` function L284-286 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
+- pub `register_data_source` function L292-294 — `(&self, source: crate::continuous::datasource::DataSource)` — Register a data source for continuous scheduling.
+- pub `register_continuous_task` function L299-307 — `( &self, registration: crate::continuous::graph::ContinuousTaskRegistration, )` — Register a continuous task declaration for graph assembly.
+- pub `register_continuous_task_impl` function L312-314 — `(&self, task: Arc<dyn cloacina_workflow::Task>)` — Register a continuous task implementation.
+- pub `shutdown` function L326-419 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `RuntimeHandles` struct L101-120 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L122-411 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `await_service` function L340-366 — `( name: &str, handle: Option<tokio::task::JoinHandle<()>>, timeout: Duration, )` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L413-430 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L414-429 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L433-439 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L434-438 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `RuntimeHandles` struct L101-122 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
+-  `DefaultRunner` type L124-420 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `await_service` function L343-369 — `( name: &str, handle: Option<tokio::task::JoinHandle<()>>, timeout: Duration, )` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L422-439 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L423-438 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L442-448 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L443-447 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -4038,14 +4054,15 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L38-497 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L38-554 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L40-58 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
--  `start_background_services` function L70-136 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
--  `start_cron_services` function L139-199 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
--  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
--  `start_continuous_scheduler` function L416-496 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the continuous reactive scheduler.
+-  `start_background_services` function L70-142 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
+-  `start_cron_services` function L145-204 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
+-  `start_cron_recovery` function L207-264 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
+-  `start_recovery_sweeper` function L267-316 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the recovery sweeper service
+-  `start_registry_reconciler` function L319-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_trigger_services` function L416-470 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
+-  `start_continuous_scheduler` function L473-553 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the continuous reactive scheduler.
 
 ### crates/cloacina/src/runner
 
@@ -4280,23 +4297,23 @@
 
 - pub `TaskScheduler` struct L187-193 — `{ dal: DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<Arc<d...` — The main Task Scheduler that manages workflow execution and task readiness.
 - pub `new` function L223-226 — `(database: Database) -> Result<Self, ValidationError>` — Creates a new TaskScheduler instance with default configuration using global workflow registry.
-- pub `with_poll_interval` function L244-252 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
-- pub `with_dispatcher` function L278-281 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
-- pub `dispatcher` function L284-286 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
-- pub `schedule_workflow_execution` function L331-421 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
-- pub `run_scheduling_loop` function L597-605 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L608-616 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
+- pub `with_poll_interval` function L244-251 — `( database: Database, poll_interval: Duration, ) -> Result<Self, ValidationError...` — Creates a new TaskScheduler with custom poll interval using global workflow registry.
+- pub `with_dispatcher` function L277-280 — `(mut self, dispatcher: Arc<dyn Dispatcher>) -> Self` — Sets the dispatcher for push-based task execution.
+- pub `dispatcher` function L283-285 — `(&self) -> Option<&Arc<dyn Dispatcher>>` — Returns a reference to the dispatcher if configured.
+- pub `schedule_workflow_execution` function L330-420 — `( &self, workflow_name: &str, input_context: Context<serde_json::Value>, ) -> Re...` — Schedules a new workflow execution with the provided input context.
+- pub `run_scheduling_loop` function L596-604 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
+- pub `process_active_pipelines` function L607-615 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
 -  `context_manager` module L116 — `-` — # Task Scheduler
 -  `recovery` module L117 — `-` — ```
 -  `scheduler_loop` module L118 — `-` — ```
 -  `state_manager` module L119 — `-` — ```
 -  `trigger_rules` module L120 — `-` — ```
--  `TaskScheduler` type L195-639 — `= TaskScheduler` — ```
--  `with_poll_interval_sync` function L255-264 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
--  `create_pipeline_postgres` function L425-489 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in PostgreSQL.
--  `create_pipeline_sqlite` function L493-557 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in SQLite.
--  `get_task_trigger_rules` function L619-628 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
--  `get_task_configuration` function L631-638 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
+-  `TaskScheduler` type L195-638 — `= TaskScheduler` — ```
+-  `with_poll_interval_sync` function L254-263 — `(database: Database, poll_interval: Duration) -> Self` — Creates a new TaskScheduler with custom poll interval (synchronous version).
+-  `create_pipeline_postgres` function L424-488 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in PostgreSQL.
+-  `create_pipeline_sqlite` function L492-556 — `( &self, pipeline_id: UniversalUuid, now: UniversalTimestamp, pipeline_name: Str...` — Creates pipeline and tasks in SQLite.
+-  `get_task_trigger_rules` function L618-627 — `( &self, workflow: &Workflow, task_namespace: &TaskNamespace, ) -> serde_json::V...` — Gets trigger rules for a specific task from the task implementation.
+-  `get_task_configuration` function L630-637 — `( &self, _workflow: &Workflow, _task_namespace: &TaskNamespace, ) -> serde_json:...` — Gets task configuration (currently returns empty object).
 
 #### crates/cloacina/src/task_scheduler/recovery.rs
 
@@ -4320,8 +4337,8 @@
 - pub `process_active_pipelines` function L103-160 — `(&self) -> Result<(), ValidationError>` — Processes active pipeline executions to update task readiness.
 -  `process_pipelines_batch` function L168-219 — `( &self, active_executions: Vec<PipelineExecution>, ) -> Result<(), ValidationEr...` — Processes multiple pipelines in batch for better performance.
 -  `dispatch_ready_tasks` function L226-254 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
--  `complete_pipeline` function L257-292 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
--  `update_pipeline_final_context` function L299-356 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
+-  `complete_pipeline` function L257-311 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
+-  `update_pipeline_final_context` function L318-375 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
 
 #### crates/cloacina/src/task_scheduler/state_manager.rs
 
