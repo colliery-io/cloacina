@@ -1,25 +1,25 @@
 ---
-id: daemon-crash-recovery-in-flight
+id: continuous-scheduler-soak-test
 level: task
-title: "Daemon crash recovery — in-flight pipeline executions not re-executed after restart"
-short_code: "CLOACI-T-0232"
-created_at: 2026-03-22T22:40:38.509272+00:00
-updated_at: 2026-03-24T18:16:10.108788+00:00
+title: "Continuous scheduler soak test — sustained load, memory stability, boundary throughput"
+short_code: "CLOACI-T-0240"
+created_at: 2026-03-24T18:44:47.307731+00:00
+updated_at: 2026-03-24T18:44:47.307731+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#bug"
-  - "#phase/completed"
+  - "#phase/backlog"
+  - "#feature"
 
 
 exit_criteria_met: false
 initiative_id: NULL
 ---
 
-# Daemon crash recovery — in-flight pipeline executions not re-executed after restart
+# Continuous scheduler soak test — sustained load, memory stability, boundary throughput
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -29,18 +29,10 @@ initiative_id: NULL
 
 ## Objective
 
-**ESCALATED TO INITIATIVE SCOPE.** What started as a daemon crash recovery bug revealed systemic issues in the entire recovery system.
-
-The recovery system was designed for a pull-based execution model (executor polls outbox and claims tasks). The architecture shifted to push-based (dispatcher sends events directly to executor). This broke fundamental assumptions:
-
-1. **RecoveryManager is dead code** — only runs once at startup, never again
-2. **Executor never marks tasks "Running"** — push model skips the claiming step entirely
-3. **Outbox entry not recreated on recovery** — recovered tasks invisible to dispatcher
-4. **Pipeline marked Completed even if tasks failed**
-5. **Same bug affects server mode** — not daemon-specific
+Build a soak test for the continuous/reactive scheduler. Currently we have unit tests and a crash recovery test, but nothing that runs the scheduler under sustained load for minutes to verify it doesn't leak memory, miss boundaries, stall, or accumulate state incorrectly.
 
 ### Priority
-- [x] P1 - High (blocks production reliability)
+- [x] P1 - High (blocks production readiness for continuous scheduling)
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -76,17 +68,17 @@ The recovery system was designed for a pull-based execution model (executor poll
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] {Specific, testable requirement 1}
-- [ ] {Specific, testable requirement 2}
-- [ ] {Specific, testable requirement 3}
+- [ ] Rust integration test that runs ContinuousScheduler for configurable duration (default 2m)
+- [ ] Mock data source emitting boundaries at sustained rate (e.g., 10/sec)
+- [ ] Verify all emitted boundaries are processed (none lost)
+- [ ] Verify fired task count matches expected (based on trigger policy + rate)
+- [ ] Verify memory doesn't grow unbounded (ledger trimming, accumulator draining)
+- [ ] Verify watermark advances monotonically
+- [ ] Runnable via `angreal` (e.g., `angreal performance continuous`)
+- [ ] Chaos variant: kill + restart mid-soak, verify resume from WAL
+- [ ] Reports PASS/FAIL with metrics (boundaries/sec, tasks fired, memory delta)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 
@@ -151,29 +143,4 @@ The recovery system was designed for a pull-based execution model (executor poll
 
 ## Status Updates **[REQUIRED]**
 
-### 2026-03-22 — Deep audit, escalated to initiative
-
-**Investigation path:**
-1. Found RecoveryManager dead code — wired into scheduler loop
-2. Discovered tasks never reach "Running" state in push model — recovery finds nothing
-3. Tried pipeline re-queuing on startup — user correctly identified pipelines aren't queued
-4. Deep audit revealed architecture mismatch: pull-based recovery vs push-based execution
-5. Same issue affects server mode (not just daemon)
-
-**Three design agents launched for unified recovery redesign:**
-- Server mode (multi-instance, PostgreSQL, horizontal scaling, heartbeat)
-- Daemon mode (single-instance, SQLite, startup recovery)
-- Continuous scheduling (watermarks, exactly-once, boundary ledger)
-
-All designing with future distributed executors in mind.
-
-**Critical design requirement (from user):**
-Future distributed executors are NOT pulling from a queue — they're autonomous processes on potentially different networks entirely. The scheduler has no direct access to the executor process. Therefore:
-- **Task-level heartbeating is required** — executor periodically writes "still alive" for each task it's executing
-- **Stale heartbeat = orphaned** — no heartbeat for N seconds means task is abandoned (crash, network partition, executor killed)
-- **No co-location assumptions** — can't check PID, share memory, or send signals
-- Recovery must work purely via database state (heartbeat timestamps)
-
-This is the foundational primitive: all recovery (server, daemon, continuous) should be built on task heartbeat expiry.
-
-**Status:** Waiting for design agents, then synthesizing into initiative specification with heartbeat-based recovery as the core primitive.
+*To be added during implementation*

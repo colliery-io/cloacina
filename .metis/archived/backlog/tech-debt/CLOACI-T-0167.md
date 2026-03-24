@@ -7,7 +7,7 @@ created_at: 2026-03-16T01:01:40.125367+00:00
 updated_at: 2026-03-16T01:01:40.125367+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -26,6 +26,8 @@ initiative_id: NULL
 ## Objective
 
 `cron_recovery.rs` has 230 lines at 10.9% line coverage. This module handles recovery of orphaned cron-triggered tasks after scheduler crashes. The existing `tests/integration/scheduler/recovery.rs` tests cover the event-driven scheduler recovery but not cron-specific recovery paths.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
