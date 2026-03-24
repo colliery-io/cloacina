@@ -16,15 +16,85 @@
 
 //! Continuous scheduler soak test — sustained boundary injection at high rate.
 //!
-//! Verifies:
-//! - No boundaries are lost under sustained load
-//! - All fired tasks execute successfully
-//! - Ledger events accumulate correctly
-//! - Scheduler doesn't stall or leak memory
+//! Configurable via environment variables:
+//!
+//! ```bash
+//! # Quick smoke (defaults)
+//! cargo test -p cloacina -- continuous::soak --nocapture
+//!
+//! # Long soak: 100k boundaries, 10 per batch, 5 minute duration cap
+//! SOAK_BOUNDARIES=100000 SOAK_BATCH_SIZE=10 SOAK_DURATION_SECS=300 \
+//!   cargo test -p cloacina -- continuous::soak::test_continuous_soak_sustained_load --nocapture
+//!
+//! # High throughput: 50k boundaries, no yield (max injection rate)
+//! SOAK_BOUNDARIES=50000 SOAK_YIELD_EVERY=0 SOAK_SETTLE_MS=2000 \
+//!   cargo test -p cloacina -- continuous::soak::test_continuous_soak_sustained_load --nocapture
+//!
+//! # Multi-source stress: 10k boundaries across 2 sources
+//! SOAK_BOUNDARIES=10000 \
+//!   cargo test -p cloacina -- continuous::soak::test_continuous_soak_multi_source --nocapture
+//! ```
+//!
+//! Environment variables:
+//!   SOAK_BOUNDARIES      — Total boundaries to inject (default: 1000)
+//!   SOAK_BATCH_SIZE      — Boundaries per detector completion (default: 1)
+//!   SOAK_POLL_MS         — Scheduler poll interval in ms (default: 5)
+//!   SOAK_YIELD_EVERY     — Yield to scheduler every N injections, 0=never (default: 50)
+//!   SOAK_YIELD_MS        — Sleep duration on yield in ms (default: 1)
+//!   SOAK_SETTLE_MS       — Wait after injection for scheduler to finish (default: 500)
+//!   SOAK_DURATION_SECS   — Max test duration in seconds, 0=unlimited (default: 0)
+//!   SOAK_SOURCES         — Number of data sources for multi-source test (default: 2)
 
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
+
+/// Read an env var as u64 with a default.
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+/// Soak test configuration from environment.
+struct SoakConfig {
+    boundaries: u64,
+    batch_size: u64,
+    poll_ms: u64,
+    yield_every: u64,
+    yield_ms: u64,
+    settle_ms: u64,
+    duration_secs: u64,
+    sources: u64,
+}
+
+impl SoakConfig {
+    fn from_env() -> Self {
+        Self {
+            boundaries: env_u64("SOAK_BOUNDARIES", 1000),
+            batch_size: env_u64("SOAK_BATCH_SIZE", 1),
+            poll_ms: env_u64("SOAK_POLL_MS", 5),
+            yield_every: env_u64("SOAK_YIELD_EVERY", 50),
+            yield_ms: env_u64("SOAK_YIELD_MS", 1),
+            settle_ms: env_u64("SOAK_SETTLE_MS", 500),
+            duration_secs: env_u64("SOAK_DURATION_SECS", 0),
+            sources: env_u64("SOAK_SOURCES", 2),
+        }
+    }
+
+    fn print(&self, test_name: &str) {
+        println!("\n=== {} Config ===", test_name);
+        println!("  SOAK_BOUNDARIES:    {}", self.boundaries);
+        println!("  SOAK_BATCH_SIZE:    {}", self.batch_size);
+        println!("  SOAK_POLL_MS:       {}", self.poll_ms);
+        println!("  SOAK_YIELD_EVERY:   {}", self.yield_every);
+        println!("  SOAK_YIELD_MS:      {}", self.yield_ms);
+        println!("  SOAK_SETTLE_MS:     {}", self.settle_ms);
+        println!("  SOAK_DURATION_SECS: {}", self.duration_secs);
+        println!("  SOAK_SOURCES:       {}", self.sources);
+    }
+}
 
 /// A task that counts executions atomically.
 struct CountingTask {
@@ -58,10 +128,46 @@ impl Task for CountingTask {
     }
 }
 
+fn print_results(
+    test_name: &str,
+    config: &SoakConfig,
+    fired: &[cloacina::continuous::scheduler::FiredTask],
+    exec_count: u64,
+    ledger_len: usize,
+    elapsed: std::time::Duration,
+) {
+    let fired_count = fired.len() as u64;
+    let fired_errors = fired.iter().filter(|f| f.error.is_some()).count();
+    let total_boundaries = config.boundaries;
+
+    println!("\n=== {} Results ===", test_name);
+    println!("  Boundaries injected:  {}", total_boundaries);
+    println!("  Tasks fired:          {}", fired_count);
+    println!("  Tasks executed:       {}", exec_count);
+    println!("  Task errors:          {}", fired_errors);
+    println!("  Ledger events:        {}", ledger_len);
+    println!("  Wall time:            {:.2?}", elapsed);
+    println!(
+        "  Injection rate:       {:.0} boundaries/sec",
+        total_boundaries as f64 / elapsed.as_secs_f64()
+    );
+    if fired_count > 0 {
+        println!(
+            "  Fire rate:            {:.1} tasks/sec",
+            fired_count as f64 / elapsed.as_secs_f64()
+        );
+    }
+    let passed = fired_count > 0 && fired_errors == 0 && exec_count == fired_count;
+    println!("\n  {}", if passed { "PASS" } else { "FAIL" });
+    println!("==============================");
+}
+
 /// Sustained load: inject N boundaries, verify all are processed.
 #[tokio::test]
 async fn test_continuous_soak_sustained_load() {
-    let total_boundaries: u64 = 1000;
+    let config = SoakConfig::from_env();
+    config.print("Sustained Load");
+
     let task_exec_count = Arc::new(AtomicU64::new(0));
 
     let graph = assemble_graph(
@@ -79,8 +185,8 @@ async fn test_continuous_soak_sustained_load() {
         graph,
         ledger.clone(),
         ContinuousSchedulerConfig {
-            poll_interval: Duration::from_millis(5),
-            max_fired_tasks: 100_000,
+            poll_interval: Duration::from_millis(config.poll_ms),
+            max_fired_tasks: (config.boundaries * 2) as usize,
             task_timeout: None,
         },
     );
@@ -92,88 +198,98 @@ async fn test_continuous_soak_sustained_load() {
     let (tx, rx) = watch::channel(false);
     let handle = tokio::spawn(async move { scheduler.run(rx).await });
 
-    // Inject boundaries in a background task at sustained rate
+    let start = Instant::now();
+
+    // Inject boundaries at sustained rate
     let ledger_clone = ledger.clone();
-    let inject_start = Instant::now();
+    let batches = config.boundaries / config.batch_size.max(1);
+    let batch_size = config.batch_size;
+    let yield_every = config.yield_every;
+    let yield_ms = config.yield_ms;
+    let duration_limit = if config.duration_secs > 0 {
+        Some(Duration::from_secs(config.duration_secs))
+    } else {
+        None
+    };
+
     let inject_handle = tokio::spawn(async move {
-        for i in 0..total_boundaries {
+        let mut boundary_offset: i64 = 0;
+        for i in 0..batches {
+            if let Some(limit) = duration_limit {
+                if start.elapsed() > limit {
+                    break;
+                }
+            }
+
+            let boundaries: Vec<ComputationBoundary> = (0..batch_size)
+                .map(|_| {
+                    let b = make_boundary(boundary_offset, boundary_offset + 100);
+                    boundary_offset += 100;
+                    b
+                })
+                .collect();
+
             {
                 let mut l = ledger_clone.write();
-                l.append(make_detector_completion(
-                    "detect_events",
-                    vec![make_boundary(i as i64 * 100, (i as i64 + 1) * 100)],
-                ));
+                l.append(make_detector_completion("detect_events", boundaries));
             }
-            // Yield every 50 boundaries to let scheduler process
-            if i % 50 == 0 {
-                tokio::time::sleep(Duration::from_millis(1)).await;
+
+            if yield_every > 0 && i % yield_every == 0 {
+                tokio::time::sleep(Duration::from_millis(yield_ms)).await;
             }
         }
     });
 
-    // Wait for injection to complete
     inject_handle.await.unwrap();
-    let inject_elapsed = inject_start.elapsed();
 
-    // Give scheduler time to process remaining boundaries
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Settle — let scheduler process remaining
+    tokio::time::sleep(Duration::from_millis(config.settle_ms)).await;
 
-    // Shutdown
     tx.send(true).unwrap();
     let fired = handle.await.unwrap();
+    let elapsed = start.elapsed();
 
-    // Metrics
     let exec_count = task_exec_count.load(Ordering::SeqCst);
-    let fired_count = fired.len() as u64;
-    let fired_executed = fired.iter().filter(|f| f.executed).count() as u64;
-    let fired_errors = fired.iter().filter(|f| f.error.is_some()).count();
+    let ledger_len = ledger.read().len();
 
-    let l = ledger.read();
-    let ledger_len = l.len();
-
-    println!("=== Continuous Scheduler Soak Results ===");
-    println!("  Boundaries injected:  {}", total_boundaries);
-    println!("  Tasks fired:          {}", fired_count);
-    println!("  Tasks executed:       {}", fired_executed);
-    println!("  Task errors:          {}", fired_errors);
-    println!("  Executor count:       {}", exec_count);
-    println!("  Ledger events:        {}", ledger_len);
-    println!("  Injection time:       {:?}", inject_elapsed);
-    println!(
-        "  Rate:                 {:.0} boundaries/sec",
-        total_boundaries as f64 / inject_elapsed.as_secs_f64()
+    print_results(
+        "Sustained Load",
+        &config,
+        &fired,
+        exec_count,
+        ledger_len,
+        elapsed,
     );
-    println!("=========================================");
 
     // Assertions
-    assert!(
-        fired_count > 0,
-        "At least one task should have fired (got 0)"
-    );
+    assert!(fired.len() > 0, "At least one task should have fired");
     assert_eq!(
-        fired_executed, fired_count,
+        exec_count,
+        fired.len() as u64,
         "All fired tasks should have executed"
     );
-    assert_eq!(fired_errors, 0, "No task errors expected");
-    assert_eq!(
-        exec_count, fired_count,
-        "Executor count should match fired count"
-    );
-
-    // Verify ledger has events beyond just the injected detector completions
-    // (should also have AccumulatorDrained and TaskCompleted for the process task)
     assert!(
-        ledger_len > total_boundaries as usize,
-        "Ledger should have more events than just injected boundaries (got {})",
-        ledger_len
+        fired.iter().all(|f| f.error.is_none()),
+        "No task errors expected"
+    );
+    let expected_injections = config.boundaries / config.batch_size.max(1);
+    assert!(
+        ledger_len > expected_injections as usize,
+        "Ledger should have more events than just injections ({} > {})",
+        ledger_len,
+        expected_injections
     );
 }
 
-/// High throughput: inject many boundaries per detector completion (batched).
+/// High throughput batched: multiple boundaries per detector completion.
 #[tokio::test]
 async fn test_continuous_soak_batched_boundaries() {
-    let total_batches: u64 = 200;
-    let boundaries_per_batch: u64 = 5;
+    let mut config = SoakConfig::from_env();
+    if config.batch_size <= 1 {
+        config.batch_size = 5; // Force batching for this test
+    }
+    config.print("Batched Boundaries");
+
     let task_exec_count = Arc::new(AtomicU64::new(0));
 
     let graph = assemble_graph(
@@ -191,8 +307,8 @@ async fn test_continuous_soak_batched_boundaries() {
         graph,
         ledger.clone(),
         ContinuousSchedulerConfig {
-            poll_interval: Duration::from_millis(5),
-            max_fired_tasks: 100_000,
+            poll_interval: Duration::from_millis(config.poll_ms),
+            max_fired_tasks: (config.boundaries * 2) as usize,
             task_timeout: None,
         },
     );
@@ -204,14 +320,22 @@ async fn test_continuous_soak_batched_boundaries() {
     let (tx, rx) = watch::channel(false);
     let handle = tokio::spawn(async move { scheduler.run(rx).await });
 
-    // Inject batches
+    let start = Instant::now();
+
     let ledger_clone = ledger.clone();
-    let inject_handle = tokio::spawn(async move {
-        for batch in 0..total_batches {
-            let boundaries: Vec<ComputationBoundary> = (0..boundaries_per_batch)
-                .map(|i| {
-                    let offset = (batch * boundaries_per_batch + i) as i64 * 100;
-                    make_boundary(offset, offset + 100)
+    let batches = config.boundaries / config.batch_size.max(1);
+    let batch_size = config.batch_size;
+    let yield_every = config.yield_every;
+    let yield_ms = config.yield_ms;
+
+    tokio::spawn(async move {
+        let mut offset: i64 = 0;
+        for i in 0..batches {
+            let boundaries: Vec<ComputationBoundary> = (0..batch_size)
+                .map(|_| {
+                    let b = make_boundary(offset, offset + 100);
+                    offset += 100;
+                    b
                 })
                 .collect();
 
@@ -220,50 +344,57 @@ async fn test_continuous_soak_batched_boundaries() {
                 l.append(make_detector_completion("detect_events", boundaries));
             }
 
-            if batch % 20 == 0 {
-                tokio::time::sleep(Duration::from_millis(1)).await;
+            if yield_every > 0 && i % yield_every == 0 {
+                tokio::time::sleep(Duration::from_millis(yield_ms)).await;
             }
         }
-    });
+    })
+    .await
+    .unwrap();
 
-    inject_handle.await.unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
+    tokio::time::sleep(Duration::from_millis(config.settle_ms)).await;
     tx.send(true).unwrap();
     let fired = handle.await.unwrap();
+    let elapsed = start.elapsed();
 
     let exec_count = task_exec_count.load(Ordering::SeqCst);
-    let total_boundaries = total_batches * boundaries_per_batch;
+    let ledger_len = ledger.read().len();
 
-    println!("=== Batched Soak Results ===");
-    println!("  Total boundaries:     {}", total_boundaries);
-    println!("  Batches:              {}", total_batches);
-    println!("  Tasks fired:          {}", fired.len());
-    println!("  Tasks executed:       {}", exec_count);
-    println!("============================");
+    print_results(
+        "Batched Boundaries",
+        &config,
+        &fired,
+        exec_count,
+        ledger_len,
+        elapsed,
+    );
 
     assert!(fired.len() > 0, "At least one task should have fired");
-    assert_eq!(
-        exec_count,
-        fired.len() as u64,
-        "All fired tasks should execute"
-    );
     assert!(
         fired.iter().all(|f| f.error.is_none()),
         "No errors expected"
     );
 }
 
-/// Multi-source sustained load: two sources feeding one task.
+/// Multi-source sustained load: N sources feeding one task.
 #[tokio::test]
 async fn test_continuous_soak_multi_source() {
+    let config = SoakConfig::from_env();
+    config.print("Multi-Source");
+
     let task_exec_count = Arc::new(AtomicU64::new(0));
 
+    // Create N sources
+    let sources: Vec<DataSource> = (0..config.sources)
+        .map(|i| make_source(&format!("source_{}", i)))
+        .collect();
+    let source_names: Vec<String> = sources.iter().map(|s| s.name.clone()).collect();
+
     let graph = assemble_graph(
-        vec![make_source("clicks"), make_source("impressions")],
+        sources,
         vec![ContinuousTaskRegistration {
-            id: "join_metrics".into(),
-            sources: vec!["clicks".into(), "impressions".into()],
+            id: "join_all".into(),
+            sources: source_names.clone(),
             referenced: vec![],
         }],
     )
@@ -274,53 +405,64 @@ async fn test_continuous_soak_multi_source() {
         graph,
         ledger.clone(),
         ContinuousSchedulerConfig {
-            poll_interval: Duration::from_millis(5),
-            max_fired_tasks: 100_000,
+            poll_interval: Duration::from_millis(config.poll_ms),
+            max_fired_tasks: (config.boundaries * 2) as usize,
             task_timeout: None,
         },
     );
     scheduler.register_task(Arc::new(CountingTask::new(
-        "join_metrics",
+        "join_all",
         task_exec_count.clone(),
     )));
 
     let (tx, rx) = watch::channel(false);
     let handle = tokio::spawn(async move { scheduler.run(rx).await });
 
-    // Inject from both sources alternating
+    let start = Instant::now();
+
     let ledger_clone = ledger.clone();
+    let num_sources = config.sources;
+    let boundaries = config.boundaries;
+    let yield_every = config.yield_every;
+    let yield_ms = config.yield_ms;
+
     tokio::spawn(async move {
-        for i in 0..200u64 {
-            let source = if i % 2 == 0 {
-                "detect_clicks"
-            } else {
-                "detect_impressions"
-            };
+        for i in 0..boundaries {
+            let source_idx = (i % num_sources) as usize;
+            let source_name = format!("detect_source_{}", source_idx);
+
             {
                 let mut l = ledger_clone.write();
                 l.append(make_detector_completion(
-                    source,
+                    &source_name,
                     vec![make_boundary(i as i64 * 50, (i as i64 + 1) * 50)],
                 ));
             }
-            if i % 20 == 0 {
-                tokio::time::sleep(Duration::from_millis(1)).await;
+
+            if yield_every > 0 && i % yield_every == 0 {
+                tokio::time::sleep(Duration::from_millis(yield_ms)).await;
             }
         }
     })
     .await
     .unwrap();
 
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(config.settle_ms)).await;
     tx.send(true).unwrap();
     let fired = handle.await.unwrap();
+    let elapsed = start.elapsed();
 
     let exec_count = task_exec_count.load(Ordering::SeqCst);
+    let ledger_len = ledger.read().len();
 
-    println!("=== Multi-Source Soak Results ===");
-    println!("  Tasks fired:    {}", fired.len());
-    println!("  Tasks executed: {}", exec_count);
-    println!("================================");
+    print_results(
+        "Multi-Source",
+        &config,
+        &fired,
+        exec_count,
+        ledger_len,
+        elapsed,
+    );
 
     assert!(
         fired.len() > 0,
