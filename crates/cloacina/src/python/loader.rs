@@ -117,6 +117,11 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
         &module
     )?)?;
 
+    // Trigger decorator and result
+    module.add_function(wrap_pyfunction!(super::trigger::trigger, &module)?)?;
+    module.add_class::<super::trigger::PyTriggerResult>()?;
+    module.add_class::<super::trigger::TriggerDecorator>()?;
+
     // Value objects
     module.add_class::<super::workflow_context::PyWorkflowContext>()?;
     module.add_class::<super::namespace::PyTaskNamespace>()?;

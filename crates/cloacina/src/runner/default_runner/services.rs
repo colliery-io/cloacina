@@ -367,7 +367,8 @@ impl DefaultRunner {
 
         match workflow_registry_result {
             Ok(workflow_registry_arc) => {
-                // Create Registry Reconciler
+                // Create Registry Reconciler with DAL for trigger registration
+                let dal = Arc::new(DAL::new(self.database.clone()));
                 let registry_reconciler = RegistryReconciler::new(
                     workflow_registry_arc.clone(),
                     reconciler_config,
@@ -375,7 +376,8 @@ impl DefaultRunner {
                 )
                 .map_err(|e| PipelineError::Configuration {
                     message: format!("Failed to create registry reconciler: {}", e),
-                })?;
+                })?
+                .with_dal(dal);
 
                 // Start reconciler background service
                 let mut broadcast_shutdown_rx = shutdown_tx.subscribe();

@@ -22,4 +22,5 @@ pub mod executions;
 pub mod health;
 pub mod metrics;
 pub mod tenants;
+pub mod triggers;
 pub mod workflows;

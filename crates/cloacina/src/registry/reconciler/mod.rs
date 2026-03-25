@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ use tokio::sync::watch;
 use tokio::time::{interval, Interval};
 use tracing::{debug, error, info, warn};
 
+use crate::dal::DAL;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageLoader;
 use crate::registry::loader::task_registrar::TaskRegistrar;
@@ -121,6 +122,9 @@ pub(super) struct PackageState {
 
     /// Workflow name registered for this package
     pub(super) workflow_name: Option<String>,
+
+    /// Trigger names registered for this package
+    pub(super) trigger_names: Vec<String>,
 }
 
 /// Status information about the reconciler
@@ -166,6 +170,9 @@ pub struct RegistryReconciler {
     /// Task registrar for managing dynamic task registration
     pub(super) task_registrar: TaskRegistrar,
 
+    /// Optional DAL for trigger schedule persistence
+    pub(super) dal: Option<Arc<DAL>>,
+
     /// Shutdown signal receiver
     shutdown_rx: watch::Receiver<bool>,
 
@@ -192,9 +199,20 @@ impl RegistryReconciler {
             loaded_packages: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             package_loader,
             task_registrar,
+            dal: None,
             shutdown_rx,
             interval,
         })
+    }
+
+    /// Set the DAL for trigger schedule persistence.
+    ///
+    /// When a DAL is configured, triggers declared in package manifests will be
+    /// automatically registered in the database and global trigger registry on load,
+    /// and disabled on unload.
+    pub fn with_dal(mut self, dal: Arc<DAL>) -> Self {
+        self.dal = Some(dal);
+        self
     }
 
     /// Start the background reconciliation loop

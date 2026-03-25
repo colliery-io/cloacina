@@ -63,7 +63,7 @@ pub struct ServeArgs {
     pub config: Option<String>,
 
     /// Bind address (overrides config file).
-    #[arg(long, default_value = "127.0.0.1")]
+    #[arg(long, default_value = "0.0.0.0")]
     pub bind: String,
 
     /// Port to listen on (overrides config file).
@@ -159,6 +159,20 @@ pub fn app(state: Arc<AppState>) -> Router {
         .route(
             "/tenants/{id}/api-keys/{key_id}",
             axum::routing::delete(crate::routes::tenants::revoke_tenant_key),
+        )
+        // Trigger management routes (read-only + enable/disable)
+        .route("/triggers", get(crate::routes::triggers::list_triggers))
+        .route(
+            "/triggers/{name}",
+            get(crate::routes::triggers::get_trigger),
+        )
+        .route(
+            "/triggers/{name}/enable",
+            post(crate::routes::triggers::enable_trigger),
+        )
+        .route(
+            "/triggers/{name}/disable",
+            post(crate::routes::triggers::disable_trigger),
         );
 
     // Auth-test endpoint only available in debug builds
@@ -171,8 +185,10 @@ pub fn app(state: Arc<AppState>) -> Router {
     // Apply auth middleware to protected routes only (if auth is configured).
     // SECURITY: When no database is configured, reject all protected routes
     // with 503 instead of silently serving them without authentication.
+    // Use route_layer (not layer) so middleware only runs for matched routes,
+    // not the fallback 404 handler — otherwise unmatched paths return 503.
     let protected_routes = if let Some(ref auth) = state.auth_state {
-        protected_routes.layer(axum::middleware::from_fn_with_state(
+        protected_routes.route_layer(axum::middleware::from_fn_with_state(
             auth.clone(),
             crate::auth::middleware::auth_middleware,
         ))
@@ -181,7 +197,7 @@ pub fn app(state: Arc<AppState>) -> Router {
             "No database configured — protected API endpoints will return 503. \
              Set CLOACINA_DATABASE_URL to enable authentication."
         );
-        protected_routes.layer(axum::middleware::from_fn(reject_no_auth))
+        protected_routes.route_layer(axum::middleware::from_fn(reject_no_auth))
     };
 
     Router::new()

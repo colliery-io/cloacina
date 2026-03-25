@@ -113,6 +113,11 @@ impl RecoverySweepService {
         Ok(())
     }
 
+    /// Public entry point for testing — runs a single sweep.
+    pub async fn perform_sweep_public(&self) -> Result<(), PipelineError> {
+        self.perform_sweep().await
+    }
+
     /// Single sweep iteration.
     async fn perform_sweep(&self) -> Result<(), PipelineError> {
         // Determine cutoff based on startup vs normal mode

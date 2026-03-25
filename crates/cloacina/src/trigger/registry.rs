@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -76,6 +76,23 @@ where
 pub fn register_trigger<T: Trigger + Clone + 'static>(trigger: T) {
     let name = trigger.name().to_string();
     register_trigger_constructor(name, move || Arc::new(trigger.clone()));
+}
+
+/// Register a pre-built Arc trigger instance by name.
+///
+/// Used by the reconciler when loading triggers from package manifests.
+pub fn register_trigger_arc(name: &str, trigger: Arc<dyn Trigger>) {
+    let name_string = name.to_string();
+    register_trigger_constructor(name_string, move || trigger.clone());
+}
+
+/// Remove a trigger from the global registry by name.
+///
+/// Used by the reconciler when unloading packages.
+pub fn remove_trigger(name: &str) {
+    let mut registry = GLOBAL_TRIGGER_REGISTRY.write();
+    registry.remove(name);
+    tracing::debug!("Removed trigger from registry: {}", name);
 }
 
 /// Get a trigger instance from the global registry by name.
@@ -245,6 +262,33 @@ mod tests {
         let trigger_names: Vec<_> = triggers.iter().map(|t| t.name()).collect();
         assert!(trigger_names.contains(&name_1));
         assert!(trigger_names.contains(&name_2));
+    }
+
+    #[test]
+    #[serial]
+    fn test_remove_trigger() {
+        let name = "test_remove_trigger_unique_12345";
+        register_trigger(TestTrigger::new(name));
+        assert!(is_trigger_registered(name));
+
+        remove_trigger(name);
+        assert!(!is_trigger_registered(name));
+
+        // Removing non-existent trigger should not panic
+        remove_trigger("definitely_nonexistent_xyz");
+    }
+
+    #[test]
+    #[serial]
+    fn test_register_trigger_arc() {
+        let name = "test_register_trigger_arc_unique_12345";
+        let trigger = Arc::new(TestTrigger::new(name));
+        register_trigger_arc(name, trigger);
+
+        assert!(is_trigger_registered(name));
+        let retrieved = get_trigger(name);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().name(), name);
     }
 
     #[test]

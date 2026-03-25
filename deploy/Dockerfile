@@ -3,7 +3,7 @@
 # Run:   docker run -p 8080:8080 cloacina serve --mode=all
 
 # --- Stage 1: Builder ---
-FROM rust:bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /build
 

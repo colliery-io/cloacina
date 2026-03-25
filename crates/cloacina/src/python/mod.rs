@@ -33,6 +33,7 @@ pub mod context;
 pub mod loader;
 pub mod namespace;
 pub mod task;
+pub mod trigger;
 pub mod workflow;
 pub mod workflow_context;
 
@@ -48,6 +49,12 @@ pub use workflow::{
     PyWorkflowBuilder,
 };
 pub use workflow_context::PyWorkflowContext;
+
+// Re-exports: trigger bindings
+pub use trigger::{
+    drain_python_triggers, trigger as trigger_decorator, PyTriggerResult, PythonTriggerDef,
+    PythonTriggerWrapper, TriggerDecorator,
+};
 
 // Re-exports: loader
 pub use loader::{ensure_cloaca_module, import_and_register_python_workflow, PythonLoaderError};
@@ -123,6 +130,8 @@ mod tests {
             // Verify the module is importable
             let cloaca_mod = py.import("cloaca").unwrap();
             assert!(cloaca_mod.hasattr("task").unwrap());
+            assert!(cloaca_mod.hasattr("trigger").unwrap());
+            assert!(cloaca_mod.hasattr("TriggerResult").unwrap());
             assert!(cloaca_mod.hasattr("WorkflowBuilder").unwrap());
             assert!(cloaca_mod.hasattr("Context").unwrap());
         });

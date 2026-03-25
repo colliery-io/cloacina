@@ -332,14 +332,15 @@ impl<'a> TaskExecutionDAL<'a> {
                     .values(&event)
                     .execute(conn)?;
 
-                // Insert outbox entry for work distribution
-                let outbox_entry = NewUnifiedTaskOutbox {
-                    task_execution_id: task_id,
-                    created_at: now,
-                };
-                diesel::insert_into(task_outbox::table)
-                    .values(&outbox_entry)
-                    .execute(conn)?;
+                // Insert outbox entry for work distribution.
+                // Use NOW() so the timestamp matches Postgres's clock (avoids
+                // host-vs-container clock skew with the claim query's
+                // WHERE created_at <= NOW() filter).
+                diesel::sql_query(format!(
+                    "INSERT INTO task_outbox (task_execution_id, created_at) VALUES ('{}', NOW())",
+                    task_id.0
+                ))
+                .execute(conn)?;
 
                 Ok(())
             })

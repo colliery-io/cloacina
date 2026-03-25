@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,12 +16,15 @@
 
 //! Package loading, unloading, and task/workflow registration.
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::{PackageState, RegistryReconciler};
+use crate::models::trigger_schedule::NewTriggerSchedule;
 use crate::registry::error::RegistryError;
 use crate::registry::types::{WorkflowMetadata, WorkflowPackageId};
 use crate::task::{global_task_registry, TaskNamespace};
+use crate::trigger::builtin::create_trigger_from_config;
+use crate::trigger::registry as trigger_registry;
 use crate::workflow::global_workflow_registry;
 
 impl RegistryReconciler {
@@ -80,11 +83,20 @@ impl RegistryReconciler {
             .register_package_workflows(&metadata, &library_data)
             .await?;
 
+        // Register triggers from manifest (if this is a .cloacina package)
+        let trigger_names = if is_cloacina {
+            self.register_package_triggers(&metadata, &loaded_workflow.package_data)
+                .await?
+        } else {
+            vec![]
+        };
+
         // Track the loaded package state
         let package_state = PackageState {
             metadata: metadata.clone(),
             task_namespaces,
             workflow_name,
+            trigger_names,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -110,6 +122,10 @@ impl RegistryReconciler {
                     version: "unknown".to_string(),
                 })?;
         drop(loaded_packages);
+
+        // Unregister triggers
+        self.unregister_package_triggers(&package_state.trigger_names)
+            .await;
 
         // Unregister tasks from global task registry
         self.unregister_package_tasks(package_id, &package_state.task_namespaces)
@@ -451,6 +467,131 @@ impl RegistryReconciler {
         }
 
         Ok(())
+    }
+
+    /// Register triggers from a package manifest.
+    ///
+    /// Instantiates built-in triggers via factory, registers them in the global
+    /// trigger registry, and (if DAL is available) persists trigger schedules.
+    pub(super) async fn register_package_triggers(
+        &self,
+        metadata: &WorkflowMetadata,
+        package_data: &[u8],
+    ) -> Result<Vec<String>, RegistryError> {
+        let manifest = match self.extract_manifest_from_cloacina(package_data).await? {
+            Some(m) => m,
+            None => return Ok(vec![]),
+        };
+
+        if manifest.triggers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        debug!(
+            "Package {} has {} trigger(s) declared in manifest",
+            metadata.package_name,
+            manifest.triggers.len()
+        );
+
+        let mut registered = Vec::new();
+
+        for trigger_def in &manifest.triggers {
+            // Python triggers are registered via @cloaca.trigger decorator during
+            // module import — they don't go through the built-in factory.
+            if trigger_def.trigger_type == crate::packaging::manifest_v2::TriggerType::Python {
+                debug!(
+                    "Skipping Python trigger '{}' in built-in factory — registered via @cloaca.trigger",
+                    trigger_def.name
+                );
+                continue;
+            }
+
+            match create_trigger_from_config(trigger_def) {
+                Ok(trigger) => {
+                    let trigger_name = trigger.name().to_string();
+
+                    // Register in global trigger registry
+                    let poll_interval = trigger.poll_interval();
+                    let allow_concurrent = trigger.allow_concurrent();
+                    let workflow = trigger_def.workflow.clone();
+
+                    trigger_registry::register_trigger_arc(
+                        &trigger_name,
+                        std::sync::Arc::from(trigger),
+                    );
+
+                    // Persist schedule in DB if DAL is available
+                    if let Some(dal) = &self.dal {
+                        let schedule =
+                            NewTriggerSchedule::new(&trigger_name, &workflow, poll_interval)
+                                .with_allow_concurrent(allow_concurrent);
+
+                        match dal.trigger_schedule().upsert(schedule).await {
+                            Ok(_) => {
+                                debug!(
+                                    "Registered trigger schedule '{}' for workflow '{}'",
+                                    trigger_name, workflow
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to persist trigger schedule '{}': {}",
+                                    trigger_name, e
+                                );
+                            }
+                        }
+                    }
+
+                    info!(
+                        "Registered trigger '{}' (type: {:?}) for package {} v{}",
+                        trigger_name,
+                        trigger_def.trigger_type,
+                        metadata.package_name,
+                        metadata.version
+                    );
+                    registered.push(trigger_name);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to create trigger '{}' from package {}: {}",
+                        trigger_def.name, metadata.package_name, e
+                    );
+                }
+            }
+        }
+
+        if !registered.is_empty() {
+            info!(
+                "Registered {} trigger(s) for package {} v{}",
+                registered.len(),
+                metadata.package_name,
+                metadata.version
+            );
+        }
+
+        Ok(registered)
+    }
+
+    /// Unregister triggers associated with a package.
+    ///
+    /// Disables trigger schedules in the DB and removes from global registry.
+    pub(super) async fn unregister_package_triggers(&self, trigger_names: &[String]) {
+        for name in trigger_names {
+            // Disable in DB if DAL available
+            if let Some(dal) = &self.dal {
+                if let Ok(Some(schedule)) = dal.trigger_schedule().get_by_name(name).await {
+                    if let Err(e) = dal.trigger_schedule().disable(schedule.id).await {
+                        warn!("Failed to disable trigger schedule '{}': {}", name, e);
+                    } else {
+                        debug!("Disabled trigger schedule '{}'", name);
+                    }
+                }
+            }
+
+            // Remove from global trigger registry
+            trigger_registry::remove_trigger(name);
+            debug!("Removed trigger '{}' from global registry", name);
+        }
     }
 
     /// Unregister a workflow from the global workflow registry

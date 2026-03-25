@@ -245,8 +245,9 @@ impl TaskScheduler {
         database: Database,
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
-        // Startup recovery removed — the RecoverySweeper background service
-        // handles all orphaned task detection via heartbeat monitoring.
+        // Startup recovery is handled by RecoverySweepService (heartbeat-based).
+        // The sweeper's startup grace period handles tasks orphaned before this
+        // instance started.
         Ok(Self::with_poll_interval_sync(database, poll_interval))
     }
 

@@ -6,259 +6,174 @@ weight: 55
 
 # Trigger Decorator
 
-The `@trigger` decorator is used to define event-driven triggers that poll user-defined conditions and fire workflows when those conditions are met. Unlike cron scheduling (time-based), event triggers allow reactive workflow execution based on custom logic.
+The `@trigger` decorator defines custom Python triggers that poll user-defined conditions and fire workflows when those conditions are met. Triggers are declared in package manifests and auto-registered when the package is loaded.
 
-## Basic Usage
+## Package-First Design
+
+Triggers are part of `.cloacina` packages. The workflow to fire is declared in the package manifest (`manifest.json`), not in the decorator. The decorator registers the Python poll function.
+
+### manifest.json
+
+```json
+{
+  "triggers": [
+    {
+      "name": "check_inbox",
+      "type": "python",
+      "workflow": "process_files",
+      "poll_interval": "30s",
+      "allow_concurrent": false,
+      "config": {}
+    }
+  ]
+}
+```
+
+### Python source
 
 ```python
 import cloaca
 
-@cloaca.trigger(
-    workflow="my_workflow",
-    poll_interval="5s"
-)
-def my_trigger():
-    """Example trigger that checks a condition."""
-    if some_condition_is_met():
-        return cloaca.TriggerResult.fire()
-    return cloaca.TriggerResult.skip()
+@cloaca.trigger(name="check_inbox", poll_interval="30s")
+def check_inbox():
+    if new_files_available("/inbox/"):
+        return cloaca.TriggerResult(should_fire=True, context={"path": "/inbox/"})
+    return cloaca.TriggerResult(should_fire=False)
 ```
 
 ## Decorator Parameters
 
-### Required Parameters
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | function name | Unique trigger identifier (must match manifest) |
+| `poll_interval` | `str` | `"30s"` | How often to poll (`"5s"`, `"1m"`, `"500ms"`) |
+| `allow_concurrent` | `bool` | `False` | Allow parallel executions |
 
-- `workflow` (str): Name of the workflow to trigger when the condition is met
+## TriggerResult
 
-### Optional Parameters
+The poll function must return a `TriggerResult` or a plain `bool`.
 
-- `name` (str): Unique identifier for the trigger (defaults to function name)
-- `poll_interval` (str): How often to poll the trigger condition (e.g., "5s", "100ms", "1m"). Defaults to "5s"
-- `allow_concurrent` (bool): Whether to allow concurrent executions of the same trigger. Defaults to `False`
-
-## TriggerResult Class
-
-The trigger function must return a `TriggerResult` object:
-
-### TriggerResult.skip()
-
-Returns a Skip result indicating the condition is not met. Polling continues on the next interval.
+### TriggerResult(should_fire, context)
 
 ```python
-result = cloaca.TriggerResult.skip()
-assert result.is_skip_result() == True
-```
+# Skip — condition not met
+return cloaca.TriggerResult(should_fire=False)
 
-### TriggerResult.fire(context=None)
-
-Returns a Fire result indicating the condition is met. The workflow will be triggered.
-
-```python
 # Fire without context
-result = cloaca.TriggerResult.fire()
-assert result.is_fire_result() == True
+return cloaca.TriggerResult(should_fire=True)
 
-# Fire with context
-ctx = cloaca.Context({"key": "value"})
-result = cloaca.TriggerResult.fire(ctx)
+# Fire with context dict
+return cloaca.TriggerResult(should_fire=True, context={"key": "value"})
 ```
 
-## Example with Context
-
-Pass data from the trigger to the workflow via context:
+### Bool shorthand
 
 ```python
-@cloaca.trigger(
-    workflow="file_processor",
-    name="file_watcher",
-    poll_interval="10s",
-    allow_concurrent=False
-)
-def file_watcher():
-    """Monitor for new files and trigger processing."""
-    new_file = check_for_new_files("/data/inbox/")
-    if new_file:
-        ctx = cloaca.Context({
-            "filename": new_file,
-            "detected_at": datetime.now().isoformat()
-        })
-        return cloaca.TriggerResult.fire(ctx)
-    return cloaca.TriggerResult.skip()
+# Equivalent to TriggerResult(should_fire=False)
+return False
+
+# Equivalent to TriggerResult(should_fire=True) with no context
+return True
+```
+
+## Built-In Trigger Types
+
+In addition to Python triggers, packages can declare built-in trigger types that don't require Python code:
+
+### webhook
+
+Receives HTTP POST payloads. The server creates a `/webhooks/{name}` endpoint.
+
+```json
+{
+  "name": "on_upload",
+  "type": "webhook",
+  "workflow": "process_upload",
+  "config": { "path": "/hooks/upload" }
+}
+```
+
+### http_poll
+
+Polls an HTTP endpoint and fires when the response matches expectations.
+
+```json
+{
+  "name": "check_api",
+  "type": "http_poll",
+  "workflow": "sync_data",
+  "poll_interval": "5m",
+  "config": {
+    "url": "https://api.example.com/status",
+    "method": "GET",
+    "expect_status": 200
+  }
+}
+```
+
+### file_watch
+
+Scans a directory for new files matching a glob pattern.
+
+```json
+{
+  "name": "watch_inbox",
+  "type": "file_watch",
+  "workflow": "process_files",
+  "poll_interval": "10s",
+  "config": {
+    "directory": "/data/inbox",
+    "glob": "*.csv"
+  }
+}
+```
+
+## REST API
+
+Triggers are managed via the server API (read-only + enable/disable):
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/triggers` | GET | List all trigger schedules |
+| `/triggers/{name}` | GET | Get trigger detail |
+| `/triggers/{name}/enable` | POST | Enable a trigger |
+| `/triggers/{name}/disable` | POST | Disable a trigger |
+
+## CLI (Daemon)
+
+```bash
+# List all triggers
+cloacinactl daemon trigger list
+
+# Enable/disable
+cloacinactl daemon trigger enable check_inbox
+cloacinactl daemon trigger disable check_inbox
 ```
 
 ## Deduplication
 
-When `allow_concurrent=False` (the default), the trigger scheduler prevents duplicate executions:
+When `allow_concurrent=False` (default), the trigger scheduler prevents duplicate executions:
 
-1. Context is hashed when `TriggerResult.fire()` is returned
+1. Context is hashed when the trigger fires
 2. Active executions are tracked by (trigger_name, context_hash)
 3. If an execution with the same hash is running, the trigger skips
 
-```python
-@cloaca.trigger(
-    workflow="order_processor",
-    allow_concurrent=False  # Default - prevents duplicate processing
-)
-def order_trigger():
-    """Only process each order once."""
-    order = get_pending_order()
-    if order:
-        ctx = cloaca.Context({"order_id": order.id})
-        return cloaca.TriggerResult.fire(ctx)
-    return cloaca.TriggerResult.skip()
-```
+## Error Handling
 
-## Concurrent Execution
-
-Set `allow_concurrent=True` for triggers that should scale horizontally:
+Python exceptions in trigger poll functions are caught and logged — the trigger is not crashed. Polling continues on the next interval.
 
 ```python
-@cloaca.trigger(
-    workflow="queue_worker",
-    poll_interval="1s",
-    allow_concurrent=True  # Allow parallel queue processing
-)
-def queue_trigger():
-    """Process queue items in parallel."""
-    item = peek_queue_item()
-    if item:
-        ctx = cloaca.Context({"item_id": item.id})
-        return cloaca.TriggerResult.fire(ctx)
-    return cloaca.TriggerResult.skip()
-```
-
-## Common Patterns
-
-### Health Check Trigger
-
-Fire recovery workflow after consecutive failures:
-
-```python
-failure_count = 0
-
-@cloaca.trigger(
-    workflow="service_recovery",
-    poll_interval="30s"
-)
-def health_check():
-    """Monitor service health and trigger recovery."""
-    global failure_count
-
-    if check_service_healthy():
-        failure_count = 0
-        return cloaca.TriggerResult.skip()
-
-    failure_count += 1
-    if failure_count >= 3:
-        failure_count = 0
-        ctx = cloaca.Context({
-            "service": "api",
-            "consecutive_failures": 3
-        })
-        return cloaca.TriggerResult.fire(ctx)
-    return cloaca.TriggerResult.skip()
-```
-
-### Threshold Trigger
-
-Fire when a metric exceeds a threshold:
-
-```python
-@cloaca.trigger(
-    workflow="scale_up",
-    poll_interval="10s",
-    allow_concurrent=True
-)
-def queue_depth_trigger():
-    """Scale workers when queue gets deep."""
-    depth = get_queue_depth()
-    if depth > 100:
-        ctx = cloaca.Context({
-            "queue_depth": depth,
-            "action": "scale_up"
-        })
-        return cloaca.TriggerResult.fire(ctx)
-    return cloaca.TriggerResult.skip()
-```
-
-## Best Practices
-
-### Keep Polls Lightweight
-
-The poll function should be quick and avoid heavy processing:
-
-```python
-# Good: Quick check
-@cloaca.trigger(workflow="processor", poll_interval="5s")
-def good_trigger():
-    if file_exists("/inbox/trigger.flag"):
-        return cloaca.TriggerResult.fire()
-    return cloaca.TriggerResult.skip()
-
-# Bad: Heavy processing in poll
-@cloaca.trigger(workflow="processor", poll_interval="5s")
-def bad_trigger():
-    data = download_large_file()  # Don't do this!
-    process_data(data)
-    return cloaca.TriggerResult.fire()
-```
-
-### Use Context for Deduplication
-
-Include identifying information in context to enable deduplication:
-
-```python
-# Good: Context identifies the specific item
-ctx = cloaca.Context({
-    "filename": filename,
-    "file_hash": compute_hash(filename)
-})
-return cloaca.TriggerResult.fire(ctx)
-
-# Bad: No identifying information
-return cloaca.TriggerResult.fire()  # All fires look identical!
-```
-
-### Handle Errors Gracefully
-
-Errors in trigger functions are logged and polling continues:
-
-```python
-@cloaca.trigger(workflow="data_sync", poll_interval="1m")
+@cloaca.trigger(name="resilient", poll_interval="1m")
 def resilient_trigger():
-    """Trigger with error handling."""
     try:
         if check_for_updates():
-            return cloaca.TriggerResult.fire()
+            return cloaca.TriggerResult(should_fire=True)
     except Exception as e:
         logging.warning(f"Trigger check failed: {e}")
-    return cloaca.TriggerResult.skip()
-```
-
-## Managing Triggers
-
-Query and control triggers programmatically:
-
-```python
-runner = cloaca.DefaultRunner("sqlite://workflows.db")
-
-# List all triggers
-schedules = runner.list_trigger_schedules()
-for schedule in schedules:
-    print(f"{schedule['trigger_name']}: {schedule['enabled']}")
-
-# Enable/disable triggers
-runner.set_trigger_enabled("file_watcher", False)
-
-# View execution history
-history = runner.get_trigger_execution_history("file_watcher")
-for execution in history:
-    print(f"Started: {execution['started_at']}")
+    return cloaca.TriggerResult(should_fire=False)
 ```
 
 ## See Also
 
 - **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed from triggers to workflows
-- **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Define workflows that triggers activate
-- **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows and manage triggers
-- **[Tutorial: Event Triggers]({{< ref "/tutorials/09-event-triggers/" >}})** - Step-by-step trigger implementation guide
+- **[Tutorial: Event Triggers]({{< ref "/python-bindings/tutorials/07-event-triggers/" >}})** - Step-by-step guide

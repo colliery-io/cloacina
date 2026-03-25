@@ -49,6 +49,16 @@ pub enum ManifestValidationError {
 
     #[error("Invalid format version: expected '2', got '{version}'")]
     InvalidFormatVersion { version: String },
+
+    #[error("Duplicate trigger name: '{name}'")]
+    DuplicateTriggerName { name: String },
+
+    #[error("Invalid poll interval '{interval}' for trigger '{name}': {reason}")]
+    InvalidPollInterval {
+        name: String,
+        interval: String,
+        reason: String,
+    },
 }
 
 /// Package language discriminator.
@@ -115,6 +125,45 @@ pub struct TaskDefinitionV2 {
     pub timeout_seconds: Option<u64>,
 }
 
+/// Trigger type discriminator for built-in and custom triggers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerType {
+    /// HTTP webhook — receives external POST and fires workflow.
+    Webhook,
+    /// HTTP polling — periodically fetches a URL and evaluates a condition.
+    HttpPoll,
+    /// File watch — scans a directory for new/changed files matching a glob.
+    FileWatch,
+    /// Python custom trigger — calls a Python poll function via PyO3.
+    Python,
+}
+
+/// Trigger definition within a package manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerDefinitionV2 {
+    /// Trigger name (unique within the package).
+    pub name: String,
+    /// Trigger type.
+    #[serde(rename = "type")]
+    pub trigger_type: TriggerType,
+    /// Workflow to fire when trigger activates.
+    pub workflow: String,
+    /// Poll interval as a human-readable string (e.g., "10s", "5m", "1h").
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval: String,
+    /// Whether concurrent executions are allowed.
+    #[serde(default)]
+    pub allow_concurrent: bool,
+    /// Type-specific configuration (varies by trigger type).
+    #[serde(default)]
+    pub config: serde_json::Value,
+}
+
+fn default_poll_interval() -> String {
+    "30s".to_string()
+}
+
 /// Unified package manifest (v2).
 ///
 /// Supports both Rust (dynamic library) and Python workflow packages.
@@ -134,11 +183,46 @@ pub struct ManifestV2 {
     pub rust: Option<RustRuntime>,
     /// Task definitions.
     pub tasks: Vec<TaskDefinitionV2>,
+    /// Trigger definitions (optional, empty for backward compatibility).
+    #[serde(default)]
+    pub triggers: Vec<TriggerDefinitionV2>,
     /// When the manifest was created.
     pub created_at: DateTime<Utc>,
     /// Package signature (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+}
+
+/// Parse a human-readable duration string (e.g., "10s", "5m", "1h") into a `Duration`.
+pub fn parse_duration_str(s: &str) -> Result<std::time::Duration, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty string".to_string());
+    }
+
+    let (num_str, suffix) = if s.ends_with("ms") {
+        (&s[..s.len() - 2], "ms")
+    } else {
+        let split = s.len() - 1;
+        if split == 0 || !s.as_bytes()[split].is_ascii_alphabetic() {
+            return Err(format!(
+                "expected number followed by unit (s, m, h, ms), got '{s}'"
+            ));
+        }
+        (&s[..split], &s[split..])
+    };
+
+    let value: u64 = num_str
+        .parse()
+        .map_err(|_| format!("'{num_str}' is not a valid number"))?;
+
+    match suffix {
+        "ms" => Ok(std::time::Duration::from_millis(value)),
+        "s" => Ok(std::time::Duration::from_secs(value)),
+        "m" => Ok(std::time::Duration::from_secs(value * 60)),
+        "h" => Ok(std::time::Duration::from_secs(value * 3600)),
+        other => Err(format!("unknown unit '{other}', expected s, m, h, or ms")),
+    }
 }
 
 impl ManifestV2 {
@@ -206,6 +290,23 @@ impl ManifestV2 {
             }
         }
 
+        // Validate triggers (optional — empty is fine)
+        let mut seen_trigger_names = std::collections::HashSet::new();
+        for trigger in &self.triggers {
+            if !seen_trigger_names.insert(&trigger.name) {
+                return Err(ManifestValidationError::DuplicateTriggerName {
+                    name: trigger.name.clone(),
+                });
+            }
+            parse_duration_str(&trigger.poll_interval).map_err(|reason| {
+                ManifestValidationError::InvalidPollInterval {
+                    name: trigger.name.clone(),
+                    interval: trigger.poll_interval.clone(),
+                    reason,
+                }
+            })?;
+        }
+
         Ok(())
     }
 
@@ -253,6 +354,7 @@ mod tests {
                     timeout_seconds: None,
                 },
             ],
+            triggers: vec![],
             created_at: Utc::now(),
             signature: None,
         }
@@ -281,8 +383,24 @@ mod tests {
                 retries: 0,
                 timeout_seconds: None,
             }],
+            triggers: vec![],
             created_at: Utc::now(),
             signature: None,
+        }
+    }
+
+    fn make_trigger_def(
+        name: &str,
+        trigger_type: TriggerType,
+        workflow: &str,
+    ) -> TriggerDefinitionV2 {
+        TriggerDefinitionV2 {
+            name: name.to_string(),
+            trigger_type,
+            workflow: workflow.to_string(),
+            poll_interval: "10s".to_string(),
+            allow_concurrent: false,
+            config: serde_json::json!({}),
         }
     }
 
@@ -411,5 +529,148 @@ mod tests {
         assert_eq!(json, "\"python\"");
         let parsed: PackageLanguage = serde_json::from_str("\"rust\"").unwrap();
         assert_eq!(parsed, PackageLanguage::Rust);
+    }
+
+    // --- Trigger tests ---
+
+    #[test]
+    fn test_manifest_with_triggers_validates() {
+        let mut m = make_python_manifest();
+        m.triggers = vec![
+            make_trigger_def("on_upload", TriggerType::Webhook, "extract"),
+            make_trigger_def("poll_api", TriggerType::HttpPoll, "extract"),
+        ];
+        assert!(m.validate().is_ok());
+    }
+
+    #[test]
+    fn test_manifest_no_triggers_backward_compat() {
+        // Manifest without triggers field should deserialize with empty vec
+        let m = make_python_manifest();
+        let json = serde_json::to_string(&m).unwrap();
+        // Remove "triggers" key to simulate old manifest
+        let json = json.replace(r#","triggers":[]"#, "");
+        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+        assert!(parsed.triggers.is_empty());
+        assert!(parsed.validate().is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_trigger_name() {
+        let mut m = make_python_manifest();
+        m.triggers = vec![
+            make_trigger_def("watcher", TriggerType::FileWatch, "extract"),
+            make_trigger_def("watcher", TriggerType::HttpPoll, "transform"),
+        ];
+        assert!(matches!(
+            m.validate(),
+            Err(ManifestValidationError::DuplicateTriggerName { .. })
+        ));
+    }
+
+    #[test]
+    fn test_invalid_poll_interval() {
+        let mut m = make_python_manifest();
+        m.triggers = vec![TriggerDefinitionV2 {
+            name: "bad".to_string(),
+            trigger_type: TriggerType::Webhook,
+            workflow: "extract".to_string(),
+            poll_interval: "notanumber".to_string(),
+            allow_concurrent: false,
+            config: serde_json::json!({}),
+        }];
+        assert!(matches!(
+            m.validate(),
+            Err(ManifestValidationError::InvalidPollInterval { .. })
+        ));
+    }
+
+    #[test]
+    fn test_trigger_type_serde() {
+        assert_eq!(
+            serde_json::to_string(&TriggerType::Webhook).unwrap(),
+            "\"webhook\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TriggerType::HttpPoll).unwrap(),
+            "\"http_poll\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TriggerType::FileWatch).unwrap(),
+            "\"file_watch\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TriggerType::Python).unwrap(),
+            "\"python\""
+        );
+
+        let parsed: TriggerType = serde_json::from_str("\"file_watch\"").unwrap();
+        assert_eq!(parsed, TriggerType::FileWatch);
+    }
+
+    #[test]
+    fn test_trigger_serialization_roundtrip() {
+        let mut m = make_python_manifest();
+        m.triggers = vec![
+            TriggerDefinitionV2 {
+                name: "on_upload".to_string(),
+                trigger_type: TriggerType::Webhook,
+                workflow: "extract".to_string(),
+                poll_interval: "30s".to_string(),
+                allow_concurrent: false,
+                config: serde_json::json!({"path": "/hooks/upload"}),
+            },
+            TriggerDefinitionV2 {
+                name: "poll_status".to_string(),
+                trigger_type: TriggerType::HttpPoll,
+                workflow: "transform".to_string(),
+                poll_interval: "5m".to_string(),
+                allow_concurrent: true,
+                config: serde_json::json!({
+                    "url": "https://api.example.com/status",
+                    "method": "GET",
+                    "condition": {"status_code": 200}
+                }),
+            },
+        ];
+
+        let json = serde_json::to_string_pretty(&m).unwrap();
+        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.triggers.len(), 2);
+        assert_eq!(parsed.triggers[0].name, "on_upload");
+        assert_eq!(parsed.triggers[0].trigger_type, TriggerType::Webhook);
+        assert_eq!(parsed.triggers[0].config["path"], "/hooks/upload");
+        assert_eq!(parsed.triggers[1].name, "poll_status");
+        assert!(parsed.triggers[1].allow_concurrent);
+        assert!(parsed.validate().is_ok());
+    }
+
+    #[test]
+    fn test_parse_duration_str_valid() {
+        assert_eq!(
+            parse_duration_str("10s").unwrap(),
+            std::time::Duration::from_secs(10)
+        );
+        assert_eq!(
+            parse_duration_str("5m").unwrap(),
+            std::time::Duration::from_secs(300)
+        );
+        assert_eq!(
+            parse_duration_str("1h").unwrap(),
+            std::time::Duration::from_secs(3600)
+        );
+        assert_eq!(
+            parse_duration_str("500ms").unwrap(),
+            std::time::Duration::from_millis(500)
+        );
+    }
+
+    #[test]
+    fn test_parse_duration_str_invalid() {
+        assert!(parse_duration_str("").is_err());
+        assert!(parse_duration_str("abc").is_err());
+        assert!(parse_duration_str("10x").is_err());
+        assert!(parse_duration_str("s").is_err());
     }
 }

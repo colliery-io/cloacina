@@ -114,8 +114,8 @@ def _soak_server(duration, concurrency, profile, rebuild):
     print("=" * 70)
     env = dict(os.environ)
     env["SOAK_DURATION"] = str(duration)
-    env["SOAK_CONCURRENCY"] = str(concurrency)
-    env["SOAK_PROFILE"] = str(profile)
+    env["SOAK_CONCURRENCY"] = str(concurrency or "2")
+    env["SOAK_PROFILE"] = str(profile or "medium")
 
     run_cmd = compose_cmd + ["up", "--abort-on-container-exit", "--exit-code-from", "soak"]
     try:

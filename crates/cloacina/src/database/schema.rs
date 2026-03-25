@@ -535,6 +535,8 @@ mod postgres_schema {
             recovery_attempts -> Int4,
             last_recovery_at -> Nullable<Timestamp>,
             sub_status -> Nullable<Varchar>,
+            claimed_by -> Nullable<Text>,
+            heartbeat_at -> Nullable<Timestamp>,
             created_at -> Timestamp,
             updated_at -> Timestamp,
         }

@@ -320,6 +320,7 @@ mod tests {
                 retries: 0,
                 timeout_seconds: None,
             }],
+            triggers: vec![],
             created_at: Utc::now(),
             signature: None,
         }

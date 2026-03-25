@@ -4,7 +4,7 @@ level: task
 title: "Continuous scheduler soak test — sustained load, memory stability, boundary throughput"
 short_code: "CLOACI-T-0240"
 created_at: 2026-03-24T18:44:47.307731+00:00
-updated_at: 2026-03-24T20:06:18.135131+00:00
+updated_at: 2026-03-24T21:13:35.306909+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#feature"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -67,6 +67,8 @@ Build a soak test for the continuous/reactive scheduler. Currently we have unit 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,7 +21,83 @@ use tracing::debug;
 use super::RegistryReconciler;
 use crate::registry::error::RegistryError;
 
+use crate::packaging::manifest_v2::ManifestV2;
+
 impl RegistryReconciler {
+    /// Extract ManifestV2 from a .cloacina archive (if present).
+    pub(super) async fn extract_manifest_from_cloacina(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Option<ManifestV2>, RegistryError> {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        use tar::Archive;
+
+        let result = tokio::task::spawn_blocking({
+            let package_data = package_data.to_vec();
+            move || -> Result<Option<ManifestV2>, RegistryError> {
+                let cursor = std::io::Cursor::new(package_data);
+                let gz_decoder = GzDecoder::new(cursor);
+                let mut archive = Archive::new(gz_decoder);
+
+                for entry_result in archive.entries().map_err(|e| {
+                    RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
+                        path: "archive".to_string(),
+                        error: format!("Failed to read archive entries: {}", e),
+                    })
+                })? {
+                    let mut entry = entry_result.map_err(|e| {
+                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
+                            path: "archive".to_string(),
+                            error: format!("Failed to read archive entry: {}", e),
+                        })
+                    })?;
+
+                    let path = entry.path().map_err(|e| {
+                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
+                            path: "archive".to_string(),
+                            error: format!("Failed to get entry path: {}", e),
+                        })
+                    })?;
+
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        if filename == "manifest.json" {
+                            let mut data = Vec::new();
+                            entry.read_to_end(&mut data).map_err(|e| {
+                                RegistryError::Loader(
+                                    crate::registry::error::LoaderError::FileSystem {
+                                        path: "manifest.json".to_string(),
+                                        error: format!("Failed to read manifest: {}", e),
+                                    },
+                                )
+                            })?;
+                            let manifest: ManifestV2 =
+                                serde_json::from_slice(&data).map_err(|e| {
+                                    RegistryError::Loader(
+                                        crate::registry::error::LoaderError::MetadataExtraction {
+                                            reason: format!("Failed to parse manifest.json: {}", e),
+                                        },
+                                    )
+                                })?;
+                            return Ok(Some(manifest));
+                        }
+                    }
+                }
+
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| {
+            RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
+                path: "spawn_blocking".to_string(),
+                error: format!("Failed to spawn blocking task: {}", e),
+            })
+        })??;
+
+        Ok(result)
+    }
+
     /// Check if package data is a .cloacina archive
     pub(super) fn is_cloacina_package(&self, package_data: &[u8]) -> bool {
         // Check for gzip magic number at the start

@@ -80,6 +80,12 @@ pub enum DaemonCommands {
         command: ScheduleCommands,
     },
 
+    /// Manage triggers.
+    Trigger {
+        #[command(subcommand)]
+        command: TriggerCommands,
+    },
+
     /// Register a .cloacina package manually.
     Register(RegisterArgs),
 }
@@ -136,6 +142,32 @@ pub struct ScheduleDeleteArgs {
     pub db: PathBuf,
 }
 
+#[derive(Debug, clap::Subcommand)]
+pub enum TriggerCommands {
+    /// List all trigger schedules.
+    List(TriggerListArgs),
+    /// Enable a trigger by name.
+    Enable(TriggerToggleArgs),
+    /// Disable a trigger by name.
+    Disable(TriggerToggleArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct TriggerListArgs {
+    /// SQLite database path.
+    #[arg(long, default_value_os_t = default_db_path())]
+    pub db: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct TriggerToggleArgs {
+    /// Trigger name.
+    pub name: String,
+    /// SQLite database path.
+    #[arg(long, default_value_os_t = default_db_path())]
+    pub db: PathBuf,
+}
+
 #[derive(Debug, clap::Args)]
 pub struct RegisterArgs {
     /// Path to .cloacina package file.
@@ -160,6 +192,11 @@ pub async fn dispatch(args: &DaemonArgs) -> Result<()> {
             ScheduleCommands::Set(a) => schedule_set(a).await,
             ScheduleCommands::List(a) => schedule_list(a).await,
             ScheduleCommands::Delete(a) => schedule_delete(a).await,
+        },
+        Some(DaemonCommands::Trigger { command }) => match command {
+            TriggerCommands::List(a) => trigger_list(a).await,
+            TriggerCommands::Enable(a) => trigger_enable(a).await,
+            TriggerCommands::Disable(a) => trigger_disable(a).await,
         },
         Some(DaemonCommands::Register(a)) => register(a).await,
         None => run(args).await,
@@ -599,5 +636,103 @@ async fn schedule_delete(args: &ScheduleDeleteArgs) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to delete schedule: {}", e))?;
 
     println!("Schedule deleted: {}", args.id);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// daemon trigger — list / enable / disable
+// ---------------------------------------------------------------------------
+
+async fn trigger_list(args: &TriggerListArgs) -> Result<()> {
+    let sqlite_url = format!("sqlite://{}", args.db.display());
+    let database = Database::try_new_with_schema(&sqlite_url, "", 2, None)
+        .context("Failed to open database")?;
+    database
+        .run_migrations()
+        .await
+        .map_err(|e| anyhow::anyhow!("Migration error: {}", e))?;
+
+    let dal = DAL::new(database);
+    let schedules = dal
+        .trigger_schedule()
+        .list(100, 0)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to list triggers: {}", e))?;
+
+    println!("Triggers ({}):", schedules.len());
+    if schedules.is_empty() {
+        println!("  (none)");
+        return Ok(());
+    }
+
+    for s in &schedules {
+        let status = if s.is_enabled() {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        let interval = if s.poll_interval_ms >= 60_000 {
+            format!("{}m", s.poll_interval_ms / 60_000)
+        } else {
+            format!("{}s", s.poll_interval_ms / 1000)
+        };
+        println!(
+            "  {} -> {} (every {}, {}) [{}]",
+            s.trigger_name, s.workflow_name, interval, status, s.id
+        );
+    }
+
+    Ok(())
+}
+
+async fn trigger_enable(args: &TriggerToggleArgs) -> Result<()> {
+    let sqlite_url = format!("sqlite://{}", args.db.display());
+    let database = Database::try_new_with_schema(&sqlite_url, "", 2, None)
+        .context("Failed to open database")?;
+    database
+        .run_migrations()
+        .await
+        .map_err(|e| anyhow::anyhow!("Migration error: {}", e))?;
+
+    let dal = DAL::new(database);
+    let schedule = dal
+        .trigger_schedule()
+        .get_by_name(&args.name)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to find trigger: {}", e))?
+        .ok_or_else(|| anyhow::anyhow!("Trigger '{}' not found", args.name))?;
+
+    dal.trigger_schedule()
+        .enable(schedule.id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to enable trigger: {}", e))?;
+
+    println!("Trigger '{}' enabled", args.name);
+    Ok(())
+}
+
+async fn trigger_disable(args: &TriggerToggleArgs) -> Result<()> {
+    let sqlite_url = format!("sqlite://{}", args.db.display());
+    let database = Database::try_new_with_schema(&sqlite_url, "", 2, None)
+        .context("Failed to open database")?;
+    database
+        .run_migrations()
+        .await
+        .map_err(|e| anyhow::anyhow!("Migration error: {}", e))?;
+
+    let dal = DAL::new(database);
+    let schedule = dal
+        .trigger_schedule()
+        .get_by_name(&args.name)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to find trigger: {}", e))?
+        .ok_or_else(|| anyhow::anyhow!("Trigger '{}' not found", args.name))?;
+
+    dal.trigger_schedule()
+        .disable(schedule.id)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to disable trigger: {}", e))?;
+
+    println!("Trigger '{}' disabled", args.name);
     Ok(())
 }

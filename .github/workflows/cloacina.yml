@@ -305,6 +305,56 @@ jobs:
             fi
           done
 
+  # Soak tests - sustained load and chaos recovery
+  soak-tests:
+    name: Soak Tests
+    needs: integration-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-ubuntu-latest"
+
+      - name: Continuous scheduler soak (sqlite, in-process)
+        env:
+          SOAK_BOUNDARIES: 5000
+          SOAK_BATCH_SIZE: 100
+          SOAK_DURATION_SECS: 60
+          SOAK_INJECTORS: 2
+        run: |
+          cargo test -p cloacina --features "postgres,sqlite,macros" \
+            --test integration continuous::soak \
+            -- --nocapture --test-threads=1
+
+      - name: Daemon soak (sqlite, 60s)
+        run: angreal soak --mode daemon --duration 60s
+
   # Macro tests - only need to run once per backend (ubuntu only)
   macro-tests:
     name: Macro Tests (${{ matrix.backend }})

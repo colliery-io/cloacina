@@ -3,7 +3,7 @@
 # outside the container and mounted/copied in by the orchestrating task.
 
 # --- Stage 1: Build cloacinactl + Rust example workflow ---
-FROM rust:bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /build
 

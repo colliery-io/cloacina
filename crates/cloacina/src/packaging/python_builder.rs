@@ -125,6 +125,7 @@ pub fn build_python_package(config: &PythonBuildConfig) -> anyhow::Result<Python
         }),
         rust: None,
         tasks: vec![], // Discovered at registration time
+        triggers: vec![],
         created_at: Utc::now(),
         signature: None,
     };

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@
 //! }
 //! ```
 
+pub mod builtin;
 pub mod registry;
 
 use async_trait::async_trait;
@@ -275,7 +276,8 @@ pub trait Trigger: Send + Sync + fmt::Debug {
 
 // Re-export registry functions for convenience
 pub use registry::{
-    get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor,
+    get_trigger, global_trigger_registry, register_trigger, register_trigger_arc,
+    register_trigger_constructor, remove_trigger,
 };
 
 #[cfg(test)]
