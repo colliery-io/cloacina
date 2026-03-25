@@ -185,6 +185,44 @@ jobs:
           fi
 
   # -----------------------------------------------------------------------
+  # Scheduler benchmarks — full feature set against SQLite
+  # -----------------------------------------------------------------------
+
+  scheduler-bench:
+    name: Scheduler Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly"
+
+      - name: Run scheduler benchmarks (all scenarios, 30s each)
+        run: |
+          cd examples/performance/scheduler-bench
+          cargo run --release -- --duration 30s --output json all > /tmp/bench-results.json 2>&1 || true
+          cargo run --release -- --duration 30s --output table all
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-bench-results
+          path: /tmp/bench-results.json
+          retention-days: 90
+
+  # -----------------------------------------------------------------------
   # Performance tests — moved from PR CI (was main/label gated)
   # -----------------------------------------------------------------------
 
@@ -206,7 +244,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [continuous-soak, daemon-soak, server-soak, macos-integration, performance, examples-docs]
+    needs: [continuous-soak, daemon-soak, server-soak, macos-integration, scheduler-bench, performance, examples-docs]
     if: failure()
     runs-on: ubuntu-latest
 

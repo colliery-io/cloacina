@@ -4,14 +4,14 @@ level: task
 title: "Hybrid benchmarks — all schedulers simultaneous, production-like workload"
 short_code: "CLOACI-T-0254"
 created_at: 2026-03-25T20:45:19.370179+00:00
-updated_at: 2026-03-25T20:45:19.370179+00:00
+updated_at: 2026-03-25T21:28:34.543733+00:00
 parent: CLOACI-I-0045
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ Run all schedulers simultaneously under production-like workload. Verifies no st
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -136,4 +140,6 @@ Run all schedulers simultaneously under production-like workload. Verifies no st
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-25 — Complete
+
+1 scenario: mixed-load (direct execution + cron running simultaneously). Uses full DefaultRunner with cron enabled.

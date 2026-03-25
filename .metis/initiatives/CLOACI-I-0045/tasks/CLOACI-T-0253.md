@@ -4,14 +4,14 @@ level: task
 title: "Execution engine benchmarks — DAG complexity, parallelism, claiming contention"
 short_code: "CLOACI-T-0253"
 created_at: 2026-03-25T20:45:17.693980+00:00
-updated_at: 2026-03-25T20:45:17.693980+00:00
+updated_at: 2026-03-25T21:28:34.139781+00:00
 parent: CLOACI-I-0045
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ Benchmark the internal task execution engine — DAG resolution, task claiming, 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -136,4 +140,6 @@ Benchmark the internal task execution engine — DAG resolution, task claiming, 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-25 — Complete
+
+2 scenarios: simple (5-task linear pipeline), concurrent (batch of 10 workflows simultaneously). Uses DefaultRunner with real SQLite.

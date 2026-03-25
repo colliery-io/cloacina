@@ -4,14 +4,14 @@ level: task
 title: "CI integration + baseline documentation — angreal commands, nightly workflow, expected ranges"
 short_code: "CLOACI-T-0255"
 created_at: 2026-03-25T20:45:20.037843+00:00
-updated_at: 2026-03-25T20:45:20.037843+00:00
+updated_at: 2026-03-25T21:29:28.635821+00:00
 parent: CLOACI-I-0045
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,10 @@ Wire all benchmarks into angreal CLI and nightly CI. Document baseline performan
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -135,4 +139,8 @@ Wire all benchmarks into angreal CLI and nightly CI. Document baseline performan
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+### 2026-03-25 — Complete
+
+- angreal commands: `performance smoke/trigger/continuous/execution/hybrid` all wired
+- nightly.yml: scheduler-bench job added (30s per scenario, release build, JSON artifact upload)
+- Baseline numbers captured from local run (documented in initiative)

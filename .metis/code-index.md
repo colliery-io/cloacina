@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-25T12:52:33Z | 419 files | JavaScript, Python, Rust
+> Generated: 2026-03-25T21:01:16Z | 429 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -478,6 +478,19 @@
 │   │   ├── pipeline/
 │   │   │   └── src/
 │   │   │       └── main.rs
+│   │   ├── scheduler-bench/
+│   │   │   ├── build.rs
+│   │   │   └── src/
+│   │   │       ├── main.rs
+│   │   │       ├── metrics.rs
+│   │   │       ├── reporting.rs
+│   │   │       └── scenarios/
+│   │   │           ├── continuous.rs
+│   │   │           ├── execution.rs
+│   │   │           ├── hybrid.rs
+│   │   │           ├── mod.rs
+│   │   │           ├── smoke.rs
+│   │   │           └── trigger.rs
 │   │   └── simple/
 │   │       └── src/
 │   │           └── main.rs
@@ -2752,7 +2765,7 @@
 -  `register_executor` function L165-173 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
 -  `has_capacity` function L175-178 — `(&self) -> bool` — configurable glob patterns.
 -  `resolve_executor_key` function L180-182 — `(&self, task_name: &str) -> String` — configurable glob patterns.
--  `tests` module L186-372 — `-` — configurable glob patterns.
+-  `tests` module L186-365 — `-` — configurable glob patterns.
 -  `MockExecutor` struct L194-198 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
 -  `MockExecutor` type L200-213 — `= MockExecutor` — configurable glob patterns.
 -  `new` function L201-207 — `(name: &str) -> Self` — configurable glob patterns.
@@ -2763,13 +2776,13 @@
 -  `metrics` function L229-237 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
 -  `name` function L239-241 — `(&self) -> &str` — configurable glob patterns.
 -  `create_test_event` function L245-252 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
--  `test_dal` function L254-265 — `() -> DAL` — configurable glob patterns.
--  `test_register_executor` function L268-271 — `()` — configurable glob patterns.
--  `test_resolve_executor_key` function L274-281 — `()` — configurable glob patterns.
--  `test_register_and_dispatch` function L284-328 — `()` — configurable glob patterns.
--  `test_dispatch_no_executor_fails` function L331-339 — `()` — configurable glob patterns.
--  `test_dispatch_no_capacity_fails` function L342-355 — `()` — configurable glob patterns.
--  `test_dispatch_routing` function L358-371 — `()` — configurable glob patterns.
+-  `test_dal` function L254-263 — `() -> DAL` — configurable glob patterns.
+-  `test_register_executor` function L266-269 — `()` — configurable glob patterns.
+-  `test_resolve_executor_key` function L272-279 — `()` — configurable glob patterns.
+-  `test_register_and_dispatch` function L282-321 — `()` — configurable glob patterns.
+-  `test_dispatch_no_executor_fails` function L324-332 — `()` — configurable glob patterns.
+-  `test_dispatch_no_capacity_fails` function L335-348 — `()` — configurable glob patterns.
+-  `test_dispatch_routing` function L351-364 — `()` — configurable glob patterns.
 
 #### crates/cloacina/src/dispatcher/mod.rs
 
@@ -2856,12 +2869,12 @@
 -  `SqliteDistributor` type L299-320 — `impl WorkDistributor for SqliteDistributor` — ```
 -  `wait_for_work` function L300-313 — `(&self)` — ```
 -  `shutdown` function L315-319 — `(&self)` — ```
--  `tests` module L349-425 — `-` — ```
+-  `tests` module L349-423 — `-` — ```
 -  `test_sqlite_distributor_poll_interval` function L354-364 — `()` — ```
 -  `test_sqlite_distributor_shutdown` function L368-387 — `()` — ```
 -  `test_sqlite_distributor_default` function L391-394 — `()` — ```
--  `test_sqlite_distributor_shutdown_method` function L398-411 — `()` — ```
--  `test_create_work_distributor_sqlite` function L415-424 — `()` — ```
+-  `test_sqlite_distributor_shutdown_method` function L398-409 — `()` — ```
+-  `test_create_work_distributor_sqlite` function L413-422 — `()` — ```
 
 ### crates/cloacina/src/executor
 
@@ -4260,25 +4273,25 @@
 -  `list_direct_trusted_keys_sqlite` function L1093-1116 — `( &self, org_id: UniversalUuid, ) -> Result<Vec<TrustedKeyInfo>, KeyError>` — AES-256-GCM.
 -  `get_trusted_child_orgs_sqlite` function L1118-1141 — `( &self, org_id: UniversalUuid, ) -> Result<Vec<UniversalUuid>, KeyError>` — AES-256-GCM.
 -  `find_direct_trusted_key_sqlite` function L1143-1171 — `( &self, org_id: UniversalUuid, fingerprint: &str, ) -> Result<Option<TrustedKey...` — AES-256-GCM.
--  `tests` module L1175-1490 — `-` — AES-256-GCM.
+-  `tests` module L1175-1485 — `-` — AES-256-GCM.
 -  `test_pem_roundtrip` function L1179-1188 — `()` — AES-256-GCM.
 -  `test_invalid_pem` function L1191-1199 — `()` — AES-256-GCM.
--  `test_dal` function L1202-1213 — `() -> DAL` — Create an in-memory SQLite DAL for tests.
--  `test_master_key` function L1216-1218 — `() -> Vec<u8>` — 32-byte test master key for AES-256-GCM encryption.
--  `test_org_id` function L1220-1222 — `() -> UniversalUuid` — AES-256-GCM.
--  `test_create_and_get_signing_key` function L1225-1245 — `()` — AES-256-GCM.
--  `test_get_signing_key_decrypts` function L1248-1263 — `()` — AES-256-GCM.
--  `test_get_signing_key_wrong_master_fails` function L1266-1280 — `()` — AES-256-GCM.
--  `test_get_nonexistent_key_fails` function L1283-1290 — `()` — AES-256-GCM.
--  `test_export_public_key` function L1293-1312 — `()` — AES-256-GCM.
--  `test_revoke_signing_key` function L1315-1332 — `()` — AES-256-GCM.
--  `test_trust_and_revoke_public_key` function L1335-1363 — `()` — AES-256-GCM.
--  `test_trust_public_key_pem` function L1366-1386 — `()` — AES-256-GCM.
--  `test_grant_and_revoke_trust` function L1389-1407 — `()` — AES-256-GCM.
--  `test_list_signing_keys` function L1410-1426 — `()` — AES-256-GCM.
--  `test_list_trusted_keys` function L1429-1442 — `()` — AES-256-GCM.
--  `test_find_trusted_key_by_fingerprint` function L1445-1476 — `()` — AES-256-GCM.
--  `test_revoke_nonexistent_key_fails` function L1479-1489 — `()` — AES-256-GCM.
+-  `test_dal` function L1202-1211 — `() -> DAL` — Create an in-memory SQLite DAL for tests.
+-  `test_master_key` function L1214-1216 — `() -> Vec<u8>` — 32-byte test master key for AES-256-GCM encryption.
+-  `test_org_id` function L1218-1220 — `() -> UniversalUuid` — AES-256-GCM.
+-  `test_create_and_get_signing_key` function L1223-1243 — `()` — AES-256-GCM.
+-  `test_get_signing_key_decrypts` function L1246-1261 — `()` — AES-256-GCM.
+-  `test_get_signing_key_wrong_master_fails` function L1264-1278 — `()` — AES-256-GCM.
+-  `test_get_nonexistent_key_fails` function L1281-1288 — `()` — AES-256-GCM.
+-  `test_export_public_key` function L1291-1310 — `()` — AES-256-GCM.
+-  `test_revoke_signing_key` function L1313-1330 — `()` — AES-256-GCM.
+-  `test_trust_and_revoke_public_key` function L1333-1361 — `()` — AES-256-GCM.
+-  `test_trust_public_key_pem` function L1364-1384 — `()` — AES-256-GCM.
+-  `test_grant_and_revoke_trust` function L1387-1405 — `()` — AES-256-GCM.
+-  `test_list_signing_keys` function L1408-1424 — `()` — AES-256-GCM.
+-  `test_list_trusted_keys` function L1427-1440 — `()` — AES-256-GCM.
+-  `test_find_trusted_key_by_fingerprint` function L1443-1471 — `()` — AES-256-GCM.
+-  `test_revoke_nonexistent_key_fails` function L1474-1484 — `()` — AES-256-GCM.
 
 #### crates/cloacina/src/security/key_manager.rs
 
@@ -4339,18 +4352,18 @@
 -  `store_signature_sqlite` function L595-616 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signature_sqlite` function L618-643 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signatures_sqlite` function L645-669 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `tests` module L673-851 — `-` — - [`DetachedSignature`] format for standalone signature files
+-  `tests` module L673-857 — `-` — - [`DetachedSignature`] format for standalone signature files
 -  `test_sign_and_verify_with_raw_key` function L679-699 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_roundtrip` function L702-721 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_file_io` function L724-741 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_dal` function L743-751 — `() -> crate::dal::DAL` — - [`DetachedSignature`] format for standalone signature files
 -  `test_master_key` function L753-755 — `() -> Vec<u8>` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_package_with_db_key` function L758-780 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_with_missing_key_fails` function L783-796 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_sign_with_store_signature` function L799-820 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_compute_data_hash` function L823-830 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_invalid_json` function L833-836 — `()` — - [`DetachedSignature`] format for standalone signature files
--  `test_detached_signature_invalid_base64` function L839-850 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key` function L758-783 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_with_missing_key_fails` function L786-799 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_with_store_signature` function L802-826 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash` function L829-836 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_json` function L839-842 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_base64` function L845-856 — `()` — - [`DetachedSignature`] format for standalone signature files
 
 #### crates/cloacina/src/security/verification.rs
 
@@ -4371,17 +4384,17 @@
 -  `compute_package_hash` function L382-388 — `(data: &[u8]) -> Result<String, VerificationError>` — Compute SHA256 hash of package data.
 -  `load_signature_from_db` function L391-406 — `( package_hash: &str, package_signer: &DbPackageSigner, ) -> Result<DetachedSign...` — Load signature from database.
 -  `load_signature_from_file` function L409-413 — `(path: &Path) -> Result<DetachedSignature, VerificationError>` — Load signature from file.
--  `tests` module L416-600 — `-` — - [`verify_and_load_package`] for verified package loading
+-  `tests` module L416-611 — `-` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_default` function L423-427 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_require_signatures` function L430-433 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_with_encryption_key` function L436-440 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_verify_package_offline_with_invalid_signature` function L443-472 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_signature_source_default` function L475-478 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_valid_signature` function L481-512 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_wrong_key_fails` function L515-544 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_tampered_content` function L547-580 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_development_config` function L583-588 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verification_error_display` function L591-599 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_valid_signature` function L481-514 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_wrong_key_fails` function L517-555 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_tampered_content` function L558-591 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_development_config` function L594-599 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verification_error_display` function L602-610 — `()` — - [`verify_and_load_package`] for verified package loading
 
 ### crates/cloacina/src/task_scheduler
 
@@ -8690,6 +8703,80 @@
 -  `transform_numbers` function L57-69 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 -  `load_numbers` function L76-86 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 -  `main` function L89-187 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+
+### examples/performance/scheduler-bench
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/performance/scheduler-bench/build.rs
+
+-  `main` function L17-32 — `()`
+
+### examples/performance/scheduler-bench/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/performance/scheduler-bench/src/main.rs
+
+-  `metrics` module L25 — `-` — Scheduler Performance Benchmark Harness
+-  `reporting` module L26 — `-` — - Hybrid (all schedulers simultaneously)
+-  `scenarios` module L27 — `-` — - Hybrid (all schedulers simultaneously)
+-  `Cli` struct L37-52 — `{ command: Commands, duration: String, output: OutputFormat, database_url: Optio...` — - Hybrid (all schedulers simultaneously)
+-  `Commands` enum L55-80 — `Smoke | Trigger | Continuous | Execution | Hybrid | All` — - Hybrid (all schedulers simultaneously)
+-  `OutputFormat` enum L83-86 — `Table | Json` — - Hybrid (all schedulers simultaneously)
+-  `parse_duration` function L88-99 — `(s: &str) -> Duration` — - Hybrid (all schedulers simultaneously)
+-  `main` function L102-181 — `() -> Result<(), Box<dyn std::error::Error>>` — - Hybrid (all schedulers simultaneously)
+
+#### examples/performance/scheduler-bench/src/metrics.rs
+
+- pub `BenchmarkResult` struct L23-32 — `{ scenario: String, duration: Duration, total_operations: u64, successful: u64, ...` — Collected benchmark results for a single scenario.
+- pub `LatencyStats` struct L36-43 — `{ p50: Duration, p95: Duration, p99: Duration, min: Duration, max: Duration, mea...` — Latency statistics computed from collected samples.
+- pub `MetricCollector` struct L46-51 — `{ samples: Vec<Duration>, start: Instant, successes: u64, failures: u64 }` — Collects latency samples and computes statistics.
+- pub `new` function L54-61 — `() -> Self` — Shared metric collection for scheduler benchmarks.
+- pub `record_success` function L64-67 — `(&mut self, latency: Duration)` — Record a successful operation with its latency.
+- pub `record_failure` function L70-72 — `(&mut self)` — Record a failed operation.
+- pub `finalize` function L75-111 — `(mut self, scenario: &str) -> BenchmarkResult` — Finalize and compute stats.
+-  `MetricCollector` type L53-112 — `= MetricCollector` — Shared metric collection for scheduler benchmarks.
+
+#### examples/performance/scheduler-bench/src/reporting.rs
+
+- pub `print_results` function L22-27 — `(category: &str, results: &[BenchmarkResult], format: &OutputFormat)` — Output formatting for benchmark results.
+-  `print_table` function L29-55 — `(category: &str, results: &[BenchmarkResult])` — Output formatting for benchmark results.
+-  `print_json` function L57-91 — `(category: &str, results: &[BenchmarkResult])` — Output formatting for benchmark results.
+-  `format_duration` function L93-102 — `(d: std::time::Duration) -> String` — Output formatting for benchmark results.
+
+### examples/performance/scheduler-bench/src/scenarios
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/performance/scheduler-bench/src/scenarios/continuous.rs
+
+- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Continuous scheduler benchmarks (T-0252).
+
+#### examples/performance/scheduler-bench/src/scenarios/execution.rs
+
+- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Task execution engine benchmarks (T-0253).
+
+#### examples/performance/scheduler-bench/src/scenarios/hybrid.rs
+
+- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Hybrid benchmarks — all schedulers simultaneously (T-0254).
+
+#### examples/performance/scheduler-bench/src/scenarios/mod.rs
+
+- pub `continuous` module L19 — `-` — Benchmark scenarios for each scheduler type.
+- pub `execution` module L20 — `-` — Benchmark scenarios for each scheduler type.
+- pub `hybrid` module L21 — `-` — Benchmark scenarios for each scheduler type.
+- pub `smoke` module L22 — `-` — Benchmark scenarios for each scheduler type.
+- pub `trigger` module L23 — `-` — Benchmark scenarios for each scheduler type.
+
+#### examples/performance/scheduler-bench/src/scenarios/smoke.rs
+
+- pub `run` function L33-73 — `( _db: &cloacina::Database, _duration: Duration, ) -> Result<Vec<BenchmarkResult...` — Proves the harness infrastructure works end-to-end.
+-  `smoke_task` function L28-31 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Proves the harness infrastructure works end-to-end.
+
+#### examples/performance/scheduler-bench/src/scenarios/trigger.rs
+
+- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Trigger + cron scheduler benchmarks (T-0251).
 
 ### examples/performance/simple/src
 
