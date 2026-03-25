@@ -430,5 +430,54 @@ mod postgres_impl {
             let escaped = escape_password(dangerous);
             assert_eq!(escaped, "''; DROP TABLE users; --");
         }
+
+        #[test]
+        fn test_username_length_limits() {
+            // Empty username
+            assert!(validate_username("").is_err());
+            // Very long username
+            let long_name = "a".repeat(100);
+            assert!(validate_username(&long_name).is_err());
+            // Max valid length
+            let ok_name = "a".repeat(63);
+            assert!(validate_username(&ok_name).is_ok());
+        }
+
+        #[test]
+        fn test_schema_length_limits() {
+            assert!(validate_schema_name("").is_err());
+            let long_schema = "s".repeat(100);
+            assert!(validate_schema_name(&long_schema).is_err());
+            let ok_schema = "s".repeat(63);
+            assert!(validate_schema_name(&ok_schema).is_ok());
+        }
+
+        #[test]
+        fn test_reserved_schema_names_rejected() {
+            assert!(matches!(
+                validate_schema_name("public"),
+                Err(SchemaError::ReservedName(_))
+            ));
+            assert!(matches!(
+                validate_schema_name("pg_catalog"),
+                Err(SchemaError::ReservedName(_))
+            ));
+            assert!(matches!(
+                validate_schema_name("information_schema"),
+                Err(SchemaError::ReservedName(_))
+            ));
+        }
+
+        #[test]
+        fn test_generate_password_different_lengths() {
+            let p16 = generate_secure_password(16);
+            assert_eq!(p16.len(), 16);
+            let p64 = generate_secure_password(64);
+            assert_eq!(p64.len(), 64);
+            // Two calls produce different results
+            let p1 = generate_secure_password(32);
+            let p2 = generate_secure_password(32);
+            assert_ne!(p1, p2);
+        }
     }
 }

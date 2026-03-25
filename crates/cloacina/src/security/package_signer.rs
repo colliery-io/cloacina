@@ -259,7 +259,7 @@ impl DbPackageSigner {
     }
 
     /// Compute the SHA256 hash of data.
-    fn compute_data_hash(data: &[u8]) -> Result<String, PackageSignError> {
+    pub(crate) fn compute_data_hash(data: &[u8]) -> Result<String, PackageSignError> {
         let mut hasher = Sha256::new();
         hasher.update(data);
         Ok(hex::encode(hasher.finalize()))
@@ -285,8 +285,8 @@ impl PackageSigner for DbPackageSigner {
         master_key: &[u8],
         store_signature: bool,
     ) -> Result<PackageSignatureInfo, PackageSignError> {
-        use super::db_key_manager::DbKeyManager;
-        use super::key_manager::KeyManager;
+        use crate::security::db_key_manager::DbKeyManager;
+        use crate::security::key_manager::KeyManager;
 
         let path_str = package_path.display().to_string();
 
@@ -430,8 +430,8 @@ impl PackageSigner for DbPackageSigner {
         package_path: &Path,
         org_id: UniversalUuid,
     ) -> Result<PackageSignatureInfo, PackageSignError> {
-        use super::db_key_manager::DbKeyManager;
-        use super::key_manager::KeyManager;
+        use crate::security::db_key_manager::DbKeyManager;
+        use crate::security::key_manager::KeyManager;
 
         // Compute package hash
         let package_hash = Self::compute_file_hash(package_path)?;
@@ -738,5 +738,120 @@ mod tests {
         // Read back
         let loaded = DetachedSignature::read_from_file(temp_file.path()).unwrap();
         assert_eq!(loaded.package_hash, info.package_hash);
+    }
+
+    async fn test_dal() -> crate::dal::DAL {
+        let url = format!(
+            "file:test_signer_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = crate::Database::try_new_with_schema(&url, "", 2, None).unwrap();
+        db.run_migrations().await.unwrap();
+        crate::dal::DAL::new(db)
+    }
+
+    fn test_master_key() -> Vec<u8> {
+        vec![0xAB; 32]
+    }
+
+    #[tokio::test]
+    async fn test_sign_package_with_db_key() {
+        use crate::security::key_manager::KeyManager;
+
+        let dal = test_dal().await;
+        let master = test_master_key();
+        let org = UniversalUuid::new_v4();
+
+        let km = crate::security::db_key_manager::DbKeyManager::new(dal.clone());
+        let key_info = km
+            .create_signing_key(org, "sign-test", &master)
+            .await
+            .unwrap();
+
+        let temp = NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), b"fake package data for signing").unwrap();
+
+        let signer = DbPackageSigner::new(dal);
+        let sig_info = signer
+            .sign_package_with_db_key(temp.path(), key_info.id, &master, false)
+            .await
+            .unwrap();
+
+        assert!(!sig_info.package_hash.is_empty());
+        assert_eq!(sig_info.key_fingerprint, key_info.fingerprint);
+        assert_eq!(sig_info.signature.len(), 64);
+    }
+
+    #[tokio::test]
+    async fn test_sign_with_missing_key_fails() {
+        let dal = test_dal().await;
+        let master = test_master_key();
+
+        let temp = NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), b"data").unwrap();
+
+        let signer = DbPackageSigner::new(dal);
+        let fake_key_id = UniversalUuid::new_v4();
+        let result = signer
+            .sign_package_with_db_key(temp.path(), fake_key_id, &master, false)
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sign_with_store_signature() {
+        use crate::security::key_manager::KeyManager;
+
+        let dal = test_dal().await;
+        let master = test_master_key();
+        let org = UniversalUuid::new_v4();
+
+        let km = crate::security::db_key_manager::DbKeyManager::new(dal.clone());
+        let key_info = km
+            .create_signing_key(org, "store-test", &master)
+            .await
+            .unwrap();
+
+        let temp = NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), b"store signature test").unwrap();
+
+        let signer = DbPackageSigner::new(dal);
+        let sig_info = signer
+            .sign_package_with_db_key(temp.path(), key_info.id, &master, true)
+            .await
+            .unwrap();
+
+        assert!(!sig_info.package_hash.is_empty());
+        assert_eq!(sig_info.signature.len(), 64);
+    }
+
+    #[test]
+    fn test_compute_data_hash() {
+        let hash = DbPackageSigner::compute_data_hash(b"hello world").unwrap();
+        assert_eq!(hash.len(), 64);
+        assert_eq!(
+            hash,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
+    }
+
+    #[test]
+    fn test_detached_signature_invalid_json() {
+        let result = DetachedSignature::from_json("not json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detached_signature_invalid_base64() {
+        let sig = DetachedSignature {
+            version: DetachedSignature::VERSION,
+            algorithm: "ed25519".to_string(),
+            package_hash: "abc".to_string(),
+            key_fingerprint: "def".to_string(),
+            signature: "not-valid-base64!!!".to_string(),
+            signed_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+        let result = sig.signature_bytes();
+        assert!(result.is_err());
     }
 }

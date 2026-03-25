@@ -4,15 +4,15 @@ level: task
 title: "Improve test coverage: cloacina-workflow/retry.rs (67% → 90%+)"
 short_code: "CLOACI-T-0171"
 created_at: 2026-03-16T01:01:45.430528+00:00
-updated_at: 2026-03-16T01:01:45.430528+00:00
+updated_at: 2026-03-25T12:49:23.627628+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,12 @@ initiative_id: NULL
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Line coverage ≥ 90% as measured by `cargo llvm-cov`
 - [ ] Test: exponential backoff with max_delay cap
 - [ ] Test: exponential backoff with jitter
@@ -40,4 +46,6 @@ initiative_id: NULL
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-03-25 — Complete
+
+Added 10 tests: jitter range validation, zero delay, should_retry with AllErrors/Never/ErrorPattern, retry exhaustion (max_attempts), calculate_retry_at timestamp, linear with multiplier, custom backoff fallback, builder with multiple conditions, builder defaults. 16/16 retry tests pass.

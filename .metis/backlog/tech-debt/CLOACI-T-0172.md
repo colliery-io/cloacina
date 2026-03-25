@@ -4,15 +4,15 @@ level: task
 title: "Improve test coverage: cloacina-testing assertions.rs (65%) and result.rs (42%)"
 short_code: "CLOACI-T-0172"
 created_at: 2026-03-16T01:01:47.566896+00:00
-updated_at: 2026-03-16T01:01:47.566896+00:00
+updated_at: 2026-03-25T12:50:59.962672+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -33,6 +33,12 @@ These are testing utilities — their coverage gap means some assertion/result h
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] `assertions.rs` line coverage ≥ 90%
 - [ ] `result.rs` line coverage ≥ 80%
 - [ ] Review: are the uncovered helpers dead code? If so, remove them rather than adding artificial tests
@@ -41,4 +47,6 @@ These are testing utilities — their coverage gap means some assertion/result h
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-03-25 — Complete
+
+Types are unused outside the crate but are useful public API. Added 13 tests covering: TaskOutcome predicates, Display, unwrap_error (happy + panic), Index access (happy + missing), assert_task_completed/failed/skipped (happy + panic), assert_all_completed (success + failure). 24/24 cloacina-testing tests pass.

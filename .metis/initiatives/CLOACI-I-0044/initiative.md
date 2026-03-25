@@ -4,14 +4,14 @@ level: initiative
 title: "Packaged Triggers — Configurable Event-Driven Workflow Activation via API"
 short_code: "CLOACI-I-0044"
 created_at: 2026-03-24T21:15:19.754297+00:00
-updated_at: 2026-03-24T21:21:20.905769+00:00
+updated_at: 2026-03-25T12:26:24.889172+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -385,4 +385,39 @@ mod tests {
         // Should have woken up quickly due to shutdown, not waited 60s
         assert!(elapsed < Duration::from_secs(1));
     }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sqlite_distributor_default() {
+        let d = SqliteDistributor::default();
+        assert_eq!(d.poll_interval, SqliteDistributor::DEFAULT_POLL_INTERVAL);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sqlite_distributor_shutdown_method() {
+        let distributor = SqliteDistributor::new();
+        distributor.shutdown();
+        assert!(distributor
+            .shutdown
+            .load(std::sync::atomic::Ordering::SeqCst));
+
+        // wait_for_work should return immediately after shutdown
+        let start = std::time::Instant::now();
+        distributor.wait_for_work().await;
+        assert!(start.elapsed() < Duration::from_millis(50));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_work_distributor_sqlite() {
+        let url = format!(
+            "file:test_wd_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = crate::Database::try_new_with_schema(&url, "", 2, None).unwrap();
+        let distributor = create_work_distributor(&db).await.unwrap();
+        // Should be a SqliteDistributor — verify it works
+        distributor.shutdown();
+    }
 }

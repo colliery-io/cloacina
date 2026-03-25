@@ -105,3 +105,143 @@ fn outcome_name(outcome: &TaskOutcome) -> &'static str {
         TaskOutcome::Skipped => "Skipped",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_test_result() -> TestResult {
+        let mut outcomes = IndexMap::new();
+        outcomes.insert("task_a".to_string(), TaskOutcome::Completed);
+        outcomes.insert(
+            "task_b".to_string(),
+            TaskOutcome::Failed(TaskError::ExecutionFailed {
+                message: "boom".to_string(),
+                task_id: "task_b".to_string(),
+                timestamp: chrono::Utc::now(),
+            }),
+        );
+        outcomes.insert("task_c".to_string(), TaskOutcome::Skipped);
+
+        TestResult {
+            context: Context::new(),
+            task_outcomes: outcomes,
+        }
+    }
+
+    #[test]
+    fn test_task_outcome_predicates() {
+        assert!(TaskOutcome::Completed.is_completed());
+        assert!(!TaskOutcome::Completed.is_failed());
+        assert!(!TaskOutcome::Completed.is_skipped());
+
+        let failed = TaskOutcome::Failed(TaskError::ExecutionFailed {
+            message: "err".to_string(),
+            task_id: "t".to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        assert!(failed.is_failed());
+        assert!(!failed.is_completed());
+
+        assert!(TaskOutcome::Skipped.is_skipped());
+        assert!(!TaskOutcome::Skipped.is_completed());
+    }
+
+    #[test]
+    fn test_task_outcome_display() {
+        assert_eq!(format!("{}", TaskOutcome::Completed), "Completed");
+        assert_eq!(format!("{}", TaskOutcome::Skipped), "Skipped");
+        let failed = TaskOutcome::Failed(TaskError::ExecutionFailed {
+            message: "oops".to_string(),
+            task_id: "t".to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        let display = format!("{}", failed);
+        assert!(display.starts_with("Failed("));
+    }
+
+    #[test]
+    fn test_unwrap_error() {
+        let failed = TaskOutcome::Failed(TaskError::ExecutionFailed {
+            message: "test error".to_string(),
+            task_id: "t".to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        let err = failed.unwrap_error();
+        assert!(err.to_string().contains("test error"));
+    }
+
+    #[test]
+    #[should_panic(expected = "unwrap_error")]
+    fn test_unwrap_error_on_completed_panics() {
+        TaskOutcome::Completed.unwrap_error();
+    }
+
+    #[test]
+    fn test_index_access() {
+        let result = make_test_result();
+        assert!(result["task_a"].is_completed());
+        assert!(result["task_b"].is_failed());
+        assert!(result["task_c"].is_skipped());
+    }
+
+    #[test]
+    #[should_panic(expected = "not found")]
+    fn test_index_missing_task_panics() {
+        let result = make_test_result();
+        let _ = &result["nonexistent"];
+    }
+
+    // Assertion tests (from assertions.rs impl)
+
+    #[test]
+    fn test_assert_task_completed() {
+        let result = make_test_result();
+        result.assert_task_completed("task_a");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected task")]
+    fn test_assert_task_completed_on_failed_panics() {
+        let result = make_test_result();
+        result.assert_task_completed("task_b");
+    }
+
+    #[test]
+    fn test_assert_task_failed() {
+        let result = make_test_result();
+        result.assert_task_failed("task_b");
+    }
+
+    #[test]
+    fn test_assert_task_skipped() {
+        let result = make_test_result();
+        result.assert_task_skipped("task_c");
+    }
+
+    #[test]
+    #[should_panic(expected = "not found")]
+    fn test_assert_task_completed_missing_panics() {
+        let result = make_test_result();
+        result.assert_task_completed("nonexistent");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected all tasks")]
+    fn test_assert_all_completed_with_failures() {
+        let result = make_test_result();
+        result.assert_all_completed();
+    }
+
+    #[test]
+    fn test_assert_all_completed_success() {
+        let mut outcomes = IndexMap::new();
+        outcomes.insert("a".to_string(), TaskOutcome::Completed);
+        outcomes.insert("b".to_string(), TaskOutcome::Completed);
+        let result = TestResult {
+            context: Context::new(),
+            task_outcomes: outcomes,
+        };
+        result.assert_all_completed(); // should not panic
+    }
+}

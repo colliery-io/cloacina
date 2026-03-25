@@ -1197,4 +1197,289 @@ mod tests {
         );
         assert!(matches!(result, Err(KeyError::InvalidPem(_))));
     }
+
+    /// Create an in-memory SQLite DAL for tests.
+    async fn test_dal() -> DAL {
+        let url = format!(
+            "file:test_dbkm_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = crate::Database::try_new_with_schema(&url, "", 2, None)
+            .expect("Failed to create test database");
+        db.run_migrations().await.expect("Failed to run migrations");
+        DAL::new(db)
+    }
+
+    /// 32-byte test master key for AES-256-GCM encryption.
+    fn test_master_key() -> Vec<u8> {
+        vec![0xAB; 32]
+    }
+
+    fn test_org_id() -> UniversalUuid {
+        UniversalUuid::new_v4()
+    }
+
+    #[tokio::test]
+    async fn test_create_and_get_signing_key() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "test-key", &master)
+            .await
+            .unwrap();
+        assert_eq!(info.key_name, "test-key");
+        assert_eq!(info.org_id, org);
+        assert!(info.is_active());
+        assert!(!info.fingerprint.is_empty());
+        assert_eq!(info.public_key.len(), 32);
+
+        // Retrieve info
+        let retrieved = km.get_signing_key_info(info.id).await.unwrap();
+        assert_eq!(retrieved.key_name, "test-key");
+        assert_eq!(retrieved.fingerprint, info.fingerprint);
+    }
+
+    #[tokio::test]
+    async fn test_get_signing_key_decrypts() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "decrypt-test", &master)
+            .await
+            .unwrap();
+
+        let (pub_key, priv_key) = km.get_signing_key(info.id, &master).await.unwrap();
+        assert_eq!(pub_key.len(), 32);
+        assert_eq!(priv_key.len(), 32);
+        assert_eq!(pub_key, info.public_key);
+    }
+
+    #[tokio::test]
+    async fn test_get_signing_key_wrong_master_fails() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "wrong-key-test", &master)
+            .await
+            .unwrap();
+
+        let wrong_master = vec![0xCD; 32];
+        let result = km.get_signing_key(info.id, &wrong_master).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_key_fails() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+
+        let fake_id = UniversalUuid::new_v4();
+        let result = km.get_signing_key_info(fake_id).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_export_public_key() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "export-test", &master)
+            .await
+            .unwrap();
+
+        let export = km.export_public_key(info.id).await.unwrap();
+        assert_eq!(export.fingerprint, info.fingerprint);
+        assert_eq!(export.public_key_raw, info.public_key);
+        assert!(export.public_key_pem.contains("-----BEGIN PUBLIC KEY-----"));
+
+        // PEM should roundtrip
+        let decoded = DbKeyManager::decode_public_key_pem(&export.public_key_pem).unwrap();
+        assert_eq!(decoded, info.public_key);
+    }
+
+    #[tokio::test]
+    async fn test_revoke_signing_key() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "revoke-test", &master)
+            .await
+            .unwrap();
+        assert!(info.is_active());
+
+        km.revoke_signing_key(info.id).await.unwrap();
+
+        let revoked = km.get_signing_key_info(info.id).await.unwrap();
+        assert!(!revoked.is_active());
+        assert!(revoked.revoked_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_trust_and_revoke_public_key() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        // Create a key to get a real public key
+        let info = km
+            .create_signing_key(org, "source-key", &master)
+            .await
+            .unwrap();
+
+        // Trust it in another org
+        let other_org = test_org_id();
+        let trusted = km
+            .trust_public_key(other_org, &info.public_key, Some("partner-key"))
+            .await
+            .unwrap();
+        assert!(trusted.is_active());
+        assert_eq!(trusted.org_id, other_org);
+        assert_eq!(trusted.fingerprint, info.fingerprint);
+
+        // Revoke trust
+        km.revoke_trusted_key(trusted.id).await.unwrap();
+        // Verify it's gone from active list
+        let trusted_keys = km.list_trusted_keys(other_org).await.unwrap();
+        let active: Vec<_> = trusted_keys.iter().filter(|k| k.is_active()).collect();
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_trust_public_key_pem() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        // Create and export
+        let info = km
+            .create_signing_key(org, "pem-trust-test", &master)
+            .await
+            .unwrap();
+        let export = km.export_public_key(info.id).await.unwrap();
+
+        // Trust via PEM in another org
+        let other_org = test_org_id();
+        let trusted = km
+            .trust_public_key_pem(other_org, &export.public_key_pem, Some("imported"))
+            .await
+            .unwrap();
+        assert_eq!(trusted.fingerprint, info.fingerprint);
+    }
+
+    #[tokio::test]
+    async fn test_grant_and_revoke_trust() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_a = test_org_id();
+        let org_b = test_org_id();
+
+        km.grant_trust(org_a, org_b).await.unwrap();
+
+        // Duplicate should error
+        let dup = km.grant_trust(org_a, org_b).await;
+        assert!(matches!(dup, Err(KeyError::TrustAlreadyExists)));
+
+        // Revoke
+        km.revoke_trust(org_a, org_b).await.unwrap();
+
+        // Revoke again should error
+        let dup_revoke = km.revoke_trust(org_a, org_b).await;
+        assert!(matches!(dup_revoke, Err(KeyError::TrustNotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_list_signing_keys() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        km.create_signing_key(org, "key-1", &master).await.unwrap();
+        km.create_signing_key(org, "key-2", &master).await.unwrap();
+
+        let keys = km.list_signing_keys(org).await.unwrap();
+        assert_eq!(keys.len(), 2);
+
+        // Different org should have none
+        let other_org = test_org_id();
+        let empty = km.list_signing_keys(other_org).await.unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_trusted_keys() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let pub_key = [0x99u8; 32];
+
+        km.trust_public_key(org, &pub_key, Some("ext-key"))
+            .await
+            .unwrap();
+
+        let keys = km.list_trusted_keys(org).await.unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key_name.as_deref(), Some("ext-key"));
+    }
+
+    #[tokio::test]
+    async fn test_find_trusted_key_by_fingerprint() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org = test_org_id();
+        let master = test_master_key();
+
+        let info = km
+            .create_signing_key(org, "find-test", &master)
+            .await
+            .unwrap();
+
+        // Trust in another org
+        let other_org = test_org_id();
+        km.trust_public_key(other_org, &info.public_key, None)
+            .await
+            .unwrap();
+
+        // Find by fingerprint
+        let found = km
+            .find_trusted_key(other_org, &info.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().fingerprint, info.fingerprint);
+
+        // Not found in wrong org
+        let not_found = km.find_trusted_key(org, &info.fingerprint).await.unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_revoke_nonexistent_key_fails() {
+        let dal = test_dal().await;
+        let km = DbKeyManager::new(dal);
+
+        let fake_id = UniversalUuid::new_v4();
+        let result = km.revoke_signing_key(fake_id).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+
+        let result = km.revoke_trusted_key(fake_id).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
 }

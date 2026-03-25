@@ -476,4 +476,136 @@ mod tests {
         let source = SignatureSource::default();
         assert!(matches!(source, SignatureSource::Auto));
     }
+
+    #[test]
+    fn test_verify_package_offline_valid_signature() {
+        use crate::crypto::sign_package;
+
+        let keypair = generate_signing_keypair();
+
+        // Create package
+        let package_file = NamedTempFile::new().unwrap();
+        let package_data = b"test content for offline verification";
+        std::fs::write(package_file.path(), package_data).unwrap();
+
+        // Compute hash and sign
+        let hash =
+            crate::security::package_signer::DbPackageSigner::compute_data_hash(package_data)
+                .unwrap();
+        let hash_bytes = hex::decode(&hash).unwrap();
+        let signature = sign_package(&hash_bytes, &keypair.private_key).unwrap();
+
+        // Create detached signature file
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: hash,
+            key_fingerprint: keypair.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        // Verify — should succeed
+        let result =
+            verify_package_offline(package_file.path(), sig_file.path(), &keypair.public_key);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_verify_package_offline_wrong_key_fails() {
+        use crate::crypto::sign_package;
+
+        let signer_keypair = generate_signing_keypair();
+        let wrong_keypair = generate_signing_keypair();
+
+        let package_file = NamedTempFile::new().unwrap();
+        let package_data = b"signed with one key, verified with another";
+        std::fs::write(package_file.path(), package_data).unwrap();
+
+        let hash =
+            crate::security::package_signer::DbPackageSigner::compute_data_hash(package_data)
+                .unwrap();
+        let hash_bytes = hex::decode(&hash).unwrap();
+        let signature = sign_package(&hash_bytes, &signer_keypair.private_key).unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: hash,
+            key_fingerprint: signer_keypair.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        // Verify with wrong key — should fail
+        let result = verify_package_offline(
+            package_file.path(),
+            sig_file.path(),
+            &wrong_keypair.public_key,
+        );
+        assert!(
+            result.is_err(),
+            "Verification with wrong key should fail: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_verify_package_offline_tampered_content() {
+        use crate::crypto::sign_package;
+
+        let keypair = generate_signing_keypair();
+
+        let package_file = NamedTempFile::new().unwrap();
+        let original_data = b"original package content";
+        std::fs::write(package_file.path(), original_data).unwrap();
+
+        let hash = crate::security::DbPackageSigner::compute_data_hash(original_data).unwrap();
+        let hash_bytes = hex::decode(&hash).unwrap();
+        let signature = sign_package(&hash_bytes, &keypair.private_key).unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: hash,
+            key_fingerprint: keypair.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        // Tamper with package
+        std::fs::write(package_file.path(), b"tampered content!").unwrap();
+
+        let result =
+            verify_package_offline(package_file.path(), sig_file.path(), &keypair.public_key);
+        assert!(matches!(
+            result,
+            Err(VerificationError::TamperedPackage { .. })
+        ));
+    }
+
+    #[test]
+    fn test_development_config() {
+        let config = SecurityConfig::development();
+        assert!(!config.require_signatures);
+        // development() is just default — no encryption key
+        assert!(config.key_encryption_key.is_none());
+    }
+
+    #[test]
+    fn test_verification_error_display() {
+        let err = VerificationError::TamperedPackage {
+            expected: "abc".to_string(),
+            actual: "def".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("abc"));
+        assert!(msg.contains("def"));
+    }
 }

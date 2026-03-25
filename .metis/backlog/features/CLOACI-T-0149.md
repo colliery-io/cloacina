@@ -4,15 +4,15 @@ level: task
 title: "End-to-end continuous scheduling performance test with real Postgres data"
 short_code: "CLOACI-T-0149"
 created_at: 2026-03-15T16:27:17.115908+00:00
-updated_at: 2026-03-15T16:27:17.115908+00:00
+updated_at: 2026-03-25T12:51:35.272308+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/blocked"
 
 
 exit_criteria_met: false
@@ -111,6 +111,12 @@ CREATE TABLE IF NOT EXISTS perf_aggregations (
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Harness binary at `examples/features/continuous-scheduling-perf/`
 - [ ] CLI args: `--duration`, `--insert-rate`, `--task-delay`, `--policy`, `--detector-interval`
 - [ ] Background writer inserts real rows into Postgres at configured rate
@@ -173,4 +179,6 @@ CREATE TABLE IF NOT EXISTS perf_aggregations (
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-03-25 — Blocked: scope too large for backlog task
+
+This is initiative-sized work: a full performance harness binary with 6 scenarios, background Postgres writer, detector tasks, custom tables, and metric collection. Should be decomposed into an initiative with multiple tasks (harness scaffolding, scenario 1-2 basic, scenario 3-6 advanced, angreal integration, CI integration). Blocking to properly scope later.

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-25T03:10:29Z | 419 files | JavaScript, Python, Rust
+> Generated: 2026-03-25T12:52:33Z | 419 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2493,7 +2493,7 @@
 - pub `new` function L100-102 — `(database: Database) -> Self` — Create a new database administrator
 - pub `create_tenant` function L108-236 — `( &self, tenant_config: TenantConfig, ) -> Result<TenantCredentials, AdminError>` — Create a complete tenant setup (schema + user + permissions + migrations)
 - pub `remove_tenant` function L241-304 — `( &self, schema_name: &str, username: &str, ) -> Result<(), AdminError>` — Remove a tenant (user + schema)
--  `postgres_impl` module L26-434 — `-` — Note: This module is only available when using the PostgreSQL backend.
+-  `postgres_impl` module L26-483 — `-` — Note: This module is only available when using the PostgreSQL backend.
 -  `AdminError` type L85-89 — `= AdminError` — Note: This module is only available when using the PostgreSQL backend.
 -  `from` function L86-88 — `(err: deadpool::managed::PoolError<deadpool_diesel::postgres::Manager>) -> Self` — Note: This module is only available when using the PostgreSQL backend.
 -  `AdminError` type L91-95 — `= AdminError` — Note: This module is only available when using the PostgreSQL backend.
@@ -2501,13 +2501,17 @@
 -  `DatabaseAdmin` type L98-317 — `= DatabaseAdmin` — Note: This module is only available when using the PostgreSQL backend.
 -  `build_connection_string` function L306-316 — `(&self, username: &str, password: &str) -> String` — Note: This module is only available when using the PostgreSQL backend.
 -  `generate_secure_password` function L320-332 — `(length: usize) -> String` — Note: This module is only available when using the PostgreSQL backend.
--  `tests` module L335-433 — `-` — Note: This module is only available when using the PostgreSQL backend.
+-  `tests` module L335-482 — `-` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_generate_secure_password` function L339-349 — `()` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_tenant_config_validation` function L352-364 — `()` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_username_validation_rejects_sql_injection` function L367-387 — `()` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_schema_validation_rejects_sql_injection` function L390-404 — `()` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_reserved_usernames_rejected` function L407-419 — `()` — Note: This module is only available when using the PostgreSQL backend.
 -  `test_password_escaping` function L422-432 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_username_length_limits` function L435-444 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_schema_length_limits` function L447-453 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_reserved_schema_names_rejected` function L456-469 — `()` — Note: This module is only available when using the PostgreSQL backend.
+-  `test_generate_password_different_lengths` function L472-481 — `()` — Note: This module is only available when using the PostgreSQL backend.
 
 #### crates/cloacina/src/database/mod.rs
 
@@ -2692,10 +2696,15 @@
 -  `Database` type L135-604 — `= Database` — ```
 -  `build_postgres_url` function L355-359 — `(base_url: &str, database_name: &str) -> Result<String, url::ParseError>` — Builds a PostgreSQL connection URL.
 -  `build_sqlite_url` function L362-369 — `(connection_string: &str) -> String` — Builds a SQLite connection URL.
--  `tests` module L607-704 — `-` — ```
+-  `tests` module L607-766 — `-` — ```
 -  `test_postgres_url_parsing_scenarios` function L611-635 — `()` — ```
 -  `test_sqlite_connection_strings` function L638-654 — `()` — ```
 -  `test_backend_type_detection` function L657-703 — `()` — ```
+-  `test_sqlite_connection_pool_creation` function L707-715 — `()` — ```
+-  `test_sqlite_run_migrations` function L719-728 — `()` — ```
+-  `test_sqlite_get_connection` function L732-742 — `()` — ```
+-  `test_database_new_convenience` function L746-753 — `()` — ```
+-  `test_database_clone` function L757-765 — `()` — ```
 
 #### crates/cloacina/src/database/connection/schema_validation.rs
 
@@ -2743,7 +2752,7 @@
 -  `register_executor` function L165-173 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
 -  `has_capacity` function L175-178 — `(&self) -> bool` — configurable glob patterns.
 -  `resolve_executor_key` function L180-182 — `(&self, task_name: &str) -> String` — configurable glob patterns.
--  `tests` module L186-273 — `-` — configurable glob patterns.
+-  `tests` module L186-372 — `-` — configurable glob patterns.
 -  `MockExecutor` struct L194-198 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
 -  `MockExecutor` type L200-213 — `= MockExecutor` — configurable glob patterns.
 -  `new` function L201-207 — `(name: &str) -> Self` — configurable glob patterns.
@@ -2754,8 +2763,13 @@
 -  `metrics` function L229-237 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
 -  `name` function L239-241 — `(&self) -> &str` — configurable glob patterns.
 -  `create_test_event` function L245-252 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
--  `test_register_executor` function L255-261 — `()` — configurable glob patterns.
--  `test_resolve_executor_key` function L264-272 — `()` — configurable glob patterns.
+-  `test_dal` function L254-265 — `() -> DAL` — configurable glob patterns.
+-  `test_register_executor` function L268-271 — `()` — configurable glob patterns.
+-  `test_resolve_executor_key` function L274-281 — `()` — configurable glob patterns.
+-  `test_register_and_dispatch` function L284-328 — `()` — configurable glob patterns.
+-  `test_dispatch_no_executor_fails` function L331-339 — `()` — configurable glob patterns.
+-  `test_dispatch_no_capacity_fails` function L342-355 — `()` — configurable glob patterns.
+-  `test_dispatch_routing` function L358-371 — `()` — configurable glob patterns.
 
 #### crates/cloacina/src/dispatcher/mod.rs
 
@@ -2842,9 +2856,12 @@
 -  `SqliteDistributor` type L299-320 — `impl WorkDistributor for SqliteDistributor` — ```
 -  `wait_for_work` function L300-313 — `(&self)` — ```
 -  `shutdown` function L315-319 — `(&self)` — ```
--  `tests` module L349-388 — `-` — ```
+-  `tests` module L349-425 — `-` — ```
 -  `test_sqlite_distributor_poll_interval` function L354-364 — `()` — ```
 -  `test_sqlite_distributor_shutdown` function L368-387 — `()` — ```
+-  `test_sqlite_distributor_default` function L391-394 — `()` — ```
+-  `test_sqlite_distributor_shutdown_method` function L398-411 — `()` — ```
+-  `test_create_work_distributor_sqlite` function L415-424 — `()` — ```
 
 ### crates/cloacina/src/executor
 
@@ -3229,37 +3246,37 @@
 - pub `TriggerType` enum L131-140 — `Webhook | HttpPoll | FileWatch | Python` — Trigger type discriminator for built-in and custom triggers.
 - pub `TriggerDefinitionV2` struct L144-161 — `{ name: String, trigger_type: TriggerType, workflow: String, poll_interval: Stri...` — Trigger definition within a package manifest.
 - pub `ManifestV2` struct L171-194 — `{ format_version: String, package: PackageInfoV2, language: PackageLanguage, pyt...` — Unified package manifest (v2).
-- pub `parse_duration_str` function L197-224 — `(s: &str) -> Result<std::time::Duration, String>` — Parse a human-readable duration string (e.g., "10s", "5m", "1h") into a `Duration`.
-- pub `validate` function L228-309 — `(&self) -> Result<(), ManifestValidationError>` — Validate the manifest for structural correctness.
-- pub `is_compatible_with_platform` function L312-314 — `(&self, platform_str: &str) -> bool` — Check if this package is compatible with a specific platform.
+- pub `parse_duration_str` function L197-226 — `(s: &str) -> Result<std::time::Duration, String>` — Parse a human-readable duration string (e.g., "10s", "5m", "1h") into a `Duration`.
+- pub `validate` function L230-311 — `(&self) -> Result<(), ManifestValidationError>` — Validate the manifest for structural correctness.
+- pub `is_compatible_with_platform` function L314-316 — `(&self, platform_str: &str) -> bool` — Check if this package is compatible with a specific platform.
 -  `default_poll_interval` function L163-165 — `() -> String` — runtime configuration applies.
--  `ManifestV2` type L226-315 — `= ManifestV2` — runtime configuration applies.
--  `tests` module L318-658 — `-` — runtime configuration applies.
--  `make_python_manifest` function L321-359 — `() -> ManifestV2` — runtime configuration applies.
--  `make_rust_manifest` function L361-388 — `() -> ManifestV2` — runtime configuration applies.
--  `make_trigger_def` function L390-399 — `(name: &str, trigger_type: TriggerType, workflow: &str) -> TriggerDefinitionV2` — runtime configuration applies.
--  `test_python_manifest_validates` function L402-404 — `()` — runtime configuration applies.
--  `test_rust_manifest_validates` function L407-409 — `()` — runtime configuration applies.
--  `test_missing_python_runtime` function L412-419 — `()` — runtime configuration applies.
--  `test_missing_rust_runtime` function L422-429 — `()` — runtime configuration applies.
--  `test_unsupported_target` function L432-439 — `()` — runtime configuration applies.
--  `test_no_tasks` function L442-449 — `()` — runtime configuration applies.
--  `test_duplicate_task_id` function L452-459 — `()` — runtime configuration applies.
--  `test_invalid_dependency` function L462-469 — `()` — runtime configuration applies.
--  `test_invalid_python_function_path` function L472-479 — `()` — runtime configuration applies.
--  `test_rust_function_path_no_colon_ok` function L482-485 — `()` — runtime configuration applies.
--  `test_invalid_format_version` function L488-495 — `()` — runtime configuration applies.
--  `test_serialization_roundtrip` function L498-510 — `()` — runtime configuration applies.
--  `test_platform_compatibility` function L513-518 — `()` — runtime configuration applies.
--  `test_language_serde` function L521-526 — `()` — runtime configuration applies.
--  `test_manifest_with_triggers_validates` function L531-538 — `()` — runtime configuration applies.
--  `test_manifest_no_triggers_backward_compat` function L541-550 — `()` — runtime configuration applies.
--  `test_duplicate_trigger_name` function L553-563 — `()` — runtime configuration applies.
--  `test_invalid_poll_interval` function L566-580 — `()` — runtime configuration applies.
--  `test_trigger_type_serde` function L583-603 — `()` — runtime configuration applies.
--  `test_trigger_serialization_roundtrip` function L606-641 — `()` — runtime configuration applies.
--  `test_parse_duration_str_valid` function L644-649 — `()` — runtime configuration applies.
--  `test_parse_duration_str_invalid` function L652-657 — `()` — runtime configuration applies.
+-  `ManifestV2` type L228-317 — `= ManifestV2` — runtime configuration applies.
+-  `tests` module L320-676 — `-` — runtime configuration applies.
+-  `make_python_manifest` function L323-361 — `() -> ManifestV2` — runtime configuration applies.
+-  `make_rust_manifest` function L363-390 — `() -> ManifestV2` — runtime configuration applies.
+-  `make_trigger_def` function L392-405 — `( name: &str, trigger_type: TriggerType, workflow: &str, ) -> TriggerDefinitionV...` — runtime configuration applies.
+-  `test_python_manifest_validates` function L408-410 — `()` — runtime configuration applies.
+-  `test_rust_manifest_validates` function L413-415 — `()` — runtime configuration applies.
+-  `test_missing_python_runtime` function L418-425 — `()` — runtime configuration applies.
+-  `test_missing_rust_runtime` function L428-435 — `()` — runtime configuration applies.
+-  `test_unsupported_target` function L438-445 — `()` — runtime configuration applies.
+-  `test_no_tasks` function L448-455 — `()` — runtime configuration applies.
+-  `test_duplicate_task_id` function L458-465 — `()` — runtime configuration applies.
+-  `test_invalid_dependency` function L468-475 — `()` — runtime configuration applies.
+-  `test_invalid_python_function_path` function L478-485 — `()` — runtime configuration applies.
+-  `test_rust_function_path_no_colon_ok` function L488-491 — `()` — runtime configuration applies.
+-  `test_invalid_format_version` function L494-501 — `()` — runtime configuration applies.
+-  `test_serialization_roundtrip` function L504-516 — `()` — runtime configuration applies.
+-  `test_platform_compatibility` function L519-524 — `()` — runtime configuration applies.
+-  `test_language_serde` function L527-532 — `()` — runtime configuration applies.
+-  `test_manifest_with_triggers_validates` function L537-544 — `()` — runtime configuration applies.
+-  `test_manifest_no_triggers_backward_compat` function L547-556 — `()` — runtime configuration applies.
+-  `test_duplicate_trigger_name` function L559-569 — `()` — runtime configuration applies.
+-  `test_invalid_poll_interval` function L572-586 — `()` — runtime configuration applies.
+-  `test_trigger_type_serde` function L589-609 — `()` — runtime configuration applies.
+-  `test_trigger_serialization_roundtrip` function L612-647 — `()` — runtime configuration applies.
+-  `test_parse_duration_str_valid` function L650-667 — `()` — runtime configuration applies.
+-  `test_parse_duration_str_invalid` function L670-675 — `()` — runtime configuration applies.
 
 #### crates/cloacina/src/packaging/mod.rs
 
@@ -3507,18 +3524,18 @@
 -  `PythonTriggerWrapper` type L166-176 — `= PythonTriggerWrapper` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 -  `PythonTriggerWrapper` type L178-185 — `= PythonTriggerWrapper` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 -  `fmt` function L179-184 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `PythonTriggerWrapper` type L188-282 — `impl Trigger for PythonTriggerWrapper` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `PythonTriggerWrapper` type L188-274 — `impl Trigger for PythonTriggerWrapper` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 -  `name` function L189-191 — `(&self) -> &str` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 -  `poll_interval` function L193-195 — `(&self) -> Duration` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 -  `allow_concurrent` function L197-199 — `(&self) -> bool` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `poll` function L201-281 — `(&self) -> Result<RustTriggerResult, TriggerError>` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `tests` module L285-422 — `-` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_trigger_decorator_registers` function L290-314 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_trigger_decorator_uses_function_name` function L317-338 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_py_trigger_result_creation` function L341-351 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_python_trigger_wrapper_skip` function L354-374 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_python_trigger_wrapper_fire` function L377-395 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
--  `test_python_trigger_wrapper_exception_handled` function L398-421 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `poll` function L201-273 — `(&self) -> Result<RustTriggerResult, TriggerError>` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `tests` module L277-400 — `-` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_trigger_decorator_registers` function L282-300 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_trigger_decorator_uses_function_name` function L303-320 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_py_trigger_result_creation` function L323-333 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_python_trigger_wrapper_skip` function L336-354 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_python_trigger_wrapper_fire` function L357-373 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
+-  `test_python_trigger_wrapper_exception_handled` function L376-399 — `()` — - `PythonTriggerWrapper` implementing the Rust `Trigger` trait
 
 #### crates/cloacina/src/python/workflow.rs
 
@@ -3859,7 +3876,7 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L30-615 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L30-610 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
 -  `load_package` function L32-106 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries
 -  `unload_package` function L109-145 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
 -  `register_package_tasks` function L148-189 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
@@ -3867,9 +3884,9 @@
 -  `create_workflow_from_host_registry` function L346-394 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
 -  `create_workflow_from_host_registry_static` function L397-444 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
 -  `unregister_package_tasks` function L447-470 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `register_package_triggers` function L476-578 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<Strin...` — Register triggers from a package manifest.
--  `unregister_package_triggers` function L583-600 — `(&self, trigger_names: &[String])` — Unregister triggers associated with a package.
--  `unregister_package_workflow` function L603-614 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L476-573 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<Strin...` — Register triggers from a package manifest.
+-  `unregister_package_triggers` function L578-595 — `(&self, trigger_names: &[String])` — Unregister triggers associated with a package.
+-  `unregister_package_workflow` function L598-609 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -4243,9 +4260,25 @@
 -  `list_direct_trusted_keys_sqlite` function L1093-1116 — `( &self, org_id: UniversalUuid, ) -> Result<Vec<TrustedKeyInfo>, KeyError>` — AES-256-GCM.
 -  `get_trusted_child_orgs_sqlite` function L1118-1141 — `( &self, org_id: UniversalUuid, ) -> Result<Vec<UniversalUuid>, KeyError>` — AES-256-GCM.
 -  `find_direct_trusted_key_sqlite` function L1143-1171 — `( &self, org_id: UniversalUuid, fingerprint: &str, ) -> Result<Option<TrustedKey...` — AES-256-GCM.
--  `tests` module L1175-1200 — `-` — AES-256-GCM.
+-  `tests` module L1175-1490 — `-` — AES-256-GCM.
 -  `test_pem_roundtrip` function L1179-1188 — `()` — AES-256-GCM.
 -  `test_invalid_pem` function L1191-1199 — `()` — AES-256-GCM.
+-  `test_dal` function L1202-1213 — `() -> DAL` — Create an in-memory SQLite DAL for tests.
+-  `test_master_key` function L1216-1218 — `() -> Vec<u8>` — 32-byte test master key for AES-256-GCM encryption.
+-  `test_org_id` function L1220-1222 — `() -> UniversalUuid` — AES-256-GCM.
+-  `test_create_and_get_signing_key` function L1225-1245 — `()` — AES-256-GCM.
+-  `test_get_signing_key_decrypts` function L1248-1263 — `()` — AES-256-GCM.
+-  `test_get_signing_key_wrong_master_fails` function L1266-1280 — `()` — AES-256-GCM.
+-  `test_get_nonexistent_key_fails` function L1283-1290 — `()` — AES-256-GCM.
+-  `test_export_public_key` function L1293-1312 — `()` — AES-256-GCM.
+-  `test_revoke_signing_key` function L1315-1332 — `()` — AES-256-GCM.
+-  `test_trust_and_revoke_public_key` function L1335-1363 — `()` — AES-256-GCM.
+-  `test_trust_public_key_pem` function L1366-1386 — `()` — AES-256-GCM.
+-  `test_grant_and_revoke_trust` function L1389-1407 — `()` — AES-256-GCM.
+-  `test_list_signing_keys` function L1410-1426 — `()` — AES-256-GCM.
+-  `test_list_trusted_keys` function L1429-1442 — `()` — AES-256-GCM.
+-  `test_find_trusted_key_by_fingerprint` function L1445-1476 — `()` — AES-256-GCM.
+-  `test_revoke_nonexistent_key_fails` function L1479-1489 — `()` — AES-256-GCM.
 
 #### crates/cloacina/src/security/key_manager.rs
 
@@ -4306,10 +4339,18 @@
 -  `store_signature_sqlite` function L595-616 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signature_sqlite` function L618-643 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signatures_sqlite` function L645-669 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `tests` module L673-742 — `-` — - [`DetachedSignature`] format for standalone signature files
+-  `tests` module L673-851 — `-` — - [`DetachedSignature`] format for standalone signature files
 -  `test_sign_and_verify_with_raw_key` function L679-699 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_roundtrip` function L702-721 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_file_io` function L724-741 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_dal` function L743-751 — `() -> crate::dal::DAL` — - [`DetachedSignature`] format for standalone signature files
+-  `test_master_key` function L753-755 — `() -> Vec<u8>` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_package_with_db_key` function L758-780 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_with_missing_key_fails` function L783-796 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_with_store_signature` function L799-820 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash` function L823-830 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_json` function L833-836 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_base64` function L839-850 — `()` — - [`DetachedSignature`] format for standalone signature files
 
 #### crates/cloacina/src/security/verification.rs
 
@@ -4330,12 +4371,17 @@
 -  `compute_package_hash` function L382-388 — `(data: &[u8]) -> Result<String, VerificationError>` — Compute SHA256 hash of package data.
 -  `load_signature_from_db` function L391-406 — `( package_hash: &str, package_signer: &DbPackageSigner, ) -> Result<DetachedSign...` — Load signature from database.
 -  `load_signature_from_file` function L409-413 — `(path: &Path) -> Result<DetachedSignature, VerificationError>` — Load signature from file.
--  `tests` module L416-479 — `-` — - [`verify_and_load_package`] for verified package loading
+-  `tests` module L416-600 — `-` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_default` function L423-427 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_require_signatures` function L430-433 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_with_encryption_key` function L436-440 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_verify_package_offline_with_invalid_signature` function L443-472 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_signature_source_default` function L475-478 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_valid_signature` function L481-512 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_wrong_key_fails` function L515-544 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_tampered_content` function L547-580 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_development_config` function L583-588 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verification_error_display` function L591-599 — `()` — - [`verify_and_load_package`] for verified package loading
 
 ### crates/cloacina/src/task_scheduler
 
@@ -4417,44 +4463,44 @@
 
 #### crates/cloacina/src/trigger/builtin.rs
 
-- pub `create_trigger_from_config` function L33-118 — `( def: &TriggerDefinitionV2, ) -> Result<Box<dyn Trigger>, TriggerError>` — Create a concrete `Trigger` from a manifest trigger definition.
-- pub `WebhookTrigger` struct L128-136 — `{ name: String, workflow: String, path: String, poll_interval: Duration, allow_c...` — Channel-based webhook trigger.
-- pub `new` function L139-156 — `( name: &str, workflow: &str, path: &str, poll_interval: Duration, allow_concurr...` — `.cloacina` package manifests.
-- pub `sender` function L159-161 — `(&self) -> mpsc::Sender<serde_json::Value>` — Get a sender handle for pushing webhook payloads.
-- pub `path` function L164-166 — `(&self) -> &str` — The webhook path this trigger listens on.
-- pub `workflow` function L169-171 — `(&self) -> &str` — The workflow this trigger fires.
-- pub `HttpPollTrigger` struct L224-232 — `{ name: String, workflow: String, url: String, method: String, expect_status: Op...` — Polls an HTTP endpoint and fires when the response matches expectations.
-- pub `new` function L235-253 — `( name: &str, workflow: &str, url: &str, method: &str, expect_status: Option<u16...` — `.cloacina` package manifests.
-- pub `url` function L255-257 — `(&self) -> &str` — `.cloacina` package manifests.
-- pub `workflow` function L259-261 — `(&self) -> &str` — `.cloacina` package manifests.
-- pub `FileWatchTrigger` struct L346-354 — `{ name: String, workflow: String, directory: String, glob_pattern: String, poll_...` — Watches a directory for new/changed files matching a glob pattern.
-- pub `new` function L357-374 — `( name: &str, workflow: &str, directory: &str, glob_pattern: &str, poll_interval...` — `.cloacina` package manifests.
-- pub `directory` function L376-378 — `(&self) -> &str` — `.cloacina` package manifests.
-- pub `workflow` function L380-382 — `(&self) -> &str` — `.cloacina` package manifests.
--  `WebhookTrigger` type L138-172 — `= WebhookTrigger` — `.cloacina` package manifests.
--  `WebhookTrigger` type L174-182 — `= WebhookTrigger` — `.cloacina` package manifests.
--  `fmt` function L175-181 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
--  `WebhookTrigger` type L185-217 — `impl Trigger for WebhookTrigger` — `.cloacina` package manifests.
--  `name` function L186-188 — `(&self) -> &str` — `.cloacina` package manifests.
--  `poll_interval` function L190-192 — `(&self) -> Duration` — `.cloacina` package manifests.
--  `allow_concurrent` function L194-196 — `(&self) -> bool` — `.cloacina` package manifests.
--  `poll` function L198-216 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
--  `HttpPollTrigger` type L234-262 — `= HttpPollTrigger` — `.cloacina` package manifests.
--  `HttpPollTrigger` type L264-273 — `= HttpPollTrigger` — `.cloacina` package manifests.
--  `fmt` function L265-272 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
--  `HttpPollTrigger` type L276-336 — `impl Trigger for HttpPollTrigger` — `.cloacina` package manifests.
--  `name` function L277-279 — `(&self) -> &str` — `.cloacina` package manifests.
--  `poll_interval` function L281-283 — `(&self) -> Duration` — `.cloacina` package manifests.
--  `allow_concurrent` function L285-287 — `(&self) -> bool` — `.cloacina` package manifests.
--  `poll` function L289-335 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
--  `FileWatchTrigger` type L356-383 — `= FileWatchTrigger` — `.cloacina` package manifests.
--  `FileWatchTrigger` type L385-394 — `= FileWatchTrigger` — `.cloacina` package manifests.
--  `fmt` function L386-393 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
--  `FileWatchTrigger` type L397-452 — `impl Trigger for FileWatchTrigger` — `.cloacina` package manifests.
--  `name` function L398-400 — `(&self) -> &str` — `.cloacina` package manifests.
--  `poll_interval` function L402-404 — `(&self) -> Duration` — `.cloacina` package manifests.
--  `allow_concurrent` function L406-408 — `(&self) -> bool` — `.cloacina` package manifests.
--  `poll` function L410-451 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
+- pub `create_trigger_from_config` function L33-121 — `( def: &TriggerDefinitionV2, ) -> Result<Box<dyn Trigger>, TriggerError>` — Create a concrete `Trigger` from a manifest trigger definition.
+- pub `WebhookTrigger` struct L131-139 — `{ name: String, workflow: String, path: String, poll_interval: Duration, allow_c...` — Channel-based webhook trigger.
+- pub `new` function L142-159 — `( name: &str, workflow: &str, path: &str, poll_interval: Duration, allow_concurr...` — `.cloacina` package manifests.
+- pub `sender` function L162-164 — `(&self) -> mpsc::Sender<serde_json::Value>` — Get a sender handle for pushing webhook payloads.
+- pub `path` function L167-169 — `(&self) -> &str` — The webhook path this trigger listens on.
+- pub `workflow` function L172-174 — `(&self) -> &str` — The workflow this trigger fires.
+- pub `HttpPollTrigger` struct L227-235 — `{ name: String, workflow: String, url: String, method: String, expect_status: Op...` — Polls an HTTP endpoint and fires when the response matches expectations.
+- pub `new` function L238-256 — `( name: &str, workflow: &str, url: &str, method: &str, expect_status: Option<u16...` — `.cloacina` package manifests.
+- pub `url` function L258-260 — `(&self) -> &str` — `.cloacina` package manifests.
+- pub `workflow` function L262-264 — `(&self) -> &str` — `.cloacina` package manifests.
+- pub `FileWatchTrigger` struct L349-357 — `{ name: String, workflow: String, directory: String, glob_pattern: String, poll_...` — Watches a directory for new/changed files matching a glob pattern.
+- pub `new` function L360-377 — `( name: &str, workflow: &str, directory: &str, glob_pattern: &str, poll_interval...` — `.cloacina` package manifests.
+- pub `directory` function L379-381 — `(&self) -> &str` — `.cloacina` package manifests.
+- pub `workflow` function L383-385 — `(&self) -> &str` — `.cloacina` package manifests.
+-  `WebhookTrigger` type L141-175 — `= WebhookTrigger` — `.cloacina` package manifests.
+-  `WebhookTrigger` type L177-185 — `= WebhookTrigger` — `.cloacina` package manifests.
+-  `fmt` function L178-184 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
+-  `WebhookTrigger` type L188-220 — `impl Trigger for WebhookTrigger` — `.cloacina` package manifests.
+-  `name` function L189-191 — `(&self) -> &str` — `.cloacina` package manifests.
+-  `poll_interval` function L193-195 — `(&self) -> Duration` — `.cloacina` package manifests.
+-  `allow_concurrent` function L197-199 — `(&self) -> bool` — `.cloacina` package manifests.
+-  `poll` function L201-219 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
+-  `HttpPollTrigger` type L237-265 — `= HttpPollTrigger` — `.cloacina` package manifests.
+-  `HttpPollTrigger` type L267-276 — `= HttpPollTrigger` — `.cloacina` package manifests.
+-  `fmt` function L268-275 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
+-  `HttpPollTrigger` type L279-339 — `impl Trigger for HttpPollTrigger` — `.cloacina` package manifests.
+-  `name` function L280-282 — `(&self) -> &str` — `.cloacina` package manifests.
+-  `poll_interval` function L284-286 — `(&self) -> Duration` — `.cloacina` package manifests.
+-  `allow_concurrent` function L288-290 — `(&self) -> bool` — `.cloacina` package manifests.
+-  `poll` function L292-338 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
+-  `FileWatchTrigger` type L359-386 — `= FileWatchTrigger` — `.cloacina` package manifests.
+-  `FileWatchTrigger` type L388-397 — `= FileWatchTrigger` — `.cloacina` package manifests.
+-  `fmt` function L389-396 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — `.cloacina` package manifests.
+-  `FileWatchTrigger` type L400-452 — `impl Trigger for FileWatchTrigger` — `.cloacina` package manifests.
+-  `name` function L401-403 — `(&self) -> &str` — `.cloacina` package manifests.
+-  `poll_interval` function L405-407 — `(&self) -> Duration` — `.cloacina` package manifests.
+-  `allow_concurrent` function L409-411 — `(&self) -> bool` — `.cloacina` package manifests.
+-  `poll` function L413-451 — `(&self) -> Result<TriggerResult, TriggerError>` — `.cloacina` package manifests.
 -  `tests` module L455-613 — `-` — `.cloacina` package manifests.
 -  `test_create_webhook_trigger` function L459-472 — `()` — `.cloacina` package manifests.
 -  `test_create_http_poll_trigger` function L475-492 — `()` — `.cloacina` package manifests.
@@ -5302,15 +5348,15 @@
 
 #### crates/cloacina/tests/integration/scheduler/recovery.rs
 
--  `postgres_tests` module L24-427 — `-` — Recovery sweep tests — heartbeat-based orphan detection and task re-queuing.
+-  `postgres_tests` module L24-433 — `-` — Recovery sweep tests — heartbeat-based orphan detection and task re-queuing.
 -  `test_sweeper` function L37-48 — `(dal: Arc<DAL>, shutdown_rx: watch::Receiver<bool>) -> RecoverySweepService` — Create a sweeper with tight timing for tests.
 -  `make_task_stale` function L51-68 — `( database: &cloacina::Database, task_id: cloacina::database::universal_types::U...` — Set a task to Running with a stale heartbeat in the past.
 -  `set_recovery_attempts` function L71-89 — `( database: &cloacina::Database, task_id: cloacina::database::universal_types::U...` — Set recovery_attempts on a task.
--  `test_orphaned_task_recovery` function L93-139 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
--  `test_task_abandonment_after_max_retries` function L143-194 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
--  `test_no_recovery_needed` function L198-258 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
--  `test_multiple_orphaned_tasks_recovery` function L262-350 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
--  `test_recovery_sweep_respects_fresh_heartbeats` function L354-426 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
+-  `test_orphaned_task_recovery` function L93-142 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
+-  `test_task_abandonment_after_max_retries` function L146-200 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
+-  `test_no_recovery_needed` function L204-264 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
+-  `test_multiple_orphaned_tasks_recovery` function L268-356 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
+-  `test_recovery_sweep_respects_fresh_heartbeats` function L360-432 — `()` — (reset to Ready) or abandoned (marked Failed) based on recovery_attempts.
 
 #### crates/cloacina/tests/integration/scheduler/trigger_rules.rs
 
@@ -5693,6 +5739,21 @@
 -  `Output` type L88 — `= TaskOutcome` — Test result types for capturing task execution outcomes.
 -  `index` function L90-98 — `(&self, task_id: &str) -> &Self::Output` — Test result types for capturing task execution outcomes.
 -  `outcome_name` function L101-107 — `(outcome: &TaskOutcome) -> &'static str` — Test result types for capturing task execution outcomes.
+-  `tests` module L110-247 — `-` — Test result types for capturing task execution outcomes.
+-  `make_test_result` function L113-130 — `() -> TestResult` — Test result types for capturing task execution outcomes.
+-  `test_task_outcome_predicates` function L133-148 — `()` — Test result types for capturing task execution outcomes.
+-  `test_task_outcome_display` function L151-161 — `()` — Test result types for capturing task execution outcomes.
+-  `test_unwrap_error` function L164-172 — `()` — Test result types for capturing task execution outcomes.
+-  `test_unwrap_error_on_completed_panics` function L176-178 — `()` — Test result types for capturing task execution outcomes.
+-  `test_index_access` function L181-186 — `()` — Test result types for capturing task execution outcomes.
+-  `test_index_missing_task_panics` function L190-193 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_task_completed` function L198-201 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_task_completed_on_failed_panics` function L205-208 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_task_failed` function L211-214 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_task_skipped` function L217-220 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_task_completed_missing_panics` function L224-227 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_all_completed_with_failures` function L231-234 — `()` — Test result types for capturing task execution outcomes.
+-  `test_assert_all_completed_success` function L237-246 — `()` — Test result types for capturing task execution outcomes.
 
 #### crates/cloacina-testing/src/runner.rs
 
@@ -5844,13 +5905,23 @@
 -  `RetryPolicyBuilder` type L317-371 — `= RetryPolicyBuilder` — ```
 -  `RetryPolicyBuilder` type L373-377 — `impl Default for RetryPolicyBuilder` — ```
 -  `default` function L374-376 — `() -> Self` — ```
--  `tests` module L380-473 — `-` — ```
+-  `tests` module L380-623 — `-` — ```
 -  `test_default_retry_policy` function L384-394 — `()` — ```
 -  `test_retry_policy_builder` function L397-412 — `()` — ```
 -  `test_fixed_backoff_calculation` function L415-425 — `()` — ```
 -  `test_linear_backoff_calculation` function L428-438 — `()` — ```
 -  `test_exponential_backoff_calculation` function L441-455 — `()` — ```
 -  `test_max_delay_capping` function L458-472 — `()` — ```
+-  `test_exponential_with_jitter` function L475-489 — `()` — ```
+-  `test_zero_delay` function L492-499 — `()` — ```
+-  `test_should_retry_all_errors` function L502-517 — `()` — ```
+-  `test_should_retry_never` function L520-532 — `()` — ```
+-  `test_should_retry_error_pattern` function L535-556 — `()` — ```
+-  `test_calculate_retry_at` function L559-570 — `()` — ```
+-  `test_linear_with_multiplier` function L573-583 — `()` — ```
+-  `test_custom_backoff_falls_back_to_exponential` function L586-599 — `()` — ```
+-  `test_builder_multiple_conditions` function L602-613 — `()` — ```
+-  `test_builder_default` function L616-622 — `()` — ```
 
 #### crates/cloacina-workflow/src/task.rs
 
@@ -5993,9 +6064,9 @@
 -  `schedule_set` function L559-584 — `(args: &ScheduleSetArgs) -> Result<()>` — registers them, and runs them on cron schedules.
 -  `schedule_list` function L586-620 — `(args: &ScheduleListArgs) -> Result<()>` — registers them, and runs them on cron schedules.
 -  `schedule_delete` function L622-640 — `(args: &ScheduleDeleteArgs) -> Result<()>` — registers them, and runs them on cron schedules.
--  `trigger_list` function L646-682 — `(args: &TriggerListArgs) -> Result<()>` — registers them, and runs them on cron schedules.
--  `trigger_enable` function L684-708 — `(args: &TriggerToggleArgs) -> Result<()>` — registers them, and runs them on cron schedules.
--  `trigger_disable` function L710-734 — `(args: &TriggerToggleArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `trigger_list` function L646-686 — `(args: &TriggerListArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `trigger_enable` function L688-712 — `(args: &TriggerToggleArgs) -> Result<()>` — registers them, and runs them on cron schedules.
+-  `trigger_disable` function L714-738 — `(args: &TriggerToggleArgs) -> Result<()>` — registers them, and runs them on cron schedules.
 
 #### crates/cloacinactl/src/commands/key.rs
 

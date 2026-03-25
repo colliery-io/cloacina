@@ -701,4 +701,66 @@ mod tests {
             );
         }
     }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sqlite_connection_pool_creation() {
+        let url = format!(
+            "file:test_pool_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = Database::try_new_with_schema(&url, "", 2, None)
+            .expect("Should create SQLite connection pool");
+        assert_eq!(db.backend(), BackendType::Sqlite);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sqlite_run_migrations() {
+        let url = format!(
+            "file:test_mig_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = Database::try_new_with_schema(&url, "", 2, None).unwrap();
+        db.run_migrations()
+            .await
+            .expect("Migrations should succeed on clean DB");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_sqlite_get_connection() {
+        let url = format!(
+            "file:test_conn_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = Database::try_new_with_schema(&url, "", 2, None).unwrap();
+        db.run_migrations().await.unwrap();
+
+        let conn = db.get_sqlite_connection().await;
+        assert!(conn.is_ok(), "Should get a SQLite connection from pool");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_database_new_convenience() {
+        let url = format!(
+            "file:test_new_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = Database::new(&url, "", 2);
+        assert_eq!(db.backend(), BackendType::Sqlite);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_database_clone() {
+        let url = format!(
+            "file:test_clone_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = Database::new(&url, "", 2);
+        let db2 = db.clone();
+        assert_eq!(db.backend(), db2.backend());
+    }
 }

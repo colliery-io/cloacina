@@ -1,0 +1,234 @@
+---
+name: Nightly Tests
+
+on:
+  schedule:
+    # Run at 3am UTC every day
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Soak test duration (e.g. 5m, 10m)'
+        required: false
+        default: '5m'
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Soak tests — sustained load, resource leak detection
+  # -----------------------------------------------------------------------
+
+  continuous-soak:
+    name: Continuous Scheduler Soak (SQLite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly"
+
+      - name: Continuous scheduler soak (50k boundaries, 4 injectors)
+        env:
+          SOAK_BOUNDARIES: 50000
+          SOAK_BATCH_SIZE: 200
+          SOAK_DURATION_SECS: 120
+          SOAK_INJECTORS: 4
+        run: |
+          cargo test -p cloacina --features "postgres,sqlite,macros" \
+            --test integration continuous::soak \
+            -- --nocapture --test-threads=1
+
+  daemon-soak:
+    name: Daemon Soak (SQLite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Install PostgreSQL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly"
+
+      - name: Daemon soak (5m)
+        run: angreal soak --mode daemon --duration ${{ github.event.inputs.duration || '5m' }}
+
+  server-soak:
+    name: Server Soak (Postgres + Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly"
+
+      - name: Server soak (5m, medium profile)
+        run: angreal soak --mode server --duration ${{ github.event.inputs.duration || '5m' }} --profile medium
+
+  # -----------------------------------------------------------------------
+  # macOS integration tests — moved from PR CI to reduce cycle time
+  # -----------------------------------------------------------------------
+
+  macos-integration:
+    name: Integration Tests (${{ matrix.backend }}, macOS)
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [postgres, sqlite]
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "cloacina -> target"
+          shared-key: "cloacina-macos-latest"
+
+      - name: Install PostgreSQL
+        run: |
+          brew install postgresql@14
+          echo "$(brew --prefix postgresql@14)/bin" >> $GITHUB_PATH
+          echo "PKG_CONFIG_PATH=$(brew --prefix postgresql@14)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix postgresql@14)/lib" >> $GITHUB_ENV
+
+      - name: Start PostgreSQL (macOS)
+        if: matrix.backend == 'postgres'
+        run: |
+          brew services start postgresql@14
+          sleep 5
+          createuser -s cloacina || true
+          createdb -O cloacina cloacina || true
+
+      - name: Run integration tests (${{ matrix.backend }})
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          if [ "${{ matrix.backend }}" = "postgres" ]; then
+            angreal cloacina integration --backend ${{ matrix.backend }} --skip-docker
+          else
+            angreal cloacina integration --backend ${{ matrix.backend }}
+          fi
+
+  # -----------------------------------------------------------------------
+  # Performance tests — moved from PR CI (was main/label gated)
+  # -----------------------------------------------------------------------
+
+  performance:
+    name: Performance Tests
+    uses: ./.github/workflows/performance.yml
+
+  # -----------------------------------------------------------------------
+  # Examples & tutorials — moved from PR CI to reduce cycle time
+  # -----------------------------------------------------------------------
+
+  examples-docs:
+    name: Examples & Documentation
+    uses: ./.github/workflows/examples-docs.yml
+
+  # -----------------------------------------------------------------------
+  # Failure notification
+  # -----------------------------------------------------------------------
+
+  notify-failure:
+    name: Notify on Failure
+    needs: [continuous-soak, daemon-soak, server-soak, macos-integration, performance, examples-docs]
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create GitHub Issue on failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Nightly test failure — ${new Date().toISOString().split('T')[0]}`;
+            const body = [
+              '## Nightly Test Failure',
+              '',
+              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `**Date:** ${new Date().toISOString()}`,
+              '',
+              'One or more nightly tests failed. Check the run logs for details.',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['bug', 'nightly'],
+            });

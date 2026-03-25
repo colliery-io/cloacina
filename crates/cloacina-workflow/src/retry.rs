@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -469,5 +469,155 @@ mod tests {
         assert_eq!(policy.calculate_delay(1), Duration::from_secs(10));
         assert_eq!(policy.calculate_delay(2), Duration::from_secs(15)); // Capped
         assert_eq!(policy.calculate_delay(3), Duration::from_secs(15)); // Capped
+    }
+
+    #[test]
+    fn test_exponential_with_jitter() {
+        let policy = RetryPolicy::builder()
+            .backoff_strategy(BackoffStrategy::Exponential {
+                base: 2.0,
+                multiplier: 1.0,
+            })
+            .initial_delay(Duration::from_secs(10))
+            .with_jitter(true)
+            .build();
+
+        // With jitter, delay should be within +/-25% of base
+        let delay = policy.calculate_delay(1);
+        assert!(delay >= Duration::from_millis(7500)); // 10s - 25%
+        assert!(delay <= Duration::from_millis(12500)); // 10s + 25%
+    }
+
+    #[test]
+    fn test_zero_delay() {
+        let policy = RetryPolicy::builder()
+            .initial_delay(Duration::from_millis(0))
+            .with_jitter(false)
+            .build();
+
+        assert_eq!(policy.calculate_delay(1), Duration::from_millis(0));
+    }
+
+    #[test]
+    fn test_should_retry_all_errors() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::AllErrors)
+            .build();
+
+        let error = TaskError::ExecutionFailed {
+            message: "boom".to_string(),
+            task_id: "t1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+
+        assert!(policy.should_retry(&error, 1));
+        assert!(policy.should_retry(&error, 2));
+        assert!(!policy.should_retry(&error, 3)); // exhausted
+    }
+
+    #[test]
+    fn test_should_retry_never() {
+        let policy = RetryPolicy::builder()
+            .retry_condition(RetryCondition::Never)
+            .build();
+
+        let error = TaskError::ExecutionFailed {
+            message: "any error".to_string(),
+            task_id: "t1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+
+        assert!(!policy.should_retry(&error, 1));
+    }
+
+    #[test]
+    fn test_should_retry_error_pattern() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(5)
+            .retry_condition(RetryCondition::ErrorPattern {
+                patterns: vec!["timeout".to_string(), "connection".to_string()],
+            })
+            .build();
+
+        let timeout_err = TaskError::ExecutionFailed {
+            message: "Request timeout after 30s".to_string(),
+            task_id: "t1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        assert!(policy.should_retry(&timeout_err, 1));
+
+        let other_err = TaskError::ExecutionFailed {
+            message: "Invalid input data".to_string(),
+            task_id: "t1".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        assert!(!policy.should_retry(&other_err, 1));
+    }
+
+    #[test]
+    fn test_calculate_retry_at() {
+        let policy = RetryPolicy::builder()
+            .initial_delay(Duration::from_secs(5))
+            .with_jitter(false)
+            .backoff_strategy(BackoffStrategy::Fixed)
+            .build();
+
+        let now = chrono::Utc::now().naive_utc();
+        let retry_at = policy.calculate_retry_at(1, now);
+        let diff = retry_at - now;
+        assert_eq!(diff.num_seconds(), 5);
+    }
+
+    #[test]
+    fn test_linear_with_multiplier() {
+        let policy = RetryPolicy::builder()
+            .backoff_strategy(BackoffStrategy::Linear { multiplier: 2.0 })
+            .initial_delay(Duration::from_secs(1))
+            .with_jitter(false)
+            .build();
+
+        assert_eq!(policy.calculate_delay(1), Duration::from_secs(2));
+        assert_eq!(policy.calculate_delay(2), Duration::from_secs(4));
+        assert_eq!(policy.calculate_delay(3), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn test_custom_backoff_falls_back_to_exponential() {
+        let policy = RetryPolicy::builder()
+            .backoff_strategy(BackoffStrategy::Custom {
+                function_name: "custom_fn".to_string(),
+            })
+            .initial_delay(Duration::from_secs(1))
+            .with_jitter(false)
+            .build();
+
+        // Custom falls back to exponential base 2
+        assert_eq!(policy.calculate_delay(1), Duration::from_secs(1));
+        assert_eq!(policy.calculate_delay(2), Duration::from_secs(2));
+        assert_eq!(policy.calculate_delay(3), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn test_builder_multiple_conditions() {
+        let policy = RetryPolicy::builder()
+            .retry_conditions(vec![
+                RetryCondition::TransientOnly,
+                RetryCondition::ErrorPattern {
+                    patterns: vec!["timeout".to_string()],
+                },
+            ])
+            .build();
+
+        assert_eq!(policy.retry_conditions.len(), 2);
+    }
+
+    #[test]
+    fn test_builder_default() {
+        let builder = RetryPolicyBuilder::new();
+        let policy = builder.build();
+        // Should match RetryPolicy::default()
+        assert_eq!(policy.max_attempts, 3);
+        assert!(policy.jitter);
     }
 }

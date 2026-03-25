@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -251,23 +251,115 @@ mod tests {
         )
     }
 
+    async fn test_dal() -> DAL {
+        let url = format!(
+            "file:test_dispatch_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let db = crate::Database::try_new_with_schema(&url, "", 2, None)
+            .expect("Failed to create test database");
+        db.run_migrations().await.expect("Failed to run migrations");
+        DAL::new(db)
+    }
+
     #[test]
     fn test_register_executor() {
-        // We can't easily test dispatch without a real DAL, but we can test registration
         let _config = RoutingConfig::default();
-
-        // Just verify the types work together
         let _executor: Arc<dyn TaskExecutor> = Arc::new(MockExecutor::new("test"));
     }
 
     #[test]
     fn test_resolve_executor_key() {
-        // Create a mock DAL-less test by just testing routing
         let config = RoutingConfig::new("default")
             .with_rule(super::super::types::RoutingRule::new("ml::*", "gpu"));
         let router = Router::new(config);
 
         assert_eq!(router.resolve("ml::train"), "gpu");
         assert_eq!(router.resolve("etl::extract"), "default");
+    }
+
+    #[tokio::test]
+    async fn test_register_and_dispatch() {
+        let dal = test_dal().await;
+
+        // Create pipeline + task in DB
+        let pipeline = dal
+            .pipeline_execution()
+            .create(crate::models::pipeline_execution::NewPipelineExecution {
+                pipeline_name: "dispatch-test".to_string(),
+                pipeline_version: "1.0".to_string(),
+                status: "Running".to_string(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let task = dal
+            .task_execution()
+            .create(crate::models::task_execution::NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "test-task".to_string(),
+                status: "Running".to_string(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type": "Always"}"#.to_string(),
+                task_configuration: "{}".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let dispatcher = DefaultDispatcher::with_defaults(dal);
+        let executor = Arc::new(MockExecutor::new("default-executor"));
+        dispatcher.register_executor("default", executor.clone());
+
+        assert!(dispatcher.has_capacity());
+
+        let event = TaskReadyEvent::new(task.id, pipeline.id, "test-task".to_string(), 1);
+        dispatcher.dispatch(event).await.unwrap();
+
+        assert_eq!(executor.execution_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_no_executor_fails() {
+        let dal = test_dal().await;
+        let dispatcher = DefaultDispatcher::with_defaults(dal);
+        // No executor registered
+
+        let event = create_test_event("some-task");
+        let result = dispatcher.dispatch(event).await;
+        assert!(matches!(result, Err(DispatchError::ExecutorNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_no_capacity_fails() {
+        let dal = test_dal().await;
+        let dispatcher = DefaultDispatcher::with_defaults(dal);
+
+        let executor = Arc::new(MockExecutor::new("full-executor"));
+        executor.has_capacity.store(false, Ordering::SeqCst);
+        dispatcher.register_executor("default", executor);
+
+        assert!(!dispatcher.has_capacity());
+
+        let event = create_test_event("task");
+        let result = dispatcher.dispatch(event).await;
+        assert!(matches!(result, Err(DispatchError::NoCapacity(_))));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_routing() {
+        let dal = test_dal().await;
+        let config = RoutingConfig::new("default")
+            .with_rule(super::super::types::RoutingRule::new("ml::*", "gpu"));
+        let dispatcher = DefaultDispatcher::new(dal, config);
+
+        let default_exec = Arc::new(MockExecutor::new("default-exec"));
+        let gpu_exec = Arc::new(MockExecutor::new("gpu-exec"));
+        dispatcher.register_executor("default", default_exec.clone());
+        dispatcher.register_executor("gpu", gpu_exec.clone());
+
+        assert_eq!(dispatcher.resolve_executor_key("ml::train"), "gpu");
+        assert_eq!(dispatcher.resolve_executor_key("etl::load"), "default");
     }
 }

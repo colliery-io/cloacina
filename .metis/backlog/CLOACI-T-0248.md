@@ -4,14 +4,14 @@ level: task
 title: "Doc Review"
 short_code: "CLOACI-T-0248"
 created_at: 2026-03-25T02:56:00.793599+00:00
-updated_at: 2026-03-25T02:56:00.793599+00:00
+updated_at: 2026-03-25T12:28:28.385680+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
