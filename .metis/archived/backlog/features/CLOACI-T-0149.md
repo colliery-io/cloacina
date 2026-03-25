@@ -4,15 +4,15 @@ level: task
 title: "End-to-end continuous scheduling performance test with real Postgres data"
 short_code: "CLOACI-T-0149"
 created_at: 2026-03-15T16:27:17.115908+00:00
-updated_at: 2026-03-25T12:51:35.272308+00:00
+updated_at: 2026-03-25T13:43:22.261146+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
   - "#feature"
-  - "#phase/blocked"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
@@ -108,6 +108,10 @@ CREATE TABLE IF NOT EXISTS perf_aggregations (
     aggregated_at TIMESTAMP DEFAULT NOW()
 );
 ```
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
