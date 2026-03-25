@@ -1,0 +1,22 @@
+[package]
+name = "scheduler-bench"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina" }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
+tokio = { version = "1.0", features = ["full"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+ctor = "0.2"
+chrono = "0.4"
+clap = { version = "4.0", features = ["derive"] }
+uuid = { version = "1.0", features = ["v4"] }
+
+[build-dependencies]
+pyo3-build-config = "0.25"

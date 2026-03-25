@@ -4,14 +4,14 @@ level: initiative
 title: "E2E Continuous Scheduling Performance Harness — Real Postgres, Multi-Scenario Benchmarking"
 short_code: "CLOACI-I-0045"
 created_at: 2026-03-25T13:42:23.223681+00:00
-updated_at: 2026-03-25T13:44:56.843517+00:00
+updated_at: 2026-03-25T20:47:35.335525+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false

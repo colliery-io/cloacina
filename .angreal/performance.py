@@ -221,3 +221,86 @@ def performance_quick():
         raise RuntimeError(f"Some quick performance tests failed:\n{failure_summary}")
     else:
         print("SUCCESS: All quick performance tests passed")
+
+
+BENCH_DIR = os.path.join("examples", "performance", "scheduler-bench")
+
+
+def _run_bench(subcommand, duration="60s", scenario=None, output="table"):
+    """Run the scheduler-bench harness with given subcommand."""
+    if not os.path.exists(BENCH_DIR):
+        raise RuntimeError(f"Scheduler bench not found at {BENCH_DIR}")
+
+    args = ["cargo", "run", "--", subcommand, "--duration", str(duration), "--output", output]
+    if scenario:
+        args.extend(["--scenario", scenario])
+
+    subprocess.run(args, cwd=BENCH_DIR, check=True)
+
+
+@performance()
+@angreal.command(
+    name="trigger",
+    about="run trigger + cron scheduler benchmarks",
+    when_to_use=["benchmarking trigger/cron scheduling", "measuring poll overhead"],
+    when_not_to_use=["quick tests", "continuous scheduler benchmarks"]
+)
+@angreal.argument(name="duration", long="duration", short="d", default="60s", help="test duration")
+@angreal.argument(name="scenario", long="scenario", required=False, help="specific scenario")
+def performance_trigger(duration="60s", scenario=None):
+    """Run trigger + cron scheduler benchmarks."""
+    _run_bench("trigger", duration=duration, scenario=scenario)
+
+
+@performance()
+@angreal.command(
+    name="continuous",
+    about="run continuous scheduler benchmarks",
+    when_to_use=["benchmarking data-driven scheduling", "measuring e2e latency"],
+    when_not_to_use=["quick tests", "trigger benchmarks"]
+)
+@angreal.argument(name="duration", long="duration", short="d", default="60s", help="test duration")
+@angreal.argument(name="scenario", long="scenario", required=False, help="specific scenario")
+def performance_continuous(duration="60s", scenario=None):
+    """Run continuous scheduler benchmarks."""
+    _run_bench("continuous", duration=duration, scenario=scenario)
+
+
+@performance()
+@angreal.command(
+    name="execution",
+    about="run task execution engine benchmarks",
+    when_to_use=["benchmarking DAG resolution", "measuring claiming throughput"],
+    when_not_to_use=["quick tests", "scheduler benchmarks"]
+)
+@angreal.argument(name="duration", long="duration", short="d", default="60s", help="test duration")
+@angreal.argument(name="scenario", long="scenario", required=False, help="specific scenario")
+def performance_execution(duration="60s", scenario=None):
+    """Run task execution engine benchmarks."""
+    _run_bench("execution", duration=duration, scenario=scenario)
+
+
+@performance()
+@angreal.command(
+    name="hybrid",
+    about="run hybrid benchmarks (all schedulers simultaneously)",
+    when_to_use=["production-like benchmarking", "contention testing"],
+    when_not_to_use=["quick tests", "isolated scheduler benchmarks"]
+)
+@angreal.argument(name="duration", long="duration", short="d", default="60s", help="test duration")
+@angreal.argument(name="scenario", long="scenario", required=False, help="specific scenario")
+def performance_hybrid(duration="60s", scenario=None):
+    """Run hybrid benchmarks — all schedulers simultaneously."""
+    _run_bench("hybrid", duration=duration, scenario=scenario)
+
+
+@performance()
+@angreal.command(
+    name="smoke",
+    about="run smoke benchmark (proves harness works)",
+    when_to_use=["verifying harness setup", "quick sanity check"],
+    when_not_to_use=["real benchmarking", "production validation"]
+)
+def performance_smoke():
+    """Run smoke benchmark."""
+    _run_bench("smoke", duration="10s")
