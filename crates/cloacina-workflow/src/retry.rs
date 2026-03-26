@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -265,46 +265,29 @@ impl RetryPolicy {
     fn is_transient_error(&self, error: &TaskError) -> bool {
         match error {
             TaskError::Timeout { .. } => true,
-            TaskError::ExecutionFailed { message, .. } => {
-                // Check for transient execution errors
-                let error_msg = message.to_lowercase();
-                let transient_patterns = [
-                    "connection",
-                    "network",
-                    "timeout",
-                    "temporary",
-                    "unavailable",
-                    "busy",
-                    "overloaded",
-                    "rate limit",
-                ];
-                transient_patterns
-                    .iter()
-                    .any(|pattern| error_msg.contains(pattern))
+            TaskError::ExecutionFailed { message, .. } | TaskError::Unknown { message, .. } => {
+                Self::message_matches_transient_patterns(message)
             }
-            TaskError::Unknown { message, .. } => {
-                // Check unknown errors for transient patterns
-                let error_msg = message.to_lowercase();
-                let transient_patterns = [
-                    "connection",
-                    "network",
-                    "timeout",
-                    "temporary",
-                    "unavailable",
-                    "busy",
-                    "overloaded",
-                    "rate limit",
-                ];
-                transient_patterns
-                    .iter()
-                    .any(|pattern| error_msg.contains(pattern))
-            }
-            TaskError::ContextError { .. } => false,
-            TaskError::DependencyNotSatisfied { .. } => false,
-            TaskError::ValidationFailed { .. } => false,
-            TaskError::ReadinessCheckFailed { .. } => false,
-            TaskError::TriggerRuleFailed { .. } => false,
+            _ => false,
         }
+    }
+
+    /// Checks whether an error message contains any known transient error patterns.
+    fn message_matches_transient_patterns(message: &str) -> bool {
+        const TRANSIENT_PATTERNS: &[&str] = &[
+            "connection",
+            "network",
+            "timeout",
+            "temporary",
+            "unavailable",
+            "busy",
+            "overloaded",
+            "rate limit",
+        ];
+        let error_msg = message.to_lowercase();
+        TRANSIENT_PATTERNS
+            .iter()
+            .any(|pattern| error_msg.contains(pattern))
     }
 }
 
@@ -469,5 +452,199 @@ mod tests {
         assert_eq!(policy.calculate_delay(1), Duration::from_secs(10));
         assert_eq!(policy.calculate_delay(2), Duration::from_secs(15)); // Capped
         assert_eq!(policy.calculate_delay(3), Duration::from_secs(15)); // Capped
+    }
+
+    // --- is_transient_error tests ---
+
+    fn make_execution_error(msg: &str) -> TaskError {
+        TaskError::ExecutionFailed {
+            message: msg.to_string(),
+            task_id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+        }
+    }
+
+    fn make_unknown_error(msg: &str) -> TaskError {
+        TaskError::Unknown {
+            task_id: "test".to_string(),
+            message: msg.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_timeout_is_transient() {
+        let policy = RetryPolicy::default();
+        let error = TaskError::Timeout {
+            task_id: "test".to_string(),
+            timeout_seconds: 30,
+        };
+        assert!(policy.is_transient_error(&error));
+    }
+
+    #[test]
+    fn test_connection_error_is_transient() {
+        let policy = RetryPolicy::default();
+        assert!(policy.is_transient_error(&make_execution_error("Connection refused")));
+        assert!(policy.is_transient_error(&make_execution_error("network unreachable")));
+        assert!(policy.is_transient_error(&make_execution_error("service temporarily unavailable")));
+        assert!(policy.is_transient_error(&make_execution_error("server busy")));
+        assert!(policy.is_transient_error(&make_execution_error("overloaded")));
+        assert!(policy.is_transient_error(&make_execution_error("rate limit exceeded")));
+    }
+
+    #[test]
+    fn test_unknown_error_with_transient_message_is_transient() {
+        let policy = RetryPolicy::default();
+        assert!(policy.is_transient_error(&make_unknown_error("Connection reset by peer")));
+        assert!(policy.is_transient_error(&make_unknown_error("TIMEOUT waiting for response")));
+    }
+
+    #[test]
+    fn test_permanent_errors_are_not_transient() {
+        let policy = RetryPolicy::default();
+        assert!(!policy.is_transient_error(&make_execution_error("invalid input format")));
+        assert!(!policy.is_transient_error(&make_execution_error("permission denied")));
+        assert!(!policy.is_transient_error(&make_unknown_error("null pointer")));
+    }
+
+    #[test]
+    fn test_non_retryable_error_variants_are_not_transient() {
+        let policy = RetryPolicy::default();
+        assert!(!policy.is_transient_error(&TaskError::ContextError {
+            task_id: "t".to_string(),
+            error: crate::error::ContextError::KeyNotFound("k".to_string()),
+        }));
+        assert!(
+            !policy.is_transient_error(&TaskError::DependencyNotSatisfied {
+                dependency: "dep".to_string(),
+                task_id: "t".to_string(),
+            })
+        );
+        assert!(!policy.is_transient_error(&TaskError::ValidationFailed {
+            message: "bad".to_string(),
+        }));
+        assert!(
+            !policy.is_transient_error(&TaskError::ReadinessCheckFailed {
+                task_id: "t".to_string(),
+            })
+        );
+        assert!(!policy.is_transient_error(&TaskError::TriggerRuleFailed {
+            task_id: "t".to_string(),
+        }));
+    }
+
+    #[test]
+    fn test_transient_pattern_matching_is_case_insensitive() {
+        let policy = RetryPolicy::default();
+        assert!(policy.is_transient_error(&make_execution_error("CONNECTION REFUSED")));
+        assert!(policy.is_transient_error(&make_execution_error("Network Error")));
+        assert!(policy.is_transient_error(&make_execution_error("TIMEOUT")));
+    }
+
+    // --- should_retry tests ---
+
+    #[test]
+    fn test_should_retry_all_errors_within_limit() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::AllErrors)
+            .build();
+
+        let error = make_execution_error("anything");
+        assert!(policy.should_retry(&error, 1));
+        assert!(policy.should_retry(&error, 2));
+        assert!(!policy.should_retry(&error, 3)); // at max
+        assert!(!policy.should_retry(&error, 4)); // over max
+    }
+
+    #[test]
+    fn test_should_retry_never_condition() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(10)
+            .retry_condition(RetryCondition::Never)
+            .build();
+
+        assert!(!policy.should_retry(&make_execution_error("anything"), 1));
+    }
+
+    #[test]
+    fn test_should_retry_transient_only() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::TransientOnly)
+            .build();
+
+        assert!(policy.should_retry(&make_execution_error("connection refused"), 1));
+        assert!(!policy.should_retry(&make_execution_error("invalid input"), 1));
+    }
+
+    #[test]
+    fn test_should_retry_error_pattern() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(3)
+            .retry_condition(RetryCondition::ErrorPattern {
+                patterns: vec!["deadlock".to_string(), "lock timeout".to_string()],
+            })
+            .build();
+
+        assert!(policy.should_retry(&make_execution_error("deadlock detected"), 1));
+        assert!(policy.should_retry(&make_execution_error("Lock Timeout on table"), 1));
+        assert!(!policy.should_retry(&make_execution_error("invalid input"), 1));
+    }
+
+    #[test]
+    fn test_should_retry_zero_max_attempts() {
+        let policy = RetryPolicy::builder()
+            .max_attempts(0)
+            .retry_condition(RetryCondition::AllErrors)
+            .build();
+
+        assert!(!policy.should_retry(&make_execution_error("anything"), 0));
+    }
+
+    #[test]
+    fn test_custom_backoff_falls_back_to_exponential() {
+        let policy = RetryPolicy::builder()
+            .backoff_strategy(BackoffStrategy::Custom {
+                function_name: "my_func".to_string(),
+            })
+            .initial_delay(Duration::from_secs(1))
+            .with_jitter(false)
+            .build();
+
+        assert_eq!(policy.calculate_delay(1), Duration::from_secs(1));
+        assert_eq!(policy.calculate_delay(2), Duration::from_secs(2));
+        assert_eq!(policy.calculate_delay(3), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn test_jitter_stays_within_bounds() {
+        let policy = RetryPolicy::builder()
+            .backoff_strategy(BackoffStrategy::Fixed)
+            .initial_delay(Duration::from_secs(10))
+            .with_jitter(true)
+            .build();
+
+        // Run multiple times to check jitter range (+/-25%)
+        for _ in 0..100 {
+            let delay = policy.calculate_delay(1);
+            let millis = delay.as_millis();
+            assert!(millis >= 7500, "jitter too low: {}ms", millis);
+            assert!(millis <= 12500, "jitter too high: {}ms", millis);
+        }
+    }
+
+    #[test]
+    fn test_message_matches_transient_patterns_directly() {
+        assert!(RetryPolicy::message_matches_transient_patterns(
+            "connection reset"
+        ));
+        assert!(RetryPolicy::message_matches_transient_patterns(
+            "NETWORK error"
+        ));
+        assert!(!RetryPolicy::message_matches_transient_patterns(
+            "invalid input"
+        ));
+        assert!(!RetryPolicy::message_matches_transient_patterns(""));
     }
 }

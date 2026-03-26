@@ -739,4 +739,137 @@ mod tests {
         let loaded = DetachedSignature::read_from_file(temp_file.path()).unwrap();
         assert_eq!(loaded.package_hash, info.package_hash);
     }
+
+    #[test]
+    fn test_compute_data_hash_deterministic() {
+        let data = b"hello world";
+        let hash1 = DbPackageSigner::compute_data_hash(data).unwrap();
+        let hash2 = DbPackageSigner::compute_data_hash(data).unwrap();
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_data_hash_different_inputs() {
+        let hash1 = DbPackageSigner::compute_data_hash(b"aaa").unwrap();
+        let hash2 = DbPackageSigner::compute_data_hash(b"bbb").unwrap();
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_compute_data_hash_empty_input() {
+        let result = DbPackageSigner::compute_data_hash(b"");
+        assert!(result.is_ok());
+        assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_compute_data_hash_large_payload() {
+        let data = vec![0xFFu8; 10 * 1024 * 1024]; // 10 MB
+        let result = DbPackageSigner::compute_data_hash(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_compute_file_hash_matches_data_hash() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let content = b"test content for hash comparison";
+        std::fs::write(temp_file.path(), content).unwrap();
+
+        let file_hash = DbPackageSigner::compute_file_hash(temp_file.path()).unwrap();
+        let data_hash = DbPackageSigner::compute_data_hash(content).unwrap();
+        assert_eq!(file_hash, data_hash);
+    }
+
+    #[test]
+    fn test_compute_file_hash_nonexistent_file() {
+        let result = DbPackageSigner::compute_file_hash(std::path::Path::new("/nonexistent/file"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detached_signature_invalid_json() {
+        let result = DetachedSignature::from_json("not valid json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_detached_signature_version_and_algorithm() {
+        let info = PackageSignatureInfo {
+            package_hash: "hash".to_string(),
+            key_fingerprint: "fp".to_string(),
+            signature: vec![1, 2, 3],
+            signed_at: UniversalTimestamp::now(),
+        };
+        let detached = DetachedSignature::from_signature_info(&info);
+        assert_eq!(detached.version, DetachedSignature::VERSION);
+        assert_eq!(detached.algorithm, DetachedSignature::ALGORITHM);
+    }
+
+    #[test]
+    fn test_detached_signature_corrupted_base64() {
+        let info = PackageSignatureInfo {
+            package_hash: "hash".to_string(),
+            key_fingerprint: "fp".to_string(),
+            signature: vec![1, 2, 3],
+            signed_at: UniversalTimestamp::now(),
+        };
+        let mut detached = DetachedSignature::from_signature_info(&info);
+        detached.signature = "not!valid!base64!!!".to_string();
+        let result = detached.signature_bytes();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_verify_roundtrip_different_data() {
+        let keypair = generate_signing_keypair();
+
+        for content in &[
+            b"small".as_slice(),
+            b"medium content here",
+            &vec![0xAB; 1024],
+        ] {
+            let hash = DbPackageSigner::compute_data_hash(content).unwrap();
+            let hash_bytes = hex::decode(&hash).unwrap();
+            let signature = crate::crypto::sign_package(&hash_bytes, &keypair.private_key).unwrap();
+            let result =
+                crate::crypto::verify_signature(&hash_bytes, &signature, &keypair.public_key);
+            assert!(
+                result.is_ok(),
+                "verification failed for content of len {}",
+                content.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_sign_verify_wrong_key_fails() {
+        let keypair1 = generate_signing_keypair();
+        let keypair2 = generate_signing_keypair();
+
+        let data = b"test data";
+        let hash = DbPackageSigner::compute_data_hash(data).unwrap();
+        let hash_bytes = hex::decode(&hash).unwrap();
+        let signature = crate::crypto::sign_package(&hash_bytes, &keypair1.private_key).unwrap();
+
+        // Verify with wrong key should fail
+        let result = crate::crypto::verify_signature(&hash_bytes, &signature, &keypair2.public_key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sign_verify_tampered_data_fails() {
+        let keypair = generate_signing_keypair();
+
+        let data = b"original data";
+        let hash = DbPackageSigner::compute_data_hash(data).unwrap();
+        let hash_bytes = hex::decode(&hash).unwrap();
+        let signature = crate::crypto::sign_package(&hash_bytes, &keypair.private_key).unwrap();
+
+        // Verify with tampered hash should fail
+        let tampered_hash = DbPackageSigner::compute_data_hash(b"tampered data").unwrap();
+        let tampered_bytes = hex::decode(&tampered_hash).unwrap();
+        let result =
+            crate::crypto::verify_signature(&tampered_bytes, &signature, &keypair.public_key);
+        assert!(result.is_err());
+    }
 }

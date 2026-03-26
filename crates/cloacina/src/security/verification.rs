@@ -476,4 +476,187 @@ mod tests {
         let source = SignatureSource::default();
         assert!(matches!(source, SignatureSource::Auto));
     }
+
+    #[test]
+    fn test_verify_package_offline_valid_signature() {
+        let package_file = NamedTempFile::new().unwrap();
+        let content = b"valid package content";
+        std::fs::write(package_file.path(), content).unwrap();
+
+        let keypair = generate_signing_keypair();
+
+        // Compute correct hash and sign it
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let package_hash = hex::encode(hasher.finalize());
+
+        let hash_bytes = hex::decode(&package_hash).unwrap();
+        let signature_bytes =
+            crate::crypto::sign_package(&hash_bytes, &keypair.private_key).unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: package_hash.clone(),
+            key_fingerprint: keypair.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature_bytes),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        let result =
+            verify_package_offline(package_file.path(), sig_file.path(), &keypair.public_key);
+        assert!(result.is_ok());
+        let verification = result.unwrap();
+        assert_eq!(verification.package_hash, package_hash);
+        assert_eq!(verification.signer_fingerprint, keypair.fingerprint);
+    }
+
+    #[test]
+    fn test_verify_package_offline_tampered_content() {
+        let package_file = NamedTempFile::new().unwrap();
+        let original = b"original content";
+        std::fs::write(package_file.path(), original).unwrap();
+
+        let keypair = generate_signing_keypair();
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(original);
+        let package_hash = hex::encode(hasher.finalize());
+
+        let hash_bytes = hex::decode(&package_hash).unwrap();
+        let signature_bytes =
+            crate::crypto::sign_package(&hash_bytes, &keypair.private_key).unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash,
+            key_fingerprint: keypair.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature_bytes),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        // Tamper with the package content
+        std::fs::write(package_file.path(), b"tampered content").unwrap();
+
+        let result =
+            verify_package_offline(package_file.path(), sig_file.path(), &keypair.public_key);
+        assert!(matches!(
+            result,
+            Err(VerificationError::TamperedPackage { .. })
+        ));
+    }
+
+    #[test]
+    fn test_verify_package_offline_wrong_key() {
+        let package_file = NamedTempFile::new().unwrap();
+        let content = b"content";
+        std::fs::write(package_file.path(), content).unwrap();
+
+        let signer = generate_signing_keypair();
+        let wrong_verifier = generate_signing_keypair();
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let package_hash = hex::encode(hasher.finalize());
+
+        let hash_bytes = hex::decode(&package_hash).unwrap();
+        let signature_bytes =
+            crate::crypto::sign_package(&hash_bytes, &signer.private_key).unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash,
+            key_fingerprint: signer.fingerprint.clone(),
+            signature: base64::engine::general_purpose::STANDARD.encode(&signature_bytes),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let sig_file = NamedTempFile::new().unwrap();
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        let result = verify_package_offline(
+            package_file.path(),
+            sig_file.path(),
+            &wrong_verifier.public_key,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_package_offline_nonexistent_package() {
+        let keypair = generate_signing_keypair();
+        let sig_file = NamedTempFile::new().unwrap();
+
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: "hash".to_string(),
+            key_fingerprint: "fp".to_string(),
+            signature: "sig".to_string(),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        sig.write_to_file(sig_file.path()).unwrap();
+
+        let result = verify_package_offline(
+            std::path::Path::new("/nonexistent/package"),
+            sig_file.path(),
+            &keypair.public_key,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_package_offline_nonexistent_signature() {
+        let keypair = generate_signing_keypair();
+        let package_file = NamedTempFile::new().unwrap();
+        std::fs::write(package_file.path(), b"content").unwrap();
+
+        let result = verify_package_offline(
+            package_file.path(),
+            std::path::Path::new("/nonexistent/sig"),
+            &keypair.public_key,
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_signature_from_file_valid() {
+        let sig = DetachedSignature {
+            version: 1,
+            algorithm: "ed25519".to_string(),
+            package_hash: "abc".to_string(),
+            key_fingerprint: "def".to_string(),
+            signature: "c2lnbmF0dXJl".to_string(),
+            signed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        let temp = NamedTempFile::new().unwrap();
+        sig.write_to_file(temp.path()).unwrap();
+
+        let result = load_signature_from_file(temp.path());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().package_hash, "abc");
+    }
+
+    #[test]
+    fn test_load_signature_from_file_invalid() {
+        let temp = NamedTempFile::new().unwrap();
+        std::fs::write(temp.path(), "not json").unwrap();
+
+        let result = load_signature_from_file(temp.path());
+        assert!(matches!(
+            result,
+            Err(VerificationError::MalformedSignature { .. })
+        ));
+    }
 }

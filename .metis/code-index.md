@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-26T12:41:51Z | 350 files | JavaScript, Python, Rust
+> Generated: 2026-03-26T16:48:51Z | 350 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2070,7 +2070,7 @@
 -  `register_executor` function L165-173 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
 -  `has_capacity` function L175-178 — `(&self) -> bool` — configurable glob patterns.
 -  `resolve_executor_key` function L180-182 — `(&self, task_name: &str) -> String` — configurable glob patterns.
--  `tests` module L186-273 — `-` — configurable glob patterns.
+-  `tests` module L186-383 — `-` — configurable glob patterns.
 -  `MockExecutor` struct L194-198 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
 -  `MockExecutor` type L200-213 — `= MockExecutor` — configurable glob patterns.
 -  `new` function L201-207 — `(name: &str) -> Self` — configurable glob patterns.
@@ -2083,6 +2083,18 @@
 -  `create_test_event` function L245-252 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
 -  `test_register_executor` function L255-261 — `()` — configurable glob patterns.
 -  `test_resolve_executor_key` function L264-272 — `()` — configurable glob patterns.
+-  `test_routing_config_default` function L275-279 — `()` — configurable glob patterns.
+-  `test_routing_config_with_multiple_rules` function L282-291 — `()` — configurable glob patterns.
+-  `test_mock_executor_has_capacity` function L294-300 — `()` — configurable glob patterns.
+-  `test_mock_executor_metrics` function L303-308 — `()` — configurable glob patterns.
+-  `test_mock_executor_name` function L311-314 — `()` — configurable glob patterns.
+-  `test_mock_executor_execute_increments_count` function L317-328 — `()` — configurable glob patterns.
+-  `test_task_ready_event_creation` function L331-335 — `()` — configurable glob patterns.
+-  `test_execution_result_success` function L338-344 — `()` — configurable glob patterns.
+-  `test_execution_result_failure` function L347-352 — `()` — configurable glob patterns.
+-  `test_execution_result_retry` function L355-360 — `()` — configurable glob patterns.
+-  `test_executor_metrics_available_capacity` function L363-372 — `()` — configurable glob patterns.
+-  `test_executor_metrics_at_capacity` function L375-382 — `()` — configurable glob patterns.
 
 #### crates/cloacina/src/dispatcher/mod.rs
 
@@ -3371,10 +3383,22 @@
 -  `store_signature_sqlite` function L595-616 — `( &self, new_sig: NewUnifiedPackageSignature, ) -> Result<(), PackageSignError>` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signature_sqlite` function L618-643 — `( &self, package_hash: &str, ) -> Result<Option<PackageSignatureInfo>, PackageSi...` — - [`DetachedSignature`] format for standalone signature files
 -  `find_signatures_sqlite` function L645-669 — `( &self, package_hash: &str, ) -> Result<Vec<PackageSignatureInfo>, PackageSignE...` — - [`DetachedSignature`] format for standalone signature files
--  `tests` module L673-742 — `-` — - [`DetachedSignature`] format for standalone signature files
+-  `tests` module L673-871 — `-` — - [`DetachedSignature`] format for standalone signature files
 -  `test_sign_and_verify_with_raw_key` function L679-699 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_roundtrip` function L702-721 — `()` — - [`DetachedSignature`] format for standalone signature files
 -  `test_detached_signature_file_io` function L724-741 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_deterministic` function L744-749 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_different_inputs` function L752-756 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_empty_input` function L759-763 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_data_hash_large_payload` function L766-770 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_file_hash_matches_data_hash` function L773-781 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_compute_file_hash_nonexistent_file` function L784-787 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_invalid_json` function L790-793 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_version_and_algorithm` function L796-806 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_detached_signature_corrupted_base64` function L809-820 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_roundtrip_different_data` function L823-835 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_wrong_key_fails` function L838-852 — `()` — - [`DetachedSignature`] format for standalone signature files
+-  `test_sign_verify_tampered_data_fails` function L855-870 — `()` — - [`DetachedSignature`] format for standalone signature files
 
 #### crates/cloacina/src/security/verification.rs
 
@@ -3395,12 +3419,19 @@
 -  `compute_package_hash` function L382-388 — `(data: &[u8]) -> Result<String, VerificationError>` — Compute SHA256 hash of package data.
 -  `load_signature_from_db` function L391-406 — `( package_hash: &str, package_signer: &DbPackageSigner, ) -> Result<DetachedSign...` — Load signature from database.
 -  `load_signature_from_file` function L409-413 — `(path: &Path) -> Result<DetachedSignature, VerificationError>` — Load signature from file.
--  `tests` module L416-479 — `-` — - [`verify_and_load_package`] for verified package loading
+-  `tests` module L416-662 — `-` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_default` function L423-427 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_require_signatures` function L430-433 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_security_config_with_encryption_key` function L436-440 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_verify_package_offline_with_invalid_signature` function L443-472 — `()` — - [`verify_and_load_package`] for verified package loading
 -  `test_signature_source_default` function L475-478 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_valid_signature` function L481-516 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_tampered_content` function L519-556 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_wrong_key` function L559-594 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_nonexistent_package` function L597-617 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_nonexistent_signature` function L620-631 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_load_signature_from_file_valid` function L634-649 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_load_signature_from_file_invalid` function L652-661 — `()` — - [`verify_and_load_package`] for verified package loading
 
 ### crates/cloacina/src/task_scheduler
 
@@ -4667,31 +4698,49 @@
 - pub `calculate_delay` function L174-205 — `(&self, attempt: i32) -> Duration` — Calculates the delay before the next retry attempt.
 - pub `should_retry` function L217-237 — `(&self, error: &TaskError, attempt: i32) -> bool` — Determines whether a retry should be attempted based on the error and retry conditions.
 - pub `calculate_retry_at` function L249-252 — `(&self, attempt: i32, now: NaiveDateTime) -> NaiveDateTime` — Calculates the absolute timestamp when the next retry should occur.
-- pub `RetryPolicyBuilder` struct L313-315 — `{ policy: RetryPolicy }` — Builder for creating RetryPolicy instances with a fluent API.
-- pub `new` function L319-323 — `() -> Self` — Creates a new RetryPolicyBuilder with default values.
-- pub `max_attempts` function L326-329 — `(mut self, max_attempts: i32) -> Self` — Sets the maximum number of retry attempts.
-- pub `backoff_strategy` function L332-335 — `(mut self, strategy: BackoffStrategy) -> Self` — Sets the backoff strategy.
-- pub `initial_delay` function L338-341 — `(mut self, delay: Duration) -> Self` — Sets the initial delay before the first retry.
-- pub `max_delay` function L344-347 — `(mut self, delay: Duration) -> Self` — Sets the maximum delay between retries.
-- pub `with_jitter` function L350-353 — `(mut self, jitter: bool) -> Self` — Enables or disables jitter.
-- pub `retry_condition` function L356-359 — `(mut self, condition: RetryCondition) -> Self` — Adds a retry condition.
-- pub `retry_conditions` function L362-365 — `(mut self, conditions: Vec<RetryCondition>) -> Self` — Adds multiple retry conditions.
-- pub `build` function L368-370 — `(self) -> RetryPolicy` — Builds the RetryPolicy.
+- pub `RetryPolicyBuilder` struct L296-298 — `{ policy: RetryPolicy }` — Builder for creating RetryPolicy instances with a fluent API.
+- pub `new` function L302-306 — `() -> Self` — Creates a new RetryPolicyBuilder with default values.
+- pub `max_attempts` function L309-312 — `(mut self, max_attempts: i32) -> Self` — Sets the maximum number of retry attempts.
+- pub `backoff_strategy` function L315-318 — `(mut self, strategy: BackoffStrategy) -> Self` — Sets the backoff strategy.
+- pub `initial_delay` function L321-324 — `(mut self, delay: Duration) -> Self` — Sets the initial delay before the first retry.
+- pub `max_delay` function L327-330 — `(mut self, delay: Duration) -> Self` — Sets the maximum delay between retries.
+- pub `with_jitter` function L333-336 — `(mut self, jitter: bool) -> Self` — Enables or disables jitter.
+- pub `retry_condition` function L339-342 — `(mut self, condition: RetryCondition) -> Self` — Adds a retry condition.
+- pub `retry_conditions` function L345-348 — `(mut self, conditions: Vec<RetryCondition>) -> Self` — Adds multiple retry conditions.
+- pub `build` function L351-353 — `(self) -> RetryPolicy` — Builds the RetryPolicy.
 -  `RetryPolicy` type L134-157 — `impl Default for RetryPolicy` — ```
 -  `default` function L144-156 — `() -> Self` — Creates a default retry policy with reasonable production settings.
--  `RetryPolicy` type L159-309 — `= RetryPolicy` — ```
+-  `RetryPolicy` type L159-292 — `= RetryPolicy` — ```
 -  `add_jitter` function L257-262 — `(&self, delay: Duration) -> Duration` — Adds random jitter to a delay to prevent thundering herd problems.
--  `is_transient_error` function L265-308 — `(&self, error: &TaskError) -> bool` — Determines if an error is transient (network, timeout, temporary failures).
--  `RetryPolicyBuilder` type L317-371 — `= RetryPolicyBuilder` — ```
--  `RetryPolicyBuilder` type L373-377 — `impl Default for RetryPolicyBuilder` — ```
--  `default` function L374-376 — `() -> Self` — ```
--  `tests` module L380-473 — `-` — ```
--  `test_default_retry_policy` function L384-394 — `()` — ```
--  `test_retry_policy_builder` function L397-412 — `()` — ```
--  `test_fixed_backoff_calculation` function L415-425 — `()` — ```
--  `test_linear_backoff_calculation` function L428-438 — `()` — ```
--  `test_exponential_backoff_calculation` function L441-455 — `()` — ```
--  `test_max_delay_capping` function L458-472 — `()` — ```
+-  `is_transient_error` function L265-273 — `(&self, error: &TaskError) -> bool` — Determines if an error is transient (network, timeout, temporary failures).
+-  `message_matches_transient_patterns` function L276-291 — `(message: &str) -> bool` — Checks whether an error message contains any known transient error patterns.
+-  `TRANSIENT_PATTERNS` variable L277-286 — `: &[&str]` — ```
+-  `RetryPolicyBuilder` type L300-354 — `= RetryPolicyBuilder` — ```
+-  `RetryPolicyBuilder` type L356-360 — `impl Default for RetryPolicyBuilder` — ```
+-  `default` function L357-359 — `() -> Self` — ```
+-  `tests` module L363-640 — `-` — ```
+-  `test_default_retry_policy` function L367-377 — `()` — ```
+-  `test_retry_policy_builder` function L380-395 — `()` — ```
+-  `test_fixed_backoff_calculation` function L398-408 — `()` — ```
+-  `test_linear_backoff_calculation` function L411-421 — `()` — ```
+-  `test_exponential_backoff_calculation` function L424-438 — `()` — ```
+-  `test_max_delay_capping` function L441-455 — `()` — ```
+-  `make_execution_error` function L459-465 — `(msg: &str) -> TaskError` — ```
+-  `make_unknown_error` function L467-472 — `(msg: &str) -> TaskError` — ```
+-  `test_timeout_is_transient` function L475-482 — `()` — ```
+-  `test_connection_error_is_transient` function L485-493 — `()` — ```
+-  `test_unknown_error_with_transient_message_is_transient` function L496-500 — `()` — ```
+-  `test_permanent_errors_are_not_transient` function L503-508 — `()` — ```
+-  `test_non_retryable_error_variants_are_not_transient` function L511-530 — `()` — ```
+-  `test_transient_pattern_matching_is_case_insensitive` function L533-538 — `()` — ```
+-  `test_should_retry_all_errors_within_limit` function L543-554 — `()` — ```
+-  `test_should_retry_never_condition` function L557-564 — `()` — ```
+-  `test_should_retry_transient_only` function L567-575 — `()` — ```
+-  `test_should_retry_error_pattern` function L578-589 — `()` — ```
+-  `test_should_retry_zero_max_attempts` function L592-599 — `()` — ```
+-  `test_custom_backoff_falls_back_to_exponential` function L602-614 — `()` — ```
+-  `test_jitter_stays_within_bounds` function L617-631 — `()` — ```
+-  `test_message_matches_transient_patterns_directly` function L634-639 — `()` — ```
 
 #### crates/cloacina-workflow/src/task.rs
 

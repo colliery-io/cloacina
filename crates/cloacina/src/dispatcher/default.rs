@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -269,5 +269,115 @@ mod tests {
 
         assert_eq!(router.resolve("ml::train"), "gpu");
         assert_eq!(router.resolve("etl::extract"), "default");
+    }
+
+    #[test]
+    fn test_routing_config_default() {
+        let config = RoutingConfig::default();
+        assert_eq!(config.default_executor, "default");
+        assert!(config.rules.is_empty());
+    }
+
+    #[test]
+    fn test_routing_config_with_multiple_rules() {
+        let config = RoutingConfig::new("default")
+            .with_rule(super::super::types::RoutingRule::new("ml::*", "gpu"))
+            .with_rule(super::super::types::RoutingRule::new("io::*", "io_pool"));
+        let router = Router::new(config);
+
+        assert_eq!(router.resolve("ml::train"), "gpu");
+        assert_eq!(router.resolve("io::read"), "io_pool");
+        assert_eq!(router.resolve("unknown::task"), "default");
+    }
+
+    #[test]
+    fn test_mock_executor_has_capacity() {
+        let executor = MockExecutor::new("test");
+        assert!(executor.has_capacity());
+
+        executor.has_capacity.store(false, Ordering::SeqCst);
+        assert!(!executor.has_capacity());
+    }
+
+    #[test]
+    fn test_mock_executor_metrics() {
+        let executor = MockExecutor::new("test");
+        let metrics = executor.metrics();
+        assert_eq!(metrics.active_tasks, 0);
+        assert_eq!(metrics.total_executed, 0);
+    }
+
+    #[test]
+    fn test_mock_executor_name() {
+        let executor = MockExecutor::new("my_executor");
+        assert_eq!(executor.name(), "my_executor");
+    }
+
+    #[tokio::test]
+    async fn test_mock_executor_execute_increments_count() {
+        let executor = MockExecutor::new("test");
+        let event = create_test_event("task_a");
+
+        let result = executor.execute(event).await;
+        assert!(result.is_ok());
+        assert_eq!(executor.execution_count(), 1);
+
+        let event2 = create_test_event("task_b");
+        let _ = executor.execute(event2).await;
+        assert_eq!(executor.execution_count(), 2);
+    }
+
+    #[test]
+    fn test_task_ready_event_creation() {
+        let event = create_test_event("my_task");
+        assert_eq!(event.task_name, "my_task");
+        assert_eq!(event.attempt, 1);
+    }
+
+    #[test]
+    fn test_execution_result_success() {
+        let id = UniversalUuid::new_v4();
+        let result = ExecutionResult::success(id, Duration::from_secs(1));
+        assert_eq!(result.status, ExecutionStatus::Completed);
+        assert!(result.error.is_none());
+        assert_eq!(result.duration, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_execution_result_failure() {
+        let id = UniversalUuid::new_v4();
+        let result = ExecutionResult::failure(id, "boom".to_string(), Duration::from_millis(50));
+        assert_eq!(result.status, ExecutionStatus::Failed);
+        assert_eq!(result.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn test_execution_result_retry() {
+        let id = UniversalUuid::new_v4();
+        let result = ExecutionResult::retry(id, "transient", Duration::from_millis(10));
+        assert_eq!(result.status, ExecutionStatus::Retry);
+        assert_eq!(result.error.as_deref(), Some("transient"));
+    }
+
+    #[test]
+    fn test_executor_metrics_available_capacity() {
+        let metrics = ExecutorMetrics {
+            active_tasks: 2,
+            max_concurrent: 8,
+            total_executed: 100,
+            total_failed: 5,
+            avg_duration_ms: 50,
+        };
+        assert_eq!(metrics.available_capacity(), 6);
+    }
+
+    #[test]
+    fn test_executor_metrics_at_capacity() {
+        let metrics = ExecutorMetrics {
+            active_tasks: 4,
+            max_concurrent: 4,
+            ..Default::default()
+        };
+        assert_eq!(metrics.available_capacity(), 0);
     }
 }
