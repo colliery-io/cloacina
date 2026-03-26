@@ -9,11 +9,12 @@ weight: 10
 ```
 cloacina/
   crates/                    # Rust library crates
-    cloacina/                # Core workflow engine
+    cloacina/                # Core workflow engine (includes native Python via PyO3)
+    cloacina-build/          # Build-time helper for Python rpath (macOS)
+    cloacinactl/             # CLI binary
     cloacina-macros/         # Procedural macros
-
-  bindings/                  # Language bindings
-    cloaca-backend/          # Python bindings (PyPI: cloaca)
+    cloacina-testing/        # Test utilities (no-DB workflow testing)
+    cloacina-workflow/       # Minimal types for workflow authoring
 
   examples/                  # Example projects
     tutorials/               # Step-by-step learning path
@@ -66,17 +67,13 @@ Procedural macros for workflow definition:
 - `#[workflow]` - Define workflows declaratively
 - `#[packaged_workflow]` - Create distributable workflow packages
 
-## Bindings
+## Python Support
 
-### cloaca-backend (Python)
-
-Python bindings distributed as `cloaca` on PyPI. Built with PyO3.
-
-Exposes the full Cloacina API to Python including:
-- Workflow and task definition
-- Context management
-- Runner configuration
-- Database administration
+Python workflows run natively through PyO3 embedded in the `cloacina` core crate. The `cloaca` Python module is registered in `sys.modules` at runtime, providing:
+- `@cloaca.task` decorator for defining tasks
+- `@cloaca.trigger` decorator for defining triggers
+- `cloaca.WorkflowBuilder` context manager
+- `cloaca.Context` for data passing
 
 ## Examples
 
@@ -152,9 +149,7 @@ cargo build
 cargo build --no-default-features --features postgres
 cargo build --no-default-features --features sqlite
 
-# Build Python bindings
-cd bindings/cloaca-backend
-maturin develop
+# Python support is built into cloacina core (no separate build step)
 ```
 
 ### Testing

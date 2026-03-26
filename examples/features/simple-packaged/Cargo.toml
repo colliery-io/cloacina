@@ -23,3 +23,6 @@ tracing = "0.1"
 [dev-dependencies]
 cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros", "sqlite"] }
 tempfile = "3.0"
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }

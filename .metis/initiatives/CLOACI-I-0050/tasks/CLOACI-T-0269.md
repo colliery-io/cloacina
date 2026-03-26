@@ -4,14 +4,14 @@ level: task
 title: "Update all examples and tutorials to use cloacina-build"
 short_code: "CLOACI-T-0269"
 created_at: 2026-03-26T17:33:48.529014+00:00
-updated_at: 2026-03-26T17:33:48.529014+00:00
+updated_at: 2026-03-26T21:14:23.155270+00:00
 parent: CLOACI-I-0050
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0050
 ## Objective
 
 Update every example and tutorial binary to use `cloacina-build` in their `build.rs` so Python workflows work correctly on macOS. Also update any documentation references to the old cloaca bindings pattern.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -53,4 +55,21 @@ T-0267 (PyO3 move) and T-0268 (cloaca removal) should be completed first.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-03-26 — Complete
+
+**Examples updated (19 total):**
+- Added `[build-dependencies] cloacina-build` to all 19 example Cargo.toml files
+- Created `build.rs` calling `cloacina_build::configure()` in all 19 example directories
+- Covers: 10 feature examples, 6 Rust tutorials, 3 performance benchmarks
+
+**Python tutorials:**
+- Python tutorials (7 files) still import `cloaca` — this is correct, the `cloaca` module name is preserved via `ensure_cloaca_module()` in cloacina core
+
+**Documentation:**
+- Updated `docs/content/reference/repository-structure.md`:
+  - Directory layout now shows all current crates (cloacina-build, cloacinactl, cloacina-testing, cloacina-workflow)
+  - Replaced "Bindings / cloaca-backend" section with "Python Support" describing native PyO3 embedding
+  - Removed `cd bindings/cloaca-backend && maturin develop` build instructions
+- Generated docs in `docs/static/api/` still reference old cloaca-backend — will be regenerated on next docs build
+
+**Test results:** `angreal cloacina all` — 585 tests, 0 failures

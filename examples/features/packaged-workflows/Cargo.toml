@@ -22,3 +22,6 @@ tracing = "0.1"
 
 [dev-dependencies]
 cloacina = { path = "../../../crates/cloacina", default-features = false, features = ["macros", "sqlite"] }
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }

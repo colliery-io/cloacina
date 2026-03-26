@@ -13,3 +13,6 @@ tempfile = "3.8"
 uuid = { version = "1.6", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = "0.4"
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }

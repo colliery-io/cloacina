@@ -17,3 +17,6 @@ ctor = "0.2"
 chrono = "0.4"
 clap = { version = "4.0", features = ["derive"] }
 futures = "0.3"
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }
