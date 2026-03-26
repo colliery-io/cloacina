@@ -7,7 +7,7 @@ created_at: 2026-03-26T05:49:17.069563+00:00
 updated_at: 2026-03-26T06:03:04.199657+00:00
 parent: CLOACI-I-0048
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0048
 ## Objective
 
 Rename the `crates/cloacina-cli` directory and package to `cloacinactl`, aligning with the canonical control tool name used throughout the server and daemon code. The binary name stays `cloacina`. This is a clean rename with no logic changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

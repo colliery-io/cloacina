@@ -1,0 +1,186 @@
+---
+name: Nightly Tests
+
+on:
+  schedule:
+    # Run at 3am UTC every day
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+  # Allow release workflow to trigger nightly as a prerequisite
+  workflow_call: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Full test suite — unit, integration, macros, feature builds
+  # -----------------------------------------------------------------------
+
+  cloacina-tests:
+    name: Full Test Suite
+    uses: ./.github/workflows/cloacina.yml
+
+  # -----------------------------------------------------------------------
+  # Python bindings tests
+  # -----------------------------------------------------------------------
+
+  cloaca-tests:
+    name: Cloaca Tests
+    uses: ./.github/workflows/cloaca-matrix.yml
+
+  # -----------------------------------------------------------------------
+  # Examples & tutorials validation
+  # -----------------------------------------------------------------------
+
+  examples-docs:
+    name: Examples & Documentation
+    uses: ./.github/workflows/examples-docs.yml
+
+  # -----------------------------------------------------------------------
+  # Performance tests
+  # -----------------------------------------------------------------------
+
+  performance:
+    name: Performance Tests
+    uses: ./.github/workflows/performance.yml
+
+  # -----------------------------------------------------------------------
+  # macOS integration — verify builds on macOS
+  # -----------------------------------------------------------------------
+
+  macos-integration:
+    name: macOS Integration
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install angreal
+        run: |
+          python -m pip install --upgrade pip
+          pip install angreal
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-nightly-macos"
+
+      - name: Build workspace
+        run: cargo build --features "sqlite,macros"
+
+      - name: Run unit tests (SQLite)
+        run: angreal cloacina unit
+
+  # -----------------------------------------------------------------------
+  # Failure notification — auto-create GitHub issue
+  # -----------------------------------------------------------------------
+
+  notify-failure:
+    name: Notify on Failure
+    needs: [cloacina-tests, cloaca-tests, examples-docs, performance, macos-integration]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Check for existing nightly-failure issue
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'nightly-failure',
+              state: 'open',
+            });
+            core.setOutput('exists', issues.data.length > 0 ? 'true' : 'false');
+            if (issues.data.length > 0) {
+              core.setOutput('issue_number', issues.data[0].number);
+            }
+
+      - name: Create GitHub Issue on failure
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Nightly test failure — ${new Date().toISOString().split('T')[0]}`;
+            const body = [
+              '## Nightly Test Failure',
+              '',
+              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `**Date:** ${new Date().toISOString()}`,
+              '',
+              'One or more nightly tests failed. Check the run logs for details.',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['nightly-failure'],
+            });
+
+      - name: Comment on existing issue
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.check.outputs.issue_number }},
+              body: `Still failing — [run ${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+            });
+
+  # -----------------------------------------------------------------------
+  # Close resolved — auto-close nightly-failure issue on success
+  # -----------------------------------------------------------------------
+
+  close-resolved:
+    name: Close Resolved Issues
+    needs: [cloacina-tests, cloaca-tests, examples-docs, performance, macos-integration]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Close nightly-failure issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'nightly-failure',
+              state: 'open',
+            });
+
+            for (const issue of issues.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Resolved — nightly passed in [run ${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+            }

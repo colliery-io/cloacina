@@ -39,7 +39,6 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       python: ${{ steps.filter.outputs.python }}
-      examples: ${{ steps.filter.outputs.examples }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v4
@@ -50,19 +49,18 @@ jobs:
           filters: |
             rust:
               - 'crates/cloacina/**'
+              - 'crates/cloacinactl/**'
               - 'crates/cloacina-macros/**'
+              - 'crates/cloacina-testing/**'
               - 'crates/cloacina-workflow/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
             python:
               - 'python-tests/**'
-              - 'crates/cloaca/**'
-              - 'crates/cloaca-backend/**'
+              - 'bindings/cloaca-backend/**'
               - 'crates/cloacina/**'
+              - 'crates/cloacina-workflow/**'
               - 'Cargo.*'
-            examples:
-              - 'examples/**'
-              - 'tutorials/**'
             workflows:
               - '.github/workflows/**'
 
@@ -116,32 +114,14 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     uses: ./.github/workflows/cloacina.yml
 
-  # Python bindings tests - only if python or rust files changed
-  # Runs after cloacina-tests to avoid resource contention
+  # Python bindings tests - run on any rust or python file changes
+  # (bindings consume cloacina core, so rust changes can break them)
   cloaca-tests:
     name: Cloaca Tests
     needs: [cloacina-tests, changes]
-    if: always() && needs.changes.outputs.python == 'true'
-    uses: ./.github/workflows/cloaca-matrix.yml
-
-  # Examples - only on main/develop or if examples changed
-  # Runs after cloaca-tests to avoid resource contention
-  examples-docs:
-    name: Examples & Documentation
-    needs: [cloaca-tests, changes]
     if: |
       always() && (
-        needs.changes.outputs.examples == 'true' ||
-        github.ref == 'refs/heads/main' ||
-        github.ref == 'refs/heads/develop'
+        needs.changes.outputs.python == 'true' ||
+        needs.changes.outputs.rust == 'true'
       )
-    uses: ./.github/workflows/examples-docs.yml
-
-  # Performance tests - only on main or with label
-  performance:
-    name: Performance Tests
-    needs: [quick-checks, changes]
-    if: |
-      github.ref == 'refs/heads/main' ||
-      contains(github.event.pull_request.labels.*.name, 'run-perf')
-    uses: ./.github/workflows/performance.yml
+    uses: ./.github/workflows/cloaca-matrix.yml

@@ -4,14 +4,14 @@ level: initiative
 title: "Quality & Observability — Tests, CI, Soak, Benchmarks"
 short_code: "CLOACI-I-0052"
 created_at: 2026-03-26T05:35:32.086116+00:00
-updated_at: 2026-03-26T05:35:32.086116+00:00
+updated_at: 2026-03-26T14:12:31.986031+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -45,11 +45,12 @@ Quality and observability work consolidated from the previous development cycle:
 **Goals:**
 - Improve test coverage across security, dispatcher, and database modules
 - CI pipeline: fast PR checks + nightly extended test suite
-- Soak tests for daemon and server modes passing reliably
-- Performance benchmarks through real deployment paths (not library API)
+- Nightly workflow with failure alerting and manual dispatch
 - All tests green before shipping any release
 
 **Non-Goals:**
+- Soak/chaos test scenarios (deferred to post-I-0049 initiative)
+- Performance benchmarks (deferred to post-I-0049 initiative)
 - Automated regression detection or trend analysis (future work)
 - Multi-tenant performance testing
 
@@ -62,17 +63,8 @@ Continue expanding unit and integration tests for under-covered modules. Priorit
 - **PR CI**: `angreal cloacina all` (unit + integration + macros). Fast, under 10 minutes.
 - **Nightly CI**: Full suite including soak tests, performance benchmarks, macOS integration, and examples validation. Runs at 3am UTC. Creates GitHub issue on failure.
 
-### Soak Tests
-- `angreal soak --mode daemon` — Sustained load against daemon process with concurrent injectors
-- `angreal soak --mode server` — Sustained load against server process (containerized with postgres)
-- Configurable duration, injector count, and failure thresholds
-
-### Performance Benchmarks
-- Python-based (`tests/performance/scheduler_bench.py`)
-- Build real packages, spawn daemon/server, measure e2e latency
-- `angreal performance daemon` for daemon-mode bench
-- Server bench requires Docker compose (server + postgres containers)
-- Continuous scheduling bench deferred until I-0037 ships
+### Soak Tests & Performance Benchmarks
+Deferred to a separate initiative after I-0049 (Server & Daemon) ships. See that initiative for soak/chaos scenarios, daemon/server performance benchmarks, and continuous scheduling bench.
 
 ## Prior Art
 
@@ -98,16 +90,21 @@ Key learnings:
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - `angreal cloacina all` passes (unit + integration + macros)
-- Nightly CI runs soak tests, performance benchmarks, and macOS integration
-- `angreal soak --mode daemon` and `angreal soak --mode server` pass
-- `angreal performance daemon` runs Python bench with real package deployment
+- Nightly CI workflow running at 3am UTC with macOS integration, examples validation
+- Nightly auto-creates GitHub issue on failure
+- PR CI stays fast (under 10 minutes)
 - Test coverage improved for security, dispatcher, and database modules
 - No regressions from previous test suite
 
 ## Implementation Plan
 
-1. **Test coverage expansion** — Fill gaps in security, dispatcher, database modules
-2. **CI nightly workflow** — Finalize nightly schedule, failure alerting, manual dispatch
-3. **Soak test hardening** — Stabilize daemon and server soak tests, add configurable thresholds
-4. **Performance bench** — Implement Python-based daemon bench; server bench after Docker orchestration is ready; continuous bench after I-0037
+1. **Test coverage expansion** — Fill gaps in security, dispatcher, database modules using `cloacina-testing` crate
+2. **CI restructure** — Move slow jobs to nightly, keep PR CI fast
+3. **Nightly workflow** — Schedule at 3am UTC, manual dispatch, auto-create GitHub issue on failure

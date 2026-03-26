@@ -4,14 +4,14 @@ level: task
 title: "Create cloacina-testing crate"
 short_code: "CLOACI-T-0263"
 created_at: 2026-03-26T05:49:17.619004+00:00
-updated_at: 2026-03-26T06:03:23.092696+00:00
+updated_at: 2026-03-26T12:59:54.110044+00:00
 parent: CLOACI-I-0048
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0048
 ## Objective
 
 Create `crates/cloacina-testing` providing `TestRunner`, in-memory DAL, and test DB helpers so workflow logic can be unit-tested without a live database. Port from the proven implementation on the archive branch.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
