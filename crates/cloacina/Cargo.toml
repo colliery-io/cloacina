@@ -69,6 +69,11 @@ hex = { version = "0.4" }
 pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
+pyo3 = { version = "0.25" }
+pythonize = { version = "0.25" }
+
+[build-dependencies]
+cloacina-build = { path = "../cloacina-build" }
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)

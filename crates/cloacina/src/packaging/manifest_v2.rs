@@ -413,3 +413,35 @@ mod tests {
         assert_eq!(parsed, PackageLanguage::Rust);
     }
 }
+
+/// Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
+pub fn parse_duration_str(s: &str) -> Result<std::time::Duration, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("empty string".to_string());
+    }
+
+    let (num_str, suffix) = if s.ends_with("ms") {
+        (&s[..s.len() - 2], "ms")
+    } else {
+        let split = s.len() - 1;
+        if split == 0 || !s.as_bytes()[split].is_ascii_alphabetic() {
+            return Err(format!(
+                "expected number followed by unit (s, m, h, ms), got '{s}'"
+            ));
+        }
+        (&s[..split], &s[split..])
+    };
+
+    let value: u64 = num_str
+        .parse()
+        .map_err(|_| format!("'{num_str}' is not a valid number"))?;
+
+    match suffix {
+        "ms" => Ok(std::time::Duration::from_millis(value)),
+        "s" => Ok(std::time::Duration::from_secs(value)),
+        "m" => Ok(std::time::Duration::from_secs(value * 60)),
+        "h" => Ok(std::time::Duration::from_secs(value * 3600)),
+        other => Err(format!("unknown unit '{other}', expected s, m, h, or ms")),
+    }
+}
