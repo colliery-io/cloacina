@@ -4,14 +4,14 @@ level: initiative
 title: "CLI Rename + Testing Crate — Foundation Tooling"
 short_code: "CLOACI-I-0048"
 created_at: 2026-03-26T05:34:47.887985+00:00
-updated_at: 2026-03-26T05:34:47.887985+00:00
+updated_at: 2026-03-26T05:49:11.309084+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -38,6 +38,12 @@ Both changes were previously implemented on the `archive/main-pre-reset` branch 
 - New CLI commands or features beyond the rename
 - Server or daemon implementation (covered by subsequent initiatives)
 - Changes to the core engine or scheduling crates
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
