@@ -4,14 +4,14 @@ level: task
 title: "Remove bindings/cloaca-backend and update CI"
 short_code: "CLOACI-T-0268"
 created_at: 2026-03-26T17:33:46.965884+00:00
-updated_at: 2026-03-26T17:33:46.965884+00:00
+updated_at: 2026-03-26T21:05:30.185992+00:00
 parent: CLOACI-I-0050
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0050
 ## Objective
 
 Remove the now-redundant `bindings/cloaca-backend` crate and all associated infrastructure (CI workflows, angreal tasks, release pipeline references). Python is now served natively through cloacina core.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +58,21 @@ T-0267 (PyO3 move into core) must be completed first.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-03-26 — Complete
+
+**Removed:**
+- `bindings/cloaca-backend/` — entire directory deleted
+- `bindings/` directory removed (was empty after deletion)
+- `.github/workflows/cloaca-matrix.yml` — deleted
+
+**CI updates:**
+- `ci.yml` — removed `python` path filter output, removed cloaca-tests job, removed `bindings/cloaca-backend` from filters, added `crates/cloacina-build` to rust filter
+- `nightly.yml` — removed cloaca-tests job, updated needs lists for notify-failure and close-resolved
+- `unified_release.yml` — removed cloaca wheel/sdist build jobs and PyPI publish job, added TODO comments for future native Python packaging
+
+**Other:**
+- Root `Cargo.toml` `exclude` updated: removed `bindings/*`
+- Angreal `cloaca` task group left in place with note — needs rework once native Python packaging model is defined
+- Remaining `cloaca-backend` references are all in `.metis/` historical docs and `.claude/worktrees/` — no functional code references
+
+**Test results:** `angreal cloacina all` — 585 tests, 0 failures

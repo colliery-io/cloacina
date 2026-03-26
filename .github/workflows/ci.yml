@@ -38,7 +38,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
-      python: ${{ steps.filter.outputs.python }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v4
@@ -49,18 +48,13 @@ jobs:
           filters: |
             rust:
               - 'crates/cloacina/**'
+              - 'crates/cloacina-build/**'
               - 'crates/cloacinactl/**'
               - 'crates/cloacina-macros/**'
               - 'crates/cloacina-testing/**'
               - 'crates/cloacina-workflow/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
-            python:
-              - 'python-tests/**'
-              - 'bindings/cloaca-backend/**'
-              - 'crates/cloacina/**'
-              - 'crates/cloacina-workflow/**'
-              - 'Cargo.*'
             workflows:
               - '.github/workflows/**'
 
@@ -70,7 +64,6 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.rust == 'true' ||
-      needs.changes.outputs.python == 'true' ||
       needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -107,21 +100,9 @@ jobs:
       - name: Cargo check (PostgreSQL)
         run: cargo check --features postgres
 
-  # Rust tests - only if rust files changed (runs first)
+  # Rust + Python tests (Python is now native in cloacina core)
   cloacina-tests:
     name: Cloacina Tests
     needs: [quick-checks, changes]
     if: needs.changes.outputs.rust == 'true'
     uses: ./.github/workflows/cloacina.yml
-
-  # Python bindings tests - run on any rust or python file changes
-  # (bindings consume cloacina core, so rust changes can break them)
-  cloaca-tests:
-    name: Cloaca Tests
-    needs: [cloacina-tests, changes]
-    if: |
-      always() && (
-        needs.changes.outputs.python == 'true' ||
-        needs.changes.outputs.rust == 'true'
-      )
-    uses: ./.github/workflows/cloaca-matrix.yml

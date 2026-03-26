@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-macros", "crates/cloacina-testing", "crates/cloacina-workflow"]
-exclude = ["examples/*", "bindings/*"]
+exclude = ["examples/*"]
 resolver = "2"
 
 [workspace.package]

@@ -23,14 +23,6 @@ jobs:
     uses: ./.github/workflows/cloacina.yml
 
   # -----------------------------------------------------------------------
-  # Python bindings tests
-  # -----------------------------------------------------------------------
-
-  cloaca-tests:
-    name: Cloaca Tests
-    uses: ./.github/workflows/cloaca-matrix.yml
-
-  # -----------------------------------------------------------------------
   # Examples & tutorials validation
   # -----------------------------------------------------------------------
 
@@ -88,7 +80,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, cloaca-tests, examples-docs, performance, macos-integration]
+    needs: [cloacina-tests, examples-docs, performance, macos-integration]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -152,7 +144,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, cloaca-tests, examples-docs, performance, macos-integration]
+    needs: [cloacina-tests, examples-docs, performance, macos-integration]
     if: success()
     runs-on: ubuntu-latest
     permissions:
