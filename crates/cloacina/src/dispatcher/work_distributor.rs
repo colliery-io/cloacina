@@ -266,7 +266,7 @@ pub struct SqliteDistributor {
 #[cfg(feature = "sqlite")]
 impl SqliteDistributor {
     /// Default poll interval for SQLite
-    const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+    const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
     /// Creates a new SQLite work distributor with default poll interval (500ms).
     pub fn new() -> Self {

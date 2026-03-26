@@ -93,7 +93,7 @@ impl PipelineExecutor for DefaultRunner {
                     return self.build_pipeline_result(execution_id).await;
                 }
                 _ => {
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             }
         }

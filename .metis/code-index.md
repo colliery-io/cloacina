@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-25T21:01:16Z | 429 files | JavaScript, Python, Rust
+> Generated: 2026-03-25T22:24:14Z | 429 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -8751,15 +8751,44 @@
 
 #### examples/performance/scheduler-bench/src/scenarios/continuous.rs
 
-- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Continuous scheduler benchmarks (T-0252).
+- pub `run` function L122-148 — `( _db: &cloacina::Database, duration: Duration, scenario: Option<&str>, ) -> Res...` — - multi-source: multiple data sources feeding one scheduler
+-  `BenchConn` struct L44 — `-` — - multi-source: multiple data sources feeding one scheduler
+-  `BenchConn` type L45-58 — `impl DataConnection for BenchConn` — - multi-source: multiple data sources feeding one scheduler
+-  `connect` function L46-48 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — - multi-source: multiple data sources feeding one scheduler
+-  `descriptor` function L49-54 — `(&self) -> ConnectionDescriptor` — - multi-source: multiple data sources feeding one scheduler
+-  `system_metadata` function L55-57 — `(&self) -> serde_json::Value` — - multi-source: multiple data sources feeding one scheduler
+-  `make_source` function L60-67 — `(name: &str) -> DataSource` — - multi-source: multiple data sources feeding one scheduler
+-  `CountingTask` struct L69-72 — `{ id: String, count: Arc<AtomicU64> }` — - multi-source: multiple data sources feeding one scheduler
+-  `CountingTask` type L74-81 — `= CountingTask` — - multi-source: multiple data sources feeding one scheduler
+-  `new` function L75-80 — `(id: &str, count: Arc<AtomicU64>) -> Self` — - multi-source: multiple data sources feeding one scheduler
+-  `CountingTask` type L84-98 — `impl Task for CountingTask` — - multi-source: multiple data sources feeding one scheduler
+-  `execute` function L85-91 — `( &self, context: Context<serde_json::Value>, ) -> Result<Context<serde_json::Va...` — - multi-source: multiple data sources feeding one scheduler
+-  `id` function L92-94 — `(&self) -> &str` — - multi-source: multiple data sources feeding one scheduler
+-  `dependencies` function L95-97 — `(&self) -> &[TaskNamespace]` — - multi-source: multiple data sources feeding one scheduler
+-  `make_boundary` function L100-106 — `(start: i64, end: i64) -> ComputationBoundary` — - multi-source: multiple data sources feeding one scheduler
+-  `make_detector_completion` function L108-118 — `(task_name: &str, boundaries: Vec<ComputationBoundary>) -> LedgerEvent` — - multi-source: multiple data sources feeding one scheduler
+-  `run_steady` function L151-222 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Steady state: inject boundaries at constant rate, Immediate policy.
+-  `run_burst` function L225-295 — `() -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Burst: inject 10k boundaries at once, measure coalescing.
+-  `run_multi_source` function L298-372 — `( duration: Duration, ) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Multi-source: 3 sources feeding one scheduler, measure per-source throughput.
 
 #### examples/performance/scheduler-bench/src/scenarios/execution.rs
 
-- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Task execution engine benchmarks (T-0253).
+- pub `run` function L74-99 — `( _db: &cloacina::Database, duration: Duration, scenario: Option<&str>, ) -> Res...` — - concurrent: N workflows submitted simultaneously
+-  `bench_step_1` function L32-35 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `bench_step_2` function L38-41 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `bench_step_3` function L44-47 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `bench_step_4` function L50-53 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `bench_step_5` function L56-59 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `fan_root` function L63-66 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `fan_worker` function L69-72 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - concurrent: N workflows submitted simultaneously
+-  `run_simple` function L102-135 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Simple linear 5-task pipeline, measure per-pipeline latency.
+-  `run_concurrent` function L138-192 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Concurrent submissions: N workflows at once, measure throughput under contention.
 
 #### examples/performance/scheduler-bench/src/scenarios/hybrid.rs
 
-- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Hybrid benchmarks — all schedulers simultaneously (T-0254).
+- pub `run` function L37-61 — `( _db: &cloacina::Database, duration: Duration, scenario: Option<&str>, ) -> Res...` — - mixed-load: direct execution + trigger + continuous all active
+-  `hybrid_task` function L32-35 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - mixed-load: direct execution + trigger + continuous all active
+-  `run_mixed_load` function L67-135 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Mixed load: cron scheduling + direct execution simultaneously.
 
 #### examples/performance/scheduler-bench/src/scenarios/mod.rs
 
@@ -8776,7 +8805,21 @@
 
 #### examples/performance/scheduler-bench/src/scenarios/trigger.rs
 
-- pub `run` function L22-28 — `( _db: &cloacina::Database, _duration: Duration, _scenario: Option<&str>, ) -> R...` — Trigger + cron scheduler benchmarks (T-0251).
+- pub `run` function L103-129 — `( _db: &cloacina::Database, duration: Duration, scenario: Option<&str>, ) -> Res...` — - cron-many: 100 concurrent cron schedules
+-  `trigger_bench_task` function L41-44 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - cron-many: 100 concurrent cron schedules
+-  `BenchTrigger` struct L48-54 — `{ name: String, poll_interval: Duration, allow_concurrent: bool, fire_count: Arc...` — A benchmark trigger that fires on demand via an atomic counter.
+-  `BenchTrigger` type L56-75 — `= BenchTrigger` — - cron-many: 100 concurrent cron schedules
+-  `new` function L57-65 — `(name: &str, poll_interval: Duration, allow_concurrent: bool) -> Self` — - cron-many: 100 concurrent cron schedules
+-  `arm` function L68-70 — `(&self, count: u64)` — Set number of times this trigger should fire.
+-  `polls` function L72-74 — `(&self) -> u64` — - cron-many: 100 concurrent cron schedules
+-  `BenchTrigger` type L78-101 — `impl Trigger for BenchTrigger` — - cron-many: 100 concurrent cron schedules
+-  `name` function L79-81 — `(&self) -> &str` — - cron-many: 100 concurrent cron schedules
+-  `poll_interval` function L83-85 — `(&self) -> Duration` — - cron-many: 100 concurrent cron schedules
+-  `allow_concurrent` function L87-89 — `(&self) -> bool` — - cron-many: 100 concurrent cron schedules
+-  `poll` function L91-100 — `(&self) -> Result<TriggerResult, TriggerError>` — - cron-many: 100 concurrent cron schedules
+-  `run_high_freq` function L132-207 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — High-frequency trigger: 100ms poll interval, measure poll-to-execution latency.
+-  `run_concurrent` function L210-293 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Concurrent triggers: 50 triggers registered, measure scheduler loop overhead.
+-  `run_dedup` function L296-376 — `(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::error::Error>>` — Dedup under load: rapid-fire with allow_concurrent=false.
 
 ### examples/performance/simple/src
 

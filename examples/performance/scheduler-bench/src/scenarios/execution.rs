@@ -103,6 +103,7 @@ async fn run_simple(duration: Duration) -> Result<BenchmarkResult, Box<dyn std::
     let config = DefaultRunnerConfig::builder()
         .enable_cron_scheduling(false)
         .enable_registry_reconciler(false)
+        .scheduler_poll_interval(Duration::from_millis(1))
         .db_pool_size(4)
         .build();
 

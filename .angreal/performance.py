@@ -231,7 +231,7 @@ def _run_bench(subcommand, duration="60s", scenario=None, output="table"):
     if not os.path.exists(BENCH_DIR):
         raise RuntimeError(f"Scheduler bench not found at {BENCH_DIR}")
 
-    args = ["cargo", "run", "--", subcommand, "--duration", str(duration), "--output", output]
+    args = ["cargo", "run", "--release", "--", subcommand, "--duration", str(duration), "--output", output]
     if scenario:
         args.extend(["--scenario", scenario])
 
