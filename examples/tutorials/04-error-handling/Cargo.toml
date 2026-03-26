@@ -19,3 +19,6 @@ async-trait = "0.1"
 uuid = { version = "1.0", features = ["v4"] }
 rand = "0.8"
 ctor = "0.2"
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }

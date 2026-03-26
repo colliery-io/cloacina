@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/cloacina", "crates/cloacinactl", "crates/cloacina-macros", "crates/cloacina-testing", "crates/cloacina-workflow"]
+members = ["crates/cloacina", "crates/cloacina-build", "crates/cloacinactl", "crates/cloacina-macros", "crates/cloacina-testing", "crates/cloacina-workflow"]
 exclude = ["examples/*", "bindings/*"]
 resolver = "2"
 
@@ -19,6 +19,7 @@ async-trait = { version = "0.1" }
 ctor = { version = "0.2" }
 once_cell = { version = "1.19.0" }
 serde_json = { version = "1.0" }
+cloacina-build = { version = "0.3.2", path = "crates/cloacina-build" }
 cloacina-macros = { version = "0.3.2", path = "crates/cloacina-macros" }
 cloacina-workflow = { version = "0.3.2", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive", "env"] }

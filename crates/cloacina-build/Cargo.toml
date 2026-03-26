@@ -1,0 +1,14 @@
+[package]
+name = "cloacina-build"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+edition = "2021"
+description = "Build-time helper for binaries that depend on cloacina. Sets up Python rpath so the Python shared library can be found at runtime."
+
+[dependencies]
+pyo3-build-config = { version = "0.25", features = ["resolve-config"] }

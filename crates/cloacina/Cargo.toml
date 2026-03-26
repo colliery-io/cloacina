@@ -78,7 +78,7 @@ argon2 = { version = "0.5" }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [build-dependencies]
-pyo3-build-config = "0.25"
+cloacina-build = { workspace = true }
 
 [dev-dependencies]
 # ctor is needed for tests that use the workflow macro (generates #[ctor::ctor] for auto-registration)

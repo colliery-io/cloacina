@@ -16,19 +16,4 @@
 
 fn main() {
     cloacina_build::configure();
-
-    // Set rpath so the binary can find the Python shared library at runtime.
-    let config = pyo3_build_config::get();
-    if let Some(lib_dir) = &config.lib_dir {
-        let rpath = if lib_dir.contains(".framework/") {
-            let parts: Vec<&str> = lib_dir.splitn(2, ".framework/").collect();
-            std::path::Path::new(parts[0])
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| lib_dir.clone())
-        } else {
-            lib_dir.clone()
-        };
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", rpath);
-    }
 }

@@ -20,4 +20,5 @@ uuid = { version = "1.0", features = ["v4"] }
 parking_lot = "0.12"
 
 [build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }
 pyo3-build-config = "0.25"

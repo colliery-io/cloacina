@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 cloacina = { path = "../../../crates/cloacina" }
-cloacina_workflow = { path = "../../../crates/cloacina-workflow" }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 tokio = { version = "1.0", features = ["full"] }
 serde_json = "1.0"
 tracing = "0.1"
@@ -17,3 +17,6 @@ ctor = "0.2"
 chrono = "0.4"
 clap = { version = "4.0", features = ["derive"] }
 futures = "0.3"
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }
