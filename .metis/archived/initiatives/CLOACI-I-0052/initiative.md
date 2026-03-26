@@ -4,14 +4,14 @@ level: initiative
 title: "Quality & Observability — Tests, CI, Soak, Benchmarks"
 short_code: "CLOACI-I-0052"
 created_at: 2026-03-26T05:35:32.086116+00:00
-updated_at: 2026-03-26T14:12:31.986031+00:00
+updated_at: 2026-03-26T16:58:07.621289+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -87,6 +87,14 @@ Key learnings:
 
 - **In-process Rust benchmarks (criterion)**: Rejected. Prior attempts (I-0045) showed library-level benchmarks do not capture real deployment overhead (process spawn, IPC, network, database). Python e2e bench through actual daemon/server is more representative.
 - **Separate CI repo for nightly jobs**: Rejected. Keeping nightly workflow in the same repo simplifies maintenance and ensures tests stay in sync with code.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

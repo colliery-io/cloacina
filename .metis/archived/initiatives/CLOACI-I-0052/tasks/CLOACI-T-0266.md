@@ -4,14 +4,14 @@ level: task
 title: "Nightly CI workflow with failure alerting"
 short_code: "CLOACI-T-0266"
 created_at: 2026-03-26T14:13:19.353379+00:00
-updated_at: 2026-03-26T15:21:07.142549+00:00
+updated_at: 2026-03-26T16:57:54.450386+00:00
 parent: CLOACI-I-0052
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0052
 ## Objective
 
 Create a nightly GitHub Actions workflow that runs the extended test suite (slow jobs moved out of PR CI) and auto-creates a GitHub issue when any job fails. Supports manual dispatch for on-demand runs.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

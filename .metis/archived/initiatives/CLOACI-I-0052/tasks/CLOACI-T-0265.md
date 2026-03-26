@@ -4,14 +4,14 @@ level: task
 title: "CI restructure — fast PR checks, move slow jobs to nightly"
 short_code: "CLOACI-T-0265"
 created_at: 2026-03-26T14:13:18.338992+00:00
-updated_at: 2026-03-26T15:24:37.831515+00:00
+updated_at: 2026-03-26T16:57:55.549425+00:00
 parent: CLOACI-I-0052
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,6 +38,10 @@ Existing workflows in `.github/workflows/`:
 - `performance.yml` — performance tests (currently only on main or `run-perf` label)
 - `docs.yml` — docs build
 - `unified_release.yml` — release workflow
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

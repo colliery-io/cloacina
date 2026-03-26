@@ -4,14 +4,14 @@ level: task
 title: "Test coverage — security, dispatcher, and database modules"
 short_code: "CLOACI-T-0264"
 created_at: 2026-03-26T14:13:17.009311+00:00
-updated_at: 2026-03-26T16:36:44.636817+00:00
+updated_at: 2026-03-26T16:57:55.896438+00:00
 parent: CLOACI-I-0052
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0052
 ## Objective
 
 Expand unit and integration test coverage for under-tested modules. Focus on security (db_key_manager, package_signer, verification), dispatcher edge cases, database DAL methods, and retry/recovery logic. Use `cloacina-testing` for no-DB workflow tests where applicable.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
