@@ -4,14 +4,14 @@ level: task
 title: "Move PyO3 into cloacina core and create cloacina-build crate"
 short_code: "CLOACI-T-0267"
 created_at: 2026-03-26T17:33:45.556746+00:00
-updated_at: 2026-03-26T17:38:59.978852+00:00
+updated_at: 2026-03-26T22:33:43.946554+00:00
 parent: CLOACI-I-0050
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0050
 ## Objective
 
 Move PyO3 bindings from `bindings/cloaca-backend` into `crates/cloacina` core so Python workflows run natively without a separate bindings crate. Create `crates/cloacina-build` helper crate that handles Python rpath configuration for downstream binaries (required on macOS).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

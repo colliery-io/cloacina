@@ -4,14 +4,14 @@ level: task
 title: "Update all examples and tutorials to use cloacina-build"
 short_code: "CLOACI-T-0269"
 created_at: 2026-03-26T17:33:48.529014+00:00
-updated_at: 2026-03-26T21:14:23.155270+00:00
+updated_at: 2026-03-26T22:33:45.339625+00:00
 parent: CLOACI-I-0050
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0050
 ## Objective
 
 Update every example and tutorial binary to use `cloacina-build` in their `build.rs` so Python workflows work correctly on macOS. Also update any documentation references to the old cloaca bindings pattern.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

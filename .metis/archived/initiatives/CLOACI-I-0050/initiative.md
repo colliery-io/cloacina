@@ -4,14 +4,14 @@ level: initiative
 title: "Native Python in Core — PyO3 Move, cloacina-build, Cloaca Removal"
 short_code: "CLOACI-I-0050"
 created_at: 2026-03-26T05:35:13.982223+00:00
-updated_at: 2026-03-26T17:33:33.085146+00:00
+updated_at: 2026-03-26T22:34:08.138377+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -80,6 +80,14 @@ Key learnings:
 - **Keep PyO3 in bindings crate**: Rejected because it forces all downstream consumers to solve rpath themselves and prevents Python from being a first-class citizen in core.
 - **Feature-flag Python support**: Rejected because Python is a core requirement for the trigger decorator system and workflow authoring.
 - **Simple lock-based pipeline execution**: Rejected in favor of claim-based model which handles runner crashes gracefully via claim expiry.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

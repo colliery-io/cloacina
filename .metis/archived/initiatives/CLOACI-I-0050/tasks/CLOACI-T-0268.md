@@ -4,14 +4,14 @@ level: task
 title: "Remove bindings/cloaca-backend and update CI"
 short_code: "CLOACI-T-0268"
 created_at: 2026-03-26T17:33:46.965884+00:00
-updated_at: 2026-03-26T21:05:30.185992+00:00
+updated_at: 2026-03-26T22:33:44.823880+00:00
 parent: CLOACI-I-0050
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0050
 ## Objective
 
 Remove the now-redundant `bindings/cloaca-backend` crate and all associated infrastructure (CI workflows, angreal tasks, release pipeline references). Python is now served natively through cloacina core.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
