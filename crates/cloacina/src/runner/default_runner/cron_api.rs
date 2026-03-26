@@ -95,7 +95,7 @@ impl DefaultRunner {
             cron_expression: cron_expression.to_string(),
             timezone: Some(timezone.to_string()),
             enabled: Some(UniversalBool::new(true)),
-            catchup_policy: Some("skip".to_string()),
+            catchup_policy: Some("run_all".to_string()),
             start_date: None,
             end_date: None,
             next_run_at: UniversalTimestamp(next_run),

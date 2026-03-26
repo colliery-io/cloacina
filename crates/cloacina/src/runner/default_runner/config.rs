@@ -254,7 +254,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 db_pool_size: 10,
                 enable_recovery: true,
                 enable_cron_scheduling: true,
-                cron_poll_interval: Duration::from_secs(30),
+                cron_poll_interval: Duration::from_millis(50),
                 cron_max_catchup_executions: usize::MAX,
                 cron_enable_recovery: true,
                 cron_recovery_interval: Duration::from_secs(300),

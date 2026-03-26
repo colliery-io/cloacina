@@ -238,7 +238,7 @@ async fn run(args: &DaemonArgs) -> Result<()> {
         .registry_enable_startup_reconciliation(true)
         .enable_cron_scheduling(true)
         .cron_enable_recovery(true)
-        .cron_poll_interval(Duration::from_secs(2))
+        .cron_poll_interval(Duration::from_millis(50))
         .db_pool_size(4)
         .build();
 

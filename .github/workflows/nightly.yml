@@ -203,16 +203,27 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "cloacina-nightly"
 
-      - name: Run scheduler benchmarks (all scenarios, 30s each)
+      - name: Build cloacinactl and workflow package
+        run: cargo build --release -p cloacinactl
+
+      - name: Run scheduler benchmarks (daemon mode, 30s)
         run: |
-          cd examples/performance/scheduler-bench
-          cargo run --release -- --duration 30s --output json all > /tmp/bench-results.json 2>&1 || true
-          cargo run --release -- --duration 30s --output table all
+          python tests/performance/scheduler_bench.py \
+            --mode daemon --build --duration 30s \
+            --output json > /tmp/bench-results.json 2>&1 || true
+          python tests/performance/scheduler_bench.py \
+            --mode daemon --build --duration 30s \
+            --output table
 
       - name: Upload benchmark results
         if: always()
