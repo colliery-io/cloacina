@@ -54,11 +54,12 @@ Update or rework the angreal `cloaca` task group (smoke, test, package, release,
 ## Implementation Notes
 
 ### Key Decision
-The `cloaca` Python module is no longer a standalone PyPI package. It's embedded in the cloacina binary. This means:
-- No separate wheel build
-- `import cloaca` only works when running under a cloacina-powered binary (cloacinactl, server, or a user binary with cloacina-build)
-- The smoke/test tasks need to build a test binary that embeds cloacina, then run Python tests against it
-- OR the tasks verify that `cloaca` module is importable from within the cloacina test harness
+The `cloaca` Python module must be available BOTH as an embedded module (inside cloacina-powered binaries) AND as a standalone pip-installable wheel. This means:
+- Need a `pyproject.toml` at `crates/cloacina` for maturin to build a `cloaca` wheel from core
+- `_build_and_install_cloaca_unified()` in `cloaca_utils.py` must point at `crates/cloacina` instead of `bindings/cloaca-backend`
+- Python tutorials must continue to work via `pip install` in a venv
+- The existing tutorial runner and demo infrastructure stays — just the build path changes
+- `unified_release.yml` wheel build jobs need to point at the new location
 
 ### Files to Update
 - `.angreal/cloaca/smoke.py`
