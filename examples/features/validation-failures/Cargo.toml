@@ -23,6 +23,7 @@ path = "src/missing_workflow_task.rs"
 
 [dependencies]
 cloacina = { path = "../../../crates/cloacina" }
+cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
 cloacina-macros = { path = "../../../crates/cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
