@@ -66,10 +66,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 2: Set up shared database
     println!("📋 Setting up shared database...");
 
-    // Use a persistent file-based database that both registry and runner can share
-    let db_path = "/tmp/cloacina_debug.db";
+    // Use a fresh file-based database — delete stale data from previous runs
+    // to avoid race conditions where the scheduler dispatches stale pipelines
+    // before the reconciler finishes loading tasks.
+    let db_path = "/tmp/cloacina_demo.db";
+    let _ = std::fs::remove_file(db_path);
     let db_url = format!("sqlite://{}?mode=rwc", db_path);
-    println!("📋 Database will be saved to: {}", db_path);
+    println!("📋 Using fresh database at: {}", db_path);
 
     let database = Database::new(&db_url, "", 5);
     database

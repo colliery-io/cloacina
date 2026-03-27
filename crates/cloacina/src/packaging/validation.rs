@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -70,24 +70,26 @@ pub fn validate_cargo_toml(project_path: &Path) -> Result<CargoToml> {
     Ok(cargo_toml)
 }
 
-/// Validate cloacina dependency compatibility
+/// Validate cloacina dependency compatibility.
+///
+/// Packaged workflows need either `cloacina` (full engine) or the lightweight
+/// pair of `cloacina-macros` + `cloacina-workflow` as dependencies.
 pub fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()> {
     let dependencies = cargo_toml
         .dependencies
         .as_ref()
         .ok_or_else(|| anyhow!("No dependencies section found in Cargo.toml"))?;
 
-    // Check if cloacina is a dependency
-    let cloacina_dep = dependencies
-        .get("cloacina")
-        .ok_or_else(|| anyhow!("cloacina must be a dependency"))?;
+    let has_cloacina = dependencies.get("cloacina").is_some();
+    let has_workflow = dependencies.get("cloacina-workflow").is_some();
+    let has_macros = dependencies.get("cloacina-macros").is_some();
 
-    // For now, just validate that cloacina is present
-    // In the future, we could add version compatibility checks
-    match cloacina_dep {
-        toml::Value::String(_) => Ok(()),
-        toml::Value::Table(_) => Ok(()),
-        _ => bail!("Invalid cloacina dependency specification"),
+    if has_cloacina || (has_workflow && has_macros) {
+        Ok(())
+    } else {
+        bail!(
+            "Cargo.toml must depend on either `cloacina` or both `cloacina-macros` + `cloacina-workflow`"
+        )
     }
 }
 

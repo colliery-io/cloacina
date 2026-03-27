@@ -829,9 +829,44 @@ pub fn generate_packaged_workflow_impl(
                 &PACKAGE_TASKS_METADATA
             }
 
+            /// Dedicated tokio runtime for this cdylib package.
+            /// cdylib packages have isolated TLS from the host process (RFC 1510),
+            /// so the host's tokio reactor is invisible. This runtime provides the
+            /// reactor context that task code needs for tokio::time::sleep, spawn, etc.
+            static CDYLIB_RUNTIME: std::sync::OnceLock<cloacina_workflow::__private::tokio::runtime::Runtime> = std::sync::OnceLock::new();
+
             /// String-based task execution function for cloacina-ctl
             #[no_mangle]
             pub extern "C" fn cloacina_execute_task(
+                task_name: *const std::os::raw::c_char,
+                task_name_len: u32,
+                context_json: *const std::os::raw::c_char,
+                context_len: u32,
+                result_buffer: *mut u8,
+                result_capacity: u32,
+                result_len: *mut u32,
+            ) -> i32 {
+                // Catch panics to prevent UB at extern "C" boundary
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cloacina_execute_task_inner(task_name, task_name_len, context_json, context_len, result_buffer, result_capacity, result_len)
+                }));
+                match result {
+                    Ok(code) => code,
+                    Err(panic_info) => {
+                        let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                            s.clone()
+                        } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                            s.to_string()
+                        } else {
+                            "unknown panic in FFI task execution".to_string()
+                        };
+                        eprintln!("CDYLIB PANIC: {}", msg);
+                        write_error_result(&format!("Task panicked: {}", msg), result_buffer, result_capacity, result_len)
+                    }
+                }
+            }
+
+            fn cloacina_execute_task_inner(
                 task_name: *const std::os::raw::c_char,
                 task_name_len: u32,
                 context_json: *const std::os::raw::c_char,
@@ -871,8 +906,17 @@ pub fn generate_packaged_workflow_impl(
                     }
                 };
 
-                // Use futures executor for async task execution (lighter than tokio)
-                let task_result = futures::executor::block_on(async {
+                // Use the cdylib's dedicated tokio runtime for async task execution.
+                // This runtime has enable_all() so time, IO, etc. all work.
+                let rt = CDYLIB_RUNTIME.get_or_init(|| {
+                    cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .worker_threads(2)
+                        .thread_name("cdylib-worker")
+                        .build()
+                        .expect("Failed to create cdylib tokio runtime")
+                });
+                let task_result = rt.block_on(async {
                     match task_name_str {
                         #(#task_execution_cases)*
                         _ => Err(format!("Unknown task: {}", task_name_str))

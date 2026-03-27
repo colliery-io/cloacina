@@ -28,7 +28,7 @@ edition = "2021"
 
 [features]
 default = ["macros"]
-macros = ["cloacina-macros"]
+macros = ["cloacina-macros", "tokio"]
 
 [dependencies]
 cloacina-macros = { workspace = true, optional = true }
@@ -39,6 +39,7 @@ serde_json = { workspace = true }
 thiserror = "1.0"
 rand = "0.8"
 tracing = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
