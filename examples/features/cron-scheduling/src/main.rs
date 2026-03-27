@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -57,11 +57,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Cron Scheduling Example");
 
     // Create DefaultRunner with cron scheduling enabled
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_cron_scheduling = true;
-    config.cron_enable_recovery = true;
-    config.cron_poll_interval = Duration::from_secs(10); // Check every 10 seconds for demo
-    config.cron_recovery_interval = Duration::from_secs(30); // Recovery check every 30 seconds
+    let config = DefaultRunnerConfig::builder()
+        .enable_cron_scheduling(true)
+        .cron_enable_recovery(true)
+        .cron_poll_interval(Duration::from_secs(10)) // Check every 10 seconds for demo
+        .cron_recovery_interval(Duration::from_secs(30)) // Recovery check every 30 seconds
+        .build();
 
     let runner = DefaultRunner::with_config("sqlite://cronscheduling.db", config).await?;
 

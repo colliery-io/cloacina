@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -59,8 +59,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Simple Performance Test");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
-    let mut config = DefaultRunnerConfig::default();
-    config.max_concurrent_tasks = args.concurrency;
+    let config = DefaultRunnerConfig::builder()
+        .max_concurrent_tasks(args.concurrency)
+        .build();
 
     let runner = DefaultRunner::with_config(
         "sqlite://performance-simple.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
