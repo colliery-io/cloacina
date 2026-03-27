@@ -246,26 +246,21 @@ def _build_and_install_cloaca_unified(venv_name):
     subprocess.run([str(pip_exe), "install"] + deps, check=True, capture_output=True)
     print("[DEBUG] Step 3 complete", flush=True)
 
-    # Build and install unified wheel
-    print("[DEBUG] Step 4: Building unified cloaca wheel...", flush=True)
-    backend_dir = project_root / "bindings" / "cloaca-backend"
+    # Build and install unified wheel from cloacina core
+    print("[DEBUG] Step 4: Building cloaca wheel from cloacina core...", flush=True)
+    crate_dir = project_root / "crates" / "cloacina"
 
-    # Clean existing extensions
-    for pattern in ["*.so", "*.pyd"]:
-        for artifact in backend_dir.rglob(pattern):
-            artifact.unlink()
-
-    # Build wheel (no feature flags needed - unified supports both backends)
+    # Build wheel using maturin (pyproject.toml is in crates/cloacina/)
     maturin_exe = venv.path / "bin" / "maturin"
     maturin_cmd = [
         str(maturin_exe), "build",
         "--release"
     ]
 
-    print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {backend_dir}", flush=True)
+    print(f"[DEBUG] Running: {' '.join(maturin_cmd)} in {crate_dir}", flush=True)
     result = subprocess.run(
         maturin_cmd,
-        cwd=str(backend_dir),
+        cwd=str(crate_dir),
         capture_output=True,
         text=True,
     )
@@ -278,7 +273,8 @@ def _build_and_install_cloaca_unified(venv_name):
     # Find and install the wheel
     print("[DEBUG] Step 5: Finding and installing wheel...", flush=True)
     wheel_pattern = "cloaca-*.whl"
-    wheel_dir = backend_dir / "target" / "wheels"
+    # Maturin puts wheels in the workspace target, not the crate target
+    wheel_dir = project_root / "target" / "wheels"
     wheel_files = list(wheel_dir.glob(wheel_pattern))
 
     if not wheel_files:

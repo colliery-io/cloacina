@@ -59,6 +59,9 @@ pub use trigger::{
 // Re-exports: loader
 pub use loader::{ensure_cloaca_module, import_and_register_python_workflow, PythonLoaderError};
 
+// Python API wrapper types (PyDefaultRunner, PyDatabaseAdmin, etc.)
+pub mod bindings;
+
 #[cfg(test)]
 mod tests {
     use super::*;

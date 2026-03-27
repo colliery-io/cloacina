@@ -12,6 +12,10 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[lib]
+name = "cloacina"
+crate-type = ["lib", "cdylib"]
+
 [features]
 default = ["macros", "postgres", "sqlite"]
 postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "tokio-postgres"]
@@ -69,7 +73,7 @@ hex = { version = "0.4" }
 pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
-pyo3 = { version = "0.25" }
+pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
 pythonize = { version = "0.25" }
 
 [build-dependencies]

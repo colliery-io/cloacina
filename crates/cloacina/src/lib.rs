@@ -563,3 +563,49 @@ pub use workflow::{
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
 pub use cloacina_macros::{packaged_workflow, task, workflow};
+
+// PyO3 module entry point for the `cloaca` Python wheel.
+// This is used by maturin to build a standalone pip-installable wheel.
+use pyo3::prelude::*;
+
+#[pymodule]
+fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Context class
+    m.add_class::<python::context::PyContext>()?;
+
+    // Task decorator and handle
+    m.add_function(wrap_pyfunction!(python::task::task, m)?)?;
+    m.add_class::<python::task::PyTaskHandle>()?;
+
+    // Trigger decorator and result
+    m.add_function(wrap_pyfunction!(python::trigger::trigger, m)?)?;
+    m.add_class::<python::bindings::trigger::PyTriggerResult>()?;
+
+    // Workflow classes
+    m.add_class::<python::workflow::PyWorkflowBuilder>()?;
+    m.add_class::<python::workflow::PyWorkflow>()?;
+    m.add_function(wrap_pyfunction!(
+        python::workflow::register_workflow_constructor,
+        m
+    )?)?;
+
+    // Runner classes
+    m.add_class::<python::bindings::runner::PyDefaultRunner>()?;
+    m.add_class::<python::bindings::runner::PyPipelineResult>()?;
+    m.add_class::<python::bindings::context::PyDefaultRunnerConfig>()?;
+
+    // Value objects
+    m.add_class::<python::namespace::PyTaskNamespace>()?;
+    m.add_class::<python::workflow_context::PyWorkflowContext>()?;
+    m.add_class::<python::bindings::value_objects::PyRetryPolicy>()?;
+    m.add_class::<python::bindings::value_objects::PyRetryPolicyBuilder>()?;
+    m.add_class::<python::bindings::value_objects::PyBackoffStrategy>()?;
+    m.add_class::<python::bindings::value_objects::PyRetryCondition>()?;
+
+    // Admin classes (postgres only but always registered)
+    m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
+    m.add_class::<python::bindings::admin::PyTenantConfig>()?;
+    m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
+
+    Ok(())
+}
