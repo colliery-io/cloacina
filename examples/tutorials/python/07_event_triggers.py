@@ -69,7 +69,6 @@ file_counter = 0
 
 
 @cloaca.trigger(
-    workflow="file_processor",
     name="file_watcher",
     poll_interval="2s",
     allow_concurrent=False
@@ -108,7 +107,7 @@ with cloaca.WorkflowBuilder("queue_handler") as builder:
 
 
 @cloaca.trigger(
-    workflow="queue_handler",
+    name="queue_depth",
     poll_interval="5s",
     allow_concurrent=True  # Allow parallel queue draining
 )
@@ -165,7 +164,6 @@ def demo_trigger_definition():
     print("\nTriggers are defined using the @trigger decorator:")
     print("""
     @cloaca.trigger(
-        workflow="my_workflow",    # Workflow to trigger
         name="my_trigger",         # Optional: defaults to function name
         poll_interval="5s",        # How often to poll (e.g., "5s", "100ms", "1m")
         allow_concurrent=False     # Prevent duplicate executions
