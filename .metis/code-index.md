@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-27T20:28:58Z | 369 files | JavaScript, Python, Rust
+> Generated: 2026-03-27T22:40:06Z | 369 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -669,7 +669,7 @@
 - pub `trigger_scheduler` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L572-608 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L572-611 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -2376,47 +2376,47 @@
 #### crates/cloacina/src/python/bindings/runner.rs
 
 - pub `ShutdownError` enum L34-46 — `ChannelClosed | ThreadPanic | Timeout` — Errors that can occur during async runtime shutdown
-- pub `PyPipelineResult` struct L233-235 — `{ inner: crate::executor::PipelineResult }` — Python wrapper for PipelineResult
-- pub `status` function L241-243 — `(&self) -> String` — Get the execution status
-- pub `start_time` function L247-249 — `(&self) -> String` — Get execution start time as ISO string
-- pub `end_time` function L253-255 — `(&self) -> Option<String>` — Get execution end time as ISO string
-- pub `final_context` function L259-263 — `(&self) -> PyContext` — Get the final context
-- pub `error_message` function L267-269 — `(&self) -> Option<&str>` — Get error message if execution failed
-- pub `__repr__` function L272-278 — `(&self) -> String` — String representation
-- pub `PyDefaultRunner` struct L283-285 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
-- pub `new` function L291-682 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
-- pub `with_config` function L686-1057 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L1088-1501 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L1504-1550 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
-- pub `start` function L1553-1560 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
-- pub `stop` function L1563-1570 — `(&self) -> PyResult<()>` — Stop the runner
-- pub `shutdown` function L1580-1599 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L1619-1651 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L1662-1721 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L1728-1758 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L1764-1788 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L1797-1837 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L1845-1877 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L1888-1946 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L1955-1994 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L2010-2071 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L2080-2126 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L2133-2161 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L2173-2234 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `__repr__` function L2237-2239 — `(&self) -> String` — String representation
-- pub `__enter__` function L2242-2244 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
-- pub `__exit__` function L2247-2256 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
-- pub `from_result` function L2260-2262 — `(result: crate::executor::PipelineResult) -> Self`
+- pub `PyPipelineResult` struct L226-228 — `{ inner: crate::executor::PipelineResult }` — Python wrapper for PipelineResult
+- pub `status` function L234-236 — `(&self) -> String` — Get the execution status
+- pub `start_time` function L240-242 — `(&self) -> String` — Get execution start time as ISO string
+- pub `end_time` function L246-248 — `(&self) -> Option<String>` — Get execution end time as ISO string
+- pub `final_context` function L252-256 — `(&self) -> PyContext` — Get the final context
+- pub `error_message` function L260-262 — `(&self) -> Option<&str>` — Get error message if execution failed
+- pub `__repr__` function L265-271 — `(&self) -> String` — String representation
+- pub `PyDefaultRunner` struct L276-278 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
+- pub `new` function L284-665 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
+- pub `with_config` function L669-1030 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
+- pub `with_schema` function L1061-1464 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L1467-1513 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
+- pub `start` function L1516-1523 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
+- pub `stop` function L1526-1533 — `(&self) -> PyResult<()>` — Stop the runner
+- pub `shutdown` function L1543-1562 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L1582-1614 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L1625-1684 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L1691-1721 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L1727-1751 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L1760-1800 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L1808-1840 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L1851-1909 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1918-1957 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L1973-2034 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L2043-2089 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L2096-2124 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L2136-2197 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `__repr__` function L2200-2202 — `(&self) -> String` — String representation
+- pub `__enter__` function L2205-2207 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
+- pub `__exit__` function L2210-2219 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
+- pub `from_result` function L2223-2225 — `(result: crate::executor::PipelineResult) -> Self`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
--  `RuntimeMessage` enum L49-153 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
--  `AsyncRuntimeHandle` struct L156-159 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
--  `AsyncRuntimeHandle` type L161-220 — `= AsyncRuntimeHandle`
--  `shutdown` function L166-219 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
--  `AsyncRuntimeHandle` type L222-229 — `impl Drop for AsyncRuntimeHandle`
--  `drop` function L223-228 — `(&mut self)`
--  `PyPipelineResult` type L238-279 — `= PyPipelineResult`
--  `PyDefaultRunner` type L288-2257 — `= PyDefaultRunner`
--  `PyPipelineResult` type L2259-2263 — `= PyPipelineResult`
+-  `RuntimeMessage` enum L49-146 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
+-  `AsyncRuntimeHandle` struct L149-152 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
+-  `AsyncRuntimeHandle` type L154-213 — `= AsyncRuntimeHandle`
+-  `shutdown` function L159-212 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
+-  `AsyncRuntimeHandle` type L215-222 — `impl Drop for AsyncRuntimeHandle`
+-  `drop` function L216-221 — `(&mut self)`
+-  `PyPipelineResult` type L231-272 — `= PyPipelineResult`
+-  `PyDefaultRunner` type L281-2220 — `= PyDefaultRunner`
+-  `PyPipelineResult` type L2222-2226 — `= PyPipelineResult`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -7506,11 +7506,11 @@
 
 - pub `on_task_success` function L23-25 — `def on_task_success(task_id, context)` — Callback called when a task completes successfully.
 - pub `on_task_failure` function L28-30 — `def on_task_failure(task_id, error, context)` — Callback called when a task fails.
-- pub `demo_callbacks` function L137-156 — `def demo_callbacks()` — Demonstrate task callbacks.
-- pub `demo_trigger_definition` function L159-193 — `def demo_trigger_definition()` — Demonstrate trigger definition and TriggerResult usage.
-- pub `demo_trigger_management` function L196-221 — `def demo_trigger_management()` — Demonstrate trigger management through Python API.
-- pub `demo_concepts` function L224-256 — `def demo_concepts()` — Explain key concepts.
-- pub `main` function L259-286 — `def main()` — Main tutorial demonstration.
+- pub `demo_callbacks` function L136-155 — `def demo_callbacks()` — Demonstrate task callbacks.
+- pub `demo_trigger_definition` function L158-191 — `def demo_trigger_definition()` — Demonstrate trigger definition and TriggerResult usage.
+- pub `demo_trigger_management` function L194-219 — `def demo_trigger_management()` — Demonstrate trigger management through Python API.
+- pub `demo_concepts` function L222-254 — `def demo_concepts()` — Explain key concepts.
+- pub `main` function L257-284 — `def main()` — Main tutorial demonstration.
 
 ### tests/python
 
