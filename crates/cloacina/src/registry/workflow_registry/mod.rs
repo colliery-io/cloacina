@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 //! cohesive system for managing packaged workflows.
 
 mod database;
+pub mod filesystem;
 mod package;
 
 use async_trait::async_trait;

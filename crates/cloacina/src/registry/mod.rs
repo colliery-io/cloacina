@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -79,4 +79,5 @@ pub use reconciler::{
 };
 pub use traits::{RegistryStorage, WorkflowRegistry};
 pub use types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackage, WorkflowPackageId};
+pub use workflow_registry::filesystem::FilesystemWorkflowRegistry;
 pub use workflow_registry::WorkflowRegistryImpl;

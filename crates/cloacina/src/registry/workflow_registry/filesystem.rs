@@ -1,0 +1,658 @@
+/*
+ *  Copyright 2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! Filesystem-backed workflow registry for daemon mode.
+//!
+//! Implements `WorkflowRegistry` by scanning directories for `.cloacina` package
+//! files. Packages live on disk — the filesystem IS the package store. SQLite
+//! handles operational state (schedules, executions) separately.
+
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
+
+use crate::registry::error::RegistryError;
+use crate::registry::loader::python_loader::peek_manifest;
+use crate::registry::traits::WorkflowRegistry;
+use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
+
+/// A `WorkflowRegistry` implementation backed by directories of `.cloacina` files.
+///
+/// The daemon uses this instead of the database-backed registry. Packages are
+/// discovered by scanning watch directories for `.cloacina` files. Package data
+/// is read from disk on demand — no blobs stored in the database.
+///
+/// Supports multiple watch directories so users can organize packages across
+/// different locations (e.g., `~/.cloacina/packages/`, `/opt/workflows/`,
+/// `~/my-project/packages/`).
+pub struct FilesystemWorkflowRegistry {
+    /// Directories to scan for `.cloacina` package files.
+    watch_dirs: Vec<PathBuf>,
+}
+
+impl FilesystemWorkflowRegistry {
+    /// Create a new filesystem registry watching the given directories.
+    ///
+    /// Directories that don't exist are logged as warnings but not rejected —
+    /// they may be created later (e.g., on first package drop).
+    pub fn new(watch_dirs: Vec<PathBuf>) -> Self {
+        for dir in &watch_dirs {
+            if !dir.exists() {
+                warn!(
+                    "Watch directory does not exist (will be watched if created later): {}",
+                    dir.display()
+                );
+            }
+        }
+        Self { watch_dirs }
+    }
+
+    /// Scan all watch directories for `.cloacina` files.
+    ///
+    /// Returns a map of `(package_name, version)` -> `(path, archive_data, metadata)`.
+    /// Corrupt or unreadable files are logged and skipped.
+    fn scan_packages(&self) -> HashMap<(String, String), (PathBuf, WorkflowMetadata)> {
+        let mut packages = HashMap::new();
+
+        for dir in &self.watch_dirs {
+            if !dir.exists() {
+                debug!("Skipping non-existent watch directory: {}", dir.display());
+                continue;
+            }
+
+            let entries = match std::fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    warn!("Failed to read watch directory {}: {}", dir.display(), e);
+                    continue;
+                }
+            };
+
+            for entry in entries {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(e) => {
+                        warn!("Failed to read directory entry: {}", e);
+                        continue;
+                    }
+                };
+
+                let path = entry.path();
+
+                // Only process .cloacina files
+                if path.extension().and_then(|e| e.to_str()) != Some("cloacina") {
+                    continue;
+                }
+
+                // Read the archive to peek the manifest
+                let archive_data = match std::fs::read(&path) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        warn!("Failed to read package file {}: {}", path.display(), e);
+                        continue;
+                    }
+                };
+
+                // Try ManifestV2 first (Python + Rust v2 packages)
+                match peek_manifest(&archive_data) {
+                    Ok(manifest) => {
+                        let package_name = manifest.package.name.clone();
+                        let version = manifest.package.version.clone();
+
+                        // Derive a stable package ID from the fingerprint
+                        let id = uuid_from_fingerprint(&manifest.package.fingerprint);
+
+                        let metadata = WorkflowMetadata {
+                            id,
+                            registry_id: id, // Same as id for filesystem registry
+                            package_name: package_name.clone(),
+                            version: version.clone(),
+                            description: manifest.package.description.clone(),
+                            author: None,
+                            tasks: manifest.tasks.iter().map(|t| t.id.clone()).collect(),
+                            schedules: Vec::new(),
+                            created_at: manifest.created_at,
+                            updated_at: manifest.created_at,
+                        };
+
+                        debug!(
+                            "Found package: {} v{} at {}",
+                            package_name,
+                            version,
+                            path.display()
+                        );
+
+                        // If duplicate (same name+version in different dirs), first one wins
+                        packages
+                            .entry((package_name, version))
+                            .or_insert((path.clone(), metadata));
+                    }
+                    Err(e) => {
+                        // Try v1 manifest (legacy Rust cdylib packages)
+                        match Self::peek_v1_manifest(&archive_data) {
+                            Some(metadata) => {
+                                let key = (metadata.package_name.clone(), metadata.version.clone());
+                                debug!(
+                                    "Found v1 package: {} v{} at {}",
+                                    key.0,
+                                    key.1,
+                                    path.display()
+                                );
+                                packages.entry(key).or_insert((path.clone(), metadata));
+                            }
+                            None => {
+                                warn!("Skipping unreadable package {}: {}", path.display(), e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        packages
+    }
+
+    /// Try to extract metadata from a v1 package (Rust cdylib with `PackageManifest`).
+    fn peek_v1_manifest(archive_data: &[u8]) -> Option<WorkflowMetadata> {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        use tar::Archive;
+
+        let cursor = std::io::Cursor::new(archive_data);
+        let decoder = GzDecoder::new(cursor);
+        let mut archive = Archive::new(decoder);
+
+        for entry_result in archive.entries().ok()? {
+            let mut entry = entry_result.ok()?;
+            let path = entry.path().ok()?;
+
+            if path.file_name() == Some("manifest.json".as_ref()) {
+                let mut data = Vec::new();
+                entry.read_to_end(&mut data).ok()?;
+
+                let manifest: crate::packaging::types::PackageManifest =
+                    serde_json::from_slice(&data).ok()?;
+
+                let id = uuid_from_fingerprint(
+                    &manifest
+                        .package
+                        .workflow_fingerprint
+                        .clone()
+                        .unwrap_or_else(|| manifest.package.name.clone()),
+                );
+
+                return Some(WorkflowMetadata {
+                    id,
+                    registry_id: id,
+                    package_name: manifest.package.name,
+                    version: manifest.package.version,
+                    description: Some(manifest.package.description),
+                    author: manifest.package.author,
+                    tasks: manifest.tasks.iter().map(|t| t.id.clone()).collect(),
+                    schedules: Vec::new(),
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Find the file path for a package by name and version.
+    fn find_package_path(&self, package_name: &str, version: &str) -> Option<PathBuf> {
+        let packages = self.scan_packages();
+        packages
+            .get(&(package_name.to_string(), version.to_string()))
+            .map(|(path, _)| path.clone())
+    }
+}
+
+#[async_trait]
+impl WorkflowRegistry for FilesystemWorkflowRegistry {
+    async fn register_workflow(
+        &mut self,
+        package_data: Vec<u8>,
+    ) -> Result<WorkflowPackageId, RegistryError> {
+        // Peek manifest to get package name and version for the filename
+        let manifest = peek_manifest(&package_data).map_err(|e| {
+            RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
+        })?;
+
+        let filename = format!(
+            "{}-{}.cloacina",
+            manifest.package.name, manifest.package.version
+        );
+
+        // Copy to the first watch directory
+        let target_dir = self.watch_dirs.first().ok_or_else(|| {
+            RegistryError::Internal("No watch directories configured".to_string())
+        })?;
+
+        // Create directory if needed
+        if !target_dir.exists() {
+            std::fs::create_dir_all(target_dir).map_err(|e| {
+                RegistryError::Internal(format!(
+                    "Failed to create watch directory {}: {}",
+                    target_dir.display(),
+                    e
+                ))
+            })?;
+        }
+
+        let target_path = target_dir.join(&filename);
+
+        // Check for existing package
+        if target_path.exists() {
+            return Err(RegistryError::PackageExists {
+                package_name: manifest.package.name,
+                version: manifest.package.version,
+            });
+        }
+
+        std::fs::write(&target_path, &package_data).map_err(|e| {
+            RegistryError::Internal(format!(
+                "Failed to write package to {}: {}",
+                target_path.display(),
+                e
+            ))
+        })?;
+
+        let id = uuid_from_fingerprint(&manifest.package.fingerprint);
+
+        info!(
+            "Registered package {} v{} at {}",
+            manifest.package.name,
+            manifest.package.version,
+            target_path.display()
+        );
+
+        Ok(id)
+    }
+
+    async fn get_workflow(
+        &self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<Option<LoadedWorkflow>, RegistryError> {
+        let packages = self.scan_packages();
+
+        match packages.get(&(package_name.to_string(), version.to_string())) {
+            Some((path, metadata)) => {
+                let package_data = std::fs::read(path).map_err(|e| {
+                    RegistryError::Internal(format!(
+                        "Failed to read package file {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })?;
+
+                Ok(Some(LoadedWorkflow {
+                    metadata: metadata.clone(),
+                    package_data,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn list_workflows(&self) -> Result<Vec<WorkflowMetadata>, RegistryError> {
+        let packages = self.scan_packages();
+        Ok(packages
+            .into_values()
+            .map(|(_, metadata)| metadata)
+            .collect())
+    }
+
+    async fn unregister_workflow(
+        &mut self,
+        package_name: &str,
+        version: &str,
+    ) -> Result<(), RegistryError> {
+        match self.find_package_path(package_name, version) {
+            Some(path) => {
+                std::fs::remove_file(&path).map_err(|e| {
+                    RegistryError::Internal(format!(
+                        "Failed to remove package file {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })?;
+
+                info!(
+                    "Unregistered package {} v{} (removed {})",
+                    package_name,
+                    version,
+                    path.display()
+                );
+
+                Ok(())
+            }
+            None => Err(RegistryError::PackageNotFound {
+                package_name: package_name.to_string(),
+                version: version.to_string(),
+            }),
+        }
+    }
+}
+
+/// Derive a deterministic UUID from a string fingerprint.
+///
+/// Uses UUID v5 (SHA-1 based) with a fixed namespace so the same
+/// fingerprint always produces the same UUID.
+fn uuid_from_fingerprint(fingerprint: &str) -> Uuid {
+    // Use the URL namespace as a base — the fingerprint is our "name"
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, fingerprint.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packaging::{
+        ManifestV2, PackageInfoV2, PackageLanguage, RustRuntime, TaskDefinitionV2,
+        TriggerDefinitionV2,
+    };
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use tar::Builder;
+    use tempfile::TempDir;
+
+    /// Build a minimal `.cloacina` archive in memory.
+    fn build_test_archive(manifest: &ManifestV2) -> Vec<u8> {
+        let buf = Vec::new();
+        let enc = GzEncoder::new(buf, Compression::fast());
+        let mut builder = Builder::new(enc);
+
+        let manifest_json = serde_json::to_vec_pretty(manifest).unwrap();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(manifest_json.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
+            .unwrap();
+
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap()
+    }
+
+    fn test_manifest(name: &str, version: &str) -> ManifestV2 {
+        ManifestV2 {
+            format_version: "2".to_string(),
+            package: PackageInfoV2 {
+                name: name.to_string(),
+                version: version.to_string(),
+                description: Some("Test package".to_string()),
+                fingerprint: format!("sha256:{}:{}", name, version),
+                targets: vec!["linux-x86_64".to_string(), "macos-arm64".to_string()],
+            },
+            language: PackageLanguage::Rust,
+            python: None,
+            rust: Some(RustRuntime {
+                library_path: "lib/libtest.so".to_string(),
+            }),
+            tasks: vec![TaskDefinitionV2 {
+                id: "task1".to_string(),
+                function: "execute_task".to_string(),
+                dependencies: vec![],
+                description: None,
+                retries: 0,
+                timeout_seconds: None,
+            }],
+            triggers: vec![],
+            created_at: chrono::Utc::now(),
+            signature: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_empty_directory() {
+        let dir = TempDir::new().unwrap();
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let workflows = registry.list_workflows().await.unwrap();
+        assert!(workflows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_discovers_packages() {
+        let dir = TempDir::new().unwrap();
+
+        // Write two test packages
+        let archive1 = build_test_archive(&test_manifest("pkg-a", "1.0.0"));
+        let archive2 = build_test_archive(&test_manifest("pkg-b", "2.0.0"));
+        std::fs::write(dir.path().join("pkg-a-1.0.0.cloacina"), &archive1).unwrap();
+        std::fs::write(dir.path().join("pkg-b-2.0.0.cloacina"), &archive2).unwrap();
+
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let workflows = registry.list_workflows().await.unwrap();
+        assert_eq!(workflows.len(), 2);
+
+        let names: Vec<_> = workflows.iter().map(|w| w.package_name.as_str()).collect();
+        assert!(names.contains(&"pkg-a"));
+        assert!(names.contains(&"pkg-b"));
+    }
+
+    #[tokio::test]
+    async fn test_list_multiple_directories() {
+        let dir1 = TempDir::new().unwrap();
+        let dir2 = TempDir::new().unwrap();
+
+        std::fs::write(
+            dir1.path().join("pkg-a.cloacina"),
+            build_test_archive(&test_manifest("pkg-a", "1.0.0")),
+        )
+        .unwrap();
+        std::fs::write(
+            dir2.path().join("pkg-b.cloacina"),
+            build_test_archive(&test_manifest("pkg-b", "1.0.0")),
+        )
+        .unwrap();
+
+        let registry = FilesystemWorkflowRegistry::new(vec![
+            dir1.path().to_path_buf(),
+            dir2.path().to_path_buf(),
+        ]);
+        let workflows = registry.list_workflows().await.unwrap();
+        assert_eq!(workflows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_workflow_returns_archive_bytes() {
+        let dir = TempDir::new().unwrap();
+        let manifest = test_manifest("my-pkg", "1.0.0");
+        let archive = build_test_archive(&manifest);
+        std::fs::write(dir.path().join("my-pkg.cloacina"), &archive).unwrap();
+
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let loaded = registry.get_workflow("my-pkg", "1.0.0").await.unwrap();
+
+        assert!(loaded.is_some());
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.metadata.package_name, "my-pkg");
+        assert_eq!(loaded.metadata.version, "1.0.0");
+        assert_eq!(loaded.package_data, archive);
+    }
+
+    #[tokio::test]
+    async fn test_get_workflow_not_found() {
+        let dir = TempDir::new().unwrap();
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let result = registry.get_workflow("nonexistent", "1.0.0").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_register_writes_file() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+
+        let archive = build_test_archive(&test_manifest("new-pkg", "0.1.0"));
+        let id = registry.register_workflow(archive.clone()).await.unwrap();
+
+        // File should exist
+        let expected_path = dir.path().join("new-pkg-0.1.0.cloacina");
+        assert!(expected_path.exists());
+        assert_eq!(std::fs::read(&expected_path).unwrap(), archive);
+
+        // Should be discoverable
+        let workflows = registry.list_workflows().await.unwrap();
+        assert_eq!(workflows.len(), 1);
+        assert_eq!(workflows[0].package_name, "new-pkg");
+
+        // ID should be deterministic
+        let id2 = uuid_from_fingerprint("sha256:new-pkg:0.1.0");
+        assert_eq!(id, id2);
+    }
+
+    #[tokio::test]
+    async fn test_register_duplicate_rejected() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+
+        let archive = build_test_archive(&test_manifest("dup-pkg", "1.0.0"));
+        registry.register_workflow(archive.clone()).await.unwrap();
+
+        let result = registry.register_workflow(archive).await;
+        assert!(matches!(result, Err(RegistryError::PackageExists { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_unregister_removes_file() {
+        let dir = TempDir::new().unwrap();
+        let archive = build_test_archive(&test_manifest("rm-pkg", "1.0.0"));
+        std::fs::write(dir.path().join("rm-pkg-1.0.0.cloacina"), &archive).unwrap();
+
+        let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+
+        // Should exist
+        assert!(registry
+            .get_workflow("rm-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .is_some());
+
+        // Unregister
+        registry
+            .unregister_workflow("rm-pkg", "1.0.0")
+            .await
+            .unwrap();
+
+        // Should be gone
+        assert!(registry
+            .get_workflow("rm-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(!dir.path().join("rm-pkg-1.0.0.cloacina").exists());
+    }
+
+    #[tokio::test]
+    async fn test_unregister_not_found() {
+        let dir = TempDir::new().unwrap();
+        let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+
+        let result = registry.unregister_workflow("nonexistent", "1.0.0").await;
+        assert!(matches!(result, Err(RegistryError::PackageNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_corrupt_file_skipped() {
+        let dir = TempDir::new().unwrap();
+
+        // Write a valid package
+        std::fs::write(
+            dir.path().join("good.cloacina"),
+            build_test_archive(&test_manifest("good", "1.0.0")),
+        )
+        .unwrap();
+
+        // Write corrupt data
+        std::fs::write(dir.path().join("bad.cloacina"), b"not a valid archive").unwrap();
+
+        // Write a non-.cloacina file (should be ignored)
+        std::fs::write(dir.path().join("readme.txt"), b"hello").unwrap();
+
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let workflows = registry.list_workflows().await.unwrap();
+
+        // Only the good package should be listed
+        assert_eq!(workflows.len(), 1);
+        assert_eq!(workflows[0].package_name, "good");
+    }
+
+    #[tokio::test]
+    async fn test_nonexistent_directory_handled() {
+        let registry = FilesystemWorkflowRegistry::new(vec![PathBuf::from(
+            "/tmp/definitely-does-not-exist-cloacina-test",
+        )]);
+        let workflows = registry.list_workflows().await.unwrap();
+        assert!(workflows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_register_creates_directory() {
+        let dir = TempDir::new().unwrap();
+        let subdir = dir.path().join("packages");
+        // subdir doesn't exist yet
+
+        let mut registry = FilesystemWorkflowRegistry::new(vec![subdir.clone()]);
+        let archive = build_test_archive(&test_manifest("auto-dir", "1.0.0"));
+        registry.register_workflow(archive).await.unwrap();
+
+        assert!(subdir.exists());
+        assert!(subdir.join("auto-dir-1.0.0.cloacina").exists());
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_package_id() {
+        // Same fingerprint should always produce the same UUID
+        let id1 = uuid_from_fingerprint("sha256:abc123");
+        let id2 = uuid_from_fingerprint("sha256:abc123");
+        let id3 = uuid_from_fingerprint("sha256:different");
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    #[tokio::test]
+    async fn test_package_with_triggers_in_manifest() {
+        let dir = TempDir::new().unwrap();
+
+        let mut manifest = test_manifest("trigger-pkg", "1.0.0");
+        manifest.triggers = vec![TriggerDefinitionV2 {
+            name: "my_trigger".to_string(),
+            trigger_type: "rust".to_string(),
+            workflow: "trigger-pkg".to_string(),
+            poll_interval: "5s".to_string(),
+            allow_concurrent: false,
+            config: None,
+        }];
+
+        std::fs::write(
+            dir.path().join("trigger-pkg.cloacina"),
+            build_test_archive(&manifest),
+        )
+        .unwrap();
+
+        let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
+        let workflows = registry.list_workflows().await.unwrap();
+
+        assert_eq!(workflows.len(), 1);
+        assert_eq!(workflows[0].package_name, "trigger-pkg");
+    }
+}

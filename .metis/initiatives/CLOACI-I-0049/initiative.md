@@ -19,16 +19,15 @@ estimated_complexity: L
 initiative_id: server-daemon-deployment
 ---
 
-# Server & Daemon — Deployment Infrastructure Initiative
+# API Server — HTTP Service with Postgres
 
 ## Context
 
-Cloacina needs two deployment modes:
+Split from original I-0049 (Server & Daemon). Daemon is now I-0057.
 
-1. **Server** (`cloacinactl serve`) — HTTP API backed by Postgres, multi-tenant, with PAK+ABAC auth. Endpoints for workflow upload, execution, scheduling, tenant management, and metrics.
-2. **Daemon** (`cloacinactl daemon`) — Lightweight local scheduler with SQLite. Watches a directory for `.cloacina` packages, registers them, runs cron schedules. No HTTP API.
+`cloacinactl serve` is the production deployment mode — HTTP API backed by Postgres, multi-tenant, with PAK+ABAC auth. Endpoints for workflow upload, execution, scheduling, tenant management, and metrics.
 
-Both were implemented in the archive branches (`archive/main-pre-reset`, `archive/cloacina-server-week1`). Key learnings from that work:
+Implemented in the archive branches (`archive/main-pre-reset`, `archive/cloacina-server-week1`). Key learnings from that work:
 
 - Use `route_layer` not `layer` for axum auth middleware (prevents 404-to-503 regression)
 - Server default bind should be `0.0.0.0` not `127.0.0.1`
@@ -44,17 +43,18 @@ Prior work: CLOACI-I-0029 (serve foundation), CLOACI-I-0031 (PAK+ABAC auth), CLO
 
 **Goals:**
 - `cloacinactl serve` with Postgres backend, PAK+ABAC auth, REST API, multi-tenancy
-- `cloacinactl daemon` with SQLite backend, directory watcher, cron scheduling
-- Cron schedule management (create/list/delete via CLI and API)
-- Workflow upload and execution pipeline
-- Soak tests for both server and daemon modes
+- Cron schedule management via REST API (create/list/delete)
+- Workflow upload and execution pipeline via REST API
 - Prometheus metrics endpoint (`/metrics`)
+- Tenant management API (create/remove schemas)
 - Docker compose for local dev and soak testing
+- Server soak test via angreal
 
 **Non-Goals:**
-- Continuous scheduling (separate initiative)
-- Performance benchmarking (separate initiative)
-- Trigger management (separate initiative)
+- Daemon mode (I-0057)
+- Continuous scheduling (I-0053)
+- Performance benchmarking (I-0054)
+- Trigger management API (future — triggers work via packages for now)
 
 ## Acceptance Criteria
 
