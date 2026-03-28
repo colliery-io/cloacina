@@ -4,14 +4,14 @@ level: initiative
 title: "Packageable Trigger Trait — User-Defined Triggers in Workflows"
 short_code: "CLOACI-I-0056"
 created_at: 2026-03-26T17:25:26.506653+00:00
-updated_at: 2026-03-26T17:25:26.506653+00:00
+updated_at: 2026-03-28T02:16:34.062335+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -41,17 +41,17 @@ Building on prior work from I-0044. The archive branch had a working implementat
 ## Goals & Non-Goals
 
 **Goals:**
-- Generalize `Trigger` trait to be packageable via ManifestV2
-- Existing cron triggers conform to the same packageable trait
+- Any trigger that implements the `Trigger` trait should be packageable via ManifestV2
 - `TriggerDefinitionV2` in ManifestV2 for declaring triggers
-- Auto-registration on package load
-- Built-in reference implementations: WebhookTrigger, HttpPollTrigger, FileWatchTrigger
-- Users can define custom triggers in Rust or Python
-- Python trigger support via `@cloaca.trigger` decorator
+- Auto-registration on package load via reconciler
+- All trigger types (webhook, HTTP poll, file watch, custom) are packageable — not a fixed set of built-ins
+- Users can define custom triggers in Rust or Python and package them
+- Python trigger support via `@cloaca.trigger` decorator (native Python in core is landed)
+- Feature parity: packaged workflows should support everything the library API supports
 
 **Non-Goals:**
+- Refactoring cron triggers — cron is already first-class and works; leave it as-is
 - Trigger REST API and daemon CLI commands (I-0049 server/daemon)
-- Native Python in core (I-0050, should be done first)
 - Pipeline claiming (I-0055)
 - Continuous scheduling (I-0053)
 
@@ -63,14 +63,14 @@ Building on prior work from I-0044. The archive branch had a working implementat
 - Auto-registration on package load via the package manager
 - Cron-based triggers refactored to implement the same trait
 
-### Built-in Reference Implementations
-- `WebhookTrigger` — HTTP callback, fires when endpoint receives a request
-- `HttpPollTrigger` — interval-based HTTP polling, fires on status change
-- `FileWatchTrigger` — filesystem notify, fires on file change
+### Trigger Packageability
+- Any type implementing the `Trigger` trait is automatically packageable — no fixed list of "built-in" types
+- Webhook, HTTP poll, file watch, and custom triggers all follow the same path
+- Cron triggers are left as-is (already first-class, patterns exist)
 
 ### Python Triggers
 - `@cloaca.trigger` decorator for defining triggers in Python
-- Evaluated in the embedded Python runtime (requires I-0050 native Python)
+- Evaluated in the embedded Python runtime (native Python in core is landed via T-0271)
 - Same packaging and registration flow as Rust triggers
 
 ## Prior Art
@@ -83,9 +83,19 @@ Reference implementation on `archive/cloacina-server-week1`:
 - **Fixed set of built-in triggers only**: Rejected. Users need to define domain-specific triggers (e.g., message queue, database change detection) without forking core.
 - **Separate trigger registry from package registry**: Rejected. Triggers should be co-packaged with the workflows they serve.
 
-## Implementation Plan
+## Scope Decisions (from discovery)
 
-1. **Trait generalization** — Refactor `Trigger` trait for packageability, update cron triggers
-2. **ManifestV2 integration** — `TriggerDefinitionV2`, auto-registration on package load
-3. **Built-in implementations** — Webhook, HTTP poll, file watch as reference examples
-4. **Python triggers** — `@cloaca.trigger` decorator (depends on I-0050)
+- **Python triggers in scope** — native Python in core is landed (T-0271), so `@cloaca.trigger` is feasible now
+- **All triggers packageable** — the principle is "if it implements the Trigger trait, it's packageable." Not a fixed set of built-ins.
+- **Don't refactor cron** — cron already works as a first-class special case with existing patterns. Leave it alone.
+- **Feature parity** — packaged workflows should have parity with all ways to define workflows via the library API
+
+## Implementation Plan (revised after code review)
+
+**Key finding:** The Trigger trait, TriggerScheduler, DAL (trigger_schedules + trigger_executions), Python `@cloaca.trigger` decorator, and `PythonTriggerWrapper` all exist. The gap is purely ManifestV2 schema + reconciler wiring.
+
+1. **ManifestV2 trigger schema** — Add `TriggerDefinitionV2` and `triggers: Vec<TriggerDefinitionV2>` to `ManifestV2`, update validation
+2. **Reconciler trigger registration** — Extend reconciler to pick up trigger defs from manifest, create `TriggerSchedule` records and register in global trigger registry (Rust cdylib + Python paths)
+3. **Python trigger reconciliation** — Wire `drain_python_triggers()` into reconciler for Python packages with trigger definitions
+4. **Integration tests** — Package with triggers → reconcile → trigger registered → fires workflow
+5. **Example/demo** — Packaged trigger workflow example
