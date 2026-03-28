@@ -22,6 +22,7 @@ postgres = ["diesel/postgres", "diesel/uuid", "deadpool-diesel/postgres", "tokio
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "deadpool-diesel/sqlite", "libsqlite3-sys/bundled"]
 auth = ["postgres"]
 macros = ["cloacina-macros"]
+extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 # Workspace dependencies
@@ -73,7 +74,7 @@ hex = { version = "0.4" }
 pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
-pyo3 = { version = "0.25", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.25", features = ["abi3-py39"] }
 pythonize = { version = "0.25" }
 
 [build-dependencies]

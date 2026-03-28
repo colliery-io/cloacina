@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -275,7 +275,8 @@ pub trait Trigger: Send + Sync + fmt::Debug {
 
 // Re-export registry functions for convenience
 pub use registry::{
-    get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor,
+    deregister_trigger, get_trigger, global_trigger_registry, is_trigger_registered,
+    register_trigger, register_trigger_constructor,
 };
 
 #[cfg(test)]

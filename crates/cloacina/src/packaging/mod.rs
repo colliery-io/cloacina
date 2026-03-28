@@ -38,7 +38,7 @@ pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskD
 pub use manifest::generate_manifest;
 pub use manifest_v2::{
     ManifestV2, ManifestValidationError, PackageInfoV2, PackageLanguage, PythonRuntime,
-    RustRuntime, TaskDefinitionV2,
+    RustRuntime, TaskDefinitionV2, TriggerDefinitionV2,
 };
 pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
 pub use types::CompileOptions;

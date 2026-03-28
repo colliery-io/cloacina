@@ -242,6 +242,24 @@ pub fn import_and_register_python_workflow(
             // 5. Pop context
             pop_workflow_context();
 
+            // 5b. Drain any Python triggers registered via @cloaca.trigger decorators
+            //     during the module import, wrap them, and register in the global trigger registry.
+            let python_triggers = crate::python::trigger::drain_python_triggers();
+            for trigger_def in python_triggers {
+                let trigger_name = trigger_def.name.clone();
+                let wrapper = std::sync::Arc::new(
+                    crate::python::trigger::PythonTriggerWrapper::new(&trigger_def),
+                );
+                // The constructor returns the same Arc'd wrapper each time — the
+                // PythonTriggerWrapper is Send+Sync and holds a PyObject that's
+                // accessed only under the GIL.
+                let wrapper_for_closure = wrapper.clone();
+                crate::trigger::register_trigger_constructor(trigger_name.clone(), move || {
+                    wrapper_for_closure.clone()
+                });
+                tracing::info!("Registered Python trigger: {}", trigger_name);
+            }
+
             // 6. Collect registered tasks and build workflow
             let (t, p, w) = context.as_components();
 

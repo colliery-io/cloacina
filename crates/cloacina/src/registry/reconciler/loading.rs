@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 //! Package loading, unloading, and task/workflow registration.
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::{PackageState, RegistryReconciler};
 use crate::registry::error::RegistryError;
@@ -80,11 +80,16 @@ impl RegistryReconciler {
             .register_package_workflows(&metadata, &library_data)
             .await?;
 
+        // Extract and register triggers from ManifestV2 (if present in the archive)
+        let trigger_names =
+            self.register_package_triggers(&metadata, &loaded_workflow.package_data)?;
+
         // Track the loaded package state
         let package_state = PackageState {
             metadata: metadata.clone(),
             task_namespaces,
             workflow_name,
+            trigger_names,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -118,6 +123,11 @@ impl RegistryReconciler {
         // Unregister workflow from global workflow registry
         if let Some(workflow_name) = &package_state.workflow_name {
             self.unregister_package_workflow(workflow_name).await?;
+        }
+
+        // Unregister triggers from global trigger registry
+        if !package_state.trigger_names.is_empty() {
+            self.unregister_package_triggers(&package_state.trigger_names);
         }
 
         info!(
@@ -465,5 +475,88 @@ impl RegistryReconciler {
         debug!("Unregistered workflow: {}", workflow_name);
 
         Ok(())
+    }
+
+    /// Verify and track triggers from a package's ManifestV2.
+    ///
+    /// The package's trigger implementations are registered by the package itself:
+    /// - Rust triggers: registered via `ctor` when the cdylib is loaded
+    /// - Python triggers: registered via `@cloaca.trigger` decorator (handled by T-0274)
+    ///
+    /// This method reads the manifest to find declared triggers, verifies they
+    /// are present in the global trigger registry, and tracks their names so
+    /// they can be cleaned up when the package is unloaded.
+    pub(super) fn register_package_triggers(
+        &self,
+        metadata: &WorkflowMetadata,
+        archive_data: &[u8],
+    ) -> Result<Vec<String>, RegistryError> {
+        // Only .cloacina archives can contain a ManifestV2
+        if !self.is_cloacina_package(archive_data) {
+            return Ok(vec![]);
+        }
+
+        // Try to extract ManifestV2 from the archive
+        let manifest = match crate::registry::loader::python_loader::peek_manifest(archive_data) {
+            Ok(m) => m,
+            Err(_) => {
+                // No ManifestV2 found — v1-only package, no triggers
+                debug!(
+                    "No ManifestV2 in package {} — skipping trigger registration",
+                    metadata.package_name
+                );
+                return Ok(vec![]);
+            }
+        };
+
+        if manifest.triggers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut tracked_trigger_names = Vec::new();
+
+        for trigger_def in &manifest.triggers {
+            if crate::trigger::registry::is_trigger_registered(&trigger_def.name) {
+                info!(
+                    "Trigger '{}' (type: {}, workflow: {}, interval: {}) registered from package {} v{}",
+                    trigger_def.name,
+                    trigger_def.trigger_type,
+                    trigger_def.workflow,
+                    trigger_def.poll_interval,
+                    metadata.package_name,
+                    metadata.version
+                );
+                tracked_trigger_names.push(trigger_def.name.clone());
+            } else {
+                warn!(
+                    "Trigger '{}' declared in manifest for package {} v{} but not found in registry \
+                     — the package must provide a Trigger impl (via #[trigger] macro, @cloaca.trigger, \
+                     or manual registration)",
+                    trigger_def.name, metadata.package_name, metadata.version
+                );
+            }
+        }
+
+        if !tracked_trigger_names.is_empty() {
+            info!(
+                "Tracking {} triggers for package {} v{}",
+                tracked_trigger_names.len(),
+                metadata.package_name,
+                metadata.version
+            );
+        }
+
+        Ok(tracked_trigger_names)
+    }
+
+    /// Unregister triggers from the global trigger registry.
+    pub(super) fn unregister_package_triggers(&self, trigger_names: &[String]) {
+        for name in trigger_names {
+            if crate::trigger::deregister_trigger(name) {
+                debug!("Deregistered trigger: {}", name);
+            } else {
+                warn!("Trigger '{}' was not found in registry during unload", name);
+            }
+        }
     }
 }

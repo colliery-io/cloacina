@@ -4,14 +4,14 @@ level: task
 title: "Python trigger reconciliation via drain_python_triggers"
 short_code: "CLOACI-T-0274"
 created_at: 2026-03-28T02:16:58.074890+00:00
-updated_at: 2026-03-28T02:16:58.074890+00:00
+updated_at: 2026-03-28T12:25:51.124090+00:00
 parent: CLOACI-I-0056
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 Wire the Python trigger path into the reconciler. When a Python package with `trigger_type: "python"` triggers is loaded, the reconciler should import the Python module (which causes `@cloaca.trigger` decorators to fire), call `drain_python_triggers()`, wrap each in `PythonTriggerWrapper`, and register them.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -52,4 +56,18 @@ Wire the Python trigger path into the reconciler. When a Python package with `tr
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, all unit tests pass.
+
+### Changes made:
+
+1. **`crates/cloacina/src/python/loader.rs`** — `import_and_register_python_workflow()`:
+   - After module import (step 4) which fires `@cloaca.trigger` decorators, added step 5b
+   - Calls `drain_python_triggers()` to collect all triggers registered during import
+   - Wraps each in `PythonTriggerWrapper` (Arc'd, reused across constructor calls)
+   - Registers in global trigger registry via `register_trigger_constructor`
+   - This runs inside the same `Python::with_gil` block as task registration, so the GIL is held
+
+### Architecture notes:
+- The reconciler doesn't currently handle Python package loading (no cdylib to extract). Python workflows are loaded via `import_and_register_python_workflow` directly.
+- Trigger registration is wired into that same path, so triggers are registered alongside tasks during Python module import.
+- The reconciler's `register_package_triggers` (from T-0273) will find these triggers via `is_trigger_registered` if it runs after the Python loader.

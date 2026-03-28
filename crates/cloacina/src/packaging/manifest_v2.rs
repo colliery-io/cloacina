@@ -49,6 +49,22 @@ pub enum ManifestValidationError {
 
     #[error("Invalid format version: expected '2', got '{version}'")]
     InvalidFormatVersion { version: String },
+
+    #[error("Duplicate trigger name: '{name}'")]
+    DuplicateTriggerName { name: String },
+
+    #[error("Trigger '{trigger_name}' references unknown workflow '{workflow}'")]
+    InvalidTriggerWorkflow {
+        trigger_name: String,
+        workflow: String,
+    },
+
+    #[error("Trigger '{trigger_name}' has invalid poll_interval '{interval}': {reason}")]
+    InvalidTriggerPollInterval {
+        trigger_name: String,
+        interval: String,
+        reason: String,
+    },
 }
 
 /// Package language discriminator.
@@ -115,6 +131,29 @@ pub struct TaskDefinitionV2 {
     pub timeout_seconds: Option<u64>,
 }
 
+/// Trigger definition within a package.
+///
+/// Declares a trigger that should be auto-registered when the package is loaded.
+/// Any type implementing the `Trigger` trait can be packaged this way.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerDefinitionV2 {
+    /// Unique name for this trigger (within the package).
+    pub name: String,
+    /// Trigger type discriminator (e.g. `"rust"`, `"python"`, `"webhook"`,
+    /// `"http_poll"`, `"file_watch"`, or any user-defined string).
+    pub trigger_type: String,
+    /// Name of the workflow to fire when this trigger activates.
+    pub workflow: String,
+    /// How often to poll (e.g. `"30s"`, `"5m"`, `"100ms"`).
+    pub poll_interval: String,
+    /// Whether to allow concurrent executions with the same context.
+    #[serde(default)]
+    pub allow_concurrent: bool,
+    /// Trigger-specific configuration (e.g. URL, file path, custom params).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
+}
+
 /// Unified package manifest (v2).
 ///
 /// Supports both Rust (dynamic library) and Python workflow packages.
@@ -134,6 +173,9 @@ pub struct ManifestV2 {
     pub rust: Option<RustRuntime>,
     /// Task definitions.
     pub tasks: Vec<TaskDefinitionV2>,
+    /// Trigger definitions (optional — packages without triggers omit this).
+    #[serde(default)]
+    pub triggers: Vec<TriggerDefinitionV2>,
     /// When the manifest was created.
     pub created_at: DateTime<Utc>,
     /// Package signature (optional).
@@ -206,6 +248,38 @@ impl ManifestV2 {
             }
         }
 
+        // Validate triggers (if any)
+        let mut seen_trigger_names = std::collections::HashSet::new();
+        // Workflow names that triggers can reference: use the package name as
+        // the workflow identifier (matching how packaged workflows are registered).
+        let valid_workflow_names: std::collections::HashSet<&str> =
+            std::iter::once(self.package.name.as_str())
+                .chain(self.tasks.iter().map(|t| t.id.as_str()))
+                .collect();
+
+        for trigger in &self.triggers {
+            if !seen_trigger_names.insert(&trigger.name) {
+                return Err(ManifestValidationError::DuplicateTriggerName {
+                    name: trigger.name.clone(),
+                });
+            }
+
+            if !valid_workflow_names.contains(trigger.workflow.as_str()) {
+                return Err(ManifestValidationError::InvalidTriggerWorkflow {
+                    trigger_name: trigger.name.clone(),
+                    workflow: trigger.workflow.clone(),
+                });
+            }
+
+            parse_duration_str(&trigger.poll_interval).map_err(|reason| {
+                ManifestValidationError::InvalidTriggerPollInterval {
+                    trigger_name: trigger.name.clone(),
+                    interval: trigger.poll_interval.clone(),
+                    reason,
+                }
+            })?;
+        }
+
         Ok(())
     }
 
@@ -253,6 +327,7 @@ mod tests {
                     timeout_seconds: None,
                 },
             ],
+            triggers: vec![],
             created_at: Utc::now(),
             signature: None,
         }
@@ -281,9 +356,33 @@ mod tests {
                 retries: 0,
                 timeout_seconds: None,
             }],
+            triggers: vec![],
             created_at: Utc::now(),
             signature: None,
         }
+    }
+
+    fn make_manifest_with_triggers() -> ManifestV2 {
+        let mut m = make_rust_manifest();
+        m.triggers = vec![
+            TriggerDefinitionV2 {
+                name: "file_watcher".to_string(),
+                trigger_type: "file_watch".to_string(),
+                workflow: "rust-workflow".to_string(),
+                poll_interval: "5s".to_string(),
+                allow_concurrent: false,
+                config: Some(serde_json::json!({"path": "/inbox/"})),
+            },
+            TriggerDefinitionV2 {
+                name: "api_poller".to_string(),
+                trigger_type: "http_poll".to_string(),
+                workflow: "rust-workflow".to_string(),
+                poll_interval: "1m".to_string(),
+                allow_concurrent: true,
+                config: Some(serde_json::json!({"url": "https://example.com/status"})),
+            },
+        ];
+        m
     }
 
     #[test]
@@ -411,6 +510,114 @@ mod tests {
         assert_eq!(json, "\"python\"");
         let parsed: PackageLanguage = serde_json::from_str("\"rust\"").unwrap();
         assert_eq!(parsed, PackageLanguage::Rust);
+    }
+
+    // --- Trigger tests ---
+
+    #[test]
+    fn test_manifest_with_triggers_validates() {
+        assert!(make_manifest_with_triggers().validate().is_ok());
+    }
+
+    #[test]
+    fn test_manifest_no_triggers_still_validates() {
+        // Existing manifests without triggers should pass unchanged
+        assert!(make_python_manifest().validate().is_ok());
+        assert!(make_rust_manifest().validate().is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_trigger_name() {
+        let mut m = make_manifest_with_triggers();
+        m.triggers[1].name = "file_watcher".to_string();
+        assert!(matches!(
+            m.validate(),
+            Err(ManifestValidationError::DuplicateTriggerName { .. })
+        ));
+    }
+
+    #[test]
+    fn test_trigger_invalid_workflow_reference() {
+        let mut m = make_manifest_with_triggers();
+        m.triggers[0].workflow = "nonexistent-workflow".to_string();
+        assert!(matches!(
+            m.validate(),
+            Err(ManifestValidationError::InvalidTriggerWorkflow { .. })
+        ));
+    }
+
+    #[test]
+    fn test_trigger_references_task_id() {
+        // Triggers can reference a task ID as the workflow
+        let mut m = make_manifest_with_triggers();
+        m.triggers[0].workflow = "process".to_string(); // task ID from rust manifest
+        assert!(m.validate().is_ok());
+    }
+
+    #[test]
+    fn test_trigger_invalid_poll_interval() {
+        let mut m = make_manifest_with_triggers();
+        m.triggers[0].poll_interval = "invalid".to_string();
+        assert!(matches!(
+            m.validate(),
+            Err(ManifestValidationError::InvalidTriggerPollInterval { .. })
+        ));
+    }
+
+    #[test]
+    fn test_trigger_poll_interval_variants() {
+        let mut m = make_manifest_with_triggers();
+        // All valid duration formats
+        for interval in &["100ms", "5s", "2m", "1h"] {
+            m.triggers[0].poll_interval = interval.to_string();
+            assert!(m.validate().is_ok(), "Should accept interval: {}", interval);
+        }
+    }
+
+    #[test]
+    fn test_trigger_serialization_roundtrip() {
+        let original = make_manifest_with_triggers();
+        let json = serde_json::to_string_pretty(&original).unwrap();
+        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.triggers.len(), 2);
+        assert_eq!(parsed.triggers[0].name, "file_watcher");
+        assert_eq!(parsed.triggers[0].trigger_type, "file_watch");
+        assert_eq!(parsed.triggers[0].workflow, "rust-workflow");
+        assert_eq!(parsed.triggers[0].poll_interval, "5s");
+        assert!(!parsed.triggers[0].allow_concurrent);
+        assert!(parsed.triggers[0].config.is_some());
+
+        assert_eq!(parsed.triggers[1].name, "api_poller");
+        assert!(parsed.triggers[1].allow_concurrent);
+    }
+
+    #[test]
+    fn test_trigger_no_config() {
+        let mut m = make_manifest_with_triggers();
+        m.triggers[0].config = None;
+        assert!(m.validate().is_ok());
+
+        // Roundtrip preserves None config
+        let json = serde_json::to_string(&m).unwrap();
+        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+        assert!(parsed.triggers[0].config.is_none());
+    }
+
+    #[test]
+    fn test_deserialization_without_triggers_field() {
+        // JSON without "triggers" key should deserialize with empty vec (serde default)
+        let json = r#"{
+            "format_version": "2",
+            "package": {"name": "test", "version": "1.0.0", "fingerprint": "sha256:abc", "targets": ["linux-x86_64"]},
+            "language": "rust",
+            "rust": {"library_path": "lib/libtest.so"},
+            "tasks": [{"id": "t1", "function": "sym"}],
+            "created_at": "2026-01-01T00:00:00Z"
+        }"#;
+        let parsed: ManifestV2 = serde_json::from_str(json).unwrap();
+        assert!(parsed.triggers.is_empty());
+        assert!(parsed.validate().is_ok());
     }
 }
 

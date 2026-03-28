@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-28T00:33:59Z | 369 files | JavaScript, Python, Rust
+> Generated: 2026-03-28T12:44:18Z | 373 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -261,6 +261,7 @@
 │   │           │   └── simple_macro.rs
 │   │           ├── test_registry_dynamic_loading.rs
 │   │           ├── test_registry_dynamic_loading_simple.rs
+│   │           ├── trigger_packaging.rs
 │   │           └── workflow/
 │   │               ├── basic.rs
 │   │               ├── callback_test.rs
@@ -375,6 +376,10 @@
 │   │   │   ├── build.rs
 │   │   │   └── src/
 │   │   │       └── main.rs
+│   │   ├── packaged-triggers/
+│   │   │   ├── build.rs
+│   │   │   └── src/
+│   │   │       └── lib.rs
 │   │   ├── packaged-workflows/
 │   │   │   ├── build.rs
 │   │   │   └── src/
@@ -453,7 +458,8 @@
 │           ├── 04_error_handling.py
 │           ├── 05_cron_scheduling.py
 │           ├── 06_multi_tenancy.py
-│           └── 07_event_triggers.py
+│           ├── 07_event_triggers.py
+│           └── 08_packaged_triggers.py
 └── tests/
     └── python/
         ├── conftest.py
@@ -2191,34 +2197,46 @@
 
 #### crates/cloacina/src/packaging/manifest_v2.rs
 
-- pub `ManifestValidationError` enum L31-52 — `MissingRuntime | UnsupportedTarget | NoTasks | DuplicateTaskId | InvalidDependen...` — Errors from manifest validation.
-- pub `PackageLanguage` enum L57-60 — `Python | Rust` — Package language discriminator.
-- pub `PythonRuntime` struct L64-69 — `{ requires_python: String, entry_module: String }` — Python runtime configuration.
-- pub `RustRuntime` struct L73-76 — `{ library_path: String }` — Rust runtime configuration.
-- pub `PackageInfoV2` struct L80-92 — `{ name: String, version: String, description: Option<String>, fingerprint: Strin...` — Package metadata.
-- pub `TaskDefinitionV2` struct L96-116 — `{ id: String, function: String, dependencies: Vec<String>, description: Option<S...` — Task definition within a package.
-- pub `ManifestV2` struct L122-142 — `{ format_version: String, package: PackageInfoV2, language: PackageLanguage, pyt...` — Unified package manifest (v2).
-- pub `validate` function L146-210 — `(&self) -> Result<(), ManifestValidationError>` — Validate the manifest for structural correctness.
-- pub `is_compatible_with_platform` function L213-215 — `(&self, platform_str: &str) -> bool` — Check if this package is compatible with a specific platform.
-- pub `parse_duration_str` function L418-447 — `(s: &str) -> Result<std::time::Duration, String>` — Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
--  `ManifestV2` type L144-216 — `= ManifestV2` — runtime configuration applies.
--  `tests` module L219-415 — `-` — runtime configuration applies.
--  `make_python_manifest` function L222-259 — `() -> ManifestV2` — runtime configuration applies.
--  `make_rust_manifest` function L261-287 — `() -> ManifestV2` — runtime configuration applies.
--  `test_python_manifest_validates` function L290-292 — `()` — runtime configuration applies.
--  `test_rust_manifest_validates` function L295-297 — `()` — runtime configuration applies.
--  `test_missing_python_runtime` function L300-307 — `()` — runtime configuration applies.
--  `test_missing_rust_runtime` function L310-317 — `()` — runtime configuration applies.
--  `test_unsupported_target` function L320-327 — `()` — runtime configuration applies.
--  `test_no_tasks` function L330-337 — `()` — runtime configuration applies.
--  `test_duplicate_task_id` function L340-347 — `()` — runtime configuration applies.
--  `test_invalid_dependency` function L350-357 — `()` — runtime configuration applies.
--  `test_invalid_python_function_path` function L360-367 — `()` — runtime configuration applies.
--  `test_rust_function_path_no_colon_ok` function L370-373 — `()` — runtime configuration applies.
--  `test_invalid_format_version` function L376-383 — `()` — runtime configuration applies.
--  `test_serialization_roundtrip` function L386-398 — `()` — runtime configuration applies.
--  `test_platform_compatibility` function L401-406 — `()` — runtime configuration applies.
--  `test_language_serde` function L409-414 — `()` — runtime configuration applies.
+- pub `ManifestValidationError` enum L31-68 — `MissingRuntime | UnsupportedTarget | NoTasks | DuplicateTaskId | InvalidDependen...` — Errors from manifest validation.
+- pub `PackageLanguage` enum L73-76 — `Python | Rust` — Package language discriminator.
+- pub `PythonRuntime` struct L80-85 — `{ requires_python: String, entry_module: String }` — Python runtime configuration.
+- pub `RustRuntime` struct L89-92 — `{ library_path: String }` — Rust runtime configuration.
+- pub `PackageInfoV2` struct L96-108 — `{ name: String, version: String, description: Option<String>, fingerprint: Strin...` — Package metadata.
+- pub `TaskDefinitionV2` struct L112-132 — `{ id: String, function: String, dependencies: Vec<String>, description: Option<S...` — Task definition within a package.
+- pub `TriggerDefinitionV2` struct L139-155 — `{ name: String, trigger_type: String, workflow: String, poll_interval: String, a...` — Trigger definition within a package.
+- pub `ManifestV2` struct L161-184 — `{ format_version: String, package: PackageInfoV2, language: PackageLanguage, pyt...` — Unified package manifest (v2).
+- pub `validate` function L188-283 — `(&self) -> Result<(), ManifestValidationError>` — Validate the manifest for structural correctness.
+- pub `is_compatible_with_platform` function L286-288 — `(&self, platform_str: &str) -> bool` — Check if this package is compatible with a specific platform.
+- pub `parse_duration_str` function L624-653 — `(s: &str) -> Result<std::time::Duration, String>` — Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
+-  `ManifestV2` type L186-289 — `= ManifestV2` — runtime configuration applies.
+-  `tests` module L292-621 — `-` — runtime configuration applies.
+-  `make_python_manifest` function L295-333 — `() -> ManifestV2` — runtime configuration applies.
+-  `make_rust_manifest` function L335-362 — `() -> ManifestV2` — runtime configuration applies.
+-  `make_manifest_with_triggers` function L364-385 — `() -> ManifestV2` — runtime configuration applies.
+-  `test_python_manifest_validates` function L388-390 — `()` — runtime configuration applies.
+-  `test_rust_manifest_validates` function L393-395 — `()` — runtime configuration applies.
+-  `test_missing_python_runtime` function L398-405 — `()` — runtime configuration applies.
+-  `test_missing_rust_runtime` function L408-415 — `()` — runtime configuration applies.
+-  `test_unsupported_target` function L418-425 — `()` — runtime configuration applies.
+-  `test_no_tasks` function L428-435 — `()` — runtime configuration applies.
+-  `test_duplicate_task_id` function L438-445 — `()` — runtime configuration applies.
+-  `test_invalid_dependency` function L448-455 — `()` — runtime configuration applies.
+-  `test_invalid_python_function_path` function L458-465 — `()` — runtime configuration applies.
+-  `test_rust_function_path_no_colon_ok` function L468-471 — `()` — runtime configuration applies.
+-  `test_invalid_format_version` function L474-481 — `()` — runtime configuration applies.
+-  `test_serialization_roundtrip` function L484-496 — `()` — runtime configuration applies.
+-  `test_platform_compatibility` function L499-504 — `()` — runtime configuration applies.
+-  `test_language_serde` function L507-512 — `()` — runtime configuration applies.
+-  `test_manifest_with_triggers_validates` function L517-519 — `()` — runtime configuration applies.
+-  `test_manifest_no_triggers_still_validates` function L522-526 — `()` — runtime configuration applies.
+-  `test_duplicate_trigger_name` function L529-536 — `()` — runtime configuration applies.
+-  `test_trigger_invalid_workflow_reference` function L539-546 — `()` — runtime configuration applies.
+-  `test_trigger_references_task_id` function L549-554 — `()` — runtime configuration applies.
+-  `test_trigger_invalid_poll_interval` function L557-564 — `()` — runtime configuration applies.
+-  `test_trigger_poll_interval_variants` function L567-574 — `()` — runtime configuration applies.
+-  `test_trigger_serialization_roundtrip` function L577-592 — `()` — runtime configuration applies.
+-  `test_trigger_no_config` function L595-604 — `()` — runtime configuration applies.
+-  `test_deserialization_without_triggers_field` function L607-620 — `()` — runtime configuration applies.
 
 #### crates/cloacina/src/packaging/mod.rs
 
@@ -2548,7 +2566,7 @@
 - pub `PythonLoaderError` enum L69-81 — `ImportError | ValidationError | RegistrationError | RuntimeError` — Error type for Python package loading operations.
 - pub `ensure_cloaca_module` function L94-133 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
 - pub `validate_no_stdlib_shadowing` function L158-182 — `( workflow_dir: &Path, vendor_dir: &Path, ) -> Result<(), PythonLoaderError>` — Import a Python workflow module and register its tasks.
-- pub `import_and_register_python_workflow` function L184-317 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+- pub `import_and_register_python_workflow` function L184-336 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
 -  `IMPORT_TIMEOUT_SECS` variable L35 — `: u64` — Default timeout for Python module import (seconds).
 -  `STDLIB_DENY_LIST` variable L39-65 — `: &[&str]` — Python stdlib module names that must never appear in extracted packages.
 -  `PythonLoaderError` type L83-87 — `= PythonLoaderError` — cloacina task execution engine.
@@ -2806,15 +2824,15 @@
 - pub `peek_manifest` function L56-92 — `(archive_data: &[u8]) -> Result<ManifestV2, LoaderError>` — Peek at the manifest inside a `.cloacina` archive without full extraction.
 - pub `detect_package_kind` function L95-101 — `(archive_data: &[u8]) -> Result<PackageKind, LoaderError>` — Determine the package kind (Python or Rust) from archive data.
 - pub `extract_python_package` function L108-169 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` archive.
--  `tests` module L172-336 — `-` — execution via PyO3.
+-  `tests` module L172-337 — `-` — execution via PyO3.
 -  `build_test_archive` function L183-222 — `(manifest: &ManifestV2, include_workflow: bool) -> Vec<u8>` — Build a minimal Python `.cloacina` archive in memory.
--  `make_test_manifest` function L224-251 — `() -> ManifestV2` — execution via PyO3.
--  `test_peek_manifest` function L254-261 — `()` — execution via PyO3.
--  `test_detect_package_kind_python` function L264-270 — `()` — execution via PyO3.
--  `test_extract_python_package` function L273-284 — `()` — execution via PyO3.
--  `test_extract_missing_workflow_dir` function L287-294 — `()` — execution via PyO3.
--  `test_peek_manifest_missing` function L297-315 — `()` — execution via PyO3.
--  `test_wrong_language` function L318-335 — `()` — execution via PyO3.
+-  `make_test_manifest` function L224-252 — `() -> ManifestV2` — execution via PyO3.
+-  `test_peek_manifest` function L255-262 — `()` — execution via PyO3.
+-  `test_detect_package_kind_python` function L265-271 — `()` — execution via PyO3.
+-  `test_extract_python_package` function L274-285 — `()` — execution via PyO3.
+-  `test_extract_missing_workflow_dir` function L288-295 — `()` — execution via PyO3.
+-  `test_peek_manifest_missing` function L298-316 — `()` — execution via PyO3.
+-  `test_wrong_language` function L319-336 — `()` — execution via PyO3.
 
 ### crates/cloacina/src/registry/loader/task_registrar
 
@@ -2979,15 +2997,17 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-469 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L29-94 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries
--  `unload_package` function L97-129 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L132-173 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L176-327 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L330-378 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L381-428 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L431-454 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L457-468 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `RegistryReconciler` type L27-562 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L29-99 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries
+-  `unload_package` function L102-139 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L142-183 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L186-337 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L340-388 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L391-438 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L441-464 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L467-478 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L489-550 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's ManifestV2.
+-  `unregister_package_triggers` function L553-561 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -2995,25 +3015,25 @@
 - pub `ReconcileResult` struct L84-99 — `{ packages_loaded: Vec<WorkflowPackageId>, packages_unloaded: Vec<WorkflowPackag...` — Result of a reconciliation operation
 - pub `has_changes` function L103-105 — `(&self) -> bool` — Check if the reconciliation had any changes
 - pub `has_failures` function L108-110 — `(&self) -> bool` — Check if the reconciliation had any failures
-- pub `ReconcilerStatus` struct L128-134 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
-- pub `PackageStatusDetail` struct L138-150 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
-- pub `RegistryReconciler` struct L153-174 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
-- pub `new` function L178-198 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
-- pub `start_reconciliation_loop` function L201-274 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
-- pub `reconcile` function L277-374 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
-- pub `get_status` function L400-415 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
+- pub `ReconcilerStatus` struct L131-137 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
+- pub `PackageStatusDetail` struct L141-153 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
+- pub `RegistryReconciler` struct L156-177 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
+- pub `new` function L181-201 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
+- pub `start_reconciliation_loop` function L204-277 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
+- pub `reconcile` function L280-377 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
+- pub `get_status` function L403-418 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
 -  `extraction` module L34 — `-` — # Registry Reconciler
 -  `loading` module L35 — `-` — - `PackageState`: Tracking loaded package state
 -  `ReconcilerConfig` type L70-80 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
 -  `default` function L71-79 — `() -> Self` — - `PackageState`: Tracking loaded package state
 -  `ReconcileResult` type L101-111 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
--  `PackageState` struct L115-124 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
--  `RegistryReconciler` type L176-416 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
--  `shutdown_cleanup` function L377-397 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
--  `tests` module L419-485 — `-` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_default` function L425-432 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_methods` function L435-457 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status` function L460-484 — `()` — - `PackageState`: Tracking loaded package state
+-  `PackageState` struct L115-127 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
+-  `RegistryReconciler` type L179-419 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
+-  `shutdown_cleanup` function L380-400 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
+-  `tests` module L422-488 — `-` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_default` function L428-435 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_methods` function L438-460 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status` function L463-487 — `()` — - `PackageState`: Tracking loaded package state
 
 ### crates/cloacina/src/registry/workflow_registry
 
@@ -3541,19 +3561,19 @@
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — ```
 -  `TriggerResult` type L113-145 — `= TriggerResult` — ```
 -  `TriggerConfig` type L169-192 — `= TriggerConfig` — ```
--  `tests` module L282-397 — `-` — ```
--  `TestTrigger` struct L286-289 — `{ name: String, should_fire: bool }` — ```
--  `TestTrigger` type L292-312 — `impl Trigger for TestTrigger` — ```
--  `name` function L293-295 — `(&self) -> &str` — ```
--  `poll_interval` function L297-299 — `(&self) -> Duration` — ```
--  `allow_concurrent` function L301-303 — `(&self) -> bool` — ```
--  `poll` function L305-311 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
--  `test_trigger_result_should_fire` function L315-319 — `()` — ```
--  `test_trigger_result_into_context` function L322-329 — `()` — ```
--  `test_trigger_result_context_hash` function L332-356 — `()` — ```
--  `test_trigger_config` function L359-370 — `()` — ```
--  `test_trigger_trait` function L373-385 — `()` — ```
--  `test_trigger_fires` function L388-396 — `()` — ```
+-  `tests` module L283-398 — `-` — ```
+-  `TestTrigger` struct L287-290 — `{ name: String, should_fire: bool }` — ```
+-  `TestTrigger` type L293-313 — `impl Trigger for TestTrigger` — ```
+-  `name` function L294-296 — `(&self) -> &str` — ```
+-  `poll_interval` function L298-300 — `(&self) -> Duration` — ```
+-  `allow_concurrent` function L302-304 — `(&self) -> bool` — ```
+-  `poll` function L306-312 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
+-  `test_trigger_result_should_fire` function L316-320 — `()` — ```
+-  `test_trigger_result_into_context` function L323-330 — `()` — ```
+-  `test_trigger_result_context_hash` function L333-357 — `()` — ```
+-  `test_trigger_config` function L360-371 — `()` — ```
+-  `test_trigger_trait` function L374-386 — `()` — ```
+-  `test_trigger_fires` function L389-397 — `()` — ```
 
 #### crates/cloacina/src/trigger/registry.rs
 
@@ -3563,25 +3583,28 @@
 - pub `global_trigger_registry` function L100-102 — `() -> GlobalTriggerRegistry` — Get the global trigger registry.
 - pub `list_triggers` function L109-112 — `() -> Vec<String>` — Get all registered trigger names.
 - pub `get_all_triggers` function L119-122 — `() -> Vec<Arc<dyn Trigger>>` — Get all registered triggers.
-- pub `is_trigger_registered` function L133-136 — `(name: &str) -> bool` — Check if a trigger is registered.
-- pub `clear_triggers` function L142-145 — `()` — Clear all registered triggers.
+- pub `deregister_trigger` function L133-136 — `(name: &str) -> bool` — Deregister a trigger by name.
+- pub `is_trigger_registered` function L147-150 — `(name: &str) -> bool` — Check if a trigger is registered.
+- pub `clear_triggers` function L156-159 — `()` — Clear all registered triggers.
 -  `TriggerConstructor` type L30 — `= Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>` — Type alias for the trigger constructor function stored in the global registry
 -  `GlobalTriggerRegistry` type L33 — `= Arc<RwLock<HashMap<String, TriggerConstructor>>>` — Type alias for the global trigger registry
 -  `GLOBAL_TRIGGER_REGISTRY` variable L36-37 — `: Lazy<GlobalTriggerRegistry>` — Global registry for automatically registering triggers created with the `#[trigger]` macro
--  `tests` module L148-275 — `-` — Triggers registered here are available for use by the TriggerScheduler.
--  `TestTrigger` struct L156-158 — `{ name: String }` — Triggers registered here are available for use by the TriggerScheduler.
--  `TestTrigger` type L160-166 — `= TestTrigger` — Triggers registered here are available for use by the TriggerScheduler.
--  `new` function L161-165 — `(name: &str) -> Self` — Triggers registered here are available for use by the TriggerScheduler.
--  `TestTrigger` type L169-185 — `impl Trigger for TestTrigger` — Triggers registered here are available for use by the TriggerScheduler.
--  `name` function L170-172 — `(&self) -> &str` — Triggers registered here are available for use by the TriggerScheduler.
--  `poll_interval` function L174-176 — `(&self) -> Duration` — Triggers registered here are available for use by the TriggerScheduler.
--  `allow_concurrent` function L178-180 — `(&self) -> bool` — Triggers registered here are available for use by the TriggerScheduler.
--  `poll` function L182-184 — `(&self) -> Result<TriggerResult, TriggerError>` — Triggers registered here are available for use by the TriggerScheduler.
--  `test_register_and_get_trigger` function L192-204 — `()` — Triggers registered here are available for use by the TriggerScheduler.
--  `test_register_constructor` function L208-215 — `()` — Triggers registered here are available for use by the TriggerScheduler.
--  `test_list_triggers` function L219-231 — `()` — Triggers registered here are available for use by the TriggerScheduler.
--  `test_get_all_triggers` function L235-248 — `()` — Triggers registered here are available for use by the TriggerScheduler.
--  `test_clear_triggers` function L252-274 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `tests` module L162-328 — `-` — Triggers registered here are available for use by the TriggerScheduler.
+-  `TestTrigger` struct L170-172 — `{ name: String }` — Triggers registered here are available for use by the TriggerScheduler.
+-  `TestTrigger` type L174-180 — `= TestTrigger` — Triggers registered here are available for use by the TriggerScheduler.
+-  `new` function L175-179 — `(name: &str) -> Self` — Triggers registered here are available for use by the TriggerScheduler.
+-  `TestTrigger` type L183-199 — `impl Trigger for TestTrigger` — Triggers registered here are available for use by the TriggerScheduler.
+-  `name` function L184-186 — `(&self) -> &str` — Triggers registered here are available for use by the TriggerScheduler.
+-  `poll_interval` function L188-190 — `(&self) -> Duration` — Triggers registered here are available for use by the TriggerScheduler.
+-  `allow_concurrent` function L192-194 — `(&self) -> bool` — Triggers registered here are available for use by the TriggerScheduler.
+-  `poll` function L196-198 — `(&self) -> Result<TriggerResult, TriggerError>` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_register_and_get_trigger` function L206-218 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_register_constructor` function L222-229 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_list_triggers` function L233-245 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_get_all_triggers` function L249-262 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_deregister_trigger` function L266-278 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_register_deregister_roundtrip` function L282-301 — `()` — Triggers registered here are available for use by the TriggerScheduler.
+-  `test_clear_triggers` function L305-327 — `()` — Triggers registered here are available for use by the TriggerScheduler.
 
 ### crates/cloacina/src/workflow
 
@@ -3790,8 +3813,9 @@
 - pub `scheduler` module L34 — `-`
 - pub `signing` module L35 — `-`
 - pub `task` module L36 — `-`
-- pub `workflow` module L37 — `-`
--  `fixtures` module L40 — `-`
+- pub `trigger_packaging` module L37 — `-`
+- pub `workflow` module L38 — `-`
+-  `fixtures` module L41 — `-`
 
 #### crates/cloacina/tests/integration/packaging.rs
 
@@ -3831,16 +3855,16 @@
 #### crates/cloacina/tests/integration/python_package.rs
 
 -  `build_archive` function L42-78 — `(manifest: &ManifestV2, workflow_files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory with realistic structure.
--  `data_pipeline_manifest` function L81-134 — `() -> ManifestV2` — Create a manifest matching the example data-pipeline project.
--  `data_pipeline_files` function L137-148 — `() -> Vec<(&'static str, &'static [u8])>` — Workflow source files for the data-pipeline example.
--  `peek_manifest_returns_correct_metadata` function L155-164 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `detect_package_kind_identifies_python` function L167-173 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `detect_package_kind_identifies_rust` function L176-191 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `extract_python_package_full_roundtrip` function L194-220 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `extract_rejects_rust_archive` function L223-245 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `manifest_validates_task_dependency_references` function L252-261 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `manifest_validates_duplicate_task_ids` function L264-273 — `()` — round-trip: archive → peek → detect → extract → validate.
--  `manifest_validates_python_function_path_format` function L276-285 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `data_pipeline_manifest` function L81-135 — `() -> ManifestV2` — Create a manifest matching the example data-pipeline project.
+-  `data_pipeline_files` function L138-149 — `() -> Vec<(&'static str, &'static [u8])>` — Workflow source files for the data-pipeline example.
+-  `peek_manifest_returns_correct_metadata` function L156-165 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `detect_package_kind_identifies_python` function L168-174 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `detect_package_kind_identifies_rust` function L177-192 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `extract_python_package_full_roundtrip` function L195-221 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `extract_rejects_rust_archive` function L224-246 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `manifest_validates_task_dependency_references` function L253-262 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `manifest_validates_duplicate_task_ids` function L265-274 — `()` — round-trip: archive → peek → detect → extract → validate.
+-  `manifest_validates_python_function_path_format` function L277-286 — `()` — round-trip: archive → peek → detect → extract → validate.
 
 #### crates/cloacina/tests/integration/registry_simple_functional_test.rs
 
@@ -3953,6 +3977,32 @@
 #### crates/cloacina/tests/integration/test_registry_dynamic_loading_simple.rs
 
 -  `test_reconciler_with_dynamic_loading` function L38-79 — `()` — Test that verifies the reconciler can be created with dynamic loading enabled
+
+#### crates/cloacina/tests/integration/trigger_packaging.rs
+
+-  `build_archive` function L46-71 — `(manifest: &ManifestV2, files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory.
+-  `rust_manifest_with_triggers` function L73-117 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
+-  `rust_manifest_no_triggers` function L119-146 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_manifest_with_trigger` function L148-183 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
+-  `TestTrigger` struct L187-189 — `{ name: String }` — A simple test trigger for registry round-trip tests.
+-  `TestTrigger` type L192-205 — `impl Trigger for TestTrigger` — - Discovered for Python packages via `@cloaca.trigger`
+-  `name` function L193-195 — `(&self) -> &str` — - Discovered for Python packages via `@cloaca.trigger`
+-  `poll_interval` function L196-198 — `(&self) -> std::time::Duration` — - Discovered for Python packages via `@cloaca.trigger`
+-  `allow_concurrent` function L199-201 — `(&self) -> bool` — - Discovered for Python packages via `@cloaca.trigger`
+-  `poll` function L202-204 — `(&self) -> Result<TriggerResult, TriggerError>` — - Discovered for Python packages via `@cloaca.trigger`
+-  `peek_manifest_preserves_trigger_definitions` function L212-229 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `peek_manifest_no_triggers_returns_empty_vec` function L232-238 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `peek_manifest_python_with_trigger` function L241-256 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `trigger_register_verify_deregister_roundtrip` function L264-285 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `multiple_triggers_register_and_deregister_independently` function L289-325 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_decorator_registers_and_wraps` function L333-383 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_trigger_poll_returns_result` function L387-420 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_with_triggers_validates_successfully` function L427-430 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_package_name_is_valid` function L433-437 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_task_id_is_valid` function L440-444 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_referencing_unknown_workflow_fails` function L447-451 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_duplicate_trigger_names_fails` function L454-458 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+-  `manifest_trigger_invalid_poll_interval_fails` function L461-465 — `()` — - Discovered for Python packages via `@cloaca.trigger`
 
 ### crates/cloacina/tests/integration/dal
 
@@ -7124,6 +7174,25 @@
 -  `demonstrate_multi_tenant_setup` function L52-82 — `(database_url: &str) -> Result<(), PipelineError>` — with PostgreSQL schema-based isolation.
 -  `demonstrate_recovery_scenarios` function L85-123 — `(database_url: &str) -> Result<(), PipelineError>` — Demonstrates recovery scenarios for multi-tenant systems
 
+### examples/features/packaged-triggers
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/packaged-triggers/build.rs
+
+-  `main` function L17-19 — `()`
+
+### examples/features/packaged-triggers/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/packaged-triggers/src/lib.rs
+
+- pub `file_processing` module L89-167 — `-`
+- pub `validate` function L101-119 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `transform` function L128-145 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `archive` function L154-166 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+
 ### examples/features/packaged-workflows
 
 > *Semantic summary to be generated by AI agent.*
@@ -7511,6 +7580,13 @@
 - pub `demo_trigger_management` function L194-219 — `def demo_trigger_management()` — Demonstrate trigger management through Python API.
 - pub `demo_concepts` function L222-254 — `def demo_concepts()` — Explain key concepts.
 - pub `main` function L257-284 — `def main()` — Main tutorial demonstration.
+
+#### examples/tutorials/python/08_packaged_triggers.py
+
+- pub `demo_trigger_polls` function L98-112 — `def demo_trigger_polls()` — Show how trigger polling works.
+- pub `demo_workflow_execution` function L115-139 — `def demo_workflow_execution()` — Run the workflow as if triggered.
+- pub `demo_manifest_explanation` function L142-183 — `def demo_manifest_explanation()` — Explain the ManifestV2 trigger fields.
+- pub `main` function L186-205 — `def main()` — Main tutorial.
 
 ### tests/python
 

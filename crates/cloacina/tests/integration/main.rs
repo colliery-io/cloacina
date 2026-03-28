@@ -34,6 +34,7 @@ pub mod runner_configurable_registry_tests;
 pub mod scheduler;
 pub mod signing;
 pub mod task;
+pub mod trigger_packaging;
 pub mod workflow;
 
 #[path = "../fixtures.rs"]

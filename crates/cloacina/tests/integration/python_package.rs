@@ -128,6 +128,7 @@ fn data_pipeline_manifest() -> ManifestV2 {
                 timeout_seconds: None,
             },
         ],
+        triggers: vec![],
         created_at: Utc::now(),
         signature: None,
     }

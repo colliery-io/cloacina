@@ -34,5 +34,5 @@ Documentation = "https://cloacina.dev"
 
 [tool.maturin]
 module-name = "cloaca"
-features = ["postgres", "sqlite", "macros"]
+features = ["postgres", "sqlite", "macros", "extension-module"]
 strip = true

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -119,6 +119,20 @@ pub fn list_triggers() -> Vec<String> {
 pub fn get_all_triggers() -> Vec<Arc<dyn Trigger>> {
     let registry = GLOBAL_TRIGGER_REGISTRY.read();
     registry.values().map(|constructor| constructor()).collect()
+}
+
+/// Deregister a trigger by name.
+///
+/// # Arguments
+///
+/// * `name` - The name of the trigger to deregister
+///
+/// # Returns
+///
+/// `true` if the trigger was found and removed, `false` otherwise.
+pub fn deregister_trigger(name: &str) -> bool {
+    let mut registry = GLOBAL_TRIGGER_REGISTRY.write();
+    registry.remove(name).is_some()
 }
 
 /// Check if a trigger is registered.
@@ -245,6 +259,45 @@ mod tests {
         let trigger_names: Vec<_> = triggers.iter().map(|t| t.name()).collect();
         assert!(trigger_names.contains(&name_1));
         assert!(trigger_names.contains(&name_2));
+    }
+
+    #[test]
+    #[serial]
+    fn test_deregister_trigger() {
+        let name = "test_deregister_trigger_unique_12345";
+
+        register_trigger(TestTrigger::new(name));
+        assert!(is_trigger_registered(name));
+
+        // Deregister returns true when found
+        assert!(deregister_trigger(name));
+        assert!(!is_trigger_registered(name));
+
+        // Deregister returns false when not found
+        assert!(!deregister_trigger(name));
+    }
+
+    #[test]
+    #[serial]
+    fn test_register_deregister_roundtrip() {
+        let name = "test_roundtrip_unique_12345";
+
+        // Register via constructor (same path as reconciler)
+        register_trigger_constructor(name, move || Arc::new(TestTrigger::new(name)));
+        assert!(is_trigger_registered(name));
+
+        // Trigger is usable
+        let trigger = get_trigger(name).unwrap();
+        assert_eq!(trigger.name(), name);
+
+        // Deregister
+        assert!(deregister_trigger(name));
+        assert!(!is_trigger_registered(name));
+        assert!(get_trigger(name).is_none());
+
+        // Not in list
+        let names = list_triggers();
+        assert!(!names.contains(&name.to_string()));
     }
 
     #[test]

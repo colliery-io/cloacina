@@ -4,14 +4,14 @@ level: initiative
 title: "Packageable Trigger Trait — User-Defined Triggers in Workflows"
 short_code: "CLOACI-I-0056"
 created_at: 2026-03-26T17:25:26.506653+00:00
-updated_at: 2026-03-28T02:16:34.062335+00:00
+updated_at: 2026-03-28T12:59:28.026889+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

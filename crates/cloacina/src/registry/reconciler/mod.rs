@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -121,6 +121,9 @@ pub(super) struct PackageState {
 
     /// Workflow name registered for this package
     pub(super) workflow_name: Option<String>,
+
+    /// Trigger names registered for this package
+    pub(super) trigger_names: Vec<String>,
 }
 
 /// Status information about the reconciler
