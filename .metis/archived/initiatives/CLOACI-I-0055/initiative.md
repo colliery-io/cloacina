@@ -4,14 +4,14 @@ level: initiative
 title: "Pipeline Claiming — Horizontal Scaling"
 short_code: "CLOACI-I-0055"
 created_at: 2026-03-26T17:16:34.096280+00:00
-updated_at: 2026-03-29T12:33:41.645764+00:00
+updated_at: 2026-03-29T13:45:55.337744+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

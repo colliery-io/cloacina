@@ -7,7 +7,7 @@ created_at: 2026-03-29T12:33:48.983677+00:00
 updated_at: 2026-03-29T12:59:22.946196+00:00
 parent: CLOACI-I-0055
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Implement the DAL operations for task claiming: atomic claim acquisition, heartbeat updates, claim release, and stale claim discovery. Both SQLite and Postgres backends.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

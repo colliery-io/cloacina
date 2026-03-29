@@ -7,7 +7,7 @@ created_at: 2026-03-29T12:33:50.668863+00:00
 updated_at: 2026-03-29T13:37:54.530961+00:00
 parent: CLOACI-I-0055
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Implement a background service that periodically scans for tasks with stale heartbeats (crashed runners), releases their claims, and re-queues them for execution. Must handle scheduler restart gracefully — avoid falsely declaring tasks as stale during the scheduler's own startup window.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

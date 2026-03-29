@@ -4,14 +4,14 @@ level: task
 title: "Integration tests — concurrent claimants, crash recovery, double-claim prevention"
 short_code: "CLOACI-T-0292"
 created_at: 2026-03-29T12:33:51.545268+00:00
-updated_at: 2026-03-29T13:38:31.600340+00:00
+updated_at: 2026-03-29T13:45:41.794761+00:00
 parent: CLOACI-I-0055
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 End-to-end integration tests proving the claiming system works correctly under concurrency, crash scenarios, and edge cases.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-03-29T12:33:47.554867+00:00
 updated_at: 2026-03-29T12:52:31.272382+00:00
 parent: CLOACI-I-0055
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Add `claimed_by` and `heartbeat_at` columns to the `task_executions` table so runners can atomically claim tasks and heartbeat to prove liveness. Update the Diesel schema and unified models.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
