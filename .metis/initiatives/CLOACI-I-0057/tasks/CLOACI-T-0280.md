@@ -4,14 +4,14 @@ level: task
 title: "Scheduler wiring — cron + trigger schedulers from reconciled packages"
 short_code: "CLOACI-T-0280"
 created_at: 2026-03-28T15:30:08.209216+00:00
-updated_at: 2026-03-28T15:30:08.209216+00:00
+updated_at: 2026-03-29T00:41:10.076250+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Wire the `CronScheduler` and `TriggerScheduler` into the daemon so that after the reconciler loads packages, their cron schedules and triggers are active and polling. When packages define cron expressions or triggers in their manifests, the daemon should create the corresponding DB schedule records and start polling.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +58,16 @@ Wire the `CronScheduler` and `TriggerScheduler` into the daemon so that after th
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, all tests pass.
+
+### Changes:
+- `daemon.rs` — `DefaultRunner::with_config()` with 50ms cron poll interval and `run_all` catchup (usize::MAX). After each reconciliation, `register_triggers_from_reconcile()` reads manifests from loaded packages, gets triggers from global registry, and calls `TriggerScheduler::register_trigger()` to create `TriggerSchedule` DB records.
+- CronScheduler and TriggerScheduler already started by DefaultRunner (enabled by default) — no additional wiring needed.
+
+### Key findings:
+- DefaultRunner already starts cron + trigger schedulers internally when `enable_cron_scheduling` and `enable_trigger_scheduling` are true (the defaults)
+- The missing piece was creating `TriggerSchedule` DB records after reconciliation — without those, the trigger scheduler has nothing to poll
+- Cron schedule records from packages still need `CronDefinitionV2` in ManifestV2 (similar to triggers in I-0056) — this is a separate concern for when cron is declared in manifests
+
+### Note on cron from manifests:
+Cron schedule creation from package manifests requires adding `CronDefinitionV2` to ManifestV2 (analogous to how we added `TriggerDefinitionV2` in I-0056). This is not yet implemented — cron schedules are currently created via the library API or CLI. Filed as future work.

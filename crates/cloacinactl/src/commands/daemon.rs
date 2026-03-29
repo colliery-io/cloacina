@@ -27,8 +27,11 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
-use cloacina::registry::{FilesystemWorkflowRegistry, ReconcilerConfig, RegistryReconciler};
-use cloacina::runner::DefaultRunner;
+use cloacina::registry::loader::python_loader::peek_manifest;
+use cloacina::registry::{
+    FilesystemWorkflowRegistry, ReconcileResult, ReconcilerConfig, RegistryReconciler,
+};
+use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
 use super::watcher::PackageWatcher;
 
@@ -72,14 +75,20 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
     let db_url = format!("sqlite://{}?mode=rwc&_journal_mode=WAL", db_path.display());
     info!("Database: {}", db_path.display());
 
-    // 3. Create DefaultRunner with SQLite backend
-    let runner = DefaultRunner::new(&db_url)
+    // 3. Create DefaultRunner with SQLite backend and configured poll intervals
+    let runner_config = DefaultRunnerConfig::builder()
+        .cron_poll_interval(Duration::from_millis(poll_interval_ms))
+        .cron_max_catchup_executions(usize::MAX) // run_all catchup policy
+        .build();
+
+    let runner = DefaultRunner::with_config(&db_url, runner_config)
         .await
         .context("Failed to create DefaultRunner")?;
     info!("DefaultRunner initialized with SQLite backend");
 
     // 4. Create FilesystemWorkflowRegistry
     let registry = Arc::new(FilesystemWorkflowRegistry::new(all_watch_dirs.clone()));
+    let registry_for_triggers = registry.clone();
 
     // 5. Create shutdown channel
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -104,6 +113,8 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
                 result.packages_unloaded.len(),
                 result.packages_failed.len()
             );
+            // Register triggers from newly loaded packages
+            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
         }
         Err(e) => {
             warn!("Initial reconciliation failed: {}", e);
@@ -151,6 +162,7 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
                                 result.packages_loaded.len(),
                                 result.packages_unloaded.len()
                             );
+                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
                         }
                         if result.has_failures() {
                             for (id, err) in &result.packages_failed {
@@ -175,6 +187,7 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
                                 result.packages_loaded.len(),
                                 result.packages_unloaded.len()
                             );
+                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
                         }
                     }
                     Err(e) => {
@@ -200,4 +213,81 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
 
     info!("Daemon shutdown complete.");
     Ok(())
+}
+
+/// After reconciliation loads new packages, register their triggers with the
+/// trigger scheduler so they get polled and create TriggerSchedule DB records.
+async fn register_triggers_from_reconcile(
+    runner: &DefaultRunner,
+    registry: &Arc<FilesystemWorkflowRegistry>,
+    result: &ReconcileResult,
+) {
+    use cloacina::registry::traits::WorkflowRegistry;
+
+    if result.packages_loaded.is_empty() {
+        return;
+    }
+
+    let trigger_scheduler = match runner.trigger_scheduler().await {
+        Some(ts) => ts,
+        None => {
+            debug!("Trigger scheduler not available — skipping trigger registration");
+            return;
+        }
+    };
+
+    // For each newly loaded package, check if it has triggers in its manifest
+    let workflows = match registry.list_workflows().await {
+        Ok(w) => w,
+        Err(e) => {
+            warn!("Failed to list workflows for trigger registration: {}", e);
+            return;
+        }
+    };
+
+    for package_id in &result.packages_loaded {
+        // Find the workflow metadata for this package
+        let metadata = match workflows.iter().find(|w| w.id == *package_id) {
+            Some(m) => m,
+            None => continue,
+        };
+
+        // Load the package data to peek the manifest for trigger definitions
+        let loaded = match registry
+            .get_workflow(&metadata.package_name, &metadata.version)
+            .await
+        {
+            Ok(Some(l)) => l,
+            _ => continue,
+        };
+
+        // Peek manifest for trigger definitions
+        let manifest = match peek_manifest(&loaded.package_data) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        for trigger_def in &manifest.triggers {
+            // Get the trigger from the global registry (it should be registered by the reconciler)
+            if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
+                match trigger_scheduler
+                    .register_trigger(trigger.as_ref(), &trigger_def.workflow)
+                    .await
+                {
+                    Ok(_schedule) => {
+                        info!(
+                            "Registered trigger schedule: '{}' -> workflow '{}' (poll: {})",
+                            trigger_def.name, trigger_def.workflow, trigger_def.poll_interval
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to register trigger schedule for '{}': {}",
+                            trigger_def.name, e
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

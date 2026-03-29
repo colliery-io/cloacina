@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T00:38:44Z | 376 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T00:54:42Z | 376 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4897,7 +4897,8 @@
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L44-203 — `(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()>` — Run the daemon.
+- pub `run` function L47-216 — `(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()>` — Run the daemon.
+-  `register_triggers_from_reconcile` function L220-293 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
 
 #### crates/cloacinactl/src/commands/mod.rs
 
@@ -4909,10 +4910,10 @@
 
 - pub `ReconcileSignal` struct L31 — `-` — Signal sent when the watcher detects a relevant filesystem change.
 - pub `PackageWatcher` struct L35-37 — `{ _watcher: RecommendedWatcher }` — Watches directories for `.cloacina` file changes and signals the daemon
-- pub `new` function L47-122 — `( watch_dirs: &[PathBuf], debounce: Duration, ) -> Result<(Self, mpsc::Receiver<...` — Create a new watcher monitoring the given directories.
-- pub `watch_dir` function L125-129 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Add a new directory to the watcher.
-- pub `unwatch_dir` function L132-136 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Remove a directory from the watcher.
--  `PackageWatcher` type L39-137 — `= PackageWatcher` — modified, or removed.
+- pub `new` function L47-128 — `( watch_dirs: &[PathBuf], debounce: Duration, ) -> Result<(Self, mpsc::Receiver<...` — Create a new watcher monitoring the given directories.
+- pub `watch_dir` function L131-135 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Add a new directory to the watcher.
+- pub `unwatch_dir` function L138-142 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Remove a directory from the watcher.
+-  `PackageWatcher` type L39-143 — `= PackageWatcher` — modified, or removed.
 
 ### crates/cloacinactl/src
 
