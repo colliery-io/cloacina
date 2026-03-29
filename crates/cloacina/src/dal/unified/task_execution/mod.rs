@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -59,6 +59,35 @@ pub struct ClaimResult {
     pub task_name: String,
     /// Current attempt number for this task
     pub attempt: i32,
+}
+
+/// Result of attempting to claim a task for a specific runner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunnerClaimResult {
+    /// Successfully claimed the task.
+    Claimed,
+    /// Another runner already claimed this task.
+    AlreadyClaimed,
+}
+
+/// Result of a heartbeat attempt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeartbeatResult {
+    /// Heartbeat updated successfully — this runner still owns the claim.
+    Ok,
+    /// Claim was lost — another runner has claimed this task (or claim was released).
+    ClaimLost,
+}
+
+/// A task with a stale claim (heartbeat expired).
+#[derive(Debug, Clone)]
+pub struct StaleClaim {
+    /// Task execution ID.
+    pub task_id: UniversalUuid,
+    /// The runner that claimed it (now presumed dead).
+    pub claimed_by: UniversalUuid,
+    /// Last heartbeat timestamp.
+    pub heartbeat_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Data access layer for task execution operations with runtime backend selection.

@@ -4,14 +4,14 @@ level: task
 title: "Claim DAL — claim, heartbeat, release, find_stale for SQLite + Postgres"
 short_code: "CLOACI-T-0289"
 created_at: 2026-03-29T12:33:48.983677+00:00
-updated_at: 2026-03-29T12:33:48.983677+00:00
+updated_at: 2026-03-29T12:55:43.158464+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Implement the DAL operations for task claiming: atomic claim acquisition, heartbeat updates, claim release, and stale claim discovery. Both SQLite and Postgres backends.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +58,12 @@ Implement the DAL operations for task claiming: atomic claim acquisition, heartb
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. All DAL operations implemented for both backends.
+
+### Changes:
+- `mod.rs` — Added `RunnerClaimResult` (Claimed/AlreadyClaimed), `HeartbeatResult` (Ok/ClaimLost), `StaleClaim` types
+- `claiming.rs` — Added 4 operations with SQLite + Postgres impls each:
+  - `claim_for_runner(task_id, runner_id)` — atomic UPDATE WHERE claimed_by IS NULL
+  - `heartbeat(task_id, runner_id)` — UPDATE WHERE claimed_by = runner_id
+  - `release_runner_claim(task_id)` — clear claimed_by + heartbeat_at
+  - `find_stale_claims(threshold)` — SELECT WHERE heartbeat_at < cutoff AND status = Running

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T12:46:56Z | 377 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T12:58:36Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1281,14 +1281,26 @@
 
 - pub `schedule_retry` function L37-50 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — Updates a task's retry schedule with a new attempt count and retry time.
 - pub `claim_ready_task` function L206-215 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
-- pub `get_ready_for_retry` function L417-423 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
+- pub `claim_for_runner` function L424-434 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
+- pub `heartbeat` function L508-518 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
+- pub `release_runner_claim` function L589-598 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
+- pub `find_stale_claims` function L652-661 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
+- pub `get_ready_for_retry` function L730-736 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
 -  `schedule_retry_postgres` function L53-125 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
 -  `schedule_retry_sqlite` function L128-200 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
 -  `claim_ready_task_postgres` function L218-311 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
 -  `PgClaimResult` struct L235-244 — `{ id: Uuid, pipeline_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
 -  `claim_ready_task_sqlite` function L314-414 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `get_ready_for_retry_postgres` function L426-450 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
--  `get_ready_for_retry_sqlite` function L453-477 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `claim_for_runner_postgres` function L437-468 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `claim_for_runner_sqlite` function L471-502 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `heartbeat_postgres` function L521-551 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `heartbeat_sqlite` function L554-584 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `release_runner_claim_postgres` function L601-622 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `release_runner_claim_sqlite` function L625-646 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `find_stale_claims_postgres` function L664-694 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `find_stale_claims_sqlite` function L697-727 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `get_ready_for_retry_postgres` function L739-763 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `get_ready_for_retry_sqlite` function L766-790 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/task_execution/crud.rs
 
@@ -1306,8 +1318,11 @@
 
 - pub `RetryStats` struct L40-49 — `{ tasks_with_retries: i32, total_retries: i32, max_attempts_used: i32, tasks_exh...` — Statistics about retry behavior for a pipeline execution.
 - pub `ClaimResult` struct L53-62 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, at...` — Result structure for atomic task claiming operations.
-- pub `TaskExecutionDAL` struct L66-68 — `{ dal: &'a DAL }` — Data access layer for task execution operations with runtime backend selection.
-- pub `new` function L72-74 — `(dal: &'a DAL) -> Self` — Creates a new TaskExecutionDAL instance.
+- pub `RunnerClaimResult` enum L66-71 — `Claimed | AlreadyClaimed` — Result of attempting to claim a task for a specific runner.
+- pub `HeartbeatResult` enum L75-80 — `Ok | ClaimLost` — Result of a heartbeat attempt.
+- pub `StaleClaim` struct L84-91 — `{ task_id: UniversalUuid, claimed_by: UniversalUuid, heartbeat_at: chrono::DateT...` — A task with a stale claim (heartbeat expired).
+- pub `TaskExecutionDAL` struct L95-97 — `{ dal: &'a DAL }` — Data access layer for task execution operations with runtime backend selection.
+- pub `new` function L101-103 — `(dal: &'a DAL) -> Self` — Creates a new TaskExecutionDAL instance.
 -  `claiming` module L29 — `-` — Task Execution Data Access Layer for Unified Backend Support
 -  `crud` module L30 — `-` — - Pipeline completion and failure detection
 -  `queries` module L31 — `-` — - Pipeline completion and failure detection
