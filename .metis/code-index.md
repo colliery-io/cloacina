@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T13:20:33Z | 378 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T13:42:09Z | 378 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3289,14 +3289,14 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L38-462 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L38-461 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L40-58 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
 -  `start_background_services` function L70-136 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
 -  `start_cron_services` function L139-199 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
 -  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
 -  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
 -  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
--  `start_stale_claim_sweeper` function L416-461 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the stale claim sweeper background service.
+-  `start_stale_claim_sweeper` function L416-460 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the stale claim sweeper background service.
 
 ### crates/cloacina/src/runner
 
@@ -3587,8 +3587,8 @@
 - pub `run` function L82-106 — `(&mut self)` — Run the sweep loop.
 -  `StaleClaimSweeperConfig` type L48-55 — `impl Default for StaleClaimSweeperConfig` — because the sweeper wasn't running to observe their heartbeats.
 -  `default` function L49-54 — `() -> Self` — because the sweeper wasn't running to observe their heartbeats.
--  `StaleClaimSweeper` type L66-190 — `= StaleClaimSweeper` — because the sweeper wasn't running to observe their heartbeats.
--  `sweep` function L109-189 — `(&self)` — Perform a single sweep pass.
+-  `StaleClaimSweeper` type L66-188 — `= StaleClaimSweeper` — because the sweeper wasn't running to observe their heartbeats.
+-  `sweep` function L109-187 — `(&self)` — Perform a single sweep pass.
 
 #### crates/cloacina/src/task_scheduler/state_manager.rs
 
@@ -4112,11 +4112,17 @@
 
 #### crates/cloacina/tests/integration/dal/task_claiming.rs
 
--  `test_concurrent_task_claiming_no_duplicates` function L44-199 — `()` — Test that concurrent task claiming doesn't produce duplicate claims.
--  `NUM_TASKS` variable L71 — `: usize` — Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
--  `NUM_WORKERS` variable L114 — `: usize` — Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
--  `test_claimed_tasks_marked_running` function L203-286 — `()` — Test that claimed tasks have their status properly updated to Running.
--  `test_running_tasks_not_claimable` function L290-343 — `()` — Test that already-running tasks cannot be claimed again.
+-  `test_concurrent_task_claiming_no_duplicates` function L45-200 — `()` — Test that concurrent task claiming doesn't produce duplicate claims.
+-  `NUM_TASKS` variable L72 — `: usize` — Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
+-  `NUM_WORKERS` variable L115 — `: usize` — Tests run on all enabled backends (SQLite, PostgreSQL) using `get_all_fixtures()`.
+-  `test_claimed_tasks_marked_running` function L204-287 — `()` — Test that claimed tasks have their status properly updated to Running.
+-  `test_running_tasks_not_claimable` function L291-344 — `()` — Test that already-running tasks cannot be claimed again.
+-  `create_running_task` function L351-378 — `(dal: &DAL) -> (UniversalUuid, UniversalUuid)` — Helper: create a pipeline and a Running task for runner claiming tests.
+-  `test_runner_double_claim_prevention` function L382-423 — `()` — Double-claim prevention: two runners claim the same task — exactly one wins.
+-  `test_heartbeat_ownership_guard` function L427-469 — `()` — Heartbeat succeeds when runner owns the claim, fails when claim is lost.
+-  `test_release_claim_clears_fields` function L473-511 — `()` — Release claim clears claimed_by and heartbeat_at.
+-  `test_reclaim_after_release` function L515-545 — `()` — After release, another runner can claim the task.
+-  `test_find_stale_claims` function L549-591 — `()` — Find stale claims returns tasks with old heartbeats.
 
 #### crates/cloacina/tests/integration/dal/workflow_packages.rs
 

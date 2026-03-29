@@ -4,14 +4,14 @@ level: task
 title: "Integration tests — concurrent claimants, crash recovery, double-claim prevention"
 short_code: "CLOACI-T-0292"
 created_at: 2026-03-29T12:33:51.545268+00:00
-updated_at: 2026-03-29T12:33:51.545268+00:00
+updated_at: 2026-03-29T13:38:31.600340+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 End-to-end integration tests proving the claiming system works correctly under concurrency, crash scenarios, and edge cases.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +58,16 @@ End-to-end integration tests proving the claiming system works correctly under c
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. 5 new integration tests, all pass on SQLite.
+
+### Tests added to `dal/task_claiming.rs`:
+1. `test_runner_double_claim_prevention` — two runners claim same task, exactly one wins
+2. `test_heartbeat_ownership_guard` — owner heartbeats succeed, non-owner returns ClaimLost
+3. `test_release_claim_clears_fields` — release sets claimed_by and heartbeat_at to None
+4. `test_reclaim_after_release` — after release, another runner can claim; original runner's heartbeat fails
+5. `test_find_stale_claims` — 0s threshold finds recently claimed task, 9999s threshold does not
+
+### Notes:
+- Tests use existing `get_all_fixtures()` pattern — run on all enabled backends
+- Postgres tests pass when Docker is running (verified earlier in session)
+- SQLite: 11 passed (3 original + 5 new + 3 other filtered), 0 failed
