@@ -4,7 +4,7 @@ level: task
 title: "Migrate Rust packaging pipeline from PackageManifest v1 to ManifestV2"
 short_code: "CLOACI-T-0286"
 created_at: 2026-03-28T22:44:52.433699+00:00
-updated_at: 2026-03-29T11:24:27.955051+00:00
+updated_at: 2026-03-29T11:46:14.965295+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,8 @@ Unify the manifest format: make the Rust packaging pipeline (`compile` → `mani
 
 ### Priority
 - P2 — Nice to have. Not blocking anything, but accumulates complexity.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

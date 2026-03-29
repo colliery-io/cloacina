@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T11:36:53Z | 377 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T12:13:04Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -108,7 +108,7 @@
 │   │   │   │   ├── compile.rs
 │   │   │   │   ├── debug.rs
 │   │   │   │   ├── manifest.rs
-│   │   │   │   ├── manifest_v2.rs
+│   │   │   │   ├── manifest_schema.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── platform.rs
 │   │   │   │   ├── tests.rs
@@ -2160,7 +2160,7 @@
 
 #### crates/cloacina/src/packaging/archive.rs
 
-- pub `create_package_archive` function L30-72 — `(compile_result: &CompileResult, output: &PathBuf) -> Result<()>` — Create a package archive from compilation results.
+- pub `create_package_archive` function L30-69 — `(compile_result: &CompileResult, output: &PathBuf) -> Result<()>` — Create a package archive from compilation results.
 
 #### crates/cloacina/src/packaging/compile.rs
 
@@ -2171,54 +2171,54 @@
 
 #### crates/cloacina/src/packaging/debug.rs
 
-- pub `extract_manifest_from_package` function L37-62 — `(package_path: &PathBuf) -> Result<ManifestV2>` — Extract the manifest from a package archive.
-- pub `extract_library_from_package` function L65-116 — `( package_path: &PathBuf, manifest: &ManifestV2, temp_dir: &tempfile::TempDir, )...` — Extract the dynamic library from a package archive to a temporary location.
-- pub `execute_task_from_library` function L119-196 — `( library_path: &PathBuf, task_name: &str, context_json: &str, ) -> Result<Strin...` — Execute a task from a dynamic library.
-- pub `resolve_task_name` function L199-226 — `(manifest: &ManifestV2, task_identifier: &str) -> Result<String>` — Resolve a task identifier (index or name) to a task name.
-- pub `debug_package` function L229-281 — `( package_path: &PathBuf, task_identifier: Option<&str>, context_json: Option<&s...` — High-level debug function that handles both listing and executing tasks.
-- pub `DebugResult` enum L285-288 — `TaskList | TaskExecution` — Result of a debug operation.
-- pub `TaskDebugInfo` struct L292-297 — `{ index: usize, id: String, description: String, dependencies: Vec<String> }` — Information about a task for debugging purposes.
+- pub `extract_manifest_from_package` function L37-62 — `(package_path: &PathBuf) -> Result<Manifest>` — Extract the manifest from a package archive.
+- pub `extract_library_from_package` function L65-120 — `( package_path: &PathBuf, manifest: &Manifest, temp_dir: &tempfile::TempDir, ) -...` — Extract the dynamic library from a package archive to a temporary location.
+- pub `execute_task_from_library` function L123-200 — `( library_path: &PathBuf, task_name: &str, context_json: &str, ) -> Result<Strin...` — Execute a task from a dynamic library.
+- pub `resolve_task_name` function L203-230 — `(manifest: &Manifest, task_identifier: &str) -> Result<String>` — Resolve a task identifier (index or name) to a task name.
+- pub `debug_package` function L233-285 — `( package_path: &PathBuf, task_identifier: Option<&str>, context_json: Option<&s...` — High-level debug function that handles both listing and executing tasks.
+- pub `DebugResult` enum L289-292 — `TaskList | TaskExecution` — Result of a debug operation.
+- pub `TaskDebugInfo` struct L296-301 — `{ index: usize, id: String, description: String, dependencies: Vec<String> }` — Information about a task for debugging purposes.
 -  `MANIFEST_FILENAME` variable L33 — `: &str` — for testing and development purposes.
 -  `EXECUTE_TASK_SYMBOL` variable L34 — `: &str` — for testing and development purposes.
--  `RESULT_BUFFER_SIZE` variable L149 — `: usize` — for testing and development purposes.
+-  `RESULT_BUFFER_SIZE` variable L153 — `: usize` — for testing and development purposes.
 
 #### crates/cloacina/src/packaging/manifest.rs
 
-- pub `ManifestError` enum L47-94 — `NullPointer | MisalignedPointer | NullString | InvalidUtf8 | InvalidDependencies...` — Errors that can occur during manifest extraction from FFI.
-- pub `generate_manifest` function L206-285 — `( cargo_toml: &CargoToml, so_path: &Path, target: &Option<String>, project_path:...` — Generate a package manifest from Cargo.toml and compiled library.
--  `MAX_TASKS` variable L33 — `: usize` — Maximum number of tasks allowed in a single package.
--  `PACKAGED_WORKFLOW_REGEX` variable L37-40 — `: Lazy<Regex>` — Statically compiled regex for matching packaged_workflow attributes.
--  `safe_cstr_to_string` function L110-126 — `( ptr: *const c_char, field_name: &str, ) -> Result<String, ManifestError>` — Safely converts a C string pointer to a Rust String.
--  `safe_cstr_to_option_string` function L137-151 — `( ptr: *const c_char, field_name: &str, ) -> Result<Option<String>, ManifestErro...` — Safely converts a C string pointer to an optional Rust String.
--  `validate_ptr` function L158-170 — `( ptr: *const T, field_name: &'static str, ) -> Result<&'a T, ManifestError>` — Validates and dereferences a pointer to a type T.
--  `validate_slice` function L177-200 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
--  `PackageMetadata` struct L289-293 — `{ description: Option<String>, author: Option<String>, workflow_fingerprint: Opt...` — Package metadata extracted from the FFI
--  `FfiTaskInfo` struct L297-303 — `{ index: u32, id: String, dependencies: Vec<String>, description: String, source...` — Task information extracted from a cdylib via FFI (internal type).
--  `extract_task_info_and_graph_from_library` function L306-475 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
--  `CTaskMetadata` struct L317-324 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
--  `CPackageTasks` struct L328-336 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
--  `extract_package_names_from_source` function L478-502 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
--  `get_current_platform` function L504-516 — `() -> String`
--  `get_current_architecture` function L519-521 — `() -> String` — Kept for backward compatibility with external callers.
+- pub `ManifestError` enum L45-92 — `NullPointer | MisalignedPointer | NullString | InvalidUtf8 | InvalidDependencies...` — Errors that can occur during manifest extraction from FFI.
+- pub `generate_manifest` function L204-283 — `( cargo_toml: &CargoToml, so_path: &Path, target: &Option<String>, project_path:...` — Generate a package manifest from Cargo.toml and compiled library.
+-  `MAX_TASKS` variable L31 — `: usize` — Maximum number of tasks allowed in a single package.
+-  `PACKAGED_WORKFLOW_REGEX` variable L35-38 — `: Lazy<Regex>` — Statically compiled regex for matching packaged_workflow attributes.
+-  `safe_cstr_to_string` function L108-124 — `( ptr: *const c_char, field_name: &str, ) -> Result<String, ManifestError>` — Safely converts a C string pointer to a Rust String.
+-  `safe_cstr_to_option_string` function L135-149 — `( ptr: *const c_char, field_name: &str, ) -> Result<Option<String>, ManifestErro...` — Safely converts a C string pointer to an optional Rust String.
+-  `validate_ptr` function L156-168 — `( ptr: *const T, field_name: &'static str, ) -> Result<&'a T, ManifestError>` — Validates and dereferences a pointer to a type T.
+-  `validate_slice` function L175-198 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
+-  `PackageMetadata` struct L287-291 — `{ description: Option<String>, author: Option<String>, workflow_fingerprint: Opt...` — Package metadata extracted from the FFI
+-  `FfiTaskInfo` struct L295-301 — `{ index: u32, id: String, dependencies: Vec<String>, description: String, source...` — Task information extracted from a cdylib via FFI (internal type).
+-  `extract_task_info_and_graph_from_library` function L304-473 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
+-  `CTaskMetadata` struct L315-322 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
+-  `CPackageTasks` struct L326-334 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
+-  `extract_package_names_from_source` function L476-500 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
+-  `get_current_platform` function L502-514 — `() -> String`
+-  `get_current_architecture` function L517-519 — `() -> String` — Kept for backward compatibility with external callers.
 
-#### crates/cloacina/src/packaging/manifest_v2.rs
+#### crates/cloacina/src/packaging/manifest_schema.rs
 
 - pub `ManifestValidationError` enum L31-68 — `MissingRuntime | UnsupportedTarget | NoTasks | DuplicateTaskId | InvalidDependen...` — Errors from manifest validation.
 - pub `PackageLanguage` enum L73-76 — `Python | Rust` — Package language discriminator.
 - pub `PythonRuntime` struct L80-85 — `{ requires_python: String, entry_module: String }` — Python runtime configuration.
 - pub `RustRuntime` struct L89-92 — `{ library_path: String }` — Rust runtime configuration.
-- pub `PackageInfoV2` struct L96-108 — `{ name: String, version: String, description: Option<String>, fingerprint: Strin...` — Package metadata.
-- pub `TaskDefinitionV2` struct L112-132 — `{ id: String, function: String, dependencies: Vec<String>, description: Option<S...` — Task definition within a package.
-- pub `TriggerDefinitionV2` struct L139-155 — `{ name: String, trigger_type: String, workflow: String, poll_interval: String, a...` — Trigger definition within a package.
-- pub `ManifestV2` struct L161-184 — `{ format_version: String, package: PackageInfoV2, language: PackageLanguage, pyt...` — Unified package manifest (v2).
+- pub `PackageInfo` struct L96-108 — `{ name: String, version: String, description: Option<String>, fingerprint: Strin...` — Package metadata.
+- pub `TaskDefinition` struct L112-132 — `{ id: String, function: String, dependencies: Vec<String>, description: Option<S...` — Task definition within a package.
+- pub `TriggerDefinition` struct L139-155 — `{ name: String, trigger_type: String, workflow: String, poll_interval: String, a...` — Trigger definition within a package.
+- pub `Manifest` struct L161-184 — `{ format_version: String, package: PackageInfo, language: PackageLanguage, pytho...` — Unified package manifest (v2).
 - pub `validate` function L188-284 — `(&self) -> Result<(), ManifestValidationError>` — Validate the manifest for structural correctness.
 - pub `is_compatible_with_platform` function L287-289 — `(&self, platform_str: &str) -> bool` — Check if this package is compatible with a specific platform.
 - pub `parse_duration_str` function L625-654 — `(s: &str) -> Result<std::time::Duration, String>` — Parse a duration string like "30s", "5m", "2h", "100ms" into a [`std::time::Duration`].
--  `ManifestV2` type L186-290 — `= ManifestV2` — runtime configuration applies.
+-  `Manifest` type L186-290 — `= Manifest` — runtime configuration applies.
 -  `tests` module L293-622 — `-` — runtime configuration applies.
--  `make_python_manifest` function L296-334 — `() -> ManifestV2` — runtime configuration applies.
--  `make_rust_manifest` function L336-363 — `() -> ManifestV2` — runtime configuration applies.
--  `make_manifest_with_triggers` function L365-386 — `() -> ManifestV2` — runtime configuration applies.
+-  `make_python_manifest` function L296-334 — `() -> Manifest` — runtime configuration applies.
+-  `make_rust_manifest` function L336-363 — `() -> Manifest` — runtime configuration applies.
+-  `make_manifest_with_triggers` function L365-386 — `() -> Manifest` — runtime configuration applies.
 -  `test_python_manifest_validates` function L389-391 — `()` — runtime configuration applies.
 -  `test_rust_manifest_validates` function L394-396 — `()` — runtime configuration applies.
 -  `test_missing_python_runtime` function L399-406 — `()` — runtime configuration applies.
@@ -2250,7 +2250,7 @@
 - pub `compile` module L24 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `debug` module L25 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `manifest` module L26 — `-` — by CLI tools, tests, or other applications that need to package workflows.
-- pub `manifest_v2` module L27 — `-` — by CLI tools, tests, or other applications that need to package workflows.
+- pub `manifest_schema` module L27 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `platform` module L28 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `types` module L29 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `validation` module L30 — `-` — by CLI tools, tests, or other applications that need to package workflows.
@@ -2267,35 +2267,35 @@
 
 #### crates/cloacina/src/packaging/tests.rs
 
--  `tests` module L20-471 — `-` — Unit tests for packaging functionality
+-  `tests` module L20-474 — `-` — Unit tests for packaging functionality
 -  `create_test_cargo_toml` function L26-41 — `() -> types::CargoToml` — Create a minimal test Cargo.toml structure
 -  `create_mock_library_file` function L44-52 — `() -> (TempDir, PathBuf)` — Create a mock compiled library file for testing
 -  `create_test_project` function L55-80 — `() -> (TempDir, PathBuf)` — Create a test project structure
 -  `test_generate_manifest_basic` function L83-112 — `()` — Unit tests for packaging functionality
--  `test_generate_manifest_with_target` function L115-131 — `()` — Unit tests for packaging functionality
--  `test_generate_manifest_missing_package` function L134-146 — `()` — Unit tests for packaging functionality
--  `test_extract_package_names_from_source` function L149-163 — `()` — Unit tests for packaging functionality
--  `test_extract_package_names_no_packages` function L166-191 — `()` — Unit tests for packaging functionality
--  `test_extract_package_names_missing_src` function L194-204 — `()` — Unit tests for packaging functionality
--  `test_get_current_architecture` function L207-220 — `()` — Unit tests for packaging functionality
--  `test_compile_options_builder_pattern` function L223-235 — `()` — Unit tests for packaging functionality
--  `test_manifest_v2_rust_package` function L238-290 — `()` — Unit tests for packaging functionality
--  `test_constants` function L293-313 — `()` — Unit tests for packaging functionality
--  `test_safe_cstr_to_string_null_pointer` function L318-330 — `()` — Unit tests for packaging functionality
--  `test_safe_cstr_to_string_valid` function L333-341 — `()` — Unit tests for packaging functionality
--  `test_safe_cstr_to_option_string_null_returns_none` function L344-351 — `()` — Unit tests for packaging functionality
--  `test_safe_cstr_to_option_string_valid` function L354-362 — `()` — Unit tests for packaging functionality
--  `test_validate_ptr_null_pointer` function L365-377 — `()` — Unit tests for packaging functionality
--  `test_validate_ptr_valid` function L380-387 — `()` — Unit tests for packaging functionality
--  `test_validate_slice_null_with_nonzero_count` function L390-403 — `()` — Unit tests for packaging functionality
--  `test_validate_slice_null_with_zero_count` function L406-413 — `()` — Unit tests for packaging functionality
--  `test_validate_slice_exceeds_max_tasks` function L416-431 — `()` — Unit tests for packaging functionality
--  `test_validate_slice_valid` function L434-445 — `()` — Unit tests for packaging functionality
--  `test_manifest_error_display` function L448-470 — `()` — Unit tests for packaging functionality
+-  `test_generate_manifest_with_target` function L115-134 — `()` — Unit tests for packaging functionality
+-  `test_generate_manifest_missing_package` function L137-149 — `()` — Unit tests for packaging functionality
+-  `test_extract_package_names_from_source` function L152-166 — `()` — Unit tests for packaging functionality
+-  `test_extract_package_names_no_packages` function L169-194 — `()` — Unit tests for packaging functionality
+-  `test_extract_package_names_missing_src` function L197-207 — `()` — Unit tests for packaging functionality
+-  `test_get_current_architecture` function L210-223 — `()` — Unit tests for packaging functionality
+-  `test_compile_options_builder_pattern` function L226-238 — `()` — Unit tests for packaging functionality
+-  `test_manifest_schema_rust_package` function L241-293 — `()` — Unit tests for packaging functionality
+-  `test_constants` function L296-316 — `()` — Unit tests for packaging functionality
+-  `test_safe_cstr_to_string_null_pointer` function L321-333 — `()` — Unit tests for packaging functionality
+-  `test_safe_cstr_to_string_valid` function L336-344 — `()` — Unit tests for packaging functionality
+-  `test_safe_cstr_to_option_string_null_returns_none` function L347-354 — `()` — Unit tests for packaging functionality
+-  `test_safe_cstr_to_option_string_valid` function L357-365 — `()` — Unit tests for packaging functionality
+-  `test_validate_ptr_null_pointer` function L368-380 — `()` — Unit tests for packaging functionality
+-  `test_validate_ptr_valid` function L383-390 — `()` — Unit tests for packaging functionality
+-  `test_validate_slice_null_with_nonzero_count` function L393-406 — `()` — Unit tests for packaging functionality
+-  `test_validate_slice_null_with_zero_count` function L409-416 — `()` — Unit tests for packaging functionality
+-  `test_validate_slice_exceeds_max_tasks` function L419-434 — `()` — Unit tests for packaging functionality
+-  `test_validate_slice_valid` function L437-448 — `()` — Unit tests for packaging functionality
+-  `test_manifest_error_display` function L451-473 — `()` — Unit tests for packaging functionality
 
 #### crates/cloacina/src/packaging/types.rs
 
-- pub `CompileResult` struct L27-32 — `{ so_path: PathBuf, manifest: ManifestV2 }` — Result of compiling a workflow project.
+- pub `CompileResult` struct L27-32 — `{ so_path: PathBuf, manifest: Manifest }` — Result of compiling a workflow project.
 - pub `CompileOptions` struct L36-45 — `{ target: Option<String>, profile: String, cargo_flags: Vec<String>, jobs: Optio...` — Options for compiling a workflow
 - pub `CargoToml` struct L60-64 — `{ package: Option<CargoPackage>, lib: Option<CargoLib>, dependencies: Option<tom...` — Parsed Cargo.toml structure
 - pub `CargoPackage` struct L68-76 — `{ name: String, version: String, description: Option<String>, authors: Option<Ve...` — Package section from Cargo.toml
@@ -2820,12 +2820,12 @@
 
 - pub `ExtractedPythonPackage` struct L34-45 — `{ root_dir: PathBuf, vendor_dir: PathBuf, workflow_dir: PathBuf, entry_module: S...` — An extracted Python package ready for task execution.
 - pub `PackageKind` enum L48-53 — `Python | Rust` — Result of peeking at a manifest inside an archive.
-- pub `peek_manifest` function L56-92 — `(archive_data: &[u8]) -> Result<ManifestV2, LoaderError>` — Peek at the manifest inside a `.cloacina` archive without full extraction.
+- pub `peek_manifest` function L56-92 — `(archive_data: &[u8]) -> Result<Manifest, LoaderError>` — Peek at the manifest inside a `.cloacina` archive without full extraction.
 - pub `detect_package_kind` function L95-101 — `(archive_data: &[u8]) -> Result<PackageKind, LoaderError>` — Determine the package kind (Python or Rust) from archive data.
 - pub `extract_python_package` function L108-169 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` archive.
 -  `tests` module L172-337 — `-` — execution via PyO3.
--  `build_test_archive` function L183-222 — `(manifest: &ManifestV2, include_workflow: bool) -> Vec<u8>` — Build a minimal Python `.cloacina` archive in memory.
--  `make_test_manifest` function L224-252 — `() -> ManifestV2` — execution via PyO3.
+-  `build_test_archive` function L183-222 — `(manifest: &Manifest, include_workflow: bool) -> Vec<u8>` — Build a minimal Python `.cloacina` archive in memory.
+-  `make_test_manifest` function L224-252 — `() -> Manifest` — execution via PyO3.
 -  `test_peek_manifest` function L255-262 — `()` — execution via PyO3.
 -  `test_detect_package_kind_python` function L265-271 — `()` — execution via PyO3.
 -  `test_extract_python_package` function L274-285 — `()` — execution via PyO3.
@@ -3005,7 +3005,7 @@
 -  `create_workflow_from_host_registry_static` function L391-438 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
 -  `unregister_package_tasks` function L441-464 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
 -  `unregister_package_workflow` function L467-478 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L489-550 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's ManifestV2.
+-  `register_package_triggers` function L489-550 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's Manifest.
 -  `unregister_package_triggers` function L553-561 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
@@ -3072,23 +3072,23 @@
 -  `list_workflows` function L252-258 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
 -  `unregister_workflow` function L260-289 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
 -  `uuid_from_fingerprint` function L296-299 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
--  `tests` module L302-596 — `-` — handles operational state (schedules, executions) separately.
--  `build_test_archive` function L314-330 — `(manifest: &ManifestV2) -> Vec<u8>` — Build a minimal `.cloacina` archive in memory.
--  `test_manifest` function L332-359 — `(name: &str, version: &str) -> ManifestV2` — handles operational state (schedules, executions) separately.
--  `test_list_empty_directory` function L362-367 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_discovers_packages` function L370-386 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_multiple_directories` function L389-410 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_returns_archive_bytes` function L413-427 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_not_found` function L430-435 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_writes_file` function L438-458 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_duplicate_rejected` function L461-470 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_removes_file` function L473-500 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_not_found` function L503-509 — `()` — handles operational state (schedules, executions) separately.
--  `test_corrupt_file_skipped` function L512-534 — `()` — handles operational state (schedules, executions) separately.
--  `test_nonexistent_directory_handled` function L537-543 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_creates_directory` function L546-557 — `()` — handles operational state (schedules, executions) separately.
--  `test_deterministic_package_id` function L560-568 — `()` — handles operational state (schedules, executions) separately.
--  `test_package_with_triggers_in_manifest` function L571-595 — `()` — handles operational state (schedules, executions) separately.
+-  `tests` module L302-595 — `-` — handles operational state (schedules, executions) separately.
+-  `build_test_archive` function L313-329 — `(manifest: &Manifest) -> Vec<u8>` — Build a minimal `.cloacina` archive in memory.
+-  `test_manifest` function L331-358 — `(name: &str, version: &str) -> Manifest` — handles operational state (schedules, executions) separately.
+-  `test_list_empty_directory` function L361-366 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_discovers_packages` function L369-385 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_multiple_directories` function L388-409 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_returns_archive_bytes` function L412-426 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_not_found` function L429-434 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_writes_file` function L437-457 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_duplicate_rejected` function L460-469 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_removes_file` function L472-499 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_not_found` function L502-508 — `()` — handles operational state (schedules, executions) separately.
+-  `test_corrupt_file_skipped` function L511-533 — `()` — handles operational state (schedules, executions) separately.
+-  `test_nonexistent_directory_handled` function L536-542 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_creates_directory` function L545-556 — `()` — handles operational state (schedules, executions) separately.
+-  `test_deterministic_package_id` function L559-567 — `()` — handles operational state (schedules, executions) separately.
+-  `test_package_with_triggers_in_manifest` function L570-594 — `()` — handles operational state (schedules, executions) separately.
 
 #### crates/cloacina/src/registry/workflow_registry/mod.rs
 
@@ -3863,10 +3863,10 @@
 -  `test_packaging_invalid_project` function L245-256 — `()` — manifest generation, and archive creation.
 -  `test_packaging_missing_cargo_toml` function L260-273 — `()` — manifest generation, and archive creation.
 -  `test_packaging_with_cargo_flags` function L277-305 — `()` — manifest generation, and archive creation.
--  `test_package_manifest_v2_serialization` function L308-352 — `()` — manifest generation, and archive creation.
--  `test_package_constants` function L355-361 — `()` — manifest generation, and archive creation.
--  `create_test_cargo_toml` function L364-379 — `() -> cloacina::packaging::types::CargoToml` — Helper function to create a minimal valid Cargo.toml for testing
--  `test_cargo_toml_parsing` function L382-396 — `()` — manifest generation, and archive creation.
+-  `test_package_manifest_schema_serialization` function L308-349 — `()` — manifest generation, and archive creation.
+-  `test_package_constants` function L352-358 — `()` — manifest generation, and archive creation.
+-  `create_test_cargo_toml` function L361-376 — `() -> cloacina::packaging::types::CargoToml` — Helper function to create a minimal valid Cargo.toml for testing
+-  `test_cargo_toml_parsing` function L379-393 — `()` — manifest generation, and archive creation.
 
 #### crates/cloacina/tests/integration/packaging_inspection.rs
 
@@ -3876,17 +3876,17 @@
 -  `get_project_path` function L60-62 — `(&self) -> &Path` — and then inspecting the resulting package to verify task extraction works correctly.
 -  `get_package_path` function L64-66 — `(&self) -> &Path` — and then inspecting the resulting package to verify task extraction works correctly.
 -  `package_workflow` function L69-82 — `(&self) -> Result<()>` — Package the workflow using the cloacina library
--  `extract_manifest` function L85-104 — `(&self) -> Result<ManifestV2>` — Extract and parse the manifest from the packaged workflow
+-  `extract_manifest` function L85-104 — `(&self) -> Result<Manifest>` — Extract and parse the manifest from the packaged workflow
 -  `verify_library_exists` function L107-126 — `(&self) -> Result<bool>` — Verify the package contains the expected library file
 -  `test_package_and_inspect_workflow_complete` function L131-235 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_package_inspection_manifest_structure` function L239-275 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_package_inspection_error_handling` function L279-305 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_packaging_constants_integration` function L308-319 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_package_inspection_manifest_structure` function L239-274 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_package_inspection_error_handling` function L278-304 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_packaging_constants_integration` function L307-318 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
 
 #### crates/cloacina/tests/integration/python_package.rs
 
--  `build_archive` function L42-78 — `(manifest: &ManifestV2, workflow_files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory with realistic structure.
--  `data_pipeline_manifest` function L81-135 — `() -> ManifestV2` — Create a manifest matching the example data-pipeline project.
+-  `build_archive` function L42-78 — `(manifest: &Manifest, workflow_files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory with realistic structure.
+-  `data_pipeline_manifest` function L81-135 — `() -> Manifest` — Create a manifest matching the example data-pipeline project.
 -  `data_pipeline_files` function L138-149 — `() -> Vec<(&'static str, &'static [u8])>` — Workflow source files for the data-pipeline example.
 -  `peek_manifest_returns_correct_metadata` function L156-165 — `()` — round-trip: archive → peek → detect → extract → validate.
 -  `detect_package_kind_identifies_python` function L168-174 — `()` — round-trip: archive → peek → detect → extract → validate.
@@ -4011,10 +4011,10 @@
 
 #### crates/cloacina/tests/integration/trigger_packaging.rs
 
--  `build_archive` function L46-71 — `(manifest: &ManifestV2, files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory.
--  `rust_manifest_with_triggers` function L73-117 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
--  `rust_manifest_no_triggers` function L119-146 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
--  `python_manifest_with_trigger` function L148-183 — `() -> ManifestV2` — - Discovered for Python packages via `@cloaca.trigger`
+-  `build_archive` function L46-71 — `(manifest: &Manifest, files: &[(&str, &[u8])]) -> Vec<u8>` — Build a `.cloacina` archive in memory.
+-  `rust_manifest_with_triggers` function L73-117 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
+-  `rust_manifest_no_triggers` function L119-146 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
+-  `python_manifest_with_trigger` function L148-183 — `() -> Manifest` — - Discovered for Python packages via `@cloaca.trigger`
 -  `TestTrigger` struct L187-189 — `{ name: String }` — A simple test trigger for registry round-trip tests.
 -  `TestTrigger` type L192-205 — `impl Trigger for TestTrigger` — - Discovered for Python packages via `@cloaca.trigger`
 -  `name` function L193-195 — `(&self) -> &str` — - Discovered for Python packages via `@cloaca.trigger`
@@ -4892,14 +4892,26 @@
 
 #### crates/cloacinactl/src/commands/config.rs
 
-- pub `DaemonConfig` struct L30-33 — `{ daemon: DaemonSection, watch: WatchSection }` — Daemon configuration from `config.toml`.
-- pub `DaemonSection` struct L37-40 — `{ poll_interval_ms: u64, log_level: String }` — — the daemon continues with previous/default settings.
-- pub `WatchSection` struct L53-55 — `{ directories: Vec<String> }` — — the daemon continues with previous/default settings.
-- pub `load` function L60-89 — `(path: &Path) -> Self` — Load config from a TOML file.
-- pub `resolve_watch_dirs` function L92-105 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
--  `DaemonSection` type L42-49 — `impl Default for DaemonSection` — — the daemon continues with previous/default settings.
--  `default` function L43-48 — `() -> Self` — — the daemon continues with previous/default settings.
--  `DaemonConfig` type L57-106 — `= DaemonConfig` — — the daemon continues with previous/default settings.
+- pub `CloacinaConfig` struct L32-42 — `{ database_url: Option<String>, daemon: DaemonSection, watch: WatchSection }` — Full configuration file structure.
+- pub `DaemonSection` struct L46-49 — `{ poll_interval_ms: u64, log_level: String }` — - Config value lookup for commands that need database_url etc.
+- pub `WatchSection` struct L62-64 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
+- pub `load` function L69-98 — `(path: &Path) -> Self` — Load config from a TOML file.
+- pub `save` function L101-111 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
+- pub `resolve_watch_dirs` function L114-127 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
+- pub `get` function L130-134 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
+- pub `set` function L137-149 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
+- pub `list` function L152-160 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
+- pub `run_get` function L258-269 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
+- pub `run_set` function L272-278 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
+- pub `run_list` function L281-292 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
+- pub `resolve_database_url` function L295-309 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
+-  `DaemonSection` type L51-58 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
+-  `default` function L52-57 — `() -> Self` — - Config value lookup for commands that need database_url etc.
+-  `CloacinaConfig` type L66-161 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
+-  `resolve_key` function L164-171 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
+-  `set_key` function L174-220 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
+-  `collect_pairs` function L223-239 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
+-  `format_value` function L242-255 — `(value: &toml::Value) -> String` — Format a TOML value for display.
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
@@ -4928,12 +4940,13 @@
 
 #### crates/cloacinactl/src/main.rs
 
--  `commands` module L24 — `-` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `Cli` struct L30-41 — `{ database_url: Option<String>, verbose: bool, command: Commands }` — Cloacina - A resilient task execution and orchestration engine
--  `Commands` enum L44-67 — `Daemon | Admin` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `default_home` function L70-74 — `() -> PathBuf` — Default daemon home directory (~/.cloacina/).
--  `AdminCommands` enum L77-88 — `CleanupEvents` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `main` function L91-131 — `() -> Result<()>` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+-  `commands` module L24 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `Cli` struct L30-41 — `{ verbose: bool, home: PathBuf, command: Commands }` — cloacinactl — Cloacina task orchestration engine
+-  `Commands` enum L44-69 — `Daemon | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `ConfigCommands` enum L72-90 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L93-108 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `default_home` function L111-115 — `() -> PathBuf` — Default home directory (~/.cloacina/).
+-  `main` function L118-172 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 
 ### docs/themes/hugo-geekdoc/static/js
 

@@ -36,7 +36,7 @@ def build_daemon():
 
 def find_daemon_binary():
     """Find the daemon binary path."""
-    binary = Path("target/release/cloacina")
+    binary = Path("target/release/cloacinactl")
     if not binary.exists():
         raise FileNotFoundError(f"Daemon binary not found at {binary}. Run build first.")
     return str(binary)

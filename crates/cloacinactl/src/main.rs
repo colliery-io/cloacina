@@ -14,27 +14,27 @@
  *  limitations under the License.
  */
 
-//! Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+//! cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod commands;
 
-/// Cloacina - A resilient task execution and orchestration engine
+/// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]
-#[command(name = "cloacina")]
+#[command(name = "cloacinactl")]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Database URL (can also be set via DATABASE_URL environment variable)
-    #[arg(long, env = "DATABASE_URL", global = true)]
-    database_url: Option<String>,
-
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Cloacina home directory
+    #[arg(long, global = true, default_value_os_t = default_home())]
+    home: PathBuf,
 
     #[command(subcommand)]
     command: Commands,
@@ -45,10 +45,6 @@ enum Commands {
     /// Run the daemon — a lightweight local scheduler that watches directories
     /// for .cloacina packages and runs their cron schedules and triggers
     Daemon {
-        /// Daemon home directory for database, logs, and state
-        #[arg(long, default_value_os_t = default_home())]
-        home: PathBuf,
-
         /// Directories to watch for .cloacina packages (repeatable).
         /// The default packages directory (~/.cloacina/packages/) is always watched.
         #[arg(long = "watch-dir")]
@@ -59,6 +55,12 @@ enum Commands {
         poll_interval: u64,
     },
 
+    /// Manage configuration (get/set/list values in ~/.cloacina/config.toml)
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+
     /// Administrative commands for managing the Cloacina system
     Admin {
         #[command(subcommand)]
@@ -66,17 +68,35 @@ enum Commands {
     },
 }
 
-/// Default daemon home directory (~/.cloacina/).
-fn default_home() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".cloacina")
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// Get a configuration value
+    Get {
+        /// Config key (e.g., "database_url", "daemon.poll_interval_ms")
+        key: String,
+    },
+
+    /// Set a configuration value
+    Set {
+        /// Config key (e.g., "database_url", "daemon.poll_interval_ms")
+        key: String,
+
+        /// Value to set
+        value: String,
+    },
+
+    /// List all configuration values
+    List,
 }
 
 #[derive(Subcommand)]
 enum AdminCommands {
     /// Clean up old execution events from the database
     CleanupEvents {
+        /// Database URL (overrides config file and DATABASE_URL env var)
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: Option<String>,
+
         /// Delete events older than this duration (e.g., "90d", "30d", "7d", "24h")
         #[arg(long, default_value = "90d")]
         older_than: String,
@@ -87,19 +107,39 @@ enum AdminCommands {
     },
 }
 
+/// Default home directory (~/.cloacina/).
+fn default_home() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".cloacina")
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config_path = cli.home.join("config.toml");
 
     match cli.command {
         Commands::Daemon {
-            home,
             watch_dirs,
             poll_interval,
         } => {
             // Daemon sets up its own logging (file + stderr)
-            commands::daemon::run(home, watch_dirs, poll_interval, cli.verbose).await?;
+            commands::daemon::run(cli.home, watch_dirs, poll_interval, cli.verbose).await?;
         }
+
+        Commands::Config { command } => match command {
+            ConfigCommands::Get { key } => {
+                commands::config::run_get(&config_path, &key)?;
+            }
+            ConfigCommands::Set { key, value } => {
+                commands::config::run_set(&config_path, &key, &value)?;
+            }
+            ConfigCommands::List => {
+                commands::config::run_list(&config_path)?;
+            }
+        },
+
         Commands::Admin { command } => {
             // Standard stderr logging for admin commands
             let filter = if cli.verbose {
@@ -114,14 +154,15 @@ async fn main() -> Result<()> {
 
             match command {
                 AdminCommands::CleanupEvents {
+                    database_url,
                     older_than,
                     dry_run,
                 } => {
-                    let database_url = cli
-                    .database_url
-                    .context("Database URL is required. Set --database-url or DATABASE_URL environment variable")?;
-
-                    commands::cleanup_events::run(&database_url, &older_than, dry_run).await?;
+                    let db_url = commands::config::resolve_database_url(
+                        database_url.as_deref(),
+                        &config_path,
+                    )?;
+                    commands::cleanup_events::run(&db_url, &older_than, dry_run).await?;
                 }
             }
         }

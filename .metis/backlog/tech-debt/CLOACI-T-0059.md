@@ -4,19 +4,18 @@ level: task
 title: "Review CLI nomenclature and subcommand organization"
 short_code: "CLOACI-T-0059"
 created_at: 2026-01-28T14:14:05.539285+00:00
-updated_at: 2026-01-28T14:14:05.539285+00:00
+updated_at: 2026-03-29T12:00:01.201047+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
-strategy_id: NULL
 initiative_id: NULL
 ---
 
@@ -50,12 +49,26 @@ Audit and standardize the Cloacina CLI structure for consistency, discoverabilit
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] Document current CLI structure
 - [ ] Identify inconsistencies
 - [ ] Propose standardized naming conventions
 - [ ] Update CLI to match conventions
 - [ ] Update documentation
 
-## Trigger
+## Status Updates
 
-Review after package signing CLI (CLOACI-I-0008) is implemented and we have more concrete usage patterns.
+**2026-03-29**: Complete. Binary renamed, CLI restructured kubectl-style, config get/set/list added.
+
+### Final CLI structure:
+```
+cloacinactl [--home <PATH>] [-v]
+├── daemon --watch-dir ... --poll-interval N
+├── config get <key>
+├── config set <key> <value>
+├── config list
+└── admin cleanup-events [--database-url <URL>] --older-than 90d [--dry-run]
+```

@@ -35,7 +35,7 @@ use cloacina::registry::{
 };
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
-use super::config::DaemonConfig;
+use super::config::CloacinaConfig;
 use super::watcher::PackageWatcher;
 
 /// Run the daemon.
@@ -153,7 +153,7 @@ pub async fn run(
 
     // 8. Load config file (if exists) and merge with CLI args
     let config_path = home.join("config.toml");
-    let config = DaemonConfig::load(&config_path);
+    let config = CloacinaConfig::load(&config_path);
 
     // Merge config file watch dirs with CLI watch dirs (CLI takes precedence)
     let config_watch_dirs = config.resolve_watch_dirs();
@@ -263,7 +263,7 @@ pub async fn run(
             // SIGHUP — reload configuration
             _ = sighup.recv() => {
                 info!("Received SIGHUP — reloading configuration...");
-                let new_config = DaemonConfig::load(&config_path);
+                let new_config = CloacinaConfig::load(&config_path);
                 let new_watch_dirs = {
                     let mut dirs = vec![packages_dir.clone()];
                     // CLI dirs

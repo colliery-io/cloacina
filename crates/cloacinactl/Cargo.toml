@@ -11,7 +11,7 @@ documentation.workspace = true
 readme.workspace = true
 
 [[bin]]
-name = "cloacina"
+name = "cloacinactl"
 path = "src/main.rs"
 
 [features]
