@@ -17,3 +17,4 @@
 //! CLI command implementations.
 
 pub mod cleanup_events;
+pub mod daemon;

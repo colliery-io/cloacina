@@ -18,6 +18,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod commands;
@@ -41,11 +42,35 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Run the daemon — a lightweight local scheduler that watches directories
+    /// for .cloacina packages and runs their cron schedules and triggers
+    Daemon {
+        /// Daemon home directory for database, logs, and state
+        #[arg(long, default_value_os_t = default_home())]
+        home: PathBuf,
+
+        /// Directories to watch for .cloacina packages (repeatable).
+        /// The default packages directory (~/.cloacina/packages/) is always watched.
+        #[arg(long = "watch-dir")]
+        watch_dirs: Vec<PathBuf>,
+
+        /// Reconciler poll interval in milliseconds
+        #[arg(long, default_value = "50")]
+        poll_interval: u64,
+    },
+
     /// Administrative commands for managing the Cloacina system
     Admin {
         #[command(subcommand)]
         command: AdminCommands,
     },
+}
+
+/// Default daemon home directory (~/.cloacina/).
+fn default_home() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".cloacina")
 }
 
 #[derive(Subcommand)]
@@ -79,6 +104,13 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
+        Commands::Daemon {
+            home,
+            watch_dirs,
+            poll_interval,
+        } => {
+            commands::daemon::run(home, watch_dirs, poll_interval).await?;
+        }
         Commands::Admin { command } => match command {
             AdminCommands::CleanupEvents {
                 older_than,

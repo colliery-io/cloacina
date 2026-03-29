@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-28T22:37:51Z | 374 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T00:32:20Z | 375 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -300,6 +300,7 @@
 │       └── src/
 │           ├── commands/
 │           │   ├── cleanup_events.rs
+│           │   ├── daemon.rs
 │           │   └── mod.rs
 │           └── main.rs
 ├── docs/
@@ -3065,33 +3066,33 @@
 
 - pub `FilesystemWorkflowRegistry` struct L43-46 — `{ watch_dirs: Vec<PathBuf> }` — A `WorkflowRegistry` implementation backed by directories of `.cloacina` files.
 - pub `new` function L53-63 — `(watch_dirs: Vec<PathBuf>) -> Self` — Create a new filesystem registry watching the given directories.
--  `FilesystemWorkflowRegistry` type L48-241 — `= FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
--  `scan_packages` function L69-185 — `( &self, ) -> HashMap<(String, String), (PathBuf, WorkflowMetadata)>` — Scan all watch directories for `.cloacina` files.
--  `peek_v1_manifest` function L188-232 — `(archive_data: &[u8]) -> Option<WorkflowMetadata>` — Try to extract metadata from a v1 package (Rust cdylib with `PackageManifest`).
--  `find_package_path` function L235-240 — `(&self, package_name: &str, version: &str) -> Option<PathBuf>` — Find the file path for a package by name and version.
--  `FilesystemWorkflowRegistry` type L244-366 — `impl WorkflowRegistry for FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
--  `register_workflow` function L245-303 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — handles operational state (schedules, executions) separately.
--  `get_workflow` function L305-329 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — handles operational state (schedules, executions) separately.
--  `list_workflows` function L331-334 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
--  `unregister_workflow` function L336-365 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
--  `uuid_from_fingerprint` function L372-375 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
--  `tests` module L378-680 — `-` — handles operational state (schedules, executions) separately.
--  `build_test_archive` function L390-406 — `(manifest: &ManifestV2) -> Vec<u8>` — Build a minimal `.cloacina` archive in memory.
--  `test_manifest` function L408-435 — `(name: &str, version: &str) -> ManifestV2` — handles operational state (schedules, executions) separately.
--  `test_list_empty_directory` function L438-443 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_discovers_packages` function L446-462 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_multiple_directories` function L465-486 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_returns_archive_bytes` function L489-503 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_not_found` function L506-511 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_writes_file` function L514-534 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_duplicate_rejected` function L537-549 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_removes_file` function L552-579 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_not_found` function L582-593 — `()` — handles operational state (schedules, executions) separately.
--  `test_corrupt_file_skipped` function L596-618 — `()` — handles operational state (schedules, executions) separately.
--  `test_nonexistent_directory_handled` function L621-627 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_creates_directory` function L630-641 — `()` — handles operational state (schedules, executions) separately.
--  `test_deterministic_package_id` function L644-652 — `()` — handles operational state (schedules, executions) separately.
--  `test_package_with_triggers_in_manifest` function L655-679 — `()` — handles operational state (schedules, executions) separately.
+-  `FilesystemWorkflowRegistry` type L48-224 — `= FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
+-  `scan_packages` function L69-168 — `(&self) -> HashMap<(String, String), (PathBuf, WorkflowMetadata)>` — Scan all watch directories for `.cloacina` files.
+-  `peek_v1_manifest` function L171-215 — `(archive_data: &[u8]) -> Option<WorkflowMetadata>` — Try to extract metadata from a v1 package (Rust cdylib with `PackageManifest`).
+-  `find_package_path` function L218-223 — `(&self, package_name: &str, version: &str) -> Option<PathBuf>` — Find the file path for a package by name and version.
+-  `FilesystemWorkflowRegistry` type L227-352 — `impl WorkflowRegistry for FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
+-  `register_workflow` function L228-286 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — handles operational state (schedules, executions) separately.
+-  `get_workflow` function L288-312 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — handles operational state (schedules, executions) separately.
+-  `list_workflows` function L314-320 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
+-  `unregister_workflow` function L322-351 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
+-  `uuid_from_fingerprint` function L358-361 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
+-  `tests` module L364-658 — `-` — handles operational state (schedules, executions) separately.
+-  `build_test_archive` function L376-392 — `(manifest: &ManifestV2) -> Vec<u8>` — Build a minimal `.cloacina` archive in memory.
+-  `test_manifest` function L394-421 — `(name: &str, version: &str) -> ManifestV2` — handles operational state (schedules, executions) separately.
+-  `test_list_empty_directory` function L424-429 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_discovers_packages` function L432-448 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_multiple_directories` function L451-472 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_returns_archive_bytes` function L475-489 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_not_found` function L492-497 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_writes_file` function L500-520 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_duplicate_rejected` function L523-532 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_removes_file` function L535-562 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_not_found` function L565-571 — `()` — handles operational state (schedules, executions) separately.
+-  `test_corrupt_file_skipped` function L574-596 — `()` — handles operational state (schedules, executions) separately.
+-  `test_nonexistent_directory_handled` function L599-605 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_creates_directory` function L608-619 — `()` — handles operational state (schedules, executions) separately.
+-  `test_deterministic_package_id` function L622-630 — `()` — handles operational state (schedules, executions) separately.
+-  `test_package_with_triggers_in_manifest` function L633-657 — `()` — handles operational state (schedules, executions) separately.
 
 #### crates/cloacina/src/registry/workflow_registry/mod.rs
 
@@ -4893,9 +4894,14 @@
 -  `test_parse_duration_invalid_unit` function L213-215 — `()` — Cleans up old execution events from the database based on a retention policy.
 -  `test_parse_duration_zero` function L218-220 — `()` — Cleans up old execution events from the database based on a retention policy.
 
+#### crates/cloacinactl/src/commands/daemon.rs
+
+- pub `run` function L43-152 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, ) -> Result<()...` — Run the daemon.
+
 #### crates/cloacinactl/src/commands/mod.rs
 
 - pub `cleanup_events` module L19 — `-` — CLI command implementations.
+- pub `daemon` module L20 — `-` — CLI command implementations.
 
 ### crates/cloacinactl/src
 
@@ -4903,11 +4909,12 @@
 
 #### crates/cloacinactl/src/main.rs
 
--  `commands` module L23 — `-` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `Cli` struct L29-40 — `{ database_url: Option<String>, verbose: bool, command: Commands }` — Cloacina - A resilient task execution and orchestration engine
--  `Commands` enum L43-49 — `Admin` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `AdminCommands` enum L52-63 — `CleanupEvents` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
--  `main` function L66-97 — `() -> Result<()>` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+-  `commands` module L24 — `-` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+-  `Cli` struct L30-41 — `{ database_url: Option<String>, verbose: bool, command: Commands }` — Cloacina - A resilient task execution and orchestration engine
+-  `Commands` enum L44-67 — `Daemon | Admin` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+-  `default_home` function L70-74 — `() -> PathBuf` — Default daemon home directory (~/.cloacina/).
+-  `AdminCommands` enum L77-88 — `CleanupEvents` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
+-  `main` function L91-129 — `() -> Result<()>` — Cloacina CLI - Command-line interface for the Cloacina task orchestration engine.
 
 ### docs/themes/hugo-geekdoc/static/js
 

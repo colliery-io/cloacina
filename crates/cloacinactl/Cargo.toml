@@ -23,6 +23,7 @@ sqlite = ["cloacina/sqlite"]
 cloacina = { path = "../cloacina", default-features = false }
 clap.workspace = true
 anyhow.workspace = true
+dirs = "6"
 tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4" }
 tracing = { version = "0.1" }
