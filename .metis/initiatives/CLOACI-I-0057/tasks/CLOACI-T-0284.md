@@ -1,17 +1,17 @@
----
+th---
 id: hot-reload-sighup-config-re-read
 level: task
 title: "Hot reload — SIGHUP config re-read without restart"
 short_code: "CLOACI-T-0284"
 created_at: 2026-03-28T15:38:56.663995+00:00
-updated_at: 2026-03-29T01:11:13.845264+00:00
+updated_at: 2026-03-29T01:14:26.041876+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Allow the daemon to reload its configuration without restarting. On SIGHUP (or config file change), the daemon re-reads `~/.cloacina/config.toml`, updates watch directories, adjusts log level, and triggers a reconciliation pass to pick up any changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

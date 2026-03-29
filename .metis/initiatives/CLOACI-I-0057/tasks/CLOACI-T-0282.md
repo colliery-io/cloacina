@@ -4,14 +4,14 @@ level: task
 title: "Daemon soak test — angreal task, sustained package loading and execution"
 short_code: "CLOACI-T-0282"
 created_at: 2026-03-28T15:30:10.697154+00:00
-updated_at: 2026-03-28T15:30:10.697154+00:00
+updated_at: 2026-03-29T01:15:41.498728+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Create an angreal soak test that runs the daemon under sustained load: spawns the daemon process, drops packages into the watch directory, verifies they get loaded and executed, removes packages and verifies unload, checks for leaks/crashes over time.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -55,4 +57,11 @@ Create an angreal soak test that runs the daemon under sustained load: spawns th
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, soak test passes.
+
+### Changes:
+- `soak.py` — `angreal cloacina soak --duration N` task
+- `task_project.py` — added soak import
+
+### Verified:
+Daemon starts, accepts 5 packages, handles removal, stays alive, produces 181KB of logs, exits cleanly with code 0 on SIGINT.
