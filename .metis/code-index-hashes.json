@@ -239,7 +239,7 @@
     "crates/cloacina/tests/integration/workflow/subgraph.rs": "d23cde163ee6515b62aed654b0ea09a479e9bbd4b5944737acabb68cd669b37f",
     "crates/cloacinactl/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "crates/cloacinactl/src/commands/cleanup_events.rs": "a7301d0fc5c97ccd9deb2358ec33672062218fec363c6a867be129185a71c47e",
-    "crates/cloacinactl/src/commands/daemon.rs": "6d5fb161de8151c386d221dc50a78f30c1f46f99cfd6fd78aab346bcd72c2537",
+    "crates/cloacinactl/src/commands/daemon.rs": "6b9fed59f045b930cd03ac88f566b25471f68f0bc63502d42c8ef4a4e47bf055",
     "crates/cloacinactl/src/commands/mod.rs": "f173ffd12121fe2e27a8a05281dd6550a1b4005a8b272a6081869269af8256c5",
     "crates/cloacinactl/src/commands/watcher.rs": "daa3a6c97bc986505d708a65c382e1025b85d2fe10c23939363b261f392a8f43",
     "crates/cloacinactl/src/main.rs": "517ff1c73f2bdb5c7caeab3c8712dde013235861a9a9cae7d56aa5a68994c60c",

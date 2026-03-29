@@ -4,14 +4,14 @@ level: task
 title: "Graceful shutdown — signal handling, drain in-flight pipelines"
 short_code: "CLOACI-T-0281"
 created_at: 2026-03-28T15:30:09.535944+00:00
-updated_at: 2026-03-28T15:30:09.535944+00:00
+updated_at: 2026-03-29T00:57:46.352828+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Implement clean shutdown for the daemon process. On SIGINT/SIGTERM: stop accepting new work, stop schedulers, wait for in-flight pipelines to complete (with timeout), stop the directory watcher, close the database.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -58,4 +60,12 @@ Implement clean shutdown for the daemon process. On SIGINT/SIGTERM: stop accepti
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, smoke tested.
+
+### Changes:
+- `daemon.rs` — SIGTERM via `tokio::signal::unix::signal(SignalKind::terminate())`, SIGINT via `ctrl_c()`. Graceful shutdown races `runner.shutdown()` vs 30s timeout vs second Ctrl+C (force exit). Logs progress throughout.
+
+### Notes:
+- `DefaultRunner::shutdown()` handles stopping all internal schedulers (cron, trigger, reconciler) and draining pipelines
+- The directory watcher is dropped when the daemon function returns (RAII cleanup)
+- The watch channel to the reconciler isn't needed since we drive reconciliation manually

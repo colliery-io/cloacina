@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T00:54:42Z | 376 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T01:00:09Z | 376 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4897,8 +4897,8 @@
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L47-216 — `(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()>` — Run the daemon.
--  `register_triggers_from_reconcile` function L220-293 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+- pub `run` function L47-242 — `(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()>` — Run the daemon.
+-  `register_triggers_from_reconcile` function L246-319 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
 
 #### crates/cloacinactl/src/commands/mod.rs
 

@@ -144,7 +144,11 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
     info!("Press Ctrl+C to shut down.");
     info!("");
 
-    // 9. Event loop: react to filesystem changes or periodic reconciliation
+    // 9. Set up signal handlers
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("Failed to register SIGTERM handler")?;
+
+    // 10. Event loop: react to filesystem changes or periodic reconciliation
     let poll_interval = Duration::from_millis(poll_interval_ms);
     let mut periodic = tokio::time::interval(poll_interval);
     periodic.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -196,20 +200,45 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
                 }
             }
 
-            // Ctrl+C
+            // SIGINT (Ctrl+C)
             _ = tokio::signal::ctrl_c() => {
                 info!("");
-                info!("Shutting down...");
+                info!("Received SIGINT — shutting down...");
+                break;
+            }
+
+            // SIGTERM
+            _ = sigterm.recv() => {
+                info!("Received SIGTERM — shutting down...");
                 break;
             }
         }
     }
 
-    // Shutdown the runner
-    runner
-        .shutdown()
-        .await
-        .context("Failed to shutdown runner")?;
+    // Graceful shutdown with timeout and force-exit on second signal
+    let shutdown_timeout = Duration::from_secs(30);
+    info!(
+        "Draining in-flight pipelines (timeout: {}s)...",
+        shutdown_timeout.as_secs()
+    );
+    info!("Press Ctrl+C again to force exit immediately.");
+
+    // Race: runner shutdown vs timeout vs second Ctrl+C
+    tokio::select! {
+        result = runner.shutdown() => {
+            match result {
+                Ok(()) => info!("All pipelines drained successfully."),
+                Err(e) => error!("Runner shutdown error: {}", e),
+            }
+        }
+        _ = tokio::time::sleep(shutdown_timeout) => {
+            error!("Shutdown timed out after {}s — forcing exit.", shutdown_timeout.as_secs());
+        }
+        _ = tokio::signal::ctrl_c() => {
+            warn!("Second SIGINT received — forcing immediate exit.");
+            std::process::exit(1);
+        }
+    }
 
     info!("Daemon shutdown complete.");
     Ok(())
