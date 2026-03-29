@@ -4,14 +4,14 @@ level: initiative
 title: "Unified workflow macro — single #[workflow] for embedded and packaged delivery"
 short_code: "CLOACI-I-0058"
 created_at: 2026-03-29T19:55:20.655315+00:00
-updated_at: 2026-03-29T20:36:53.093393+00:00
+updated_at: 2026-03-29T20:39:34.494489+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/ready"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false

@@ -4,14 +4,14 @@ level: initiative
 title: "Unified scheduling infrastructure — collapse cron/trigger into single scheduler and schema"
 short_code: "CLOACI-I-0059"
 created_at: 2026-03-29T20:21:35.665158+00:00
-updated_at: 2026-03-29T20:36:53.163699+00:00
+updated_at: 2026-03-29T22:16:07.882814+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/ready"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
