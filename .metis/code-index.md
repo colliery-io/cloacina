@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T12:13:04Z | 377 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T12:23:38Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4893,30 +4893,30 @@
 #### crates/cloacinactl/src/commands/config.rs
 
 - pub `CloacinaConfig` struct L32-42 — `{ database_url: Option<String>, daemon: DaemonSection, watch: WatchSection }` — Full configuration file structure.
-- pub `DaemonSection` struct L46-49 — `{ poll_interval_ms: u64, log_level: String }` — - Config value lookup for commands that need database_url etc.
-- pub `WatchSection` struct L62-64 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
-- pub `load` function L69-98 — `(path: &Path) -> Self` — Load config from a TOML file.
-- pub `save` function L101-111 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
-- pub `resolve_watch_dirs` function L114-127 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
-- pub `get` function L130-134 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
-- pub `set` function L137-149 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
-- pub `list` function L152-160 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
-- pub `run_get` function L258-269 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
-- pub `run_set` function L272-278 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
-- pub `run_list` function L281-292 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
-- pub `resolve_database_url` function L295-309 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
--  `DaemonSection` type L51-58 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
--  `default` function L52-57 — `() -> Self` — - Config value lookup for commands that need database_url etc.
--  `CloacinaConfig` type L66-161 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
--  `resolve_key` function L164-171 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
--  `set_key` function L174-220 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
--  `collect_pairs` function L223-239 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
--  `format_value` function L242-255 — `(value: &toml::Value) -> String` — Format a TOML value for display.
+- pub `DaemonSection` struct L46-64 — `{ poll_interval_ms: u64, log_level: String, shutdown_timeout_s: u64, watcher_deb...` — - Config value lookup for commands that need database_url etc.
+- pub `WatchSection` struct L83-85 — `{ directories: Vec<String> }` — - Config value lookup for commands that need database_url etc.
+- pub `load` function L90-119 — `(path: &Path) -> Self` — Load config from a TOML file.
+- pub `save` function L122-132 — `(&self, path: &Path) -> Result<()>` — Save config to a TOML file.
+- pub `resolve_watch_dirs` function L135-148 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
+- pub `get` function L151-155 — `(&self, key: &str) -> Option<String>` — Get a config value by dotted key path (e.g., "daemon.poll_interval_ms").
+- pub `set` function L158-170 — `(&mut self, key: &str, value: &str) -> Result<()>` — Set a config value by dotted key path.
+- pub `list` function L173-181 — `(&self) -> Vec<(String, String)>` — List all config key-value pairs.
+- pub `run_get` function L279-290 — `(config_path: &Path, key: &str) -> Result<()>` — Run `cloacinactl config get <key>`.
+- pub `run_set` function L293-299 — `(config_path: &Path, key: &str, value: &str) -> Result<()>` — Run `cloacinactl config set <key> <value>`.
+- pub `run_list` function L302-313 — `(config_path: &Path) -> Result<()>` — Run `cloacinactl config list`.
+- pub `resolve_database_url` function L316-330 — `(cli_url: Option<&str>, config_path: &Path) -> Result<String>` — Resolve database_url from CLI arg or config file.
+-  `DaemonSection` type L66-79 — `impl Default for DaemonSection` — - Config value lookup for commands that need database_url etc.
+-  `default` function L67-78 — `() -> Self` — - Config value lookup for commands that need database_url etc.
+-  `CloacinaConfig` type L87-182 — `= CloacinaConfig` — - Config value lookup for commands that need database_url etc.
+-  `resolve_key` function L185-192 — `(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value>` — Resolve a dotted key path in a TOML value tree.
+-  `set_key` function L195-241 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
+-  `collect_pairs` function L244-260 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
+-  `format_value` function L263-276 — `(value: &toml::Value) -> String` — Format a TOML value for display.
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L50-355 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
--  `register_triggers_from_reconcile` function L359-432 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+- pub `run` function L50-358 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
+-  `register_triggers_from_reconcile` function L362-435 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
 
 #### crates/cloacinactl/src/commands/mod.rs
 

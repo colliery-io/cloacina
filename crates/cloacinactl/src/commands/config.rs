@@ -44,8 +44,23 @@ pub struct CloacinaConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DaemonSection {
+    /// Cron scheduler poll interval in milliseconds.
     pub poll_interval_ms: u64,
+    /// Log level (trace, debug, info, warn, error).
     pub log_level: String,
+    /// Graceful shutdown timeout in seconds.
+    pub shutdown_timeout_s: u64,
+    /// Filesystem watcher debounce interval in milliseconds.
+    pub watcher_debounce_ms: u64,
+    /// Trigger scheduler base poll interval in milliseconds.
+    pub trigger_poll_interval_ms: u64,
+    /// Maximum cron catchup executions (None = unlimited/run_all).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron_max_catchup: Option<u64>,
+    /// Cron recovery check interval in seconds.
+    pub cron_recovery_interval_s: u64,
+    /// Cron lost task threshold in minutes.
+    pub cron_lost_threshold_min: u64,
 }
 
 impl Default for DaemonSection {
@@ -53,6 +68,12 @@ impl Default for DaemonSection {
         Self {
             poll_interval_ms: 50,
             log_level: "info".to_string(),
+            shutdown_timeout_s: 30,
+            watcher_debounce_ms: 500,
+            trigger_poll_interval_ms: 1000,
+            cron_max_catchup: None, // None = unlimited (run_all)
+            cron_recovery_interval_s: 300,
+            cron_lost_threshold_min: 10,
         }
     }
 }

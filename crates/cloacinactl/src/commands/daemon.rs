@@ -100,15 +100,22 @@ pub async fn run(
             .collect::<Vec<_>>()
     );
 
-    // 2. Create/open SQLite database
+    // 2. Load config file (if exists) — needed for runner and watcher settings
+    let config_path = home.join("config.toml");
+    let config = CloacinaConfig::load(&config_path);
+    let daemon_cfg = &config.daemon;
+
+    // 3. Create/open SQLite database
     let db_path = home.join("cloacina.db");
     let db_url = format!("sqlite://{}?mode=rwc&_journal_mode=WAL", db_path.display());
     info!("Database: {}", db_path.display());
 
-    // 3. Create DefaultRunner with SQLite backend and configured poll intervals
+    // 4. Create DefaultRunner with SQLite backend and configured poll intervals
     let runner_config = DefaultRunnerConfig::builder()
         .cron_poll_interval(Duration::from_millis(poll_interval_ms))
-        .cron_max_catchup_executions(usize::MAX) // run_all catchup policy
+        .cron_max_catchup_executions(daemon_cfg.cron_max_catchup.unwrap_or(u64::MAX) as usize)
+        .trigger_base_poll_interval(Duration::from_millis(daemon_cfg.trigger_poll_interval_ms))
+        .cron_recovery_interval(Duration::from_secs(daemon_cfg.cron_recovery_interval_s))
         .build();
 
     let runner = DefaultRunner::with_config(&db_url, runner_config)
@@ -151,11 +158,7 @@ pub async fn run(
         }
     }
 
-    // 8. Load config file (if exists) and merge with CLI args
-    let config_path = home.join("config.toml");
-    let config = CloacinaConfig::load(&config_path);
-
-    // Merge config file watch dirs with CLI watch dirs (CLI takes precedence)
+    // 8. Merge config file watch dirs with CLI watch dirs
     let config_watch_dirs = config.resolve_watch_dirs();
     for dir in &config_watch_dirs {
         if !all_watch_dirs.contains(dir) {
@@ -164,7 +167,7 @@ pub async fn run(
     }
 
     // 9. Start filesystem watcher
-    let debounce = Duration::from_millis(500);
+    let debounce = Duration::from_millis(daemon_cfg.watcher_debounce_ms);
     let (mut watcher, mut reconcile_rx) =
         PackageWatcher::new(&all_watch_dirs, debounce).context("Failed to start file watcher")?;
 
@@ -326,7 +329,7 @@ pub async fn run(
     }
 
     // Graceful shutdown with timeout and force-exit on second signal
-    let shutdown_timeout = Duration::from_secs(30);
+    let shutdown_timeout = Duration::from_secs(daemon_cfg.shutdown_timeout_s);
     info!(
         "Draining in-flight pipelines (timeout: {}s)...",
         shutdown_timeout.as_secs()

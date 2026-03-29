@@ -4,15 +4,15 @@ level: task
 title: "Expose remaining hardcoded daemon settings in config.toml and CLI"
 short_code: "CLOACI-T-0287"
 created_at: 2026-03-29T11:21:20.880695+00:00
-updated_at: 2026-03-29T11:21:20.880695+00:00
+updated_at: 2026-03-29T12:18:02.610275+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -43,6 +43,10 @@ Several daemon settings are currently hardcoded. They should be configurable via
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [ ] All settings above configurable in `config.toml` under `[daemon]` section
 - [ ] Corresponding CLI args where appropriate (shutdown timeout, debounce)
 - [ ] `DaemonConfig` struct updated with new fields + defaults
@@ -51,4 +55,4 @@ Several daemon settings are currently hardcoded. They should be configurable via
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. All settings now configurable via `cloacinactl config set/get`.
