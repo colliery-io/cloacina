@@ -7,7 +7,7 @@ created_at: 2026-03-28T15:30:08.209216+00:00
 updated_at: 2026-03-29T00:56:47.118496+00:00
 parent: CLOACI-I-0057
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Wire the `CronScheduler` and `TriggerScheduler` into the daemon so that after the reconciler loads packages, their cron schedules and triggers are active and polling. When packages define cron expressions or triggers in their manifests, the daemon should create the corresponding DB schedule records and start polling.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-03-28T15:30:06.923823+00:00
 updated_at: 2026-03-29T00:40:21.236411+00:00
 parent: CLOACI-I-0057
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Add filesystem watching to the daemon so that when `.cloacina` packages are added, modified, or removed from the watch directory, the reconciler is triggered to load/unload them. Uses the `notify` crate for cross-platform filesystem events with debouncing to handle rapid file changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-03-28T15:30:03.830966+00:00
 updated_at: 2026-03-29T00:33:18.213612+00:00
 parent: CLOACI-I-0057
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Implement `FilesystemWorkflowRegistry` — a `WorkflowRegistry` trait implementation backed by a directory of `.cloacina` files. This lets the existing `RegistryReconciler` work with filesystem-based package storage instead of database blobs.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

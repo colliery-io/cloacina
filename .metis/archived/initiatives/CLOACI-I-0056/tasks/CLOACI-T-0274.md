@@ -7,7 +7,7 @@ created_at: 2026-03-28T02:16:58.074890+00:00
 updated_at: 2026-03-28T12:25:51.124090+00:00
 parent: CLOACI-I-0056
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 Wire the Python trigger path into the reconciler. When a Python package with `trigger_type: "python"` triggers is loaded, the reconciler should import the Python module (which causes `@cloaca.trigger` decorators to fire), call `drain_python_triggers()`, wrap each in `PythonTriggerWrapper`, and register them.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-03-28T22:44:52.433699+00:00
 updated_at: 2026-03-29T11:46:14.965295+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -32,6 +32,8 @@ Unify the manifest format: make the Rust packaging pipeline (`compile` → `mani
 
 ### Priority
 - P2 — Nice to have. Not blocking anything, but accumulates complexity.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

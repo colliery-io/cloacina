@@ -7,7 +7,7 @@ created_at: 2026-03-28T02:16:59.035495+00:00
 updated_at: 2026-03-28T12:25:51.859255+00:00
 parent: CLOACI-I-0056
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 End-to-end integration tests proving the full round-trip: build a package with trigger definitions → load via reconciler → trigger registered in global registry + DB schedule → TriggerScheduler polls it → workflow fires.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

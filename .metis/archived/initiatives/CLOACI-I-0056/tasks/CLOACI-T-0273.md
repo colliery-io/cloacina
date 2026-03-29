@@ -7,7 +7,7 @@ created_at: 2026-03-28T02:16:57.201256+00:00
 updated_at: 2026-03-28T04:03:51.225178+00:00
 parent: CLOACI-I-0056
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 Extend the `RegistryReconciler` to read trigger definitions from a loaded package's `ManifestV2` and register them: create `TriggerSchedule` DB records via DAL and register constructors in the global trigger registry so the `TriggerScheduler` picks them up.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

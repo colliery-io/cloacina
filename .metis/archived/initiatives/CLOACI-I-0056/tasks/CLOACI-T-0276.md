@@ -7,7 +7,7 @@ created_at: 2026-03-28T02:16:59.756681+00:00
 updated_at: 2026-03-28T12:59:19.793533+00:00
 parent: CLOACI-I-0056
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 Create an example project and angreal demo task demonstrating a packaged workflow with triggers — both Rust and Python variants — so users can see how to declare and use triggers in packages.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

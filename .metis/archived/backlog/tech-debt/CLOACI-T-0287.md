@@ -4,15 +4,15 @@ level: task
 title: "Expose remaining hardcoded daemon settings in config.toml and CLI"
 short_code: "CLOACI-T-0287"
 created_at: 2026-03-29T11:21:20.880695+00:00
-updated_at: 2026-03-29T12:18:02.610275+00:00
+updated_at: 2026-03-29T12:24:15.243141+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,6 +40,10 @@ Several daemon settings are currently hardcoded. They should be configurable via
 | Trigger scheduler base poll | 1s (DefaultRunner default) | `config.rs` in DefaultRunnerConfig |
 | Cron recovery interval | 300s | DefaultRunnerConfig |
 | Cron lost threshold | 10 min | DefaultRunnerConfig |
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

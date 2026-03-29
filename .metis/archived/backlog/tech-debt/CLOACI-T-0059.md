@@ -7,7 +7,7 @@ created_at: 2026-01-28T14:14:05.539285+00:00
 updated_at: 2026-03-29T12:13:54.840234+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -46,6 +46,8 @@ Audit and standardize the Cloacina CLI structure for consistency, discoverabilit
 - Help text quality and examples
 - Discoverability of related commands
 - Alignment with common CLI patterns (kubectl, gh, docker)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

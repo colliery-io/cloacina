@@ -7,7 +7,7 @@ created_at: 2026-01-29T17:35:51.564180+00:00
 updated_at: 2026-01-29T19:16:34.704230+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -16,7 +16,6 @@ tags:
 
 
 exit_criteria_met: false
-strategy_id: NULL
 initiative_id: NULL
 ---
 
@@ -27,6 +26,8 @@ initiative_id: NULL
 Audit every documentation file in the project against the current codebase. For each document, verify that code examples, API signatures, configuration references, and behavioral descriptions are accurate. Fix what can be fixed autonomously; record questions for the user (screenshots, layouts, subjective decisions) in the running log below.
 
 **Promise**: "I believe I have done all the work I can and need you to answer the questions I have recorded to move to the next phase."
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

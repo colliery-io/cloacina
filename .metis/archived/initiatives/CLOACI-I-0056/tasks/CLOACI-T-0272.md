@@ -7,7 +7,7 @@ created_at: 2026-03-28T02:16:55.865481+00:00
 updated_at: 2026-03-28T04:03:50.711559+00:00
 parent: CLOACI-I-0056
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0056
 ## Objective
 
 Add a `TriggerDefinitionV2` struct and an optional `triggers` field to `ManifestV2` so that `.cloacina` packages can declare triggers alongside tasks.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -7,7 +7,7 @@ created_at: 2026-03-26T17:25:26.506653+00:00
 updated_at: 2026-03-28T12:59:28.026889+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"

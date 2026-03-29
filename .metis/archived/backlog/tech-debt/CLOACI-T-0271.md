@@ -7,7 +7,7 @@ created_at: 2026-03-27T13:06:55.853917+00:00
 updated_at: 2026-03-27T22:41:06.379906+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -40,6 +40,8 @@ Update or rework the angreal `cloaca` task group (smoke, test, package, release,
 - The `cloaca` Python module is now registered via `ensure_cloaca_module()` in cloacina core at runtime
 - Python tutorials still `import cloaca` — this works at runtime when loaded through cloacina
 - `unified_release.yml` already had cloaca wheel/sdist jobs removed (TODO comments left)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
