@@ -23,11 +23,14 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 
 use cloacina::registry::{FilesystemWorkflowRegistry, ReconcilerConfig, RegistryReconciler};
 use cloacina::runner::DefaultRunner;
+
+use super::watcher::PackageWatcher;
 
 /// Run the daemon.
 ///
@@ -79,24 +82,38 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
     let registry = Arc::new(FilesystemWorkflowRegistry::new(all_watch_dirs.clone()));
 
     // 5. Create shutdown channel
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // 6. Create and start RegistryReconciler
+    // 6. Create RegistryReconciler (we drive it manually, not via its built-in loop)
     let reconciler_config = ReconcilerConfig {
-        reconcile_interval: std::time::Duration::from_millis(poll_interval_ms),
+        reconcile_interval: Duration::from_millis(poll_interval_ms),
+        enable_startup_reconciliation: false, // We do it ourselves below
         ..ReconcilerConfig::default()
     };
 
     let reconciler = RegistryReconciler::new(registry, reconciler_config, shutdown_rx)
         .context("Failed to create RegistryReconciler")?;
 
-    // Perform initial reconciliation
-    info!("Starting initial reconciliation...");
-    let reconciler_handle = tokio::spawn(async move {
-        if let Err(e) = reconciler.start_reconciliation_loop().await {
-            error!("Reconciler loop failed: {}", e);
+    // 7. Perform initial reconciliation
+    info!("Running initial reconciliation...");
+    match reconciler.reconcile().await {
+        Ok(result) => {
+            info!(
+                "Initial reconciliation: {} loaded, {} unloaded, {} failed",
+                result.packages_loaded.len(),
+                result.packages_unloaded.len(),
+                result.packages_failed.len()
+            );
         }
-    });
+        Err(e) => {
+            warn!("Initial reconciliation failed: {}", e);
+        }
+    }
+
+    // 8. Start filesystem watcher
+    let debounce = Duration::from_millis(500);
+    let (_watcher, mut reconcile_rx) =
+        PackageWatcher::new(&all_watch_dirs, debounce).context("Failed to start file watcher")?;
 
     info!("");
     info!("Daemon is running.");
@@ -116,26 +133,63 @@ pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64)
     info!("Press Ctrl+C to shut down.");
     info!("");
 
-    // 7. Block until Ctrl+C
-    tokio::signal::ctrl_c()
-        .await
-        .context("Failed to listen for Ctrl+C")?;
+    // 9. Event loop: react to filesystem changes or periodic reconciliation
+    let poll_interval = Duration::from_millis(poll_interval_ms);
+    let mut periodic = tokio::time::interval(poll_interval);
+    periodic.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    info!("");
-    info!("Shutting down...");
+    loop {
+        tokio::select! {
+            // Filesystem watcher detected a change
+            Some(_signal) = reconcile_rx.recv() => {
+                debug!("Filesystem change detected — reconciling");
+                match reconciler.reconcile().await {
+                    Ok(result) => {
+                        if result.has_changes() {
+                            info!(
+                                "Reconciliation: {} loaded, {} unloaded",
+                                result.packages_loaded.len(),
+                                result.packages_unloaded.len()
+                            );
+                        }
+                        if result.has_failures() {
+                            for (id, err) in &result.packages_failed {
+                                warn!("Package {} failed: {}", id, err);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Reconciliation failed: {}", e);
+                    }
+                }
+            }
 
-    // Signal shutdown to all components
-    let _ = shutdown_tx.send(true);
+            // Periodic reconciliation as a fallback
+            _ = periodic.tick() => {
+                debug!("Periodic reconciliation tick");
+                match reconciler.reconcile().await {
+                    Ok(result) => {
+                        if result.has_changes() {
+                            info!(
+                                "Periodic reconciliation: {} loaded, {} unloaded",
+                                result.packages_loaded.len(),
+                                result.packages_unloaded.len()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!("Periodic reconciliation failed: {}", e);
+                    }
+                }
+            }
 
-    // Wait for reconciler to stop (with timeout)
-    let shutdown_timeout = std::time::Duration::from_secs(10);
-    match tokio::time::timeout(shutdown_timeout, reconciler_handle).await {
-        Ok(Ok(())) => info!("Reconciler stopped cleanly"),
-        Ok(Err(e)) => error!("Reconciler task panicked: {}", e),
-        Err(_) => error!(
-            "Reconciler shutdown timed out after {}s",
-            shutdown_timeout.as_secs()
-        ),
+            // Ctrl+C
+            _ = tokio::signal::ctrl_c() => {
+                info!("");
+                info!("Shutting down...");
+                break;
+            }
+        }
     }
 
     // Shutdown the runner

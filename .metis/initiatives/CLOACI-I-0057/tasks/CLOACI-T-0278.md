@@ -4,14 +4,14 @@ level: task
 title: "cloacinactl daemon subcommand — CLI, SQLite init, DefaultRunner startup"
 short_code: "CLOACI-T-0278"
 created_at: 2026-03-28T15:30:05.094375+00:00
-updated_at: 2026-03-29T00:24:03.297747+00:00
+updated_at: 2026-03-29T00:33:18.507871+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Add the `cloacinactl daemon` subcommand. This is the entry point — parses CLI args, creates the SQLite database, initializes `DefaultRunner`, wires in `FilesystemWorkflowRegistry`, starts the reconciler, and blocks until shutdown. Later tasks add the directory watcher, scheduler wiring, and graceful shutdown on top.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

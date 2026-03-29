@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T00:32:20Z | 375 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T00:38:44Z | 376 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -301,7 +301,8 @@
 │           ├── commands/
 │           │   ├── cleanup_events.rs
 │           │   ├── daemon.rs
-│           │   └── mod.rs
+│           │   ├── mod.rs
+│           │   └── watcher.rs
 │           └── main.rs
 ├── docs/
 │   └── themes/
@@ -4896,12 +4897,22 @@
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L43-152 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, ) -> Result<()...` — Run the daemon.
+- pub `run` function L44-203 — `(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()>` — Run the daemon.
 
 #### crates/cloacinactl/src/commands/mod.rs
 
 - pub `cleanup_events` module L19 — `-` — CLI command implementations.
 - pub `daemon` module L20 — `-` — CLI command implementations.
+- pub `watcher` module L21 — `-` — CLI command implementations.
+
+#### crates/cloacinactl/src/commands/watcher.rs
+
+- pub `ReconcileSignal` struct L31 — `-` — Signal sent when the watcher detects a relevant filesystem change.
+- pub `PackageWatcher` struct L35-37 — `{ _watcher: RecommendedWatcher }` — Watches directories for `.cloacina` file changes and signals the daemon
+- pub `new` function L47-122 — `( watch_dirs: &[PathBuf], debounce: Duration, ) -> Result<(Self, mpsc::Receiver<...` — Create a new watcher monitoring the given directories.
+- pub `watch_dir` function L125-129 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Add a new directory to the watcher.
+- pub `unwatch_dir` function L132-136 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Remove a directory from the watcher.
+-  `PackageWatcher` type L39-137 — `= PackageWatcher` — modified, or removed.
 
 ### crates/cloacinactl/src
 

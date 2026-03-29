@@ -4,14 +4,14 @@ level: task
 title: "Directory watcher — notify crate, debounced events, reconciler trigger"
 short_code: "CLOACI-T-0279"
 created_at: 2026-03-28T15:30:06.923823+00:00
-updated_at: 2026-03-28T15:30:06.923823+00:00
+updated_at: 2026-03-29T00:33:49.052758+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Add filesystem watching to the daemon so that when `.cloacina` packages are added, modified, or removed from the watch directory, the reconciler is triggered to load/unload them. Uses the `notify` crate for cross-platform filesystem events with debouncing to handle rapid file changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -55,4 +57,9 @@ Add filesystem watching to the daemon so that when `.cloacina` packages are adde
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, smoke tested.
+
+### Changes:
+- `watcher.rs` — `PackageWatcher` with `notify::RecommendedWatcher`, 500ms debounce, `.cloacina` extension filter, `mpsc` channel signaling
+- `daemon.rs` — Event-driven loop: watcher signals + periodic tick drive `reconciler.reconcile()`
+- `Cargo.toml` — added `notify` v7

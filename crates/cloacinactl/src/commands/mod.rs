@@ -18,3 +18,4 @@
 
 pub mod cleanup_events;
 pub mod daemon;
+pub mod watcher;
