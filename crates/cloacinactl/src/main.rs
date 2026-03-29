@@ -55,6 +55,17 @@ enum Commands {
         poll_interval: u64,
     },
 
+    /// Run the API server — HTTP service backed by Postgres with auth and multi-tenancy
+    Serve {
+        /// Address to bind the HTTP server to
+        #[arg(long, default_value = "0.0.0.0:8080")]
+        bind: std::net::SocketAddr,
+
+        /// Database URL (overrides config file and DATABASE_URL env var)
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: Option<String>,
+    },
+
     /// Manage configuration (get/set/list values in ~/.cloacina/config.toml)
     Config {
         #[command(subcommand)]
@@ -126,6 +137,12 @@ async fn main() -> Result<()> {
         } => {
             // Daemon sets up its own logging (file + stderr)
             commands::daemon::run(cli.home, watch_dirs, poll_interval, cli.verbose).await?;
+        }
+
+        Commands::Serve { bind, database_url } => {
+            let db_url =
+                commands::config::resolve_database_url(database_url.as_deref(), &config_path)?;
+            commands::serve::run(cli.home, bind, db_url, cli.verbose).await?;
         }
 
         Commands::Config { command } => match command {

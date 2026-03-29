@@ -281,7 +281,7 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_enable_startup_reconciliation: true,
                 registry_storage_path: None,
                 registry_storage_backend: "filesystem".to_string(),
-                enable_claiming: false,
+                enable_claiming: true,
                 heartbeat_interval: Duration::from_secs(10),
                 stale_claim_sweep_interval: Duration::from_secs(30),
                 stale_claim_threshold: Duration::from_secs(60),
@@ -441,6 +441,18 @@ impl DefaultRunnerConfigBuilder {
     /// Sets the routing configuration.
     pub fn routing_config(mut self, value: Option<RoutingConfig>) -> Self {
         self.config.routing_config = value;
+        self
+    }
+
+    /// Enables or disables task claiming for horizontal scaling.
+    pub fn enable_claiming(mut self, value: bool) -> Self {
+        self.config.enable_claiming = value;
+        self
+    }
+
+    /// Sets the heartbeat interval for claimed tasks.
+    pub fn heartbeat_interval(mut self, value: Duration) -> Self {
+        self.config.heartbeat_interval = value;
         self
     }
 

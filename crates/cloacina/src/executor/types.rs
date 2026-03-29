@@ -185,7 +185,7 @@ impl Default for ExecutorConfig {
         Self {
             max_concurrent_tasks: 4,
             task_timeout: std::time::Duration::from_secs(300), // 5 minutes
-            enable_claiming: false,
+            enable_claiming: true,
             heartbeat_interval: std::time::Duration::from_secs(10),
         }
     }

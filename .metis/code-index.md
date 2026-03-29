@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T13:42:09Z | 378 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T14:46:40Z | 379 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -304,6 +304,7 @@
 │           │   ├── config.rs
 │           │   ├── daemon.rs
 │           │   ├── mod.rs
+│           │   ├── serve.rs
 │           │   └── watcher.rs
 │           └── main.rs
 ├── docs/
@@ -3201,34 +3202,36 @@
 - pub `runner_id` function L430-433 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
 - pub `runner_name` function L436-439 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
 - pub `routing_config` function L442-445 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
-- pub `build` function L448-450 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
-- pub `DefaultRunnerBuilder` struct L485-489 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `new` function L499-505 — `() -> Self` — Creates a new builder with default configuration
-- pub `database_url` function L508-511 — `(mut self, url: &str) -> Self` — Sets the database URL
-- pub `schema` function L517-520 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
-- pub `with_config` function L523-526 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L540-657 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L675-678 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `enable_claiming` function L448-451 — `(mut self, value: bool) -> Self` — Enables or disables task claiming for horizontal scaling.
+- pub `heartbeat_interval` function L454-457 — `(mut self, value: Duration) -> Self` — Sets the heartbeat interval for claimed tasks.
+- pub `build` function L460-462 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
+- pub `DefaultRunnerBuilder` struct L497-501 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `new` function L511-517 — `() -> Self` — Creates a new builder with default configuration
+- pub `database_url` function L520-523 — `(mut self, url: &str) -> Self` — Sets the database URL
+- pub `schema` function L529-532 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
+- pub `with_config` function L535-538 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
+- pub `build` function L552-669 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L687-690 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L91-241 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L258-294 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L259-293 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L296-451 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfig` type L453-457 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `default` function L454-456 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L491-495 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L492-494 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L497-679 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `validate_schema_name` function L529-537 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L682-848 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L686-701 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L704-727 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L730-738 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L741-762 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L765-780 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L783-786 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L789-802 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L805-813 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L816-847 — `()` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L296-463 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfig` type L465-469 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `default` function L466-468 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L503-507 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L504-506 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L509-691 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `validate_schema_name` function L541-549 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
+-  `tests` module L694-860 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L698-713 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L716-739 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L742-750 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L753-774 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L777-792 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L795-798 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L801-814 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L817-825 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L828-859 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -4118,11 +4121,11 @@
 -  `test_claimed_tasks_marked_running` function L204-287 — `()` — Test that claimed tasks have their status properly updated to Running.
 -  `test_running_tasks_not_claimable` function L291-344 — `()` — Test that already-running tasks cannot be claimed again.
 -  `create_running_task` function L351-378 — `(dal: &DAL) -> (UniversalUuid, UniversalUuid)` — Helper: create a pipeline and a Running task for runner claiming tests.
--  `test_runner_double_claim_prevention` function L382-423 — `()` — Double-claim prevention: two runners claim the same task — exactly one wins.
--  `test_heartbeat_ownership_guard` function L427-469 — `()` — Heartbeat succeeds when runner owns the claim, fails when claim is lost.
--  `test_release_claim_clears_fields` function L473-511 — `()` — Release claim clears claimed_by and heartbeat_at.
--  `test_reclaim_after_release` function L515-545 — `()` — After release, another runner can claim the task.
--  `test_find_stale_claims` function L549-591 — `()` — Find stale claims returns tasks with old heartbeats.
+-  `test_runner_double_claim_prevention` function L382-441 — `()` — Double-claim prevention: two runners claim the same task — exactly one wins.
+-  `test_heartbeat_ownership_guard` function L445-492 — `()` — Heartbeat succeeds when runner owns the claim, fails when claim is lost.
+-  `test_release_claim_clears_fields` function L496-538 — `()` — Release claim clears claimed_by and heartbeat_at.
+-  `test_reclaim_after_release` function L542-592 — `()` — After release, another runner can claim the task.
+-  `test_find_stale_claims` function L596-641 — `()` — Find stale claims returns tasks with old heartbeats.
 
 #### crates/cloacina/tests/integration/dal/workflow_packages.rs
 
@@ -4963,7 +4966,20 @@
 - pub `cleanup_events` module L19 — `-` — CLI command implementations.
 - pub `config` module L20 — `-` — CLI command implementations.
 - pub `daemon` module L21 — `-` — CLI command implementations.
-- pub `watcher` module L22 — `-` — CLI command implementations.
+- pub `serve` module L22 — `-` — CLI command implementations.
+- pub `watcher` module L23 — `-` — CLI command implementations.
+
+#### crates/cloacinactl/src/commands/serve.rs
+
+- pub `AppState` struct L42-45 — `{ database: Database, runner: Arc<DefaultRunner> }` — Shared application state accessible from all route handlers.
+- pub `run` function L48-118 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+-  `build_router` function L121-128 — `(state: AppState) -> Router` — Build the axum router with all routes.
+-  `health` function L131-133 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L136-148 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L151-158 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L161-166 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L169-191 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `mask_db_url` function L194-203 — `(url: &str) -> String` — Mask password in database URL for logging
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -4982,11 +4998,11 @@
 
 -  `commands` module L24 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 -  `Cli` struct L30-41 — `{ verbose: bool, home: PathBuf, command: Commands }` — cloacinactl — Cloacina task orchestration engine
--  `Commands` enum L44-69 — `Daemon | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `ConfigCommands` enum L72-90 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `AdminCommands` enum L93-108 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `default_home` function L111-115 — `() -> PathBuf` — Default home directory (~/.cloacina/).
--  `main` function L118-172 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `Commands` enum L44-80 — `Daemon | Serve | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `ConfigCommands` enum L83-101 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L104-119 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `default_home` function L122-126 — `() -> PathBuf` — Default home directory (~/.cloacina/).
+-  `main` function L129-194 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 
 ### docs/themes/hugo-geekdoc/static/js
 

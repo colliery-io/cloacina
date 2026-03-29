@@ -19,4 +19,5 @@
 pub mod cleanup_events;
 pub mod config;
 pub mod daemon;
+pub mod serve;
 pub mod watcher;

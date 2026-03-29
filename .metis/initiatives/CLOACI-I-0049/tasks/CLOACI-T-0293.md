@@ -4,14 +4,14 @@ level: task
 title: "axum server + health endpoints — cloacinactl serve, Postgres init, /health /ready /metrics"
 short_code: "CLOACI-T-0293"
 created_at: 2026-03-29T14:03:25.518171+00:00
-updated_at: 2026-03-29T14:03:25.518171+00:00
+updated_at: 2026-03-29T14:39:19.520291+00:00
 parent: CLOACI-I-0049
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0049
 ## Objective
 
 Add `cloacinactl serve` subcommand that starts an axum HTTP server backed by Postgres. Serves health/ready/metrics endpoints. This is the foundation all other API tasks build on.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -59,4 +61,11 @@ Add `cloacinactl serve` subcommand that starts an axum HTTP server backed by Pos
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. axum server with /health /ready /metrics, claiming on by default.
+
+### Changes:
+- `serve.rs` — axum server, Postgres via DefaultRunner, health/ready/metrics endpoints, graceful shutdown
+- `main.rs` — `Serve` variant with `--bind` and `--database-url`
+- `Cargo.toml` — axum (multipart), tower, tower-http, hyper, serde_json
+- Claiming default changed to `true` (ExecutorConfig + DefaultRunnerConfig)
+- Added builder methods for `enable_claiming`/`heartbeat_interval`
