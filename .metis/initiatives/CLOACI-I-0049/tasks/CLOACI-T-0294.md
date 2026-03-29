@@ -26,34 +26,32 @@ initiative_id: CLOACI-I-0049
 
 ## Objective
 
-Implement PAK (Pre-shared API Key) authentication: API key table, CRUD endpoints for key management, and axum auth middleware with LRU cache to avoid DB hits per request. Uses `route_layer` (not `layer`) per archive learning.
+Add the `api_keys` table, DAL operations in cloacina core, key generation utilities, and server bootstrap — on first startup if no admin keys exist, auto-create one and write the plaintext to a file (never logged).
 
 ## Acceptance Criteria
 
-- [ ] `api_keys` table in Postgres: id, key_hash, name, permissions, created_at, revoked_at
-- [ ] Keys stored as SHA-256 hashes (never store plaintext)
-- [ ] `POST /auth/keys` — create key, returns plaintext key once (never retrievable again)
-- [ ] `GET /auth/keys` — list keys (id, name, created_at, revoked status — no hashes)
-- [ ] `DELETE /auth/keys/:key_id` — revoke key (soft delete via revoked_at)
-- [ ] Auth middleware extracts `Authorization: Bearer <key>` header, validates against DB
-- [ ] **LRU cache**: validated keys cached in memory with configurable TTL (default 5 min). Cache evicts on revocation.
-- [ ] Middleware applied via `route_layer` (not `layer`) to avoid 404→503 regression
-- [ ] Unauthenticated requests to protected endpoints return 401 JSON error
-- [ ] Revoked keys return 401
-- [ ] Health/ready/metrics endpoints bypass auth
+- [ ] `api_keys` table migration for Postgres + SQLite: id, key_hash, name, permissions, created_at, revoked_at
+- [ ] `api_keys` table added to Diesel `schema.rs`
+- [ ] DAL in cloacina core: `create_key(hash, name)`, `validate_hash(hash)` → returns key info or None, `has_any_keys()` → bool, `list_keys()`, `revoke_key(id)`
+- [ ] Key generation utility: `clk_` prefix + 32 random bytes base64, SHA-256 hash for storage
+- [ ] Server startup bootstrap: calls `has_any_keys()`, if false auto-creates admin key, writes plaintext to `~/.cloacina/bootstrap-key` file with `0600` permissions
+- [ ] **Never log the key** — not to stdout, stderr, or file logs
+- [ ] Bootstrap key file deleted by the server after configurable timeout (or left for admin to delete manually)
+- [ ] Existing tests pass
 
 ## Implementation Notes
 
 ### Files to create/modify
-- `crates/cloacinactl/src/server/auth.rs` — middleware, LRU cache, key validation
-- `crates/cloacinactl/src/server/routes/auth.rs` — key CRUD endpoints
-- Migration for `api_keys` table
+- `crates/cloacina/src/database/migrations/` — Postgres + SQLite migration for `api_keys`
+- `crates/cloacina/src/database/schema.rs` — add `api_keys` table
+- `crates/cloacina/src/dal/unified/api_keys/` — new DAL module (create, validate, list, revoke, has_any)
+- `crates/cloacinactl/src/commands/serve.rs` — bootstrap logic on startup
 
 ### Key design points
-- LRU cache: `lru` crate with `Arc<Mutex<LruCache<String, CachedKeyInfo>>>`. TTL per entry — check timestamp on cache hit, evict if expired.
-- Key format: `clk_` prefix + 32 random bytes base64 (visually identifiable as cloacina key)
-- `route_layer` applies auth only to matched routes — unmatched routes still return 404 (not 503)
-- First key can be created via CLI `cloacinactl admin create-key` for bootstrapping (no auth required on first key)
+- DAL follows existing pattern (dispatch_backend macro, Postgres + SQLite impls)
+- Key generation uses `rand` + `base64` + `sha2` — these deps go in cloacina core (not cloacinactl)
+- Bootstrap file: `~/.cloacina/bootstrap-key` with mode `0600` (owner read/write only)
+- No CLI `admin create-key` command — all key management through the API (T-0300)
 
 ### Depends on
 - T-0293 (axum server)
