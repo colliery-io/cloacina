@@ -4,14 +4,14 @@ level: task
 title: "Claim DAL — claim, heartbeat, release, find_stale for SQLite + Postgres"
 short_code: "CLOACI-T-0289"
 created_at: 2026-03-29T12:33:48.983677+00:00
-updated_at: 2026-03-29T12:55:43.158464+00:00
+updated_at: 2026-03-29T12:59:22.946196+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Implement the DAL operations for task claiming: atomic claim acquisition, heartbeat updates, claim release, and stale claim discovery. Both SQLite and Postgres backends.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -166,6 +166,11 @@ pub struct ExecutorConfig {
     pub max_concurrent_tasks: usize,
     /// Maximum time a task is allowed to run before timing out
     pub task_timeout: std::time::Duration,
+    /// Enable runner-level task claiming for horizontal scaling.
+    /// When enabled, the executor claims tasks before executing and heartbeats during.
+    pub enable_claiming: bool,
+    /// Heartbeat interval for claimed tasks (only used when claiming is enabled).
+    pub heartbeat_interval: std::time::Duration,
 }
 
 impl Default for ExecutorConfig {
@@ -174,10 +179,14 @@ impl Default for ExecutorConfig {
     /// Default values:
     /// * max_concurrent_tasks: 4
     /// * task_timeout: 5 minutes
+    /// * enable_claiming: false (opt-in)
+    /// * heartbeat_interval: 10 seconds
     fn default() -> Self {
         Self {
             max_concurrent_tasks: 4,
             task_timeout: std::time::Duration::from_secs(300), // 5 minutes
+            enable_claiming: false,
+            heartbeat_interval: std::time::Duration::from_secs(10),
         }
     }
 }

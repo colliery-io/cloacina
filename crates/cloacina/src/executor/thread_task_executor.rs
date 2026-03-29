@@ -684,6 +684,77 @@ impl TaskExecutor for ThreadTaskExecutor {
     async fn execute(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError> {
         let start = Instant::now();
 
+        // If claiming is enabled, try to claim the task before executing.
+        // If another runner already claimed it, skip silently.
+        if self.config.enable_claiming {
+            use crate::dal::unified::task_execution::RunnerClaimResult;
+            let claim_result = self
+                .dal
+                .task_execution()
+                .claim_for_runner(event.task_execution_id, self.instance_id)
+                .await;
+
+            match claim_result {
+                Ok(RunnerClaimResult::Claimed) => {
+                    tracing::debug!(
+                        task_id = %event.task_execution_id,
+                        runner_id = %self.instance_id,
+                        "Task claimed for execution"
+                    );
+                }
+                Ok(RunnerClaimResult::AlreadyClaimed) => {
+                    tracing::debug!(
+                        task_id = %event.task_execution_id,
+                        "Task already claimed by another runner — skipping"
+                    );
+                    return Ok(ExecutionResult::skipped(event.task_execution_id));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %event.task_execution_id,
+                        error = %e,
+                        "Failed to claim task — proceeding without claim"
+                    );
+                }
+            }
+        }
+
+        // If claiming is enabled, start a background heartbeat task.
+        let heartbeat_handle = if self.config.enable_claiming {
+            let dal = self.dal.clone();
+            let task_id = event.task_execution_id;
+            let runner_id = self.instance_id;
+            let interval = self.config.heartbeat_interval;
+            Some(tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(interval);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    match dal.task_execution().heartbeat(task_id, runner_id).await {
+                        Ok(crate::dal::unified::task_execution::HeartbeatResult::Ok) => {
+                            tracing::trace!(task_id = %task_id, "Heartbeat sent");
+                        }
+                        Ok(crate::dal::unified::task_execution::HeartbeatResult::ClaimLost) => {
+                            tracing::warn!(
+                                task_id = %task_id,
+                                "Heartbeat failed — claim lost to another runner"
+                            );
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                task_id = %task_id,
+                                error = %e,
+                                "Heartbeat error"
+                            );
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
         // Acquire a concurrency slot — held for the duration of execution.
         let permit = self
             .semaphore
@@ -787,7 +858,12 @@ impl TaskExecutor for ThreadTaskExecutor {
         };
         let duration = start.elapsed();
 
-        match execution_result {
+        // Stop heartbeat and release claim after execution (success or failure)
+        if let Some(handle) = heartbeat_handle {
+            handle.abort();
+        }
+
+        let result = match execution_result {
             Ok(result_context) => {
                 // Save context and mark completed
                 match self
@@ -846,7 +922,25 @@ impl TaskExecutor for ThreadTaskExecutor {
                     ))
                 }
             }
+        };
+
+        // Release runner claim (on success, failure, or retry)
+        if self.config.enable_claiming {
+            if let Err(e) = self
+                .dal
+                .task_execution()
+                .release_runner_claim(event.task_execution_id)
+                .await
+            {
+                tracing::warn!(
+                    task_id = %event.task_execution_id,
+                    error = %e,
+                    "Failed to release runner claim"
+                );
+            }
         }
+
+        result
     }
 
     fn has_capacity(&self) -> bool {

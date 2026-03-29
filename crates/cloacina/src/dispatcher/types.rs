@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -65,6 +65,8 @@ pub enum ExecutionStatus {
     Failed,
     /// Task should be retried
     Retry,
+    /// Task was skipped (e.g., claimed by another runner)
+    Skipped,
 }
 
 /// Result of task execution from an executor.
@@ -105,6 +107,16 @@ impl ExecutionResult {
             status: ExecutionStatus::Failed,
             error: Some(error.into()),
             duration,
+        }
+    }
+
+    /// Creates a skipped execution result (task claimed by another runner).
+    pub fn skipped(task_execution_id: UniversalUuid) -> Self {
+        Self {
+            task_execution_id,
+            status: ExecutionStatus::Skipped,
+            error: None,
+            duration: Duration::ZERO,
         }
     }
 

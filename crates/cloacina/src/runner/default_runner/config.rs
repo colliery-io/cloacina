@@ -79,6 +79,8 @@ pub struct DefaultRunnerConfig {
     registry_enable_startup_reconciliation: bool,
     registry_storage_path: Option<std::path::PathBuf>,
     registry_storage_backend: String,
+    enable_claiming: bool,
+    heartbeat_interval: Duration,
     runner_id: Option<String>,
     runner_name: Option<String>,
     routing_config: Option<RoutingConfig>,
@@ -200,6 +202,16 @@ impl DefaultRunnerConfig {
         &self.registry_storage_backend
     }
 
+    /// Whether task claiming is enabled for horizontal scaling.
+    pub fn enable_claiming(&self) -> bool {
+        self.enable_claiming
+    }
+
+    /// Heartbeat interval for claimed tasks.
+    pub fn heartbeat_interval(&self) -> Duration {
+        self.heartbeat_interval
+    }
+
     /// Optional runner identifier for logging.
     pub fn runner_id(&self) -> Option<&str> {
         self.runner_id.as_deref()
@@ -257,6 +269,8 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_enable_startup_reconciliation: true,
                 registry_storage_path: None,
                 registry_storage_backend: "filesystem".to_string(),
+                enable_claiming: false,
+                heartbeat_interval: Duration::from_secs(10),
                 runner_id: None,
                 runner_name: None,
                 routing_config: None,
@@ -579,6 +593,8 @@ impl DefaultRunnerBuilder {
         let executor_config = ExecutorConfig {
             max_concurrent_tasks: self.config.max_concurrent_tasks(),
             task_timeout: self.config.task_timeout(),
+            enable_claiming: self.config.enable_claiming(),
+            heartbeat_interval: self.config.heartbeat_interval(),
         };
 
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)

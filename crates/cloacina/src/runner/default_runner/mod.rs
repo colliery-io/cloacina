@@ -203,6 +203,8 @@ impl DefaultRunner {
         let executor_config = ExecutorConfig {
             max_concurrent_tasks: config.max_concurrent_tasks(),
             task_timeout: config.task_timeout(),
+            enable_claiming: config.enable_claiming(),
+            heartbeat_interval: config.heartbeat_interval(),
         };
 
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)

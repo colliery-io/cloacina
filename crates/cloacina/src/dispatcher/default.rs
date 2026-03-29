@@ -124,6 +124,14 @@ impl DefaultDispatcher {
                     "Task will be retried"
                 );
             }
+            ExecutionStatus::Skipped => {
+                // Task was claimed by another runner — no action needed
+                debug!(
+                    task_id = %event.task_execution_id,
+                    task_name = %event.task_name,
+                    "Task skipped (claimed by another runner)"
+                );
+            }
         }
 
         Ok(())

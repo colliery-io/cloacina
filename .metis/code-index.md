@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T12:58:36Z | 377 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T13:09:23Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1282,25 +1282,25 @@
 - pub `schedule_retry` function L37-50 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — Updates a task's retry schedule with a new attempt count and retry time.
 - pub `claim_ready_task` function L206-215 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — Atomically claims up to `limit` ready tasks for execution.
 - pub `claim_for_runner` function L424-434 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — Atomically claim a task for a specific runner.
-- pub `heartbeat` function L508-518 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
-- pub `release_runner_claim` function L589-598 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
-- pub `find_stale_claims` function L652-661 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
-- pub `get_ready_for_retry` function L730-736 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
+- pub `heartbeat` function L516-526 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — Update heartbeat for a claimed task.
+- pub `release_runner_claim` function L605-614 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — Release a runner's claim on a task (on completion or failure).
+- pub `find_stale_claims` function L676-685 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — Find tasks with stale claims (heartbeat older than threshold).
+- pub `get_ready_for_retry` function L768-774 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — Retrieves tasks that are ready for retry (retry_at time has passed).
 -  `schedule_retry_postgres` function L53-125 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
 -  `schedule_retry_sqlite` function L128-200 — `( &self, task_id: UniversalUuid, retry_at: UniversalTimestamp, new_attempt: i32,...` — are written atomically.
 -  `claim_ready_task_postgres` function L218-311 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
 -  `PgClaimResult` struct L235-244 — `{ id: Uuid, pipeline_execution_id: Uuid, task_name: String, attempt: i32 }` — are written atomically.
 -  `claim_ready_task_sqlite` function L314-414 — `( &self, limit: usize, ) -> Result<Vec<ClaimResult>, ValidationError>` — are written atomically.
--  `claim_for_runner_postgres` function L437-468 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `claim_for_runner_sqlite` function L471-502 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
--  `heartbeat_postgres` function L521-551 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `heartbeat_sqlite` function L554-584 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
--  `release_runner_claim_postgres` function L601-622 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `release_runner_claim_sqlite` function L625-646 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `find_stale_claims_postgres` function L664-694 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `find_stale_claims_sqlite` function L697-727 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
--  `get_ready_for_retry_postgres` function L739-763 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
--  `get_ready_for_retry_sqlite` function L766-790 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `claim_for_runner_postgres` function L437-472 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `claim_for_runner_sqlite` function L475-510 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<RunnerCla...` — are written atomically.
+-  `heartbeat_postgres` function L529-563 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `heartbeat_sqlite` function L566-600 — `( &self, task_id: UniversalUuid, runner_id: UniversalUuid, ) -> Result<Heartbeat...` — are written atomically.
+-  `release_runner_claim_postgres` function L617-642 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `release_runner_claim_sqlite` function L645-670 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `find_stale_claims_postgres` function L688-725 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `find_stale_claims_sqlite` function L728-765 — `( &self, threshold: std::time::Duration, ) -> Result<Vec<StaleClaim>, Validation...` — are written atomically.
+-  `get_ready_for_retry_postgres` function L777-801 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
+-  `get_ready_for_retry_sqlite` function L804-828 — `(&self) -> Result<Vec<TaskExecution>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/task_execution/crud.rs
 
@@ -1720,38 +1720,38 @@
 - pub `with_defaults` function L72-74 — `(dal: DAL) -> Self` — Creates a dispatcher with default routing (all tasks go to "default" executor).
 - pub `router` function L77-79 — `(&self) -> &Router` — Gets a reference to the router for inspection.
 - pub `dal` function L82-84 — `(&self) -> &DAL` — Gets a reference to the DAL.
--  `DefaultDispatcher` type L61-131 — `= DefaultDispatcher` — configurable glob patterns.
--  `handle_result` function L87-130 — `( &self, event: &TaskReadyEvent, result: super::types::ExecutionResult, ) -> Res...` — Handles the execution result by updating database state.
--  `DefaultDispatcher` type L134-183 — `impl Dispatcher for DefaultDispatcher` — configurable glob patterns.
--  `dispatch` function L135-163 — `(&self, event: TaskReadyEvent) -> Result<(), DispatchError>` — configurable glob patterns.
--  `register_executor` function L165-173 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
--  `has_capacity` function L175-178 — `(&self) -> bool` — configurable glob patterns.
--  `resolve_executor_key` function L180-182 — `(&self, task_name: &str) -> String` — configurable glob patterns.
--  `tests` module L186-383 — `-` — configurable glob patterns.
--  `MockExecutor` struct L194-198 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
--  `MockExecutor` type L200-213 — `= MockExecutor` — configurable glob patterns.
--  `new` function L201-207 — `(name: &str) -> Self` — configurable glob patterns.
--  `execution_count` function L210-212 — `(&self) -> usize` — configurable glob patterns.
--  `MockExecutor` type L216-242 — `impl TaskExecutor for MockExecutor` — configurable glob patterns.
--  `execute` function L217-223 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — configurable glob patterns.
--  `has_capacity` function L225-227 — `(&self) -> bool` — configurable glob patterns.
--  `metrics` function L229-237 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
--  `name` function L239-241 — `(&self) -> &str` — configurable glob patterns.
--  `create_test_event` function L245-252 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
--  `test_register_executor` function L255-261 — `()` — configurable glob patterns.
--  `test_resolve_executor_key` function L264-272 — `()` — configurable glob patterns.
--  `test_routing_config_default` function L275-279 — `()` — configurable glob patterns.
--  `test_routing_config_with_multiple_rules` function L282-291 — `()` — configurable glob patterns.
--  `test_mock_executor_has_capacity` function L294-300 — `()` — configurable glob patterns.
--  `test_mock_executor_metrics` function L303-308 — `()` — configurable glob patterns.
--  `test_mock_executor_name` function L311-314 — `()` — configurable glob patterns.
--  `test_mock_executor_execute_increments_count` function L317-328 — `()` — configurable glob patterns.
--  `test_task_ready_event_creation` function L331-335 — `()` — configurable glob patterns.
--  `test_execution_result_success` function L338-344 — `()` — configurable glob patterns.
--  `test_execution_result_failure` function L347-352 — `()` — configurable glob patterns.
--  `test_execution_result_retry` function L355-360 — `()` — configurable glob patterns.
--  `test_executor_metrics_available_capacity` function L363-372 — `()` — configurable glob patterns.
--  `test_executor_metrics_at_capacity` function L375-382 — `()` — configurable glob patterns.
+-  `DefaultDispatcher` type L61-139 — `= DefaultDispatcher` — configurable glob patterns.
+-  `handle_result` function L87-138 — `( &self, event: &TaskReadyEvent, result: super::types::ExecutionResult, ) -> Res...` — Handles the execution result by updating database state.
+-  `DefaultDispatcher` type L142-191 — `impl Dispatcher for DefaultDispatcher` — configurable glob patterns.
+-  `dispatch` function L143-171 — `(&self, event: TaskReadyEvent) -> Result<(), DispatchError>` — configurable glob patterns.
+-  `register_executor` function L173-181 — `(&self, key: &str, executor: Arc<dyn TaskExecutor>)` — configurable glob patterns.
+-  `has_capacity` function L183-186 — `(&self) -> bool` — configurable glob patterns.
+-  `resolve_executor_key` function L188-190 — `(&self, task_name: &str) -> String` — configurable glob patterns.
+-  `tests` module L194-391 — `-` — configurable glob patterns.
+-  `MockExecutor` struct L202-206 — `{ name: String, has_capacity: AtomicBool, execute_count: AtomicUsize }` — Mock executor for testing
+-  `MockExecutor` type L208-221 — `= MockExecutor` — configurable glob patterns.
+-  `new` function L209-215 — `(name: &str) -> Self` — configurable glob patterns.
+-  `execution_count` function L218-220 — `(&self) -> usize` — configurable glob patterns.
+-  `MockExecutor` type L224-250 — `impl TaskExecutor for MockExecutor` — configurable glob patterns.
+-  `execute` function L225-231 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — configurable glob patterns.
+-  `has_capacity` function L233-235 — `(&self) -> bool` — configurable glob patterns.
+-  `metrics` function L237-245 — `(&self) -> ExecutorMetrics` — configurable glob patterns.
+-  `name` function L247-249 — `(&self) -> &str` — configurable glob patterns.
+-  `create_test_event` function L253-260 — `(task_name: &str) -> TaskReadyEvent` — configurable glob patterns.
+-  `test_register_executor` function L263-269 — `()` — configurable glob patterns.
+-  `test_resolve_executor_key` function L272-280 — `()` — configurable glob patterns.
+-  `test_routing_config_default` function L283-287 — `()` — configurable glob patterns.
+-  `test_routing_config_with_multiple_rules` function L290-299 — `()` — configurable glob patterns.
+-  `test_mock_executor_has_capacity` function L302-308 — `()` — configurable glob patterns.
+-  `test_mock_executor_metrics` function L311-316 — `()` — configurable glob patterns.
+-  `test_mock_executor_name` function L319-322 — `()` — configurable glob patterns.
+-  `test_mock_executor_execute_increments_count` function L325-336 — `()` — configurable glob patterns.
+-  `test_task_ready_event_creation` function L339-343 — `()` — configurable glob patterns.
+-  `test_execution_result_success` function L346-352 — `()` — configurable glob patterns.
+-  `test_execution_result_failure` function L355-360 — `()` — configurable glob patterns.
+-  `test_execution_result_retry` function L363-368 — `()` — configurable glob patterns.
+-  `test_executor_metrics_available_capacity` function L371-380 — `()` — configurable glob patterns.
+-  `test_executor_metrics_at_capacity` function L383-390 — `()` — configurable glob patterns.
 
 #### crates/cloacina/src/dispatcher/mod.rs
 
@@ -1792,27 +1792,28 @@
 
 - pub `TaskReadyEvent` struct L31-40 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Event emitted when a task becomes ready for execution.
 - pub `new` function L44-56 — `( task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Creates a new TaskReadyEvent.
-- pub `ExecutionStatus` enum L61-68 — `Completed | Failed | Retry` — Simplified status for execution results.
-- pub `ExecutionResult` struct L75-84 — `{ task_execution_id: UniversalUuid, status: ExecutionStatus, error: Option<Strin...` — Result of task execution from an executor.
-- pub `success` function L88-95 — `(task_execution_id: UniversalUuid, duration: Duration) -> Self` — Creates a successful execution result.
-- pub `failure` function L98-109 — `( task_execution_id: UniversalUuid, error: impl Into<String>, duration: Duration...` — Creates a failed execution result.
-- pub `retry` function L112-123 — `( task_execution_id: UniversalUuid, error: impl Into<String>, duration: Duration...` — Creates a retry execution result.
-- pub `ExecutorMetrics` struct L128-139 — `{ active_tasks: usize, max_concurrent: usize, total_executed: u64, total_failed:...` — Metrics for monitoring executor performance.
-- pub `available_capacity` function L143-145 — `(&self) -> usize` — Returns the current capacity (available slots).
-- pub `RoutingConfig` struct L153-158 — `{ default_executor: String, rules: Vec<RoutingRule> }` — Configuration for task routing.
-- pub `new` function L171-176 — `(default_executor: impl Into<String>) -> Self` — Creates a new routing configuration with a default executor.
-- pub `with_rule` function L179-182 — `(mut self, rule: RoutingRule) -> Self` — Adds a routing rule.
-- pub `with_rules` function L185-188 — `(mut self, rules: impl IntoIterator<Item = RoutingRule>) -> Self` — Adds multiple routing rules.
-- pub `RoutingRule` struct L196-201 — `{ task_pattern: String, executor: String }` — A routing rule for directing tasks to specific executors.
-- pub `new` function L205-210 — `(task_pattern: impl Into<String>, executor: impl Into<String>) -> Self` — Creates a new routing rule.
-- pub `DispatchError` enum L215-243 — `ExecutorNotFound | ExecutionFailed | DatabaseError | ContextError | ValidationEr...` — Errors that can occur during dispatch operations.
+- pub `ExecutionStatus` enum L61-70 — `Completed | Failed | Retry | Skipped` — Simplified status for execution results.
+- pub `ExecutionResult` struct L77-86 — `{ task_execution_id: UniversalUuid, status: ExecutionStatus, error: Option<Strin...` — Result of task execution from an executor.
+- pub `success` function L90-97 — `(task_execution_id: UniversalUuid, duration: Duration) -> Self` — Creates a successful execution result.
+- pub `failure` function L100-111 — `( task_execution_id: UniversalUuid, error: impl Into<String>, duration: Duration...` — Creates a failed execution result.
+- pub `skipped` function L114-121 — `(task_execution_id: UniversalUuid) -> Self` — Creates a skipped execution result (task claimed by another runner).
+- pub `retry` function L124-135 — `( task_execution_id: UniversalUuid, error: impl Into<String>, duration: Duration...` — Creates a retry execution result.
+- pub `ExecutorMetrics` struct L140-151 — `{ active_tasks: usize, max_concurrent: usize, total_executed: u64, total_failed:...` — Metrics for monitoring executor performance.
+- pub `available_capacity` function L155-157 — `(&self) -> usize` — Returns the current capacity (available slots).
+- pub `RoutingConfig` struct L165-170 — `{ default_executor: String, rules: Vec<RoutingRule> }` — Configuration for task routing.
+- pub `new` function L183-188 — `(default_executor: impl Into<String>) -> Self` — Creates a new routing configuration with a default executor.
+- pub `with_rule` function L191-194 — `(mut self, rule: RoutingRule) -> Self` — Adds a routing rule.
+- pub `with_rules` function L197-200 — `(mut self, rules: impl IntoIterator<Item = RoutingRule>) -> Self` — Adds multiple routing rules.
+- pub `RoutingRule` struct L208-213 — `{ task_pattern: String, executor: String }` — A routing rule for directing tasks to specific executors.
+- pub `new` function L217-222 — `(task_pattern: impl Into<String>, executor: impl Into<String>) -> Self` — Creates a new routing rule.
+- pub `DispatchError` enum L227-255 — `ExecutorNotFound | ExecutionFailed | DatabaseError | ContextError | ValidationEr...` — Errors that can occur during dispatch operations.
 -  `TaskReadyEvent` type L42-57 — `= TaskReadyEvent` — tasks from the scheduler to executors.
--  `ExecutionResult` type L86-124 — `= ExecutionResult` — tasks from the scheduler to executors.
--  `ExecutorMetrics` type L141-146 — `= ExecutorMetrics` — tasks from the scheduler to executors.
--  `RoutingConfig` type L160-167 — `impl Default for RoutingConfig` — tasks from the scheduler to executors.
--  `default` function L161-166 — `() -> Self` — tasks from the scheduler to executors.
--  `RoutingConfig` type L169-189 — `= RoutingConfig` — tasks from the scheduler to executors.
--  `RoutingRule` type L203-211 — `= RoutingRule` — tasks from the scheduler to executors.
+-  `ExecutionResult` type L88-136 — `= ExecutionResult` — tasks from the scheduler to executors.
+-  `ExecutorMetrics` type L153-158 — `= ExecutorMetrics` — tasks from the scheduler to executors.
+-  `RoutingConfig` type L172-179 — `impl Default for RoutingConfig` — tasks from the scheduler to executors.
+-  `default` function L173-178 — `() -> Self` — tasks from the scheduler to executors.
+-  `RoutingConfig` type L181-201 — `= RoutingConfig` — tasks from the scheduler to executors.
+-  `RoutingRule` type L215-223 — `= RoutingRule` — tasks from the scheduler to executors.
 
 #### crates/cloacina/src/dispatcher/work_distributor.rs
 
@@ -1933,11 +1934,11 @@
 -  `schedule_task_retry` function L632-659 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
 -  `ThreadTaskExecutor` type L662-676 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
 -  `clone` function L663-675 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L683-871 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L684-850 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L852-854 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L856-866 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L868-870 — `(&self) -> &str` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L683-965 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L684-944 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L946-948 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L950-960 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L962-964 — `(&self) -> &str` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -1945,12 +1946,12 @@
 - pub `DependencyLoader` struct L52-61 — `{ database: Database, pipeline_execution_id: UniversalUuid, dependency_tasks: Ve...` — Dependency loader for automatic context merging with lazy loading
 - pub `new` function L70-81 — `( database: Database, pipeline_execution_id: UniversalUuid, dependency_tasks: Ve...` — Creates a new dependency loader instance
 - pub `load_from_dependencies` function L93-130 — `( &self, key: &str, ) -> Result<Option<serde_json::Value>, ExecutorError>` — Loads a value from dependency contexts using a "latest wins" strategy
-- pub `ExecutorConfig` struct L164-169 — `{ max_concurrent_tasks: usize, task_timeout: std::time::Duration }` — Configuration settings for the executor
-- pub `ClaimedTask` struct L190-199 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Represents a task that has been claimed for execution
+- pub `ExecutorConfig` struct L164-174 — `{ max_concurrent_tasks: usize, task_timeout: std::time::Duration, enable_claimin...` — Configuration settings for the executor
+- pub `ClaimedTask` struct L199-208 — `{ task_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_n...` — Represents a task that has been claimed for execution
 -  `DependencyLoader` type L63-157 — `= DependencyLoader` — and configure the behavior of the execution engine.
 -  `load_dependency_context_data` function L139-156 — `( &self, task_namespace: &crate::task::TaskNamespace, ) -> Result<HashMap<String...` — Loads the context data for a specific dependency task
--  `ExecutorConfig` type L171-183 — `impl Default for ExecutorConfig` — and configure the behavior of the execution engine.
--  `default` function L177-182 — `() -> Self` — Creates a new executor configuration with default values
+-  `ExecutorConfig` type L176-192 — `impl Default for ExecutorConfig` — and configure the behavior of the execution engine.
+-  `default` function L184-191 — `() -> Self` — Creates a new executor configuration with default values
 
 ### crates/cloacina/src/models
 
@@ -3142,87 +3143,89 @@
 
 #### crates/cloacina/src/runner/default_runner/config.rs
 
-- pub `DefaultRunnerConfig` struct L59-85 — `{ max_concurrent_tasks: usize, scheduler_poll_interval: Duration, task_timeout: ...` — Configuration for the default runner
-- pub `builder` function L89-91 — `() -> DefaultRunnerConfigBuilder` — Creates a new configuration builder with default values.
-- pub `max_concurrent_tasks` function L94-96 — `(&self) -> usize` — Maximum number of concurrent task executions allowed.
-- pub `scheduler_poll_interval` function L99-101 — `(&self) -> Duration` — How often the scheduler checks for ready tasks.
-- pub `task_timeout` function L104-106 — `(&self) -> Duration` — Maximum time allowed for a single task to execute.
-- pub `pipeline_timeout` function L109-111 — `(&self) -> Option<Duration>` — Optional maximum time for an entire pipeline execution.
-- pub `db_pool_size` function L114-116 — `(&self) -> u32` — Number of database connections in the pool.
-- pub `enable_recovery` function L119-121 — `(&self) -> bool` — Whether automatic recovery is enabled.
-- pub `enable_cron_scheduling` function L124-126 — `(&self) -> bool` — Whether cron scheduling is enabled.
-- pub `cron_poll_interval` function L129-131 — `(&self) -> Duration` — Poll interval for cron schedules.
-- pub `cron_max_catchup_executions` function L134-136 — `(&self) -> usize` — Maximum catchup executions for missed cron runs.
-- pub `cron_enable_recovery` function L139-141 — `(&self) -> bool` — Whether cron recovery is enabled.
-- pub `cron_recovery_interval` function L144-146 — `(&self) -> Duration` — How often to check for lost cron executions.
-- pub `cron_lost_threshold_minutes` function L149-151 — `(&self) -> i32` — Minutes before an execution is considered lost.
-- pub `cron_max_recovery_age` function L154-156 — `(&self) -> Duration` — Maximum age of executions to recover.
-- pub `cron_max_recovery_attempts` function L159-161 — `(&self) -> usize` — Maximum recovery attempts per execution.
-- pub `enable_trigger_scheduling` function L164-166 — `(&self) -> bool` — Whether trigger scheduling is enabled.
-- pub `trigger_base_poll_interval` function L169-171 — `(&self) -> Duration` — Base poll interval for trigger readiness checks.
-- pub `trigger_poll_timeout` function L174-176 — `(&self) -> Duration` — Timeout for trigger poll operations.
-- pub `enable_registry_reconciler` function L179-181 — `(&self) -> bool` — Whether the registry reconciler is enabled.
-- pub `registry_reconcile_interval` function L184-186 — `(&self) -> Duration` — How often to run registry reconciliation.
-- pub `registry_enable_startup_reconciliation` function L189-191 — `(&self) -> bool` — Whether startup reconciliation is enabled.
-- pub `registry_storage_path` function L194-196 — `(&self) -> Option<&std::path::Path>` — Path for registry storage (filesystem backend).
-- pub `registry_storage_backend` function L199-201 — `(&self) -> &str` — Registry storage backend type.
-- pub `runner_id` function L204-206 — `(&self) -> Option<&str>` — Optional runner identifier for logging.
-- pub `runner_name` function L209-211 — `(&self) -> Option<&str>` — Optional runner name for logging.
-- pub `routing_config` function L214-216 — `(&self) -> Option<&RoutingConfig>` — Routing configuration for task dispatch.
-- pub `DefaultRunnerConfigBuilder` struct L230-232 — `{ config: DefaultRunnerConfig }` — Builder for [`DefaultRunnerConfig`].
-- pub `max_concurrent_tasks` function L270-273 — `(mut self, value: usize) -> Self` — Sets the maximum number of concurrent task executions.
-- pub `scheduler_poll_interval` function L276-279 — `(mut self, value: Duration) -> Self` — Sets the scheduler poll interval.
-- pub `task_timeout` function L282-285 — `(mut self, value: Duration) -> Self` — Sets the task timeout.
-- pub `pipeline_timeout` function L288-291 — `(mut self, value: Option<Duration>) -> Self` — Sets the pipeline timeout.
-- pub `db_pool_size` function L294-297 — `(mut self, value: u32) -> Self` — Sets the database pool size.
-- pub `enable_recovery` function L300-303 — `(mut self, value: bool) -> Self` — Enables or disables automatic recovery.
-- pub `enable_cron_scheduling` function L306-309 — `(mut self, value: bool) -> Self` — Enables or disables cron scheduling.
-- pub `cron_poll_interval` function L312-315 — `(mut self, value: Duration) -> Self` — Sets the cron poll interval.
-- pub `cron_max_catchup_executions` function L318-321 — `(mut self, value: usize) -> Self` — Sets the maximum catchup executions for cron.
-- pub `cron_enable_recovery` function L324-327 — `(mut self, value: bool) -> Self` — Enables or disables cron recovery.
-- pub `cron_recovery_interval` function L330-333 — `(mut self, value: Duration) -> Self` — Sets the cron recovery interval.
-- pub `cron_lost_threshold_minutes` function L336-339 — `(mut self, value: i32) -> Self` — Sets the cron lost threshold in minutes.
-- pub `cron_max_recovery_age` function L342-345 — `(mut self, value: Duration) -> Self` — Sets the maximum cron recovery age.
-- pub `cron_max_recovery_attempts` function L348-351 — `(mut self, value: usize) -> Self` — Sets the maximum cron recovery attempts.
-- pub `enable_trigger_scheduling` function L354-357 — `(mut self, value: bool) -> Self` — Enables or disables trigger scheduling.
-- pub `trigger_base_poll_interval` function L360-363 — `(mut self, value: Duration) -> Self` — Sets the trigger base poll interval.
-- pub `trigger_poll_timeout` function L366-369 — `(mut self, value: Duration) -> Self` — Sets the trigger poll timeout.
-- pub `enable_registry_reconciler` function L372-375 — `(mut self, value: bool) -> Self` — Enables or disables the registry reconciler.
-- pub `registry_reconcile_interval` function L378-381 — `(mut self, value: Duration) -> Self` — Sets the registry reconcile interval.
-- pub `registry_enable_startup_reconciliation` function L384-387 — `(mut self, value: bool) -> Self` — Enables or disables startup reconciliation.
-- pub `registry_storage_path` function L390-393 — `(mut self, value: Option<std::path::PathBuf>) -> Self` — Sets the registry storage path.
-- pub `registry_storage_backend` function L396-399 — `(mut self, value: impl Into<String>) -> Self` — Sets the registry storage backend.
-- pub `runner_id` function L402-405 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
-- pub `runner_name` function L408-411 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
-- pub `routing_config` function L414-417 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
-- pub `build` function L420-422 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
-- pub `DefaultRunnerBuilder` struct L457-461 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `new` function L471-477 — `() -> Self` — Creates a new builder with default configuration
-- pub `database_url` function L480-483 — `(mut self, url: &str) -> Self` — Sets the database URL
-- pub `schema` function L489-492 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
-- pub `with_config` function L495-498 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L512-627 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L645-648 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
--  `DefaultRunnerConfig` type L87-217 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L234-266 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L235-265 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L268-423 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfig` type L425-429 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `default` function L426-428 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L463-467 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L464-466 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L469-649 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `validate_schema_name` function L501-509 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L652-818 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L656-671 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L674-697 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L700-708 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L711-732 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L735-750 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L753-756 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L759-772 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L775-783 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L786-817 — `()` — configuring the DefaultRunner's behavior.
+- pub `DefaultRunnerConfig` struct L59-87 — `{ max_concurrent_tasks: usize, scheduler_poll_interval: Duration, task_timeout: ...` — Configuration for the default runner
+- pub `builder` function L91-93 — `() -> DefaultRunnerConfigBuilder` — Creates a new configuration builder with default values.
+- pub `max_concurrent_tasks` function L96-98 — `(&self) -> usize` — Maximum number of concurrent task executions allowed.
+- pub `scheduler_poll_interval` function L101-103 — `(&self) -> Duration` — How often the scheduler checks for ready tasks.
+- pub `task_timeout` function L106-108 — `(&self) -> Duration` — Maximum time allowed for a single task to execute.
+- pub `pipeline_timeout` function L111-113 — `(&self) -> Option<Duration>` — Optional maximum time for an entire pipeline execution.
+- pub `db_pool_size` function L116-118 — `(&self) -> u32` — Number of database connections in the pool.
+- pub `enable_recovery` function L121-123 — `(&self) -> bool` — Whether automatic recovery is enabled.
+- pub `enable_cron_scheduling` function L126-128 — `(&self) -> bool` — Whether cron scheduling is enabled.
+- pub `cron_poll_interval` function L131-133 — `(&self) -> Duration` — Poll interval for cron schedules.
+- pub `cron_max_catchup_executions` function L136-138 — `(&self) -> usize` — Maximum catchup executions for missed cron runs.
+- pub `cron_enable_recovery` function L141-143 — `(&self) -> bool` — Whether cron recovery is enabled.
+- pub `cron_recovery_interval` function L146-148 — `(&self) -> Duration` — How often to check for lost cron executions.
+- pub `cron_lost_threshold_minutes` function L151-153 — `(&self) -> i32` — Minutes before an execution is considered lost.
+- pub `cron_max_recovery_age` function L156-158 — `(&self) -> Duration` — Maximum age of executions to recover.
+- pub `cron_max_recovery_attempts` function L161-163 — `(&self) -> usize` — Maximum recovery attempts per execution.
+- pub `enable_trigger_scheduling` function L166-168 — `(&self) -> bool` — Whether trigger scheduling is enabled.
+- pub `trigger_base_poll_interval` function L171-173 — `(&self) -> Duration` — Base poll interval for trigger readiness checks.
+- pub `trigger_poll_timeout` function L176-178 — `(&self) -> Duration` — Timeout for trigger poll operations.
+- pub `enable_registry_reconciler` function L181-183 — `(&self) -> bool` — Whether the registry reconciler is enabled.
+- pub `registry_reconcile_interval` function L186-188 — `(&self) -> Duration` — How often to run registry reconciliation.
+- pub `registry_enable_startup_reconciliation` function L191-193 — `(&self) -> bool` — Whether startup reconciliation is enabled.
+- pub `registry_storage_path` function L196-198 — `(&self) -> Option<&std::path::Path>` — Path for registry storage (filesystem backend).
+- pub `registry_storage_backend` function L201-203 — `(&self) -> &str` — Registry storage backend type.
+- pub `enable_claiming` function L206-208 — `(&self) -> bool` — Whether task claiming is enabled for horizontal scaling.
+- pub `heartbeat_interval` function L211-213 — `(&self) -> Duration` — Heartbeat interval for claimed tasks.
+- pub `runner_id` function L216-218 — `(&self) -> Option<&str>` — Optional runner identifier for logging.
+- pub `runner_name` function L221-223 — `(&self) -> Option<&str>` — Optional runner name for logging.
+- pub `routing_config` function L226-228 — `(&self) -> Option<&RoutingConfig>` — Routing configuration for task dispatch.
+- pub `DefaultRunnerConfigBuilder` struct L242-244 — `{ config: DefaultRunnerConfig }` — Builder for [`DefaultRunnerConfig`].
+- pub `max_concurrent_tasks` function L284-287 — `(mut self, value: usize) -> Self` — Sets the maximum number of concurrent task executions.
+- pub `scheduler_poll_interval` function L290-293 — `(mut self, value: Duration) -> Self` — Sets the scheduler poll interval.
+- pub `task_timeout` function L296-299 — `(mut self, value: Duration) -> Self` — Sets the task timeout.
+- pub `pipeline_timeout` function L302-305 — `(mut self, value: Option<Duration>) -> Self` — Sets the pipeline timeout.
+- pub `db_pool_size` function L308-311 — `(mut self, value: u32) -> Self` — Sets the database pool size.
+- pub `enable_recovery` function L314-317 — `(mut self, value: bool) -> Self` — Enables or disables automatic recovery.
+- pub `enable_cron_scheduling` function L320-323 — `(mut self, value: bool) -> Self` — Enables or disables cron scheduling.
+- pub `cron_poll_interval` function L326-329 — `(mut self, value: Duration) -> Self` — Sets the cron poll interval.
+- pub `cron_max_catchup_executions` function L332-335 — `(mut self, value: usize) -> Self` — Sets the maximum catchup executions for cron.
+- pub `cron_enable_recovery` function L338-341 — `(mut self, value: bool) -> Self` — Enables or disables cron recovery.
+- pub `cron_recovery_interval` function L344-347 — `(mut self, value: Duration) -> Self` — Sets the cron recovery interval.
+- pub `cron_lost_threshold_minutes` function L350-353 — `(mut self, value: i32) -> Self` — Sets the cron lost threshold in minutes.
+- pub `cron_max_recovery_age` function L356-359 — `(mut self, value: Duration) -> Self` — Sets the maximum cron recovery age.
+- pub `cron_max_recovery_attempts` function L362-365 — `(mut self, value: usize) -> Self` — Sets the maximum cron recovery attempts.
+- pub `enable_trigger_scheduling` function L368-371 — `(mut self, value: bool) -> Self` — Enables or disables trigger scheduling.
+- pub `trigger_base_poll_interval` function L374-377 — `(mut self, value: Duration) -> Self` — Sets the trigger base poll interval.
+- pub `trigger_poll_timeout` function L380-383 — `(mut self, value: Duration) -> Self` — Sets the trigger poll timeout.
+- pub `enable_registry_reconciler` function L386-389 — `(mut self, value: bool) -> Self` — Enables or disables the registry reconciler.
+- pub `registry_reconcile_interval` function L392-395 — `(mut self, value: Duration) -> Self` — Sets the registry reconcile interval.
+- pub `registry_enable_startup_reconciliation` function L398-401 — `(mut self, value: bool) -> Self` — Enables or disables startup reconciliation.
+- pub `registry_storage_path` function L404-407 — `(mut self, value: Option<std::path::PathBuf>) -> Self` — Sets the registry storage path.
+- pub `registry_storage_backend` function L410-413 — `(mut self, value: impl Into<String>) -> Self` — Sets the registry storage backend.
+- pub `runner_id` function L416-419 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
+- pub `runner_name` function L422-425 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
+- pub `routing_config` function L428-431 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
+- pub `build` function L434-436 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
+- pub `DefaultRunnerBuilder` struct L471-475 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `new` function L485-491 — `() -> Self` — Creates a new builder with default configuration
+- pub `database_url` function L494-497 — `(mut self, url: &str) -> Self` — Sets the database URL
+- pub `schema` function L503-506 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
+- pub `with_config` function L509-512 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
+- pub `build` function L526-643 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L661-664 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+-  `DefaultRunnerConfig` type L89-229 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L246-280 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L247-279 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L282-437 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfig` type L439-443 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `default` function L440-442 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L477-481 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L478-480 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L483-665 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `validate_schema_name` function L515-523 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
+-  `tests` module L668-834 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L672-687 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L690-713 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L716-724 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L727-748 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L751-766 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L769-772 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L775-788 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L791-799 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L802-833 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3245,22 +3248,22 @@
 - pub `new` function L124-126 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
 - pub `builder` function L140-142 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
 - pub `with_schema` function L160-166 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L183-250 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L253-255 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L258-260 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `trigger_scheduler` function L265-267 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
-- pub `shutdown` function L279-321 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `with_config` function L183-252 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L255-257 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L260-262 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `trigger_scheduler` function L267-269 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
+- pub `shutdown` function L281-323 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `RuntimeHandles` struct L94-109 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L111-322 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L324-338 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L325-337 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L341-347 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L342-346 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L111-324 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L326-340 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L327-339 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L343-349 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L344-348 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 

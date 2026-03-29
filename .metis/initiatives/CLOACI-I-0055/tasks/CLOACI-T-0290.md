@@ -4,14 +4,14 @@ level: task
 title: "Runner integration — claim before execute, heartbeat during, release on completion"
 short_code: "CLOACI-T-0290"
 created_at: 2026-03-29T12:33:49.789666+00:00
-updated_at: 2026-03-29T12:33:49.789666+00:00
+updated_at: 2026-03-29T13:00:15.643534+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Wire task claiming into the task executor so that before a task runs, the runner claims it. While executing, a background heartbeat keeps the claim alive. On completion or failure, the claim is released.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +58,14 @@ Wire task claiming into the task executor so that before a task runs, the runner
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. Claiming wired into executor, opt-in via config.
+
+### Changes:
+- `executor/types.rs` — Added `enable_claiming` and `heartbeat_interval` to `ExecutorConfig`
+- `executor/thread_task_executor.rs` — Before execute: `claim_for_runner()`, skips if `AlreadyClaimed`. During: background heartbeat tokio task. After: `release_runner_claim()`. Heartbeat aborted on completion.
+- `dispatcher/types.rs` — Added `ExecutionStatus::Skipped` + `ExecutionResult::skipped()`
+- `dispatcher/default.rs` — Handle `Skipped` in result match
+- `runner/default_runner/config.rs` — Added `enable_claiming` + `heartbeat_interval` fields, accessors, defaults (false, 10s)
+- `runner/default_runner/mod.rs` — Pass claiming config to executor
+
+### Design: `instance_id` (already a UUID v4 on `ThreadTaskExecutor`) serves as the runner_id. Claiming is opt-in (disabled by default).
