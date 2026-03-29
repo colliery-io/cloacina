@@ -81,6 +81,8 @@ pub struct DefaultRunnerConfig {
     registry_storage_backend: String,
     enable_claiming: bool,
     heartbeat_interval: Duration,
+    stale_claim_sweep_interval: Duration,
+    stale_claim_threshold: Duration,
     runner_id: Option<String>,
     runner_name: Option<String>,
     routing_config: Option<RoutingConfig>,
@@ -212,6 +214,16 @@ impl DefaultRunnerConfig {
         self.heartbeat_interval
     }
 
+    /// Interval for stale claim sweep (only when claiming is enabled).
+    pub fn stale_claim_sweep_interval(&self) -> Duration {
+        self.stale_claim_sweep_interval
+    }
+
+    /// How old a heartbeat must be to consider a claim stale.
+    pub fn stale_claim_threshold(&self) -> Duration {
+        self.stale_claim_threshold
+    }
+
     /// Optional runner identifier for logging.
     pub fn runner_id(&self) -> Option<&str> {
         self.runner_id.as_deref()
@@ -271,6 +283,8 @@ impl Default for DefaultRunnerConfigBuilder {
                 registry_storage_backend: "filesystem".to_string(),
                 enable_claiming: false,
                 heartbeat_interval: Duration::from_secs(10),
+                stale_claim_sweep_interval: Duration::from_secs(30),
+                stale_claim_threshold: Duration::from_secs(60),
                 runner_id: None,
                 runner_name: None,
                 routing_config: None,

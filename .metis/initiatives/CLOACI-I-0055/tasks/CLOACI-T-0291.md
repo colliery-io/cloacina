@@ -4,14 +4,14 @@ level: task
 title: "Stale claim sweep — background service for expired claim recovery"
 short_code: "CLOACI-T-0291"
 created_at: 2026-03-29T12:33:50.668863+00:00
-updated_at: 2026-03-29T12:33:50.668863+00:00
+updated_at: 2026-03-29T13:16:15.038213+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Implement a background service that periodically scans for tasks with stale heartbeats (crashed runners), releases their claims, and re-queues them for execution. Must handle scheduler restart gracefully — avoid falsely declaring tasks as stale during the scheduler's own startup window.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -61,4 +63,10 @@ In a distributed system:
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-29**: Complete. Sweeper with startup grace period, wired into DefaultRunner.
+
+### Changes:
+- `stale_claim_sweeper.rs` — `StaleClaimSweeper` with configurable interval/threshold, startup grace period (`ready_at` + threshold before first sweep), releases stale claims and resets tasks to Ready
+- `task_scheduler/mod.rs` — added `pub mod stale_claim_sweeper`
+- `services.rs` — `start_stale_claim_sweeper()` wired in when `enable_claiming` is true
+- `config.rs` — added `stale_claim_sweep_interval` (30s) and `stale_claim_threshold` (60s) with accessors

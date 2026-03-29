@@ -126,6 +126,12 @@ impl DefaultRunner {
                 .await?;
         }
 
+        // Start stale claim sweeper if claiming is enabled
+        if self.config.enable_claiming() {
+            self.start_stale_claim_sweeper(&mut handles, &shutdown_tx)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -402,6 +408,53 @@ impl DefaultRunner {
         // Store trigger scheduler and handle
         *self.trigger_scheduler.write().await = Some(Arc::new(trigger_scheduler));
         handles.trigger_scheduler_handle = Some(trigger_handle);
+
+        Ok(())
+    }
+
+    /// Starts the stale claim sweeper background service.
+    async fn start_stale_claim_sweeper(
+        &self,
+        handles: &mut super::RuntimeHandles,
+        shutdown_tx: &broadcast::Sender<()>,
+    ) -> Result<(), PipelineError> {
+        use crate::task_scheduler::stale_claim_sweeper::{
+            StaleClaimSweeper, StaleClaimSweeperConfig,
+        };
+
+        tracing::info!("Starting stale claim sweeper");
+
+        let (sweeper_shutdown_tx, sweeper_shutdown_rx) = watch::channel(false);
+
+        let sweeper_config = StaleClaimSweeperConfig {
+            sweep_interval: self.config.stale_claim_sweep_interval(),
+            stale_threshold: self.config.stale_claim_threshold(),
+        };
+
+        let dal = DAL::new(self.database.clone());
+        let mut sweeper =
+            StaleClaimSweeper::new(Arc::new(dal), sweeper_config, sweeper_shutdown_rx);
+
+        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
+        let sweeper_span = self.create_runner_span("stale_claim_sweeper");
+        let sweeper_handle = tokio::spawn(
+            async move {
+                tokio::select! {
+                    _ = sweeper.run() => {
+                        tracing::info!("Stale claim sweeper completed");
+                    }
+                    _ = broadcast_shutdown_rx.recv() => {
+                        tracing::info!("Stale claim sweeper shutdown requested");
+                        let _ = sweeper_shutdown_tx.send(true);
+                    }
+                }
+            }
+            .instrument(sweeper_span),
+        );
+
+        // Store handle (reuse an existing field or just let it drop — it's managed by the broadcast shutdown)
+        // For now, we don't track this handle separately since it shuts down via broadcast
+        drop(sweeper_handle);
 
         Ok(())
     }

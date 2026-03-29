@@ -4,14 +4,14 @@ level: task
 title: "Runner integration — claim before execute, heartbeat during, release on completion"
 short_code: "CLOACI-T-0290"
 created_at: 2026-03-29T12:33:49.789666+00:00
-updated_at: 2026-03-29T13:00:15.643534+00:00
+updated_at: 2026-03-29T13:11:09.153072+00:00
 parent: CLOACI-I-0055
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0055
 ## Objective
 
 Wire task claiming into the task executor so that before a task runs, the runner claims it. While executing, a background heartbeat keeps the claim alive. On completion or failure, the claim is released.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
