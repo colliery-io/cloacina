@@ -4,14 +4,14 @@ level: task
 title: "Hot reload — SIGHUP config re-read without restart"
 short_code: "CLOACI-T-0284"
 created_at: 2026-03-28T15:38:56.663995+00:00
-updated_at: 2026-03-28T15:38:56.663995+00:00
+updated_at: 2026-03-29T01:11:13.845264+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Allow the daemon to reload its configuration without restarting. On SIGHUP (or config file change), the daemon re-reads `~/.cloacina/config.toml`, updates watch directories, adjusts log level, and triggers a reconciliation pass to pick up any changes.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -73,4 +75,12 @@ directories = [
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-28**: Implementation complete, all tests pass.
+
+### Changes:
+- `config.rs` — `DaemonConfig` with TOML deser, `~` expansion, graceful error handling
+- `daemon.rs` — SIGHUP handler, config reload with watch dir diffing, post-reload reconciliation
+- `Cargo.toml` — added `serde`, `toml`
+
+### Note on log level reload:
+Dynamic log level changes via `tracing_subscriber` reload layers require `reload::Layer` which adds complexity. The current implementation handles watch dir and reconciliation reload. Log level reload is noted as future enhancement — requires daemon restart for now.

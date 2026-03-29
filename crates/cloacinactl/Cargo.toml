@@ -24,6 +24,8 @@ cloacina = { path = "../cloacina", default-features = false }
 clap.workspace = true
 anyhow.workspace = true
 dirs = "6"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
 tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4" }

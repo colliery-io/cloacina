@@ -17,5 +17,6 @@
 //! CLI command implementations.
 
 pub mod cleanup_events;
+pub mod config;
 pub mod daemon;
 pub mod watcher;

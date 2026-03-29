@@ -35,6 +35,7 @@ use cloacina::registry::{
 };
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
+use super::config::DaemonConfig;
 use super::watcher::PackageWatcher;
 
 /// Run the daemon.
@@ -150,9 +151,21 @@ pub async fn run(
         }
     }
 
-    // 8. Start filesystem watcher
+    // 8. Load config file (if exists) and merge with CLI args
+    let config_path = home.join("config.toml");
+    let config = DaemonConfig::load(&config_path);
+
+    // Merge config file watch dirs with CLI watch dirs (CLI takes precedence)
+    let config_watch_dirs = config.resolve_watch_dirs();
+    for dir in &config_watch_dirs {
+        if !all_watch_dirs.contains(dir) {
+            all_watch_dirs.push(dir.clone());
+        }
+    }
+
+    // 9. Start filesystem watcher
     let debounce = Duration::from_millis(500);
-    let (_watcher, mut reconcile_rx) =
+    let (mut watcher, mut reconcile_rx) =
         PackageWatcher::new(&all_watch_dirs, debounce).context("Failed to start file watcher")?;
 
     info!("");
@@ -173,11 +186,16 @@ pub async fn run(
     info!("Press Ctrl+C to shut down.");
     info!("");
 
-    // 9. Set up signal handlers
+    // 10. Set up signal handlers
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .context("Failed to register SIGTERM handler")?;
+    let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+        .context("Failed to register SIGHUP handler")?;
 
-    // 10. Event loop: react to filesystem changes or periodic reconciliation
+    // Track current watch dirs for diffing on reload
+    let mut current_watch_dirs = all_watch_dirs.clone();
+
+    // 11. Event loop: react to filesystem changes or periodic reconciliation
     let poll_interval = Duration::from_millis(poll_interval_ms);
     let mut periodic = tokio::time::interval(poll_interval);
     periodic.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -240,6 +258,69 @@ pub async fn run(
             _ = sigterm.recv() => {
                 info!("Received SIGTERM — shutting down...");
                 break;
+            }
+
+            // SIGHUP — reload configuration
+            _ = sighup.recv() => {
+                info!("Received SIGHUP — reloading configuration...");
+                let new_config = DaemonConfig::load(&config_path);
+                let new_watch_dirs = {
+                    let mut dirs = vec![packages_dir.clone()];
+                    // CLI dirs
+                    for dir in &watch_dirs {
+                        if !dirs.contains(dir) {
+                            dirs.push(dir.clone());
+                        }
+                    }
+                    // Config file dirs
+                    for dir in new_config.resolve_watch_dirs() {
+                        if !dirs.contains(&dir) {
+                            dirs.push(dir.clone());
+                        }
+                    }
+                    dirs
+                };
+
+                // Diff watch dirs: add new, remove old
+                for dir in &new_watch_dirs {
+                    if !current_watch_dirs.contains(dir) {
+                        if let Err(e) = watcher.watch_dir(dir) {
+                            warn!("Failed to watch new directory {}: {}", dir.display(), e);
+                        } else {
+                            info!("Added watch directory: {}", dir.display());
+                        }
+                    }
+                }
+                for dir in &current_watch_dirs {
+                    if !new_watch_dirs.contains(dir) {
+                        if let Err(e) = watcher.unwatch_dir(dir) {
+                            warn!("Failed to unwatch directory {}: {}", dir.display(), e);
+                        } else {
+                            info!("Removed watch directory: {}", dir.display());
+                        }
+                    }
+                }
+                current_watch_dirs = new_watch_dirs;
+
+                // Trigger reconciliation to pick up packages in new dirs
+                info!("Triggering reconciliation after config reload...");
+                match reconciler.reconcile().await {
+                    Ok(result) => {
+                        if result.has_changes() {
+                            info!(
+                                "Post-reload reconciliation: {} loaded, {} unloaded",
+                                result.packages_loaded.len(),
+                                result.packages_unloaded.len()
+                            );
+                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Post-reload reconciliation failed: {}", e);
+                    }
+                }
+
+                info!("Configuration reload complete.");
             }
         }
     }

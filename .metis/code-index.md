@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T01:08:36Z | 376 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T01:13:48Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -300,6 +300,7 @@
 │       └── src/
 │           ├── commands/
 │           │   ├── cleanup_events.rs
+│           │   ├── config.rs
 │           │   ├── daemon.rs
 │           │   ├── mod.rs
 │           │   └── watcher.rs
@@ -4895,16 +4896,28 @@
 -  `test_parse_duration_invalid_unit` function L213-215 — `()` — Cleans up old execution events from the database based on a retention policy.
 -  `test_parse_duration_zero` function L218-220 — `()` — Cleans up old execution events from the database based on a retention policy.
 
+#### crates/cloacinactl/src/commands/config.rs
+
+- pub `DaemonConfig` struct L30-33 — `{ daemon: DaemonSection, watch: WatchSection }` — Daemon configuration from `config.toml`.
+- pub `DaemonSection` struct L37-40 — `{ poll_interval_ms: u64, log_level: String }` — — the daemon continues with previous/default settings.
+- pub `WatchSection` struct L53-55 — `{ directories: Vec<String> }` — — the daemon continues with previous/default settings.
+- pub `load` function L60-89 — `(path: &Path) -> Self` — Load config from a TOML file.
+- pub `resolve_watch_dirs` function L92-105 — `(&self) -> Vec<PathBuf>` — Resolve watch directories from config, expanding `~` to home dir.
+-  `DaemonSection` type L42-49 — `impl Default for DaemonSection` — — the daemon continues with previous/default settings.
+-  `default` function L43-48 — `() -> Self` — — the daemon continues with previous/default settings.
+-  `DaemonConfig` type L57-106 — `= DaemonConfig` — — the daemon continues with previous/default settings.
+
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L49-274 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
--  `register_triggers_from_reconcile` function L278-351 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+- pub `run` function L50-355 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
+-  `register_triggers_from_reconcile` function L359-432 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
 
 #### crates/cloacinactl/src/commands/mod.rs
 
 - pub `cleanup_events` module L19 — `-` — CLI command implementations.
-- pub `daemon` module L20 — `-` — CLI command implementations.
-- pub `watcher` module L21 — `-` — CLI command implementations.
+- pub `config` module L20 — `-` — CLI command implementations.
+- pub `daemon` module L21 — `-` — CLI command implementations.
+- pub `watcher` module L22 — `-` — CLI command implementations.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
