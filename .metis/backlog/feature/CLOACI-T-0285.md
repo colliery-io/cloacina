@@ -5,17 +5,18 @@ title: "Distribution — pre-built binaries, install script, Homebrew formula"
 short_code: "CLOACI-T-0285"
 created_at: 2026-03-28T15:45:22.274406+00:00
 updated_at: 2026-03-28T15:45:22.274406+00:00
-parent: CLOACI-I-0057
+parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/backlog"
+  - "#feature"
 
 
 exit_criteria_met: false
-initiative_id: CLOACI-I-0057
+initiative_id: NULL
 ---
 
 # Distribution — pre-built binaries, install script, Homebrew formula

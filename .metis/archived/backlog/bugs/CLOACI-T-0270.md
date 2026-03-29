@@ -7,7 +7,7 @@ created_at: 2026-03-27T12:50:13.255057+00:00
 updated_at: 2026-03-27T12:50:13.255057+00:00
 parent:
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -59,6 +59,8 @@ Three related fixes discovered during I-0050 investigation, all needed to make t
 **Fix:** Delete the database file at demo startup.
 
 **Code change:** `examples/features/registry-execution/src/main.rs` — `std::fs::remove_file(db_path)` before creating DB
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
