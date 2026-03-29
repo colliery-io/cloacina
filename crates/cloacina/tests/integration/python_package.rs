@@ -27,8 +27,8 @@ use tar::Builder;
 use tempfile::TempDir;
 
 use cloacina::packaging::{
-    ManifestV2, ManifestValidationError, PackageInfoV2, PackageLanguage, PythonRuntime,
-    RustRuntime, TaskDefinitionV2,
+    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
+    TaskDefinition,
 };
 use cloacina::registry::loader::{
     detect_package_kind, extract_python_package, peek_manifest, PackageKind,
@@ -39,7 +39,7 @@ use cloacina::registry::loader::{
 // ---------------------------------------------------------------------------
 
 /// Build a `.cloacina` archive in memory with realistic structure.
-fn build_archive(manifest: &ManifestV2, workflow_files: &[(&str, &[u8])]) -> Vec<u8> {
+fn build_archive(manifest: &Manifest, workflow_files: &[(&str, &[u8])]) -> Vec<u8> {
     let buf = Vec::new();
     let enc = GzEncoder::new(buf, Compression::fast());
     let mut builder = Builder::new(enc);
@@ -78,10 +78,10 @@ fn build_archive(manifest: &ManifestV2, workflow_files: &[(&str, &[u8])]) -> Vec
 }
 
 /// Create a manifest matching the example data-pipeline project.
-fn data_pipeline_manifest() -> ManifestV2 {
-    ManifestV2 {
+fn data_pipeline_manifest() -> Manifest {
+    Manifest {
         format_version: "2".to_string(),
-        package: PackageInfoV2 {
+        package: PackageInfo {
             name: "data-pipeline-example".to_string(),
             version: "1.0.0".to_string(),
             description: Some("Example Python workflow for Cloacina".to_string()),
@@ -95,7 +95,7 @@ fn data_pipeline_manifest() -> ManifestV2 {
         }),
         rust: None,
         tasks: vec![
-            TaskDefinitionV2 {
+            TaskDefinition {
                 id: "fetch-data".to_string(),
                 function: "data_pipeline.tasks:fetch_data".to_string(),
                 dependencies: vec![],
@@ -103,7 +103,7 @@ fn data_pipeline_manifest() -> ManifestV2 {
                 retries: 0,
                 timeout_seconds: None,
             },
-            TaskDefinitionV2 {
+            TaskDefinition {
                 id: "validate-data".to_string(),
                 function: "data_pipeline.tasks:validate_data".to_string(),
                 dependencies: vec!["fetch-data".to_string()],
@@ -111,7 +111,7 @@ fn data_pipeline_manifest() -> ManifestV2 {
                 retries: 0,
                 timeout_seconds: None,
             },
-            TaskDefinitionV2 {
+            TaskDefinition {
                 id: "aggregate-data".to_string(),
                 function: "data_pipeline.tasks:aggregate_data".to_string(),
                 dependencies: vec!["validate-data".to_string()],
@@ -119,7 +119,7 @@ fn data_pipeline_manifest() -> ManifestV2 {
                 retries: 0,
                 timeout_seconds: None,
             },
-            TaskDefinitionV2 {
+            TaskDefinition {
                 id: "generate-report".to_string(),
                 function: "data_pipeline.tasks:generate_report".to_string(),
                 dependencies: vec!["aggregate-data".to_string()],

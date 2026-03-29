@@ -108,7 +108,7 @@ impl FilesystemWorkflowRegistry {
                     }
                 };
 
-                // Try ManifestV2 first (Python + Rust v2 packages)
+                // Try Manifest first (Python + Rust v2 packages)
                 match peek_manifest(&archive_data) {
                     Ok(manifest) => {
                         let package_name = manifest.package.name.clone();
@@ -143,75 +143,13 @@ impl FilesystemWorkflowRegistry {
                             .or_insert((path.clone(), metadata));
                     }
                     Err(e) => {
-                        // Try v1 manifest (legacy Rust cdylib packages)
-                        match Self::peek_v1_manifest(&archive_data) {
-                            Some(metadata) => {
-                                let key = (metadata.package_name.clone(), metadata.version.clone());
-                                debug!(
-                                    "Found v1 package: {} v{} at {}",
-                                    key.0,
-                                    key.1,
-                                    path.display()
-                                );
-                                packages.entry(key).or_insert((path.clone(), metadata));
-                            }
-                            None => {
-                                warn!("Skipping unreadable package {}: {}", path.display(), e);
-                            }
-                        }
+                        warn!("Skipping unreadable package {}: {}", path.display(), e);
                     }
                 }
             }
         }
 
         packages
-    }
-
-    /// Try to extract metadata from a v1 package (Rust cdylib with `PackageManifest`).
-    fn peek_v1_manifest(archive_data: &[u8]) -> Option<WorkflowMetadata> {
-        use flate2::read::GzDecoder;
-        use std::io::Read;
-        use tar::Archive;
-
-        let cursor = std::io::Cursor::new(archive_data);
-        let decoder = GzDecoder::new(cursor);
-        let mut archive = Archive::new(decoder);
-
-        for entry_result in archive.entries().ok()? {
-            let mut entry = entry_result.ok()?;
-            let path = entry.path().ok()?;
-
-            if path.file_name() == Some("manifest.json".as_ref()) {
-                let mut data = Vec::new();
-                entry.read_to_end(&mut data).ok()?;
-
-                let manifest: crate::packaging::types::PackageManifest =
-                    serde_json::from_slice(&data).ok()?;
-
-                let id = uuid_from_fingerprint(
-                    &manifest
-                        .package
-                        .workflow_fingerprint
-                        .clone()
-                        .unwrap_or_else(|| manifest.package.name.clone()),
-                );
-
-                return Some(WorkflowMetadata {
-                    id,
-                    registry_id: id,
-                    package_name: manifest.package.name,
-                    version: manifest.package.version,
-                    description: Some(manifest.package.description),
-                    author: manifest.package.author,
-                    tasks: manifest.tasks.iter().map(|t| t.id.clone()).collect(),
-                    schedules: Vec::new(),
-                    created_at: chrono::Utc::now(),
-                    updated_at: chrono::Utc::now(),
-                });
-            }
-        }
-
-        None
     }
 
     /// Find the file path for a package by name and version.
@@ -364,8 +302,7 @@ fn uuid_from_fingerprint(fingerprint: &str) -> Uuid {
 mod tests {
     use super::*;
     use crate::packaging::{
-        ManifestV2, PackageInfoV2, PackageLanguage, RustRuntime, TaskDefinitionV2,
-        TriggerDefinitionV2,
+        Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition, TriggerDefinition,
     };
     use flate2::write::GzEncoder;
     use flate2::Compression;
@@ -373,7 +310,7 @@ mod tests {
     use tempfile::TempDir;
 
     /// Build a minimal `.cloacina` archive in memory.
-    fn build_test_archive(manifest: &ManifestV2) -> Vec<u8> {
+    fn build_test_archive(manifest: &Manifest) -> Vec<u8> {
         let buf = Vec::new();
         let enc = GzEncoder::new(buf, Compression::fast());
         let mut builder = Builder::new(enc);
@@ -391,10 +328,10 @@ mod tests {
         enc.finish().unwrap()
     }
 
-    fn test_manifest(name: &str, version: &str) -> ManifestV2 {
-        ManifestV2 {
+    fn test_manifest(name: &str, version: &str) -> Manifest {
+        Manifest {
             format_version: "2".to_string(),
-            package: PackageInfoV2 {
+            package: PackageInfo {
                 name: name.to_string(),
                 version: version.to_string(),
                 description: Some("Test package".to_string()),
@@ -406,7 +343,7 @@ mod tests {
             rust: Some(RustRuntime {
                 library_path: "lib/libtest.so".to_string(),
             }),
-            tasks: vec![TaskDefinitionV2 {
+            tasks: vec![TaskDefinition {
                 id: "task1".to_string(),
                 function: "execute_task".to_string(),
                 dependencies: vec![],
@@ -634,7 +571,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         let mut manifest = test_manifest("trigger-pkg", "1.0.0");
-        manifest.triggers = vec![TriggerDefinitionV2 {
+        manifest.triggers = vec![TriggerDefinition {
             name: "my_trigger".to_string(),
             trigger_type: "rust".to_string(),
             workflow: "trigger-pkg".to_string(),

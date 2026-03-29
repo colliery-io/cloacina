@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use flate2::read::GzDecoder;
 use tar::Archive;
 
-use crate::packaging::manifest_v2::{ManifestV2, PackageLanguage};
+use crate::packaging::manifest_schema::{Manifest, PackageLanguage};
 use crate::registry::error::LoaderError;
 
 /// An extracted Python package ready for task execution.
@@ -41,19 +41,19 @@ pub struct ExtractedPythonPackage {
     /// Entry module to import tasks from (e.g., `"workflow.tasks"`).
     pub entry_module: String,
     /// Parsed manifest.
-    pub manifest: ManifestV2,
+    pub manifest: Manifest,
 }
 
 /// Result of peeking at a manifest inside an archive.
 pub enum PackageKind {
     /// Python workflow package.
-    Python(ManifestV2),
+    Python(Manifest),
     /// Rust dynamic-library package.
-    Rust(ManifestV2),
+    Rust(Manifest),
 }
 
 /// Peek at the manifest inside a `.cloacina` archive without full extraction.
-pub fn peek_manifest(archive_data: &[u8]) -> Result<ManifestV2, LoaderError> {
+pub fn peek_manifest(archive_data: &[u8]) -> Result<Manifest, LoaderError> {
     let cursor = std::io::Cursor::new(archive_data);
     let decoder = GzDecoder::new(cursor);
     let mut archive = Archive::new(decoder);
@@ -80,7 +80,7 @@ pub fn peek_manifest(archive_data: &[u8]) -> Result<ManifestV2, LoaderError> {
                     path: "manifest.json".to_string(),
                     error: format!("Failed to read manifest: {e}"),
                 })?;
-            let manifest: ManifestV2 =
+            let manifest: Manifest =
                 serde_json::from_slice(&data).map_err(|e| LoaderError::ManifestParse {
                     reason: e.to_string(),
                 })?;
@@ -133,7 +133,7 @@ pub fn extract_python_package(
         path: manifest_path.display().to_string(),
         error: e.to_string(),
     })?;
-    let manifest: ManifestV2 =
+    let manifest: Manifest =
         serde_json::from_slice(&manifest_data).map_err(|e| LoaderError::ManifestParse {
             reason: e.to_string(),
         })?;
@@ -171,7 +171,7 @@ pub fn extract_python_package(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packaging::manifest_v2::{PackageInfoV2, PythonRuntime, TaskDefinitionV2};
+    use crate::packaging::manifest_schema::{PackageInfo, PythonRuntime, TaskDefinition};
     use chrono::Utc;
     use flate2::write::GzEncoder;
     use flate2::Compression;
@@ -180,7 +180,7 @@ mod tests {
     use tempfile::TempDir;
 
     /// Build a minimal Python `.cloacina` archive in memory.
-    fn build_test_archive(manifest: &ManifestV2, include_workflow: bool) -> Vec<u8> {
+    fn build_test_archive(manifest: &Manifest, include_workflow: bool) -> Vec<u8> {
         let buf = Vec::new();
         let enc = GzEncoder::new(buf, Compression::fast());
         let mut builder = Builder::new(enc);
@@ -221,10 +221,10 @@ mod tests {
         enc.finish().unwrap()
     }
 
-    fn make_test_manifest() -> ManifestV2 {
-        ManifestV2 {
+    fn make_test_manifest() -> Manifest {
+        Manifest {
             format_version: "2".to_string(),
-            package: PackageInfoV2 {
+            package: PackageInfo {
                 name: "test-workflow".to_string(),
                 version: "0.1.0".to_string(),
                 description: None,
@@ -237,7 +237,7 @@ mod tests {
                 entry_module: "workflow.tasks".to_string(),
             }),
             rust: None,
-            tasks: vec![TaskDefinitionV2 {
+            tasks: vec![TaskDefinition {
                 id: "hello".to_string(),
                 function: "workflow.tasks:hello".to_string(),
                 dependencies: vec![],
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_wrong_language() {
-        use crate::packaging::manifest_v2::RustRuntime;
+        use crate::packaging::manifest_schema::RustRuntime;
 
         let mut manifest = make_test_manifest();
         manifest.language = PackageLanguage::Rust;

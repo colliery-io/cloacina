@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -22,7 +22,11 @@ use tar::Builder;
 
 use super::types::{CompileResult, MANIFEST_FILENAME};
 
-/// Create a package archive from compilation results
+/// Create a package archive from compilation results.
+///
+/// The archive contains:
+/// - `manifest.json` — Manifest (unified format for Rust and Python)
+/// - The compiled dynamic library at the path specified in `manifest.rust.library_path`
 pub fn create_package_archive(compile_result: &CompileResult, output: &PathBuf) -> Result<()> {
     // Create the output tar.gz file
     let output_file = fs::File::create(output)
@@ -31,7 +35,7 @@ pub fn create_package_archive(compile_result: &CompileResult, output: &PathBuf) 
     let gz_encoder = GzEncoder::new(output_file, Compression::default());
     let mut tar_builder = Builder::new(gz_encoder);
 
-    // Add manifest.json to archive
+    // Add manifest.json to archive (Manifest format)
     let manifest_json = serde_json::to_string_pretty(&compile_result.manifest)
         .context("Failed to serialize manifest to JSON")?;
 
@@ -44,15 +48,17 @@ pub fn create_package_archive(compile_result: &CompileResult, output: &PathBuf) 
         .append_data(&mut header, MANIFEST_FILENAME, manifest_bytes)
         .context("Failed to add manifest.json to archive")?;
 
-    // Add .so file to archive using the filename from the manifest (not the temp file name)
-    let archive_so_path = &compile_result.manifest.library.filename;
+    // Add .so/.dylib file to archive using the path from the manifest
+    let library_path = compile_result
+        .manifest
+        .rust
+        .as_ref()
+        .map(|r| r.library_path.as_str())
+        .unwrap_or("lib/library.so");
 
     tar_builder
-        .append_file(
-            archive_so_path,
-            &mut fs::File::open(&compile_result.so_path)?,
-        )
-        .context("Failed to add .so file to archive")?;
+        .append_file(library_path, &mut fs::File::open(&compile_result.so_path)?)
+        .context("Failed to add library file to archive")?;
 
     // Finalize the archive
     tar_builder

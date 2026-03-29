@@ -93,7 +93,7 @@ pub struct RustRuntime {
 
 /// Package metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageInfoV2 {
+pub struct PackageInfo {
     /// Package name.
     pub name: String,
     /// Semantic version.
@@ -109,7 +109,7 @@ pub struct PackageInfoV2 {
 
 /// Task definition within a package.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskDefinitionV2 {
+pub struct TaskDefinition {
     /// Task identifier (unique within the package).
     pub id: String,
     /// Callable function path.
@@ -136,7 +136,7 @@ pub struct TaskDefinitionV2 {
 /// Declares a trigger that should be auto-registered when the package is loaded.
 /// Any type implementing the `Trigger` trait can be packaged this way.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TriggerDefinitionV2 {
+pub struct TriggerDefinition {
     /// Unique name for this trigger (within the package).
     pub name: String,
     /// Trigger type discriminator (e.g. `"rust"`, `"python"`, `"webhook"`,
@@ -158,11 +158,11 @@ pub struct TriggerDefinitionV2 {
 ///
 /// Supports both Rust (dynamic library) and Python workflow packages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ManifestV2 {
+pub struct Manifest {
     /// Format version, always "2" for this schema.
     pub format_version: String,
     /// Package metadata.
-    pub package: PackageInfoV2,
+    pub package: PackageInfo,
     /// Package language.
     pub language: PackageLanguage,
     /// Python runtime config (required when `language == Python`).
@@ -172,10 +172,10 @@ pub struct ManifestV2 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust: Option<RustRuntime>,
     /// Task definitions.
-    pub tasks: Vec<TaskDefinitionV2>,
+    pub tasks: Vec<TaskDefinition>,
     /// Trigger definitions (optional — packages without triggers omit this).
     #[serde(default)]
-    pub triggers: Vec<TriggerDefinitionV2>,
+    pub triggers: Vec<TriggerDefinition>,
     /// When the manifest was created.
     pub created_at: DateTime<Utc>,
     /// Package signature (optional).
@@ -183,7 +183,7 @@ pub struct ManifestV2 {
     pub signature: Option<String>,
 }
 
-impl ManifestV2 {
+impl Manifest {
     /// Validate the manifest for structural correctness.
     pub fn validate(&self) -> Result<(), ManifestValidationError> {
         if self.format_version != "2" {
@@ -293,10 +293,10 @@ impl ManifestV2 {
 mod tests {
     use super::*;
 
-    fn make_python_manifest() -> ManifestV2 {
-        ManifestV2 {
+    fn make_python_manifest() -> Manifest {
+        Manifest {
             format_version: "2".to_string(),
-            package: PackageInfoV2 {
+            package: PackageInfo {
                 name: "my-workflow".to_string(),
                 version: "1.0.0".to_string(),
                 description: Some("Test workflow".to_string()),
@@ -310,7 +310,7 @@ mod tests {
             }),
             rust: None,
             tasks: vec![
-                TaskDefinitionV2 {
+                TaskDefinition {
                     id: "extract".to_string(),
                     function: "workflow.tasks:extract_data".to_string(),
                     dependencies: vec![],
@@ -318,7 +318,7 @@ mod tests {
                     retries: 3,
                     timeout_seconds: Some(300),
                 },
-                TaskDefinitionV2 {
+                TaskDefinition {
                     id: "transform".to_string(),
                     function: "workflow.tasks:transform_data".to_string(),
                     dependencies: vec!["extract".to_string()],
@@ -333,10 +333,10 @@ mod tests {
         }
     }
 
-    fn make_rust_manifest() -> ManifestV2 {
-        ManifestV2 {
+    fn make_rust_manifest() -> Manifest {
+        Manifest {
             format_version: "2".to_string(),
-            package: PackageInfoV2 {
+            package: PackageInfo {
                 name: "rust-workflow".to_string(),
                 version: "0.1.0".to_string(),
                 description: None,
@@ -348,7 +348,7 @@ mod tests {
             rust: Some(RustRuntime {
                 library_path: "lib/libworkflow.so".to_string(),
             }),
-            tasks: vec![TaskDefinitionV2 {
+            tasks: vec![TaskDefinition {
                 id: "process".to_string(),
                 function: "cloacina_execute_task".to_string(),
                 dependencies: vec![],
@@ -362,10 +362,10 @@ mod tests {
         }
     }
 
-    fn make_manifest_with_triggers() -> ManifestV2 {
+    fn make_manifest_with_triggers() -> Manifest {
         let mut m = make_rust_manifest();
         m.triggers = vec![
-            TriggerDefinitionV2 {
+            TriggerDefinition {
                 name: "file_watcher".to_string(),
                 trigger_type: "file_watch".to_string(),
                 workflow: "rust-workflow".to_string(),
@@ -373,7 +373,7 @@ mod tests {
                 allow_concurrent: false,
                 config: Some(serde_json::json!({"path": "/inbox/"})),
             },
-            TriggerDefinitionV2 {
+            TriggerDefinition {
                 name: "api_poller".to_string(),
                 trigger_type: "http_poll".to_string(),
                 workflow: "rust-workflow".to_string(),
@@ -485,7 +485,7 @@ mod tests {
     fn test_serialization_roundtrip() {
         let original = make_python_manifest();
         let json = serde_json::to_string_pretty(&original).unwrap();
-        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+        let parsed: Manifest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.format_version, "2");
         assert_eq!(parsed.package.name, "my-workflow");
@@ -578,7 +578,7 @@ mod tests {
     fn test_trigger_serialization_roundtrip() {
         let original = make_manifest_with_triggers();
         let json = serde_json::to_string_pretty(&original).unwrap();
-        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+        let parsed: Manifest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.triggers.len(), 2);
         assert_eq!(parsed.triggers[0].name, "file_watcher");
@@ -600,7 +600,7 @@ mod tests {
 
         // Roundtrip preserves None config
         let json = serde_json::to_string(&m).unwrap();
-        let parsed: ManifestV2 = serde_json::from_str(&json).unwrap();
+        let parsed: Manifest = serde_json::from_str(&json).unwrap();
         assert!(parsed.triggers[0].config.is_none());
     }
 
@@ -615,7 +615,7 @@ mod tests {
             "tasks": [{"id": "t1", "function": "sym"}],
             "created_at": "2026-01-01T00:00:00Z"
         }"#;
-        let parsed: ManifestV2 = serde_json::from_str(json).unwrap();
+        let parsed: Manifest = serde_json::from_str(json).unwrap();
         assert!(parsed.triggers.is_empty());
         assert!(parsed.validate().is_ok());
     }

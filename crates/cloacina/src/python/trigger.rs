@@ -28,7 +28,7 @@ use pyo3::prelude::*;
 use std::fmt;
 use std::time::Duration;
 
-use crate::packaging::manifest_v2::parse_duration_str;
+use crate::packaging::manifest_schema::parse_duration_str;
 use crate::trigger::{Trigger, TriggerError, TriggerResult as RustTriggerResult};
 
 /// Global registry of Python trigger definitions collected during module import.

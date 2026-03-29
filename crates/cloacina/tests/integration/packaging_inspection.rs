@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 use tempfile::TempDir;
 
-use cloacina::packaging::{package_workflow, types::PackageManifest, CompileOptions};
+use cloacina::packaging::{package_workflow, CompileOptions, Manifest};
 
 /// Test fixture for packaging and inspecting existing example projects
 struct PackageInspectionFixture {
@@ -82,7 +82,7 @@ impl PackageInspectionFixture {
     }
 
     /// Extract and parse the manifest from the packaged workflow
-    fn extract_manifest(&self) -> Result<PackageManifest> {
+    fn extract_manifest(&self) -> Result<Manifest> {
         let package_file = std::fs::File::open(&self.package_path)?;
         let gz_decoder = GzDecoder::new(package_file);
         let mut archive = Archive::new(gz_decoder);
@@ -94,7 +94,7 @@ impl PackageInspectionFixture {
                     let mut contents = String::new();
                     std::io::Read::read_to_string(&mut entry, &mut contents)?;
 
-                    let manifest: PackageManifest = serde_json::from_str(&contents)?;
+                    let manifest: Manifest = serde_json::from_str(&contents)?;
                     return Ok(manifest);
                 }
             }
@@ -165,19 +165,16 @@ async fn test_package_and_inspect_workflow_complete() {
                     assert_eq!(manifest.package.name, "complex-dag-example");
                     assert_eq!(manifest.package.version, "0.2.0-alpha.5");
                     // Check for the actual description from the macro
+                    let desc = manifest.package.description.as_deref().unwrap_or("");
                     assert!(
-                        manifest.package.description.contains(
+                        desc.contains(
                             "Complex DAG structure for testing visualization capabilities"
-                        ) || manifest.package.description.contains("Packaged workflow")
+                        ) || desc.contains("Packaged workflow")
                     );
 
-                    // Verify library information
-                    assert!(!manifest.library.filename.is_empty());
-                    assert!(manifest
-                        .library
-                        .symbols
-                        .contains(&"cloacina_execute_task".to_string()));
-                    assert!(!manifest.library.architecture.is_empty());
+                    // Verify Rust runtime information
+                    assert!(manifest.rust.is_some(), "Should have Rust runtime config");
+                    assert!(!manifest.rust.as_ref().unwrap().library_path.is_empty());
 
                     // This is the key test - verify tasks were extracted correctly
                     if manifest.tasks.is_empty() {
@@ -209,10 +206,6 @@ async fn test_package_and_inspect_workflow_complete() {
                         // Verify task details
                         for task in &manifest.tasks {
                             assert!(!task.id.is_empty(), "Task ID should not be empty");
-                            assert!(
-                                !task.source_location.is_empty(),
-                                "Task source location should not be empty"
-                            );
                         }
                     }
                 }
@@ -259,21 +252,18 @@ async fn test_package_inspection_manifest_structure() {
             // Package info validation
             assert!(!manifest.package.name.is_empty());
             assert!(!manifest.package.version.is_empty());
-            assert!(!manifest.package.cloacina_version.is_empty());
+            assert_eq!(manifest.format_version, "2");
 
-            // Library info validation
-            assert!(!manifest.library.filename.is_empty());
-            assert!(!manifest.library.architecture.is_empty());
-            assert!(!manifest.library.symbols.is_empty());
+            // Rust runtime validation
+            assert!(manifest.rust.is_some());
+            assert!(!manifest.rust.as_ref().unwrap().library_path.is_empty());
 
             // Test serialization roundtrip
             let json = serde_json::to_string(&manifest).expect("Should serialize");
-            let deserialized: PackageManifest =
-                serde_json::from_str(&json).expect("Should deserialize");
+            let deserialized: Manifest = serde_json::from_str(&json).expect("Should deserialize");
 
             assert_eq!(manifest.package.name, deserialized.package.name);
             assert_eq!(manifest.package.version, deserialized.package.version);
-            assert_eq!(manifest.library.filename, deserialized.library.filename);
             assert_eq!(manifest.tasks.len(), deserialized.tasks.len());
 
             // Test passed silently

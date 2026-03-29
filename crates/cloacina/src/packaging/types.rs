@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,16 +14,21 @@
  *  limitations under the License.
  */
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::PathBuf;
 
-/// Result of compiling a workflow project
+use super::manifest_schema::Manifest;
+
+/// Result of compiling a workflow project.
+///
+/// Contains the path to the compiled cdylib and the unified Manifest
+/// that describes the package, tasks, triggers, and runtime configuration.
 #[derive(Debug, Clone)]
 pub struct CompileResult {
     /// Path to the compiled dynamic library
     pub so_path: PathBuf,
-    /// Generated package manifest
-    pub manifest: PackageManifest,
+    /// Generated package manifest (v2 unified format)
+    pub manifest: Manifest,
 }
 
 /// Options for compiling a workflow
@@ -48,65 +53,6 @@ impl Default for CompileOptions {
             jobs: None,
         }
     }
-}
-
-/// Package manifest containing workflow metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageManifest {
-    /// Package information
-    pub package: PackageInfo,
-    /// Library information
-    pub library: LibraryInfo,
-    /// Task information
-    pub tasks: Vec<TaskInfo>,
-    /// Workflow graph data (optional)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub graph: Option<crate::WorkflowGraphData>,
-}
-
-/// Package information from Cargo.toml
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageInfo {
-    /// Package name
-    pub name: String,
-    /// Package version
-    pub version: String,
-    /// Package description
-    pub description: String,
-    /// Package author(s)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<String>,
-    /// Workflow fingerprint/version
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_fingerprint: Option<String>,
-    /// Cloacina compatibility version
-    pub cloacina_version: String,
-}
-
-/// Dynamic library information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LibraryInfo {
-    /// Library filename
-    pub filename: String,
-    /// Exported symbols
-    pub symbols: Vec<String>,
-    /// Target architecture
-    pub architecture: String,
-}
-
-/// Task information extracted from the workflow
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskInfo {
-    /// Task index
-    pub index: u32,
-    /// Task identifier/name
-    pub id: String,
-    /// Task dependencies
-    pub dependencies: Vec<String>,
-    /// Task description
-    pub description: String,
-    /// Source location in code
-    pub source_location: String,
 }
 
 /// Parsed Cargo.toml structure

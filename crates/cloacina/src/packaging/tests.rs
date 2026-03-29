@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -91,11 +91,11 @@ pub fn complex_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
 
         match result {
             Ok(manifest) => {
+                assert_eq!(manifest.format_version, "2");
                 assert_eq!(manifest.package.name, "test-package");
                 assert_eq!(manifest.package.version, "1.0.0");
-                assert!(manifest.package.description.contains("Packaged workflow"));
-                assert!(!manifest.library.filename.is_empty());
-                assert_eq!(manifest.library.symbols, vec!["cloacina_execute_task"]);
+                assert!(manifest.rust.is_some());
+                assert!(!manifest.rust.as_ref().unwrap().library_path.is_empty());
             }
             Err(e) => {
                 // Expected to fail due to mock library, but should be FFI-related
@@ -122,10 +122,13 @@ pub fn complex_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
 
         match result {
             Ok(manifest) => {
-                assert_eq!(manifest.library.architecture, "x86_64-unknown-linux-gnu");
+                assert!(manifest
+                    .package
+                    .targets
+                    .contains(&"x86_64-unknown-linux-gnu".to_string()));
             }
             Err(_) => {
-                // Expected to fail due to mock library, but architecture should be set before FFI
+                // Expected to fail due to mock library
             }
         }
     }
@@ -235,117 +238,58 @@ pub fn regular_function() -> String {
     }
 
     #[test]
-    fn test_package_info_creation() {
-        let package_info = types::PackageInfo {
-            name: "test-workflow".to_string(),
-            version: "2.1.0".to_string(),
-            description: "Test workflow package".to_string(),
-            author: Some("Test Author".to_string()),
-            workflow_fingerprint: Some("abc123def456".to_string()),
-            cloacina_version: "0.2.0".to_string(),
-        };
+    fn test_manifest_schema_rust_package() {
+        use chrono::Utc;
 
-        assert_eq!(package_info.name, "test-workflow");
-        assert_eq!(package_info.version, "2.1.0");
-        assert!(!package_info.description.is_empty());
-        assert!(!package_info.cloacina_version.is_empty());
-    }
-
-    #[test]
-    fn test_library_info_creation() {
-        let library_info = types::LibraryInfo {
-            filename: "libworkflow.dylib".to_string(),
-            symbols: vec![
-                "cloacina_execute_task".to_string(),
-                "cloacina_get_task_metadata".to_string(),
-            ],
-            architecture: "aarch64-apple-darwin".to_string(),
-        };
-
-        assert!(library_info.filename.ends_with(".dylib"));
-        assert_eq!(library_info.symbols.len(), 2);
-        assert!(library_info
-            .symbols
-            .contains(&"cloacina_execute_task".to_string()));
-        assert!(!library_info.architecture.is_empty());
-    }
-
-    #[test]
-    fn test_task_info_creation() {
-        let task_info = types::TaskInfo {
-            index: 0,
-            id: "process_data".to_string(),
-            dependencies: vec!["validate_input".to_string()],
-            description: "Process the input data".to_string(),
-            source_location: "src/tasks.rs:42".to_string(),
-        };
-
-        assert_eq!(task_info.index, 0);
-        assert_eq!(task_info.id, "process_data");
-        assert_eq!(task_info.dependencies.len(), 1);
-        assert!(!task_info.description.is_empty());
-        assert!(task_info.source_location.contains("src/"));
-    }
-
-    #[test]
-    fn test_package_manifest_serialization_roundtrip() {
-        let original_manifest = types::PackageManifest {
-            package: types::PackageInfo {
-                name: "test-package".to_string(),
-                version: "1.0.0".to_string(),
-                description: "Test package".to_string(),
-                author: None,
-                workflow_fingerprint: None,
-                cloacina_version: "0.2.0".to_string(),
+        let manifest = manifest_schema::Manifest {
+            format_version: "2".to_string(),
+            package: manifest_schema::PackageInfo {
+                name: "test-workflow".to_string(),
+                version: "2.1.0".to_string(),
+                description: Some("Test workflow package".to_string()),
+                fingerprint: "sha256:test".to_string(),
+                targets: vec!["linux-x86_64".to_string()],
             },
-            library: types::LibraryInfo {
-                filename: "libtest.so".to_string(),
-                symbols: vec!["cloacina_execute_task".to_string()],
-                architecture: "x86_64".to_string(),
-            },
+            language: manifest_schema::PackageLanguage::Rust,
+            python: None,
+            rust: Some(manifest_schema::RustRuntime {
+                library_path: "libworkflow.dylib".to_string(),
+            }),
             tasks: vec![
-                types::TaskInfo {
-                    index: 0,
+                manifest_schema::TaskDefinition {
                     id: "task1".to_string(),
+                    function: "cloacina_execute_task".to_string(),
                     dependencies: vec![],
-                    description: "First task".to_string(),
-                    source_location: "src/lib.rs:10".to_string(),
+                    description: Some("First task".to_string()),
+                    retries: 0,
+                    timeout_seconds: None,
                 },
-                types::TaskInfo {
-                    index: 1,
+                manifest_schema::TaskDefinition {
                     id: "task2".to_string(),
+                    function: "cloacina_execute_task".to_string(),
                     dependencies: vec!["task1".to_string()],
-                    description: "Second task".to_string(),
-                    source_location: "src/lib.rs:20".to_string(),
+                    description: Some("Second task".to_string()),
+                    retries: 0,
+                    timeout_seconds: None,
                 },
             ],
-            graph: None,
+            triggers: vec![],
+            created_at: Utc::now(),
+            signature: None,
         };
 
-        // Serialize to JSON
-        let json = serde_json::to_string(&original_manifest).expect("Should serialize");
-        assert!(!json.is_empty());
+        assert_eq!(manifest.package.name, "test-workflow");
+        assert_eq!(manifest.package.version, "2.1.0");
+        assert!(manifest.rust.is_some());
+        assert_eq!(manifest.tasks.len(), 2);
+        assert_eq!(manifest.tasks[1].dependencies, vec!["task1"]);
 
-        // Deserialize back
-        let deserialized: types::PackageManifest =
+        // Serialization roundtrip
+        let json = serde_json::to_string(&manifest).expect("Should serialize");
+        let deserialized: manifest_schema::Manifest =
             serde_json::from_str(&json).expect("Should deserialize");
-
-        // Verify all fields
-        assert_eq!(deserialized.package.name, original_manifest.package.name);
-        assert_eq!(
-            deserialized.package.version,
-            original_manifest.package.version
-        );
-        assert_eq!(
-            deserialized.library.filename,
-            original_manifest.library.filename
-        );
-        assert_eq!(deserialized.tasks.len(), original_manifest.tasks.len());
-        assert_eq!(deserialized.tasks[0].id, original_manifest.tasks[0].id);
-        assert_eq!(
-            deserialized.tasks[1].dependencies,
-            original_manifest.tasks[1].dependencies
-        );
+        assert_eq!(deserialized.package.name, manifest.package.name);
+        assert_eq!(deserialized.tasks.len(), manifest.tasks.len());
     }
 
     #[test]

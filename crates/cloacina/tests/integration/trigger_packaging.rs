@@ -16,7 +16,7 @@
 
 //! Integration tests for packaged trigger round-trip.
 //!
-//! Tests that trigger definitions in ManifestV2 are correctly:
+//! Tests that trigger definitions in Manifest are correctly:
 //! - Serialized into `.cloacina` archives
 //! - Extracted via `peek_manifest`
 //! - Registered/deregistered in the global trigger registry
@@ -29,8 +29,8 @@ use serial_test::serial;
 use tar::Builder;
 
 use cloacina::packaging::{
-    ManifestV2, PackageInfoV2, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinitionV2,
-    TriggerDefinitionV2,
+    Manifest, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinition,
+    TriggerDefinition,
 };
 use cloacina::registry::loader::peek_manifest;
 use cloacina::trigger::{
@@ -43,7 +43,7 @@ use cloacina::trigger::{
 // ---------------------------------------------------------------------------
 
 /// Build a `.cloacina` archive in memory.
-fn build_archive(manifest: &ManifestV2, files: &[(&str, &[u8])]) -> Vec<u8> {
+fn build_archive(manifest: &Manifest, files: &[(&str, &[u8])]) -> Vec<u8> {
     let buf = Vec::new();
     let enc = GzEncoder::new(buf, Compression::fast());
     let mut builder = Builder::new(enc);
@@ -70,10 +70,10 @@ fn build_archive(manifest: &ManifestV2, files: &[(&str, &[u8])]) -> Vec<u8> {
     enc.finish().unwrap()
 }
 
-fn rust_manifest_with_triggers() -> ManifestV2 {
-    ManifestV2 {
+fn rust_manifest_with_triggers() -> Manifest {
+    Manifest {
         format_version: "2".to_string(),
-        package: PackageInfoV2 {
+        package: PackageInfo {
             name: "trigger-test-pkg".to_string(),
             version: "0.1.0".to_string(),
             description: Some("Test package with triggers".to_string()),
@@ -85,7 +85,7 @@ fn rust_manifest_with_triggers() -> ManifestV2 {
         rust: Some(RustRuntime {
             library_path: "lib/libtrigger_test.so".to_string(),
         }),
-        tasks: vec![TaskDefinitionV2 {
+        tasks: vec![TaskDefinition {
             id: "process".to_string(),
             function: "execute_task".to_string(),
             dependencies: vec![],
@@ -94,7 +94,7 @@ fn rust_manifest_with_triggers() -> ManifestV2 {
             timeout_seconds: None,
         }],
         triggers: vec![
-            TriggerDefinitionV2 {
+            TriggerDefinition {
                 name: "file_watcher".to_string(),
                 trigger_type: "rust".to_string(),
                 workflow: "trigger-test-pkg".to_string(),
@@ -102,7 +102,7 @@ fn rust_manifest_with_triggers() -> ManifestV2 {
                 allow_concurrent: false,
                 config: Some(serde_json::json!({"path": "/inbox/"})),
             },
-            TriggerDefinitionV2 {
+            TriggerDefinition {
                 name: "api_poller".to_string(),
                 trigger_type: "http_poll".to_string(),
                 workflow: "trigger-test-pkg".to_string(),
@@ -116,10 +116,10 @@ fn rust_manifest_with_triggers() -> ManifestV2 {
     }
 }
 
-fn rust_manifest_no_triggers() -> ManifestV2 {
-    ManifestV2 {
+fn rust_manifest_no_triggers() -> Manifest {
+    Manifest {
         format_version: "2".to_string(),
-        package: PackageInfoV2 {
+        package: PackageInfo {
             name: "no-trigger-pkg".to_string(),
             version: "1.0.0".to_string(),
             description: None,
@@ -131,7 +131,7 @@ fn rust_manifest_no_triggers() -> ManifestV2 {
         rust: Some(RustRuntime {
             library_path: "lib/libworkflow.so".to_string(),
         }),
-        tasks: vec![TaskDefinitionV2 {
+        tasks: vec![TaskDefinition {
             id: "task1".to_string(),
             function: "execute_task".to_string(),
             dependencies: vec![],
@@ -145,10 +145,10 @@ fn rust_manifest_no_triggers() -> ManifestV2 {
     }
 }
 
-fn python_manifest_with_trigger() -> ManifestV2 {
-    ManifestV2 {
+fn python_manifest_with_trigger() -> Manifest {
+    Manifest {
         format_version: "2".to_string(),
-        package: PackageInfoV2 {
+        package: PackageInfo {
             name: "py-trigger-pkg".to_string(),
             version: "0.1.0".to_string(),
             description: None,
@@ -161,7 +161,7 @@ fn python_manifest_with_trigger() -> ManifestV2 {
             entry_module: "workflow.tasks".to_string(),
         }),
         rust: None,
-        tasks: vec![TaskDefinitionV2 {
+        tasks: vec![TaskDefinition {
             id: "process".to_string(),
             function: "workflow.tasks:process".to_string(),
             dependencies: vec![],
@@ -169,7 +169,7 @@ fn python_manifest_with_trigger() -> ManifestV2 {
             retries: 0,
             timeout_seconds: None,
         }],
-        triggers: vec![TriggerDefinitionV2 {
+        triggers: vec![TriggerDefinition {
             name: "check_inbox".to_string(),
             trigger_type: "python".to_string(),
             workflow: "py-trigger-pkg".to_string(),

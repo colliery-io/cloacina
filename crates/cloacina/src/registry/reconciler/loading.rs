@@ -80,7 +80,7 @@ impl RegistryReconciler {
             .register_package_workflows(&metadata, &library_data)
             .await?;
 
-        // Extract and register triggers from ManifestV2 (if present in the archive)
+        // Extract and register triggers from Manifest (if present in the archive)
         let trigger_names =
             self.register_package_triggers(&metadata, &loaded_workflow.package_data)?;
 
@@ -477,7 +477,7 @@ impl RegistryReconciler {
         Ok(())
     }
 
-    /// Verify and track triggers from a package's ManifestV2.
+    /// Verify and track triggers from a package's Manifest.
     ///
     /// The package's trigger implementations are registered by the package itself:
     /// - Rust triggers: registered via `ctor` when the cdylib is loaded
@@ -491,18 +491,18 @@ impl RegistryReconciler {
         metadata: &WorkflowMetadata,
         archive_data: &[u8],
     ) -> Result<Vec<String>, RegistryError> {
-        // Only .cloacina archives can contain a ManifestV2
+        // Only .cloacina archives can contain a Manifest
         if !self.is_cloacina_package(archive_data) {
             return Ok(vec![]);
         }
 
-        // Try to extract ManifestV2 from the archive
+        // Try to extract Manifest from the archive
         let manifest = match crate::registry::loader::python_loader::peek_manifest(archive_data) {
             Ok(m) => m,
             Err(_) => {
-                // No ManifestV2 found — v1-only package, no triggers
+                // No Manifest found — v1-only package, no triggers
                 debug!(
-                    "No ManifestV2 in package {} — skipping trigger registration",
+                    "No Manifest in package {} — skipping trigger registration",
                     metadata.package_name
                 );
                 return Ok(vec![]);

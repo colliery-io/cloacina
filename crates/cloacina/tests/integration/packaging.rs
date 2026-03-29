@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 use cloacina::packaging::{
-    compile_workflow, generate_manifest, package_workflow, CompileOptions, PackageManifest,
+    compile_workflow, generate_manifest, package_workflow, CompileOptions, Manifest,
 };
 
 /// Test fixture for managing temporary projects and packages
@@ -125,13 +125,15 @@ async fn test_compile_workflow_basic() {
                 "Should have extracted tasks"
             );
 
-            // Verify manifest content
+            // Verify manifest content (Manifest)
             assert_eq!(compile_result.manifest.package.name, "test-workflow");
             assert_eq!(compile_result.manifest.package.version, "1.0.0");
+            assert_eq!(compile_result.manifest.format_version, "2");
+            let lib_path = &compile_result.manifest.rust.as_ref().unwrap().library_path;
             assert!(
-                compile_result.manifest.library.filename.ends_with(".so")
-                    || compile_result.manifest.library.filename.ends_with(".dylib")
-                    || compile_result.manifest.library.filename.ends_with(".dll")
+                lib_path.ends_with(".so")
+                    || lib_path.ends_with(".dylib")
+                    || lib_path.ends_with(".dll")
             );
         }
         Err(e) => {
@@ -303,29 +305,34 @@ async fn test_packaging_with_cargo_flags() {
 }
 
 #[test]
-fn test_package_manifest_serialization() {
-    let manifest = PackageManifest {
-        package: cloacina::packaging::types::PackageInfo {
+fn test_package_manifest_schema_serialization() {
+    use cloacina::packaging::{PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
+
+    let manifest = Manifest {
+        format_version: "2".to_string(),
+        package: PackageInfo {
             name: "test-package".to_string(),
             version: "1.0.0".to_string(),
-            description: "Test package".to_string(),
-            author: None,
-            workflow_fingerprint: None,
-            cloacina_version: "0.2.0".to_string(),
+            description: Some("Test package".to_string()),
+            fingerprint: "sha256:test".to_string(),
+            targets: vec!["linux-x86_64".to_string()],
         },
-        library: cloacina::packaging::types::LibraryInfo {
-            filename: "libtest.so".to_string(),
-            symbols: vec!["cloacina_execute_task".to_string()],
-            architecture: "x86_64".to_string(),
-        },
-        tasks: vec![cloacina::packaging::types::TaskInfo {
-            index: 0,
+        language: PackageLanguage::Rust,
+        python: None,
+        rust: Some(RustRuntime {
+            library_path: "libtest.so".to_string(),
+        }),
+        tasks: vec![TaskDefinition {
             id: "test_task".to_string(),
+            function: "cloacina_execute_task".to_string(),
             dependencies: vec![],
-            description: "Test task".to_string(),
-            source_location: "src/lib.rs:5".to_string(),
+            description: Some("Test task".to_string()),
+            retries: 0,
+            timeout_seconds: None,
         }],
-        graph: None,
+        triggers: vec![],
+        created_at: chrono::Utc::now(),
+        signature: None,
     };
 
     // Test serialization
@@ -335,8 +342,7 @@ fn test_package_manifest_serialization() {
     assert!(json.contains("test_task"));
 
     // Test deserialization
-    let deserialized: PackageManifest =
-        serde_json::from_str(&json).expect("Should deserialize from JSON");
+    let deserialized: Manifest = serde_json::from_str(&json).expect("Should deserialize from JSON");
     assert_eq!(deserialized.package.name, "test-package");
     assert_eq!(deserialized.tasks.len(), 1);
     assert_eq!(deserialized.tasks[0].id, "test_task");

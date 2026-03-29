@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -22,10 +22,9 @@ use std::os::raw::c_char;
 use std::path::Path;
 use thiserror::Error;
 
-use super::types::{
-    CargoToml, LibraryInfo, PackageInfo, PackageManifest, TaskInfo, CLOACINA_VERSION,
-    EXECUTE_TASK_SYMBOL,
-};
+use super::manifest_schema::{Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
+use super::platform::SUPPORTED_TARGETS;
+use super::types::{CargoToml, CLOACINA_VERSION, EXECUTE_TASK_SYMBOL};
 
 /// Maximum number of tasks allowed in a single package.
 /// This limit prevents resource exhaustion from malformed packages.
@@ -198,24 +197,20 @@ pub(crate) unsafe fn validate_slice<'a, T>(
     Ok(std::slice::from_raw_parts(ptr, count))
 }
 
-/// Generate a package manifest from Cargo.toml and compiled library
+/// Generate a package manifest from Cargo.toml and compiled library.
+///
+/// Returns a `Manifest` — the unified manifest format used by both
+/// Rust and Python packages.
 pub fn generate_manifest(
     cargo_toml: &CargoToml,
     so_path: &Path,
     target: &Option<String>,
     project_path: &Path,
-) -> Result<PackageManifest> {
+) -> Result<Manifest> {
     let package = cargo_toml
         .package
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Missing package section in Cargo.toml"))?;
-
-    // Extract architecture from target or use current platform
-    let architecture = if let Some(target_triple) = target {
-        target_triple.clone()
-    } else {
-        get_current_architecture()
-    };
 
     // Get library filename
     let library_filename = so_path
@@ -224,27 +219,64 @@ pub fn generate_manifest(
         .to_string_lossy()
         .to_string();
 
-    let (tasks, graph_data, package_metadata) =
+    let (ffi_tasks, _graph_data, package_metadata) =
         extract_task_info_and_graph_from_library(so_path, project_path)?;
 
-    let manifest = PackageManifest {
+    // Determine target platform string
+    let target_platform = if let Some(target_triple) = target {
+        target_triple.clone()
+    } else {
+        get_current_platform()
+    };
+
+    // Build fingerprint from package name + version + workflow fingerprint
+    let fingerprint = format!(
+        "sha256:{}:{}:{}",
+        package.name,
+        package.version,
+        package_metadata
+            .workflow_fingerprint
+            .as_deref()
+            .unwrap_or("none")
+    );
+
+    // Convert FFI task info to TaskDefinition
+    let tasks: Vec<TaskDefinition> = ffi_tasks
+        .iter()
+        .map(|t| TaskDefinition {
+            id: t.id.clone(),
+            function: EXECUTE_TASK_SYMBOL.to_string(),
+            dependencies: t.dependencies.clone(),
+            description: if t.description.is_empty() {
+                None
+            } else {
+                Some(t.description.clone())
+            },
+            retries: 0,
+            timeout_seconds: None,
+        })
+        .collect();
+
+    let manifest = Manifest {
+        format_version: "2".to_string(),
         package: PackageInfo {
             name: package.name.clone(),
             version: package.version.clone(),
             description: package_metadata
                 .description
-                .unwrap_or_else(|| format!("Packaged workflow: {}", package.name)),
-            author: package_metadata.author,
-            workflow_fingerprint: package_metadata.workflow_fingerprint,
-            cloacina_version: CLOACINA_VERSION.to_string(),
+                .or_else(|| Some(format!("Packaged workflow: {}", package.name))),
+            fingerprint,
+            targets: vec![target_platform],
         },
-        library: LibraryInfo {
-            filename: library_filename,
-            symbols: vec![EXECUTE_TASK_SYMBOL.to_string()],
-            architecture,
-        },
+        language: PackageLanguage::Rust,
+        python: None,
+        rust: Some(RustRuntime {
+            library_path: library_filename,
+        }),
         tasks,
-        graph: graph_data,
+        triggers: vec![],
+        created_at: chrono::Utc::now(),
+        signature: None,
     };
 
     Ok(manifest)
@@ -258,12 +290,22 @@ pub(crate) struct PackageMetadata {
     pub workflow_fingerprint: Option<String>,
 }
 
+/// Task information extracted from a cdylib via FFI (internal type).
+#[derive(Debug, Clone)]
+struct FfiTaskInfo {
+    pub index: u32,
+    pub id: String,
+    pub dependencies: Vec<String>,
+    pub description: String,
+    pub source_location: String,
+}
+
 /// Extract task information and graph data from a compiled library using FFI metadata functions
 fn extract_task_info_and_graph_from_library(
     so_path: &Path,
     project_path: &Path,
 ) -> Result<(
-    Vec<TaskInfo>,
+    Vec<FfiTaskInfo>,
     Option<crate::WorkflowGraphData>,
     PackageMetadata,
 )> {
@@ -400,7 +442,7 @@ fn extract_task_info_and_graph_from_library(
             })
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        tasks.push(TaskInfo {
+        tasks.push(FfiTaskInfo {
             index: index as u32,
             id: local_id,
             dependencies,
@@ -457,7 +499,21 @@ pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<V
     Ok(package_names)
 }
 
+pub(crate) fn get_current_platform() -> String {
+    // Map to the platform strings used in SUPPORTED_TARGETS
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let platform = match (os, arch) {
+        ("macos", "aarch64") => "macos-arm64",
+        ("macos", "x86_64") => "macos-x86_64",
+        ("linux", "x86_64") => "linux-x86_64",
+        ("linux", "aarch64") => "linux-arm64",
+        _ => return format!("{}-{}", os, arch),
+    };
+    platform.to_string()
+}
+
+/// Kept for backward compatibility with external callers.
 pub(crate) fn get_current_architecture() -> String {
-    // Use the current host target
     std::env::consts::ARCH.to_string()
 }

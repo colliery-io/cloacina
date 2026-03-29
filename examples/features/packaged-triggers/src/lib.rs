@@ -30,10 +30,10 @@ This example shows the same concept in a **packageable** form:
   and `#[trigger]` macros
 - When the cdylib is loaded by the reconciler, triggers are automatically
   registered in the global trigger registry via `ctor`
-- The `ManifestV2` manifest declares trigger metadata so the reconciler
+- The `Manifest` manifest declares trigger metadata so the reconciler
   can track and manage them
 
-## ManifestV2 Trigger Fields
+## Manifest Trigger Fields
 
 When creating a `.cloacina` package, triggers are declared in `manifest.json`:
 

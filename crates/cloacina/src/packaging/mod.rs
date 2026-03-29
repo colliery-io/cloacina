@@ -24,7 +24,7 @@ pub mod archive;
 pub mod compile;
 pub mod debug;
 pub mod manifest;
-pub mod manifest_v2;
+pub mod manifest_schema;
 pub mod platform;
 pub mod types;
 pub mod validation;
@@ -36,13 +36,12 @@ pub use archive::create_package_archive;
 pub use compile::compile_workflow;
 pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
 pub use manifest::generate_manifest;
-pub use manifest_v2::{
-    ManifestV2, ManifestValidationError, PackageInfoV2, PackageLanguage, PythonRuntime,
-    RustRuntime, TaskDefinitionV2, TriggerDefinitionV2,
+pub use manifest_schema::{
+    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
+    TaskDefinition, TriggerDefinition,
 };
 pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
-pub use types::CompileOptions;
-pub use types::{CargoToml, CompileResult, PackageManifest};
+pub use types::{CargoToml, CompileOptions, CompileResult};
 
 use anyhow::Result;
 use std::path::PathBuf;

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -28,13 +28,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use tar::Archive;
 
-use super::types::PackageManifest;
+use super::manifest_schema::Manifest;
 
 const MANIFEST_FILENAME: &str = "manifest.json";
 const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 
 /// Extract the manifest from a package archive.
-pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageManifest> {
+pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<Manifest> {
     let file = File::open(package_path)
         .with_context(|| format!("Failed to open package file: {:?}", package_path))?;
 
@@ -51,7 +51,7 @@ pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageMa
                 .read_to_string(&mut manifest_content)
                 .context("Failed to read manifest.json content")?;
 
-            let manifest: PackageManifest =
+            let manifest: Manifest =
                 serde_json::from_str(&manifest_content).context("Failed to parse manifest.json")?;
 
             return Ok(manifest);
@@ -64,7 +64,7 @@ pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<PackageMa
 /// Extract the dynamic library from a package archive to a temporary location.
 pub fn extract_library_from_package(
     package_path: &PathBuf,
-    manifest: &PackageManifest,
+    manifest: &Manifest,
     temp_dir: &tempfile::TempDir,
 ) -> Result<PathBuf> {
     let file = File::open(package_path)
@@ -82,12 +82,18 @@ pub fn extract_library_from_package(
             .and_then(|name| name.to_str())
             .unwrap_or("");
 
-        let manifest_filename = std::path::Path::new(&manifest.library.filename)
+        let library_path = manifest
+            .rust
+            .as_ref()
+            .map(|r| r.library_path.as_str())
+            .unwrap_or("");
+
+        let manifest_filename = std::path::Path::new(library_path)
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
 
-        if filename == manifest_filename || path.to_str() == Some(&manifest.library.filename) {
+        if filename == manifest_filename || path.to_str() == Some(library_path) {
             let extract_path = temp_dir.path().join(filename);
             let mut output_file = File::create(&extract_path).with_context(|| {
                 format!(
@@ -105,7 +111,11 @@ pub fn extract_library_from_package(
 
     bail!(
         "Library file '{}' not found in package archive",
-        manifest.library.filename
+        manifest
+            .rust
+            .as_ref()
+            .map(|r| r.library_path.as_str())
+            .unwrap_or("<none>")
     );
 }
 
@@ -190,7 +200,7 @@ pub fn execute_task_from_library(
 }
 
 /// Resolve a task identifier (index or name) to a task name.
-pub fn resolve_task_name(manifest: &PackageManifest, task_identifier: &str) -> Result<String> {
+pub fn resolve_task_name(manifest: &Manifest, task_identifier: &str) -> Result<String> {
     // Try to parse as index first
     if let Ok(index) = task_identifier.parse::<u32>() {
         let index = index as usize;
@@ -247,9 +257,8 @@ pub fn debug_package(
                 .map(|(index, task)| TaskDebugInfo {
                     index,
                     id: task.id.clone(),
-                    description: task.description.clone(),
+                    description: task.description.clone().unwrap_or_default(),
                     dependencies: task.dependencies.clone(),
-                    source_location: task.source_location.clone(),
                 })
                 .collect();
 
@@ -289,5 +298,4 @@ pub struct TaskDebugInfo {
     pub id: String,
     pub description: String,
     pub dependencies: Vec<String>,
-    pub source_location: String,
 }
