@@ -4,14 +4,14 @@ level: initiative
 title: "Server & Daemon — Deployment Infrastructure"
 short_code: "CLOACI-I-0049"
 created_at: 2026-03-26T05:34:56.254874+00:00
-updated_at: 2026-03-26T05:34:56.254874+00:00
+updated_at: 2026-03-29T14:03:16.743695+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -58,13 +58,51 @@ Prior work: CLOACI-I-0029 (serve foundation), CLOACI-I-0031 (PAK+ABAC auth), CLO
 
 ## Acceptance Criteria
 
-- `cloacinactl serve` starts, serves health endpoint, accepts workflow uploads
-- `cloacinactl daemon` watches directory, loads `.cloacina` packages, runs cron schedules
-- Auth system (PAK + ABAC) protects server endpoints
-- Tenant isolation via Postgres schemas
-- `angreal soak --mode server` and `angreal soak --mode daemon` pass
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- `cloacinactl serve` starts HTTP server on configurable bind address
+- Health/ready/metrics endpoints respond without auth
+- PAK auth protects all tenant-scoped endpoints (LRU cache for validated keys)
+- Tenant CRUD creates/removes Postgres schemas
+- Workflow package upload/list/get/delete scoped to tenant
+- Workflow execution with status + event log queries
+- Trigger schedule read-only listing
 - Docker compose for Postgres + server works end-to-end
+- Server soak test via angreal passes
 - All unit and integration tests pass
+
+## API Endpoints
+
+```
+GET  /health                                         — liveness (no auth)
+GET  /ready                                          — readiness (no auth)
+GET  /metrics                                        — Prometheus (no auth)
+
+POST   /auth/keys                                    — create API key
+GET    /auth/keys                                    — list API keys
+DELETE /auth/keys/:key_id                            — revoke API key
+
+POST   /tenants                                      — create tenant
+GET    /tenants                                      — list tenants
+DELETE /tenants/:tenant_id                           — remove tenant
+
+POST   /tenants/:tenant_id/workflows                 — upload .cloacina package
+GET    /tenants/:tenant_id/workflows                 — list workflows
+GET    /tenants/:tenant_id/workflows/:name           — get workflow details
+DELETE /tenants/:tenant_id/workflows/:name/:version  — unregister workflow
+
+POST   /tenants/:tenant_id/workflows/:name/execute   — execute workflow
+GET    /tenants/:tenant_id/executions                — list executions
+GET    /tenants/:tenant_id/executions/:id            — get execution status
+GET    /tenants/:tenant_id/executions/:id/events     — execution event log
+
+GET    /tenants/:tenant_id/triggers                  — list trigger schedules
+GET    /tenants/:tenant_id/triggers/:name            — trigger details + history
+```
 
 ## Prior Art
 
@@ -79,13 +117,30 @@ Key bugs found in archive that must be fixed during re-implementation:
 - Cron poll interval 50ms default (was 30s), catchup policy `run_all` (was `skip`)
 - Diesel schema must include `claimed_by` and `heartbeat_at` columns after migration
 
-## Implementation Notes
+## Implementation Plan
 
-Key fixes to apply from archive learnings:
-- Use `route_layer` for auth middleware from the start
-- Default bind `0.0.0.0`
-- Postgres outbox uses DB `NOW()`
-- Cron poll 50ms default, catchup `run_all`
+1. **axum server + health** — `cloacinactl serve` command, axum HTTP server, `/health`, `/ready`, `/metrics`, Postgres init, configurable bind address
+2. **PAK auth** — API key table, key creation/list/revoke endpoints, auth middleware with LRU cache (TTL-based), `route_layer` not `layer`
+3. **Tenant management** — create/list/delete tenants via Postgres schema isolation, ABAC scoping on tenant_id
+4. **Workflow package API** — upload/list/get/delete `.cloacina` packages scoped to tenant, reconciler integration
+5. **Execution API** — execute workflow, list/get pipeline executions, task status, event log
+6. **Trigger schedule API** — read-only trigger listing + recent execution history
+7. **Docker compose + soak test** — Postgres + server containerized, `angreal soak --mode server`
+
+## Key Design Decisions
+
+- **Auth middleware**: LRU cache for validated PAK keys (avoids DB hit per request). Cache entries have TTL. Use `route_layer` not `layer` (archive learning: prevents 404→503 regression).
+- **Tenant isolation**: Each tenant gets its own Postgres schema. All queries scoped to tenant schema via `SET search_path`.
+- **Bind address**: Default `0.0.0.0` not `127.0.0.1` (archive learning).
+- **Postgres timestamps**: Use DB `NOW()` not Rust `chrono::Utc::now()` for `mark_ready` (archive learning: Docker clock skew).
+
+## Archive Learnings
+
+Key bugs found in prior implementation that must be fixed:
+- `route_layer` vs `layer` for axum auth middleware (404→503 regression)
+- Postgres `mark_ready` must use DB `NOW()` not Rust `chrono::Utc::now()` (Docker clock skew)
+- Server default bind `0.0.0.0` not `127.0.0.1`
+- Diesel schema must include `claimed_by` and `heartbeat_at` columns (done in I-0055)
 - Pin Dockerfile to specific Rust version
 
 ## Alternatives Considered
