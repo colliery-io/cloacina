@@ -45,7 +45,7 @@ Add `cloacinactl serve` subcommand that starts an axum HTTP server backed by Pos
 ### Files to create/modify
 - `crates/cloacinactl/src/commands/serve.rs` — new file, server startup
 - `crates/cloacinactl/src/main.rs` — add `Serve` variant to `Commands`
-- `crates/cloacinactl/Cargo.toml` — add `axum`, `tower`, `tower-http`, `prometheus` deps
+- `crates/cloacinactl/Cargo.toml` — add `axum` (with `multipart` feature), `tower`, `tower-http`, `prometheus` deps
 
 ### Key design points
 - `database_url` resolved via `resolve_database_url()` (CLI → config → error)

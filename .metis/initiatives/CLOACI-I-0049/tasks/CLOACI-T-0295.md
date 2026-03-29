@@ -20,122 +20,43 @@ initiative_id: CLOACI-I-0049
 
 # Tenant management — create/list/delete tenants via Postgres schema isolation
 
-*This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
-
-## Parent Initiative **[CONDITIONAL: Assigned Task]**
+## Parent Initiative
 
 [[CLOACI-I-0049]]
 
 ## Objective
 
-Implement tenant CRUD endpoints and Postgres schema-per-tenant isolation. Creating a tenant creates a new Postgres schema with all cloacina tables. Deleting drops the schema. All subsequent API calls are scoped to the tenant's schema.
+Expose existing tenant DAL operations (`database/admin.rs` — `create_tenant`, `remove_tenant`) as REST endpoints. Add ABAC scoping to the auth middleware so API keys are restricted to specific tenants. Add tenant-scoping middleware that sets `search_path` for all tenant-scoped routes.
 
-## Backlog Item Details **[CONDITIONAL: Backlog Item]**
-
-{Delete this section when task is assigned to an initiative}
-
-### Type
-- [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement
-- [ ] Tech Debt - Code improvement or refactoring
-- [ ] Chore - Maintenance or setup work
-
-### Priority
-- [ ] P0 - Critical (blocks users/revenue)
-- [ ] P1 - High (important for user experience)
-- [ ] P2 - Medium (nice to have)
-- [ ] P3 - Low (when time permits)
-
-### Impact Assessment **[CONDITIONAL: Bug]**
-- **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected vs Actual**: {What should happen vs what happens}
-
-### Business Justification **[CONDITIONAL: Feature]**
-- **User Value**: {Why users need this}
-- **Business Value**: {Impact on metrics/revenue}
-- **Effort Estimate**: {Rough size - S/M/L/XL}
-
-### Technical Debt Impact **[CONDITIONAL: Tech Debt]**
-- **Current Problems**: {What's difficult/slow/buggy now}
-- **Benefits of Fixing**: {What improves after refactoring}
-- **Risk Assessment**: {Risks of not addressing this}
+**Note**: The DAL for Postgres schema-per-tenant isolation already exists in `database/admin.rs`. This task is the HTTP layer + ABAC, not building the schema isolation from scratch.
 
 ## Acceptance Criteria
 
-- [ ] `POST /tenants` — creates tenant: new Postgres schema, runs migrations, returns tenant_id
+- [ ] `POST /tenants` — calls existing `create_tenant` DAL, returns tenant_id + metadata
 - [ ] `GET /tenants` — lists all tenants with metadata
-- [ ] `DELETE /tenants/:tenant_id` — drops Postgres schema (with confirmation safeguard)
-- [ ] Schema naming: `tenant_<slug>` (sanitized, no SQL injection via schema name)
-- [ ] All tenant-scoped routes extract `:tenant_id` from path and set `search_path` before queries
+- [ ] `DELETE /tenants/:tenant_id` — calls existing `remove_tenant` DAL (with confirmation safeguard)
+- [ ] Schema naming: `tenant_<slug>` (sanitized, no SQL injection via schema name) — verify existing DAL does this
+- [ ] Tenant-scoping middleware: extracts `:tenant_id` from path, sets `search_path` on the connection before downstream handlers
 - [ ] Invalid tenant_id returns 404
-- [ ] ABAC: API key must have permission for the requested tenant (or admin role)
+- [ ] ABAC: extend PAK auth from T-0294 — API keys have `permissions` field with tenant list or `admin` role. Middleware rejects requests to tenants the key doesn't have access to.
 - [ ] Tenant metadata stored in `public` schema (not per-tenant)
 
-## Test Cases **[CONDITIONAL: Testing Task]**
+## Implementation Notes
 
-{Delete unless this is a testing task}
+### Existing code to leverage
+- `crates/cloacina/src/database/admin.rs` — `create_tenant()`, `remove_tenant()` already handle schema creation/deletion with migrations
+- `crates/cloacina/src/python/bindings/admin.rs` — Python bindings already wrap these (shows the API surface)
+- `examples/features/multi-tenant/` — existing multi-tenant example
 
-### Test Case 1: {Test Case Name}
-- **Test ID**: TC-001
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
+### Files to create/modify
+- `crates/cloacinactl/src/server/routes/tenants.rs` — REST endpoints wrapping existing DAL
+- `crates/cloacinactl/src/server/middleware/tenant.rs` — tenant-scoping middleware (search_path)
+- `crates/cloacinactl/src/server/auth.rs` — extend with ABAC tenant permission check
 
-### Test Case 2: {Test Case Name}
-- **Test ID**: TC-002
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
+### Depends on
+- T-0293 (axum server)
+- T-0294 (PAK auth — extend with ABAC)
 
-## Documentation Sections **[CONDITIONAL: Documentation Task]**
-
-{Delete unless this is a documentation task}
-
-### User Guide Content
-- **Feature Description**: {What this feature does and why it's useful}
-- **Prerequisites**: {What users need before using this feature}
-- **Step-by-Step Instructions**:
-  1. {Step 1 with screenshots/examples}
-  2. {Step 2 with screenshots/examples}
-  3. {Step 3 with screenshots/examples}
-
-### Troubleshooting Guide
-- **Common Issue 1**: {Problem description and solution}
-- **Common Issue 2**: {Problem description and solution}
-- **Error Messages**: {List of error messages and what they mean}
-
-### API Documentation **[CONDITIONAL: API Documentation]**
-- **Endpoint**: {API endpoint description}
-- **Parameters**: {Required and optional parameters}
-- **Example Request**: {Code example}
-- **Example Response**: {Expected response format}
-
-## Implementation Notes **[CONDITIONAL: Technical Task]**
-
-{Keep for technical tasks, delete for non-technical. Technical details, approach, or important considerations}
-
-### Technical Approach
-{How this will be implemented}
-
-### Dependencies
-{Other tasks or systems this depends on}
-
-### Risk Considerations
-{Technical risks and mitigation strategies}
-
-## Status Updates **[REQUIRED]**
+## Status Updates
 
 *To be added during implementation*

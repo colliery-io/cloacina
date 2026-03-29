@@ -20,124 +20,45 @@ initiative_id: CLOACI-I-0049
 
 # Workflow package API — upload/list/get/delete .cloacina packages per tenant
 
-*This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
-
-## Parent Initiative **[CONDITIONAL: Assigned Task]**
+## Parent Initiative
 
 [[CLOACI-I-0049]]
 
 ## Objective
 
-REST API for uploading, listing, inspecting, and removing `.cloacina` workflow packages within a tenant's scope. Uploaded packages are stored in Postgres (binary data in the tenant schema) and registered via the reconciler.
-
-## Backlog Item Details **[CONDITIONAL: Backlog Item]**
-
-{Delete this section when task is assigned to an initiative}
-
-### Type
-- [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement
-- [ ] Tech Debt - Code improvement or refactoring
-- [ ] Chore - Maintenance or setup work
-
-### Priority
-- [ ] P0 - Critical (blocks users/revenue)
-- [ ] P1 - High (important for user experience)
-- [ ] P2 - Medium (nice to have)
-- [ ] P3 - Low (when time permits)
-
-### Impact Assessment **[CONDITIONAL: Bug]**
-- **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected vs Actual**: {What should happen vs what happens}
-
-### Business Justification **[CONDITIONAL: Feature]**
-- **User Value**: {Why users need this}
-- **Business Value**: {Impact on metrics/revenue}
-- **Effort Estimate**: {Rough size - S/M/L/XL}
-
-### Technical Debt Impact **[CONDITIONAL: Tech Debt]**
-- **Current Problems**: {What's difficult/slow/buggy now}
-- **Benefits of Fixing**: {What improves after refactoring}
-- **Risk Assessment**: {Risks of not addressing this}
+REST API for uploading, listing, inspecting, and removing `.cloacina` workflow packages within a tenant's scope. Upload uses **multipart form data** (packages can be several MB). Packages stored in Postgres via the existing `WorkflowRegistryImpl` DAL and registered via the reconciler.
 
 ## Acceptance Criteria
 
-- [ ] `POST /tenants/:tenant_id/workflows` — multipart upload of `.cloacina` file, validates manifest, stores in DB, triggers reconciler
+- [ ] `POST /tenants/:tenant_id/workflows` — **multipart upload** of `.cloacina` file. Streams the file (not buffered entirely in memory). Validates manifest, stores in DB via `WorkflowRegistry::register_workflow`, triggers reconciler.
 - [ ] `GET /tenants/:tenant_id/workflows` — list registered workflows (name, version, task count, triggers)
 - [ ] `GET /tenants/:tenant_id/workflows/:name` — workflow details (manifest, tasks, triggers, upload time)
 - [ ] `DELETE /tenants/:tenant_id/workflows/:name/:version` — unregister workflow, remove binary
 - [ ] Duplicate upload (same name+version) returns 409 Conflict
 - [ ] Invalid/corrupt package returns 400 with validation errors
+- [ ] Configurable max upload size (default 50MB)
 - [ ] All operations scoped to tenant schema
 
+## Implementation Notes
+
+### Multipart upload
+- Use `axum::extract::Multipart` (requires `multipart` feature on axum, added in T-0293)
+- Stream the file field to a `Vec<u8>`, then pass to `WorkflowRegistry::register_workflow()`
+- Set `tower_http::limit::RequestBodyLimitLayer` for max upload size
+- Content-Type: `multipart/form-data` with a `file` field
+
+### Example upload
+```bash
+curl -X POST http://localhost:8080/tenants/acme/workflows \
+  -H "Authorization: Bearer clk_..." \
+  -F "file=@my-workflow.cloacina"
+```
+
 ### Depends on
-- T-0293, T-0294, T-0295
+- T-0293 (axum server with multipart)
+- T-0294 (auth)
+- T-0295 (tenant scoping)
 
-## Test Cases **[CONDITIONAL: Testing Task]**
-
-{Delete unless this is a testing task}
-
-### Test Case 1: {Test Case Name}
-- **Test ID**: TC-001
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
-
-### Test Case 2: {Test Case Name}
-- **Test ID**: TC-002
-- **Preconditions**: {What must be true before testing}
-- **Steps**:
-  1. {Step 1}
-  2. {Step 2}
-- **Expected Results**: {What should happen}
-- **Actual Results**: {To be filled during execution}
-- **Status**: {Pass/Fail/Blocked}
-
-## Documentation Sections **[CONDITIONAL: Documentation Task]**
-
-{Delete unless this is a documentation task}
-
-### User Guide Content
-- **Feature Description**: {What this feature does and why it's useful}
-- **Prerequisites**: {What users need before using this feature}
-- **Step-by-Step Instructions**:
-  1. {Step 1 with screenshots/examples}
-  2. {Step 2 with screenshots/examples}
-  3. {Step 3 with screenshots/examples}
-
-### Troubleshooting Guide
-- **Common Issue 1**: {Problem description and solution}
-- **Common Issue 2**: {Problem description and solution}
-- **Error Messages**: {List of error messages and what they mean}
-
-### API Documentation **[CONDITIONAL: API Documentation]**
-- **Endpoint**: {API endpoint description}
-- **Parameters**: {Required and optional parameters}
-- **Example Request**: {Code example}
-- **Example Response**: {Expected response format}
-
-## Implementation Notes **[CONDITIONAL: Technical Task]**
-
-{Keep for technical tasks, delete for non-technical. Technical details, approach, or important considerations}
-
-### Technical Approach
-{How this will be implemented}
-
-### Dependencies
-{Other tasks or systems this depends on}
-
-### Risk Considerations
-{Technical risks and mitigation strategies}
-
-## Status Updates **[REQUIRED]**
+## Status Updates
 
 *To be added during implementation*
