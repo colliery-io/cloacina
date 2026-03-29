@@ -91,38 +91,40 @@ enum AdminCommands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing
-    let filter = if cli.verbose {
-        EnvFilter::new("debug")
-    } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
-    };
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(filter)
-        .init();
-
     match cli.command {
         Commands::Daemon {
             home,
             watch_dirs,
             poll_interval,
         } => {
-            commands::daemon::run(home, watch_dirs, poll_interval).await?;
+            // Daemon sets up its own logging (file + stderr)
+            commands::daemon::run(home, watch_dirs, poll_interval, cli.verbose).await?;
         }
-        Commands::Admin { command } => match command {
-            AdminCommands::CleanupEvents {
-                older_than,
-                dry_run,
-            } => {
-                let database_url = cli
+        Commands::Admin { command } => {
+            // Standard stderr logging for admin commands
+            let filter = if cli.verbose {
+                EnvFilter::new("debug")
+            } else {
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+            };
+            tracing_subscriber::registry()
+                .with(fmt::layer())
+                .with(filter)
+                .init();
+
+            match command {
+                AdminCommands::CleanupEvents {
+                    older_than,
+                    dry_run,
+                } => {
+                    let database_url = cli
                     .database_url
                     .context("Database URL is required. Set --database-url or DATABASE_URL environment variable")?;
 
-                commands::cleanup_events::run(&database_url, &older_than, dry_run).await?;
+                    commands::cleanup_events::run(&database_url, &older_than, dry_run).await?;
+                }
             }
-        },
+        }
     }
 
     Ok(())

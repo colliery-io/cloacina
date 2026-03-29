@@ -28,7 +28,8 @@ notify = { version = "7", default-features = false, features = ["macos_kqueue"] 
 tokio = { version = "1.0", features = ["full"] }
 chrono = { version = "0.4" }
 tracing = { version = "0.1" }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = { version = "0.2" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [build-dependencies]
 cloacina-build = { path = "../cloacina-build" }

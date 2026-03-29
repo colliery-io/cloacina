@@ -4,14 +4,14 @@ level: task
 title: "Graceful shutdown — signal handling, drain in-flight pipelines"
 short_code: "CLOACI-T-0281"
 created_at: 2026-03-28T15:30:09.535944+00:00
-updated_at: 2026-03-29T00:57:46.352828+00:00
+updated_at: 2026-03-29T01:00:52.049241+00:00
 parent: CLOACI-I-0057
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0057
 ## Objective
 
 Implement clean shutdown for the daemon process. On SIGINT/SIGTERM: stop accepting new work, stop schedulers, wait for in-flight pipelines to complete (with timeout), stop the directory watcher, close the database.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

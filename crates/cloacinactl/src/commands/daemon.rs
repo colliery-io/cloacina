@@ -26,6 +26,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
+use tracing_appender::rolling;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::registry::loader::python_loader::peek_manifest;
 use cloacina::registry::{
@@ -44,11 +46,38 @@ use super::watcher::PackageWatcher;
 /// 4. Creates the `FilesystemWorkflowRegistry` for all watch directories
 /// 5. Starts the `RegistryReconciler` (initial scan + background loop)
 /// 6. Blocks until Ctrl+C
-pub async fn run(home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64) -> Result<()> {
-    // 1. Initialize home directory
-    info!("Daemon home: {}", home.display());
+pub async fn run(
+    home: PathBuf,
+    watch_dirs: Vec<PathBuf>,
+    poll_interval_ms: u64,
+    verbose: bool,
+) -> Result<()> {
+    // 1. Initialize home directory and logging
     std::fs::create_dir_all(&home)
         .with_context(|| format!("Failed to create daemon home: {}", home.display()))?;
+
+    let logs_dir = home.join("logs");
+    std::fs::create_dir_all(&logs_dir)
+        .with_context(|| format!("Failed to create logs dir: {}", logs_dir.display()))?;
+
+    // Set up dual logging: JSON to file + human-readable to stderr
+    let filter = if verbose {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+    };
+
+    let file_appender = rolling::daily(&logs_dir, "cloacina.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(fmt::layer().json().with_writer(non_blocking))
+        .init();
+
+    info!("Daemon home: {}", home.display());
+    info!("Logging to: {}", logs_dir.display());
 
     let packages_dir = home.join("packages");
     std::fs::create_dir_all(&packages_dir)
