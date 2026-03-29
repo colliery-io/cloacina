@@ -4,14 +4,14 @@ level: initiative
 title: "Pipeline Claiming — Horizontal Scaling"
 short_code: "CLOACI-I-0055"
 created_at: 2026-03-26T17:16:34.096280+00:00
-updated_at: 2026-03-26T17:16:34.096280+00:00
+updated_at: 2026-03-29T12:33:41.645764+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -30,10 +30,12 @@ Currently, a single runner instance executes all pipelines. To scale, runners ne
 ## Goals & Non-Goals
 
 **Goals:**
-- Claim-based execution model: runners atomically claim pipelines before executing
-- SQLite and Postgres DAL support for claim records with expiry
-- Prevent duplicate execution across multiple runner instances
-- Graceful handling of runner crashes via claim expiry
+- Task-level claiming: runners atomically claim individual tasks before executing
+- `claimed_by` and `heartbeat_at` columns on `task_executions` table
+- SQLite and Postgres DAL support for claim/heartbeat/release/expiry operations
+- Prevent duplicate task execution across multiple runner instances
+- Graceful handling of runner crashes via heartbeat expiry
+- Background stale claim sweep service
 - Multi-instance integration testing
 
 **Non-Goals:**
@@ -44,11 +46,28 @@ Currently, a single runner instance executes all pipelines. To scale, runners ne
 
 ## Detailed Design
 
-### Claim Model
-- Runners atomically claim pipelines before executing (compare-and-swap or SELECT FOR UPDATE)
-- Claims have a TTL — if a runner crashes, the claim expires and another runner can pick it up
-- Heartbeat mechanism to extend claims during long-running pipelines
-- DAL abstraction: same claim API for SQLite (single-node dev) and Postgres (multi-node prod)
+### Task-Level Claiming
+Claiming happens at the task level — the task is the atomic executable primitive. This means:
+- Multiple runners can work on the same pipeline concurrently (different tasks)
+- A runner claims a specific task, heartbeats while executing, releases on completion
+- If a runner crashes, the claim expires and another runner picks up the task
+- No separate pipeline-level claims needed — the task scheduler decides which tasks are ready
+
+### Schema Changes
+Add two columns to `task_executions` table:
+- `claimed_by` — nullable UUID identifying the runner instance that claimed this task
+- `heartbeat_at` — nullable timestamp, updated periodically while the task is executing
+
+### Claim Operations
+- `claim_task(task_id, runner_id)` — atomic compare-and-swap: only succeeds if `claimed_by` is NULL
+- `heartbeat_task(task_id, runner_id)` — update `heartbeat_at` (only if `claimed_by` matches)
+- `release_claim(task_id)` — clear `claimed_by` and `heartbeat_at` on completion/failure
+- `find_stale_claims(threshold)` — tasks where `heartbeat_at` is older than threshold (crashed runners)
+
+### DAL Support
+Same claim API for SQLite (single-node dev) and Postgres (multi-node prod):
+- SQLite: simple UPDATE with WHERE clause (single-writer, no contention)
+- Postgres: SELECT FOR UPDATE or compare-and-swap for true atomic claiming
 
 ### Testing
 - Unit tests for claim/release/expiry logic
@@ -67,7 +86,8 @@ Reference implementation on `archive/main-pre-reset`:
 
 ## Implementation Plan
 
-1. **Claim DAL** — Claim table schema, SQLite and Postgres implementations
-2. **Runner integration** — Claim acquisition before pipeline execution, heartbeat extension
-3. **Expiry and recovery** — Background sweep for expired claims, re-queuing
-4. **Multi-instance testing** — Concurrent runner tests with shared database
+1. **Schema migration** — Add `claimed_by` and `heartbeat_at` to `task_executions`, update Diesel schema
+2. **Claim DAL** — `claim_task()`, `heartbeat_task()`, `release_claim()`, `find_stale_claims()` for SQLite + Postgres
+3. **Runner integration** — Task executor claims before executing, heartbeats during, releases on completion/failure
+4. **Stale claim sweep** — Background service that finds expired claims and re-queues tasks
+5. **Integration tests** — Concurrent claimants, crash recovery, double-claim prevention

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T12:23:38Z | 377 files | JavaScript, Python, Rust
+> Generated: 2026-03-29T12:46:56Z | 377 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -934,68 +934,68 @@
 - pub `NewUnifiedDbContext` struct L50-55 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
 - pub `UnifiedPipelineExecution` struct L63-78 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `NewUnifiedPipelineExecution` struct L82-91 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecution` struct L99-118 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecution` struct L122-133 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecutionMetadata` struct L141-149 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecutionMetadata` struct L153-161 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedRecoveryEvent` struct L169-178 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedRecoveryEvent` struct L182-191 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedExecutionEvent` struct L201-210 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
-- pub `NewUnifiedExecutionEvent` struct L214-222 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskOutbox` struct L232-236 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
-- pub `NewUnifiedTaskOutbox` struct L240-243 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronSchedule` struct L251-264 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronSchedule` struct L268-280 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronExecution` struct L288-296 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronExecution` struct L300-308 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerSchedule` struct L316-326 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerSchedule` struct L330-339 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerExecution` struct L347-356 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerExecution` struct L360-368 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L376-380 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L384-388 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L396-407 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L411-422 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L430-439 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L443-451 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L459-467 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L471-478 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L486-492 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L496-501 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L509-515 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L519-525 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L550-559 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L551-558 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L561-580 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L562-579 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L582-605 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L583-604 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L607-619 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L608-618 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L621-634 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L622-633 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L636-649 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L637-648 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronSchedule` type L651-668 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L652-667 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronExecution` type L670-682 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L671-681 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L684-692 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L685-691 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L694-709 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L695-708 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerSchedule` type L711-725 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L712-724 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerExecution` type L727-740 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L728-739 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L742-755 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L743-754 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L757-769 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L758-768 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L771-781 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L772-780 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L783-793 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L784-792 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecution` struct L99-120 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecution` struct L124-135 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecutionMetadata` struct L143-151 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecutionMetadata` struct L155-163 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedRecoveryEvent` struct L171-180 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedRecoveryEvent` struct L184-193 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedExecutionEvent` struct L203-212 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
+- pub `NewUnifiedExecutionEvent` struct L216-224 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskOutbox` struct L234-238 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
+- pub `NewUnifiedTaskOutbox` struct L242-245 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronSchedule` struct L253-266 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronSchedule` struct L270-282 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedCronExecution` struct L290-298 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedCronExecution` struct L302-310 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerSchedule` struct L318-328 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerSchedule` struct L332-341 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTriggerExecution` struct L349-358 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTriggerExecution` struct L362-370 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L378-382 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L386-390 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L398-409 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L413-424 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L432-441 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L445-453 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L461-469 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L473-480 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L488-494 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L498-503 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L511-517 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L521-527 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L552-561 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L553-560 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L563-582 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L564-581 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L584-609 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L585-608 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L611-623 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L612-622 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L625-638 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L626-637 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L640-653 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L641-652 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronSchedule` type L655-672 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L656-671 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `CronExecution` type L674-686 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L675-685 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L688-696 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L689-695 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L698-713 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L699-712 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerSchedule` type L715-729 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L716-728 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TriggerExecution` type L731-744 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L732-743 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L746-759 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L747-758 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L761-773 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L762-772 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L775-785 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L776-784 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L787-797 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L788-796 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
@@ -1496,12 +1496,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L927-929 — `-`
-- pub `postgres` module L934-936 — `-`
-- pub `sqlite` module L939-941 — `-`
--  `unified_schema` module L25-339 — `-`
--  `postgres_schema` module L346-664 — `-`
--  `sqlite_schema` module L667-922 — `-`
+- pub `unified` module L929-931 — `-`
+- pub `postgres` module L936-938 — `-`
+- pub `sqlite` module L941-943 — `-`
+-  `unified_schema` module L25-341 — `-`
+-  `postgres_schema` module L348-666 — `-`
+-  `sqlite_schema` module L669-924 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -2072,8 +2072,8 @@
 
 #### crates/cloacina/src/models/task_execution.rs
 
-- pub `TaskExecution` struct L27-46 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
-- pub `NewTaskExecution` struct L50-58 — `{ pipeline_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
+- pub `TaskExecution` struct L27-48 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — Represents a task execution record (domain type).
+- pub `NewTaskExecution` struct L52-60 — `{ pipeline_execution_id: UniversalUuid, task_name: String, status: String, attem...` — Structure for creating new task executions (domain type).
 
 #### crates/cloacina/src/models/task_execution_metadata.rs
 

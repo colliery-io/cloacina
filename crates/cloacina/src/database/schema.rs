@@ -78,6 +78,8 @@ mod unified_schema {
             recovery_attempts -> Integer,
             last_recovery_at -> Nullable<DbTimestamp>,
             sub_status -> Nullable<Text>,
+            claimed_by -> Nullable<DbUuid>,
+            heartbeat_at -> Nullable<DbTimestamp>,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
         }

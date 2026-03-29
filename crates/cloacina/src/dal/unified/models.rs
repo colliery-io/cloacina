@@ -113,6 +113,8 @@ pub struct UnifiedTaskExecution {
     pub recovery_attempts: i32,
     pub last_recovery_at: Option<UniversalTimestamp>,
     pub sub_status: Option<String>,
+    pub claimed_by: Option<UniversalUuid>,
+    pub heartbeat_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
@@ -598,6 +600,8 @@ impl From<UnifiedTaskExecution> for TaskExecution {
             recovery_attempts: u.recovery_attempts,
             last_recovery_at: u.last_recovery_at,
             sub_status: u.sub_status,
+            claimed_by: u.claimed_by,
+            heartbeat_at: u.heartbeat_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
