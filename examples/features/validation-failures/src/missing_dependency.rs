@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 // This should FAIL to compile with an error about missing dependency
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{task, workflow};
+use cloacina_macros::{task, workflow_legacy};
 use serde_json::Value;
 
 #[task(id = "valid_task", dependencies = [])]
@@ -38,7 +38,7 @@ async fn invalid_task(_context: &mut Context<Value>) -> Result<(), TaskError> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("If you're reading this, the compile-time validation failed!");
 
-    let _pipeline = workflow! {
+    let _pipeline = workflow_legacy! {
         name: "missing_dep_pipeline",
         tasks: [valid_task, invalid_task]
     };

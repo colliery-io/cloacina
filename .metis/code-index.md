@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-29T14:46:40Z | 379 files | JavaScript, Python, Rust
+> Generated: 2026-03-30T03:01:27Z | 381 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -264,6 +264,7 @@
 │   │           ├── test_registry_dynamic_loading.rs
 │   │           ├── test_registry_dynamic_loading_simple.rs
 │   │           ├── trigger_packaging.rs
+│   │           ├── unified_workflow.rs
 │   │           └── workflow/
 │   │               ├── basic.rs
 │   │               ├── callback_test.rs
@@ -279,7 +280,8 @@
 │   │       ├── packaged_workflow.rs
 │   │       ├── registry.rs
 │   │       ├── tasks.rs
-│   │       └── workflow.rs
+│   │       ├── trigger_attr.rs
+│   │       └── workflow_attr.rs
 │   ├── cloacina-testing/
 │   │   └── src/
 │   │       ├── assertions.rs
@@ -295,7 +297,8 @@
 │   │       ├── lib.rs
 │   │       ├── namespace.rs
 │   │       ├── retry.rs
-│   │       └── task.rs
+│   │       ├── task.rs
+│   │       └── trigger.rs
 │   └── cloacinactl/
 │       ├── build.rs
 │       └── src/
@@ -304,7 +307,6 @@
 │           │   ├── config.rs
 │           │   ├── daemon.rs
 │           │   ├── mod.rs
-│           │   ├── serve.rs
 │           │   └── watcher.rs
 │           └── main.rs
 ├── docs/
@@ -3202,36 +3204,34 @@
 - pub `runner_id` function L430-433 — `(mut self, value: Option<String>) -> Self` — Sets the runner identifier.
 - pub `runner_name` function L436-439 — `(mut self, value: Option<String>) -> Self` — Sets the runner name.
 - pub `routing_config` function L442-445 — `(mut self, value: Option<RoutingConfig>) -> Self` — Sets the routing configuration.
-- pub `enable_claiming` function L448-451 — `(mut self, value: bool) -> Self` — Enables or disables task claiming for horizontal scaling.
-- pub `heartbeat_interval` function L454-457 — `(mut self, value: Duration) -> Self` — Sets the heartbeat interval for claimed tasks.
-- pub `build` function L460-462 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
-- pub `DefaultRunnerBuilder` struct L497-501 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `new` function L511-517 — `() -> Self` — Creates a new builder with default configuration
-- pub `database_url` function L520-523 — `(mut self, url: &str) -> Self` — Sets the database URL
-- pub `schema` function L529-532 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
-- pub `with_config` function L535-538 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L552-669 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L687-690 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L448-450 — `(self) -> DefaultRunnerConfig` — Builds the configuration.
+- pub `DefaultRunnerBuilder` struct L485-489 — `{ database_url: Option<String>, schema: Option<String>, config: DefaultRunnerCon...` — Builder for creating a DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `new` function L499-505 — `() -> Self` — Creates a new builder with default configuration
+- pub `database_url` function L508-511 — `(mut self, url: &str) -> Self` — Sets the database URL
+- pub `schema` function L517-520 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
+- pub `with_config` function L523-526 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
+- pub `build` function L540-657 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L675-678 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L91-241 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L258-294 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L259-293 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfigBuilder` type L296-463 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerConfig` type L465-469 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
--  `default` function L466-468 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L503-507 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `default` function L504-506 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L509-691 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
--  `validate_schema_name` function L541-549 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L694-860 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L698-713 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L716-739 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L742-750 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L753-774 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L777-792 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L795-798 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L801-814 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L817-825 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L828-859 — `()` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfigBuilder` type L296-451 — `= DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerConfig` type L453-457 — `impl Default for DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
+-  `default` function L454-456 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L491-495 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `default` function L492-494 — `() -> Self` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L497-679 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `validate_schema_name` function L529-537 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
+-  `tests` module L682-848 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L686-701 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L704-727 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L730-738 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L741-762 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L765-780 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L783-786 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L789-802 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L805-813 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L816-847 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3616,32 +3616,36 @@
 
 - pub `registry` module L51 — `-` — # Trigger System
 - pub `TriggerError` enum L65-89 — `PollError | ContextError | TriggerNotFound | Database | ConnectionPool | Workflo...` — Errors that can occur during trigger operations.
-- pub `TriggerResult` enum L102-111 — `Skip | Fire` — Result of a trigger poll operation.
-- pub `should_fire` function L115-117 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
-- pub `into_context` function L120-125 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
-- pub `context_hash` function L131-144 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
-- pub `TriggerConfig` struct L152-167 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
-- pub `new` function L171-179 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
-- pub `with_allow_concurrent` function L182-185 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
-- pub `with_enabled` function L188-191 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
-- pub `Trigger` interface L253-274 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
+- pub `TriggerResult` enum L117-126 — `Skip | Fire` — Result of a trigger poll operation.
+- pub `should_fire` function L139-141 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
+- pub `into_context` function L144-149 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
+- pub `context_hash` function L155-168 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
+- pub `TriggerConfig` struct L176-191 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
+- pub `new` function L195-203 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
+- pub `with_allow_concurrent` function L206-209 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
+- pub `with_enabled` function L212-215 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
+- pub `Trigger` interface L277-298 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
 -  `TriggerError` type L91-95 — `= TriggerError` — ```
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — ```
--  `TriggerResult` type L113-145 — `= TriggerResult` — ```
--  `TriggerConfig` type L169-192 — `= TriggerConfig` — ```
--  `tests` module L283-398 — `-` — ```
--  `TestTrigger` struct L287-290 — `{ name: String, should_fire: bool }` — ```
--  `TestTrigger` type L293-313 — `impl Trigger for TestTrigger` — ```
--  `name` function L294-296 — `(&self) -> &str` — ```
--  `poll_interval` function L298-300 — `(&self) -> Duration` — ```
--  `allow_concurrent` function L302-304 — `(&self) -> bool` — ```
--  `poll` function L306-312 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
--  `test_trigger_result_should_fire` function L316-320 — `()` — ```
--  `test_trigger_result_into_context` function L323-330 — `()` — ```
--  `test_trigger_result_context_hash` function L333-357 — `()` — ```
--  `test_trigger_config` function L360-371 — `()` — ```
--  `test_trigger_trait` function L374-386 — `()` — ```
--  `test_trigger_fires` function L389-397 — `()` — ```
+-  `TriggerError` type L97-110 — `= TriggerError` — ```
+-  `from` function L98-109 — `(err: cloacina_workflow::TriggerError) -> Self` — ```
+-  `TriggerResult` type L128-135 — `= TriggerResult` — ```
+-  `from` function L129-134 — `(r: cloacina_workflow::TriggerResult) -> Self` — ```
+-  `TriggerResult` type L137-169 — `= TriggerResult` — ```
+-  `TriggerConfig` type L193-216 — `= TriggerConfig` — ```
+-  `tests` module L307-422 — `-` — ```
+-  `TestTrigger` struct L311-314 — `{ name: String, should_fire: bool }` — ```
+-  `TestTrigger` type L317-337 — `impl Trigger for TestTrigger` — ```
+-  `name` function L318-320 — `(&self) -> &str` — ```
+-  `poll_interval` function L322-324 — `(&self) -> Duration` — ```
+-  `allow_concurrent` function L326-328 — `(&self) -> bool` — ```
+-  `poll` function L330-336 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
+-  `test_trigger_result_should_fire` function L340-344 — `()` — ```
+-  `test_trigger_result_into_context` function L347-354 — `()` — ```
+-  `test_trigger_result_context_hash` function L357-381 — `()` — ```
+-  `test_trigger_config` function L384-395 — `()` — ```
+-  `test_trigger_trait` function L398-410 — `()` — ```
+-  `test_trigger_fires` function L413-421 — `()` — ```
 
 #### crates/cloacina/src/trigger/registry.rs
 
@@ -3882,8 +3886,9 @@
 - pub `signing` module L35 — `-`
 - pub `task` module L36 — `-`
 - pub `trigger_packaging` module L37 — `-`
-- pub `workflow` module L38 — `-`
--  `fixtures` module L41 — `-`
+- pub `unified_workflow` module L38 — `-`
+- pub `workflow` module L39 — `-`
+-  `fixtures` module L42 — `-`
 
 #### crates/cloacina/tests/integration/packaging.rs
 
@@ -4071,6 +4076,22 @@
 -  `manifest_trigger_referencing_unknown_workflow_fails` function L441-445 — `()` — - Discovered for Python packages via `@cloaca.trigger`
 -  `manifest_duplicate_trigger_names_fails` function L448-452 — `()` — - Discovered for Python packages via `@cloaca.trigger`
 -  `manifest_trigger_invalid_poll_interval_fails` function L455-459 — `()` — - Discovered for Python packages via `@cloaca.trigger`
+
+#### crates/cloacina/tests/integration/unified_workflow.rs
+
+- pub `unified_test_workflow` module L29-52 — `-` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `step_one` function L33-38 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `step_two` function L41-51 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `test_trigger` function L89-91 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `my_trigger_fn` function L103-105 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_workflow_executes_sqlite` function L56-82 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_trigger_registered` function L94-100 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_trigger_custom_name` function L108-113 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `nightly_job` function L118 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_registered` function L121-126 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `frequent_check` function L129 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_custom_name` function L132-137 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_poll_returns_result` function L140-150 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
 
 ### crates/cloacina/tests/integration/dal
 
@@ -4500,8 +4521,9 @@
 
 #### crates/cloacina/tests/integration/workflow/basic.rs
 
--  `simple_task` function L20-24 — `( _context: &mut cloacina::Context<serde_json::Value>, ) -> Result<(), cloacina:...`
--  `test_simple_workflow_creation` function L27-41 — `()`
+- pub `basic_test_pipeline` module L20-29 — `-`
+- pub `simple_task` function L24-28 — `( _context: &mut cloacina::Context<serde_json::Value>, ) -> Result<(), cloacina:...`
+-  `test_simple_workflow_creation` function L32-40 — `()`
 
 #### crates/cloacina/tests/integration/workflow/callback_test.rs
 
@@ -4528,17 +4550,17 @@
 
 #### crates/cloacina/tests/integration/workflow/macro_test.rs
 
--  `fetch_document` function L21-24 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `extract_text` function L27-30 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `generate_embeddings` function L33-36 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `store_embeddings` function L39-42 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `test_workflow_macro_basic` function L45-122 — `()`
--  `test_workflow_macro_minimal` function L125-140 — `()`
--  `task_a` function L144-146 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `task_b` function L149-151 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `task_c` function L154-156 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `test_workflow_execution_levels` function L159-186 — `()`
--  `test_workflow_roots_and_leaves` function L189-214 — `()`
+- pub `document_processing` module L25-51 — `-`
+- pub `fetch_document` function L29-31 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `extract_text` function L34-36 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `generate_embeddings` function L39-43 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `store_embeddings` function L46-50 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `parallel_execution` module L77-94 — `-`
+- pub `task_a` function L81-83 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `task_b` function L86-88 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `task_c` function L91-93 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+-  `test_workflow_macro_basic` function L54-74 — `()`
+-  `test_workflow_execution_levels` function L97-112 — `()`
 
 #### crates/cloacina/tests/integration/workflow/mod.rs
 
@@ -4576,13 +4598,15 @@
 
 #### crates/cloacina-macros/src/lib.rs
 
-- pub `task` function L64-66 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
-- pub `workflow` function L69-71 — `(input: TokenStream) -> TokenStream` — ```
-- pub `packaged_workflow` function L74-76 — `(args: TokenStream, input: TokenStream) -> TokenStream` — ```
--  `packaged_workflow` module L56 — `-` — # Cloacina Macros
--  `registry` module L57 — `-` — ```
--  `tasks` module L58 — `-` — ```
--  `workflow` module L59 — `-` — ```
+- pub `task` function L56-58 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a task with retry policies and trigger rules.
+- pub `workflow` function L83-85 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a workflow as a module containing `#[task]` functions.
+- pub `trigger` function L104-106 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a trigger that fires a workflow on a schedule or condition.
+- pub `packaged_workflow` function L110-112 — `(args: TokenStream, input: TokenStream) -> TokenStream` — **Deprecated**: Use `#[workflow]` with `features = ["packaged"]` instead.
+-  `packaged_workflow` module L46 — `-` — # Cloacina Macros
+-  `registry` module L47 — `-` — ```
+-  `tasks` module L48 — `-` — ```
+-  `trigger_attr` module L49 — `-` — ```
+-  `workflow_attr` module L50 — `-` — ```
 
 #### crates/cloacina-macros/src/packaged_workflow.rs
 
@@ -4645,14 +4669,28 @@
 -  `parse_value_operator` function L495-516 — `(expr: &Expr) -> Result<String, String>` — Parse value operators like equals, greater_than, etc.
 -  `parse_json_value` function L519-543 — `(expr: &Expr) -> Result<serde_json::Value, String>` — Parse JSON values from expressions
 
-#### crates/cloacina-macros/src/workflow.rs
+#### crates/cloacina-macros/src/trigger_attr.rs
 
-- pub `WorkflowAttributes` struct L97-104 — `{ name: String, tenant: String, package: String, description: Option<String>, au...` — Workflow macro attributes
-- pub `generate_workflow_impl` function L200-486 — `(attrs: WorkflowAttributes) -> TokenStream2` — Generate Workflow with auto-versioning and compile-time validation
-- pub `workflow` function L503-519 — `(input: TokenStream) -> TokenStream` — The workflow! macro for declarative workflow definition
--  `rewrite_trigger_rules_with_namespace` function L31-85 — `( tenant: &str, package: &str, workflow_name: &str, ) -> TokenStream2` — Rewrite task names in trigger rules JSON to use full namespaces
--  `WorkflowAttributes` type L106-186 — `impl Parse for WorkflowAttributes`
--  `parse` function L107-185 — `(input: ParseStream) -> SynResult<Self>`
+- pub `TriggerAttributes` struct L37-44 — `{ on: String, poll_interval: Option<String>, cron: Option<String>, timezone: Opt...` — Attributes for the `#[trigger]` macro.
+- pub `trigger_attr` function L130-165 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[trigger]` attribute macro.
+-  `TriggerAttributes` type L46-127 — `impl Parse for TriggerAttributes` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
+-  `parse` function L47-126 — `(input: ParseStream) -> SynResult<Self>` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
+-  `parse_duration_ms` function L168-191 — `(s: &str) -> Result<u64, String>` — Parse a duration string like "100ms", "5s", "2m", "1h" into milliseconds.
+-  `generate_custom_trigger` function L194-286 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
+-  `generate_cron_trigger` function L289-397 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
+-  `validate_cron_expression` function L400-422 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
+
+#### crates/cloacina-macros/src/workflow_attr.rs
+
+- pub `UnifiedWorkflowAttributes` struct L49-54 — `{ name: String, tenant: String, description: Option<String>, author: Option<Stri...` — Attributes for the unified `#[workflow]` macro.
+- pub `workflow_attr` function L117-136 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
+-  `UnifiedWorkflowAttributes` type L56-114 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+-  `parse` function L57-113 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+-  `generate_workflow_attr` function L144-271 — `( attrs: UnifiedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L274-333 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L339-575 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L578-621 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L628-865 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 
@@ -4813,7 +4851,8 @@
 - pub `namespace` module L70 — `-` — ```
 - pub `retry` module L71 — `-` — ```
 - pub `task` module L72 — `-` — ```
-- pub `__private` module L88-90 — `-` — Private re-exports used by generated macro code.
+- pub `trigger` module L73 — `-` — ```
+- pub `__private` module L90-92 — `-` — Private re-exports used by generated macro code.
 
 #### crates/cloacina-workflow/src/namespace.rs
 
@@ -4904,6 +4943,11 @@
 -  `code_fingerprint` function L208-210 — `(&self) -> Option<String>` — Returns a code fingerprint for content-based versioning.
 -  `requires_handle` function L219-221 — `(&self) -> bool` — Returns whether this task requires a `TaskHandle` for execution control.
 
+#### crates/cloacina-workflow/src/trigger.rs
+
+- pub `TriggerResult` enum L26-31 — `Skip | Fire` — Result of a trigger poll operation.
+- pub `TriggerError` enum L35-42 — `PollError | ContextError` — Errors that can occur during trigger polling.
+
 ### crates/cloacinactl
 
 > *Semantic summary to be generated by AI agent.*
@@ -4966,20 +5010,7 @@
 - pub `cleanup_events` module L19 — `-` — CLI command implementations.
 - pub `config` module L20 — `-` — CLI command implementations.
 - pub `daemon` module L21 — `-` — CLI command implementations.
-- pub `serve` module L22 — `-` — CLI command implementations.
-- pub `watcher` module L23 — `-` — CLI command implementations.
-
-#### crates/cloacinactl/src/commands/serve.rs
-
-- pub `AppState` struct L42-45 — `{ database: Database, runner: Arc<DefaultRunner> }` — Shared application state accessible from all route handlers.
-- pub `run` function L48-118 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `build_router` function L121-128 — `(state: AppState) -> Router` — Build the axum router with all routes.
--  `health` function L131-133 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L136-148 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L151-158 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L161-166 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L169-191 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `mask_db_url` function L194-203 — `(url: &str) -> String` — Mask password in database URL for logging
+- pub `watcher` module L22 — `-` — CLI command implementations.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -4998,11 +5029,11 @@
 
 -  `commands` module L24 — `-` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 -  `Cli` struct L30-41 — `{ verbose: bool, home: PathBuf, command: Commands }` — cloacinactl — Cloacina task orchestration engine
--  `Commands` enum L44-80 — `Daemon | Serve | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `ConfigCommands` enum L83-101 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `AdminCommands` enum L104-119 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
--  `default_home` function L122-126 — `() -> PathBuf` — Default home directory (~/.cloacina/).
--  `main` function L129-194 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `Commands` enum L44-69 — `Daemon | Config | Admin` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `ConfigCommands` enum L72-90 — `Get | Set | List` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `AdminCommands` enum L93-108 — `CleanupEvents` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
+-  `default_home` function L111-115 — `() -> PathBuf` — Default home directory (~/.cloacina/).
+-  `main` function L118-172 — `() -> Result<()>` — cloacinactl — Command-line interface for the Cloacina task orchestration engine.
 
 ### docs/themes/hugo-geekdoc/static/js
 

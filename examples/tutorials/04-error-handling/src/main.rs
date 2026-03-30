@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow_legacy, Context, TaskError};
 use serde_json::json;
 use std::time::Duration;
 use tracing::{error, info};
@@ -359,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // Create a workflow with our tasks
-    let _workflow = workflow! {
+    let _workflow = workflow_legacy! {
         name: "resilient_pipeline",
         description: "Pipeline demonstrating error handling patterns and retry mechanisms",
         tasks: [

@@ -4,14 +4,14 @@ level: task
 title: "#[trigger] attribute macro — custom poll mode with Trigger trait generation"
 short_code: "CLOACI-T-0304"
 created_at: 2026-03-29T20:39:43.633622+00:00
-updated_at: 2026-03-29T20:39:43.633622+00:00
+updated_at: 2026-03-30T02:57:03.428681+00:00
 parent: CLOACI-I-0058
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0058
 ## Objective
 
 Create the `#[trigger]` attribute macro for custom poll triggers. Applied to a standalone async function, it generates a `Trigger` trait impl, auto-registration (embedded) or manifest entry (packaged). The `on` parameter binds it to a workflow by name.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -59,4 +63,26 @@ Create the `#[trigger]` attribute macro for custom poll triggers. Applied to a s
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-30**: Implementation complete.
+
+### What was done
+- Created `crates/cloacina-macros/src/trigger_attr.rs` — `#[trigger]` attribute macro
+- `#[trigger(on = "workflow_name", poll_interval = "5s")]` on async function
+- Generates struct (e.g., `TestTriggerTrigger`) implementing `cloacina::trigger::Trigger` trait
+- `name()` returns function name or custom `name` parameter
+- `poll_interval()` parsed from duration string (ms/s/m/h)
+- `allow_concurrent` optional, defaults to false
+- `poll()` calls inner function, converts `cloacina_workflow::TriggerResult/Error` → `cloacina::trigger::TriggerResult/Error`
+- Embedded mode: `#[ctor]` registration via `register_trigger_constructor()`
+- Packaged mode placeholder (manifest entry — no runtime registration)
+- Created `crates/cloacina-workflow/src/trigger.rs` — lightweight `TriggerResult` + `TriggerError` types for authoring
+- Added `From<cloacina_workflow::TriggerResult>` and `From<cloacina_workflow::TriggerError>` impls in cloacina core
+- Re-exported `trigger` macro from `cloacina-workflow` and `cloacina`
+- 2 integration tests: trigger auto-registration, custom-named trigger
+- All 386+ unit tests pass, no regressions
+
+### Key design: two TriggerResult types
+- `cloacina_workflow::TriggerResult` — lightweight, for authoring (no diesel/db deps)
+- `cloacina::trigger::TriggerResult` — full runtime version with helper methods (should_fire, context_hash, into_context)
+- Macro-generated `poll()` converts between them via `From` impls
+- Users import from whichever crate they depend on

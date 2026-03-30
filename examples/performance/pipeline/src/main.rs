@@ -21,7 +21,7 @@
 use clap::Parser;
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow_legacy, Context, TaskError};
 use serde_json::json;
 use std::time::Instant;
 use tracing::error;
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // Create a simple 3-task pipeline workflow (automatically registers in global registry)
-    let _workflow = workflow! {
+    let _workflow = workflow_legacy! {
         name: "etl_workflow",
         description: "Simple ETL workflow with extract, transform, and load tasks",
         tasks: [

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow_legacy, Context, TaskError};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -548,7 +548,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // Create the parallel processing workflow
-    let _workflow = workflow! {
+    let _workflow = workflow_legacy! {
         name: "parallel_processing",
         description: "Parallel product data processing pipeline",
         tasks: [

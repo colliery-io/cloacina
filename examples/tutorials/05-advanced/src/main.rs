@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Create the data backup workflow that runs every 30 minutes
 fn create_data_backup_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "data_backup_workflow",
         description: "Automated data backup process",
         tasks: [
@@ -128,7 +128,7 @@ fn create_data_backup_workflow() -> Result<cloacina::Workflow, Box<dyn std::erro
 
 /// Create the health check workflow that runs every 5 minutes
 fn create_health_check_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "health_check_workflow",
         description: "System health monitoring checks",
         tasks: [
@@ -144,7 +144,7 @@ fn create_health_check_workflow() -> Result<cloacina::Workflow, Box<dyn std::err
 
 /// Create the daily report workflow that runs once per day
 fn create_daily_report_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "daily_report_workflow",
         description: "Daily summary report generation",
         tasks: [

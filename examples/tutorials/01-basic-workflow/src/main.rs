@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError};
+use cloacina::{task, workflow_legacy, Context, TaskError};
 use serde_json::json;
 use tracing::info;
 
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // Create a simple workflow (automatically registers in global registry)
-    let _workflow = workflow! {
+    let _workflow = workflow_legacy! {
         name: "simple_workflow",
         description: "A simple workflow with one task",
         tasks: [

@@ -40,7 +40,7 @@
 
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, TaskError, TaskHandle};
+use cloacina::{task, workflow_legacy, Context, TaskError, TaskHandle};
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    let _workflow = workflow! {
+    let _workflow = workflow_legacy! {
         name: "deferred_pipeline",
         description: "Pipeline demonstrating deferred task execution",
         tasks: [wait_for_data, process_data]

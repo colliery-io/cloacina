@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 // This should FAIL to compile with an error about missing task in workflow
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{task, workflow};
+use cloacina_macros::{task, workflow_legacy};
 use serde_json::Value;
 
 #[task(id = "existing_task", dependencies = [])]
@@ -31,7 +31,7 @@ fn main() {
     println!("If you're reading this, the workflow validation failed!");
 
     // This should cause a compile error because "nonexistent_task" doesn't exist
-    let _pipeline = workflow!(
+    let _pipeline = workflow_legacy!(
         name: "failing_pipeline",
         tasks: [existing_task, nonexistent_task]
     );

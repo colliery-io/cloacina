@@ -70,6 +70,7 @@ pub mod error;
 pub mod namespace;
 pub mod retry;
 pub mod task;
+pub mod trigger;
 
 // Re-export primary types at crate root for convenience
 pub use context::Context;
@@ -77,10 +78,11 @@ pub use error::{CheckpointError, ContextError, TaskError};
 pub use namespace::{parse_namespace, TaskNamespace};
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use task::{Task, TaskState};
+pub use trigger::{TriggerError, TriggerResult};
 
 // Re-export macros when the feature is enabled
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{packaged_workflow, task, workflow};
+pub use cloacina_macros::{packaged_workflow, task, trigger, workflow};
 
 /// Private re-exports used by generated macro code. Not part of the public API.
 #[doc(hidden)]

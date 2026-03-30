@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::DefaultRunner;
-use cloacina::{task, workflow, Context, PipelineStatus, TaskError};
+use cloacina::{task, workflow_legacy, Context, PipelineStatus, TaskError};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
@@ -176,7 +176,7 @@ async fn basic_multi_tenant_demo(database_url: &str) -> Result<(), Box<dyn std::
 
     // Execute workflows for each tenant
     // Create workflows using the macro system
-    let _customer_workflow = workflow! {
+    let _customer_workflow = workflow_legacy! {
         name: "customer_processing",
         description: "Process customer data in isolated tenant environment",
         tasks: [
@@ -246,7 +246,7 @@ async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std
             let tenant_runner = DefaultRunner::new(&credentials.connection_string).await?;
 
             // Create onboarding workflow
-            let _onboarding_workflow = workflow! {
+            let _onboarding_workflow = workflow_legacy! {
                 name: "tenant_onboarding",
                 description: "Complete tenant onboarding process",
                 tasks: [

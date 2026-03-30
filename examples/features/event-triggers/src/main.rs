@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -132,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Create the file processing workflow triggered by file watcher.
 fn create_file_processing_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "file_processing_workflow",
         description: "Process incoming data files",
         tasks: [
@@ -147,7 +147,7 @@ fn create_file_processing_workflow() -> Result<cloacina::Workflow, Box<dyn std::
 
 /// Create the queue processing workflow triggered by queue depth.
 fn create_queue_processing_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "queue_processing_workflow",
         description: "Process messages when queue backs up",
         tasks: [
@@ -162,7 +162,7 @@ fn create_queue_processing_workflow() -> Result<cloacina::Workflow, Box<dyn std:
 
 /// Create the service recovery workflow triggered by health check failures.
 fn create_service_recovery_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "service_recovery_workflow",
         description: "Recover failed services automatically",
         tasks: [

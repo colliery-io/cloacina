@@ -94,6 +94,19 @@ impl From<deadpool::managed::PoolError<deadpool_diesel::Error>> for TriggerError
     }
 }
 
+impl From<cloacina_workflow::TriggerError> for TriggerError {
+    fn from(err: cloacina_workflow::TriggerError) -> Self {
+        match err {
+            cloacina_workflow::TriggerError::PollError(msg) => {
+                TriggerError::PollError { message: msg }
+            }
+            cloacina_workflow::TriggerError::ContextError(e) => TriggerError::PollError {
+                message: format!("Context error: {}", e),
+            },
+        }
+    }
+}
+
 /// Result of a trigger poll operation.
 ///
 /// When a trigger's `poll()` function is called, it returns this enum
@@ -108,6 +121,15 @@ pub enum TriggerResult {
     /// If context is provided, it will be used to initialize the workflow execution.
     /// The context is also used for deduplication when `allow_concurrent = false`.
     Fire(Option<Context<serde_json::Value>>),
+}
+
+impl From<cloacina_workflow::TriggerResult> for TriggerResult {
+    fn from(r: cloacina_workflow::TriggerResult) -> Self {
+        match r {
+            cloacina_workflow::TriggerResult::Skip => TriggerResult::Skip,
+            cloacina_workflow::TriggerResult::Fire(ctx) => TriggerResult::Fire(ctx),
+        }
+    }
 }
 
 impl TriggerResult {

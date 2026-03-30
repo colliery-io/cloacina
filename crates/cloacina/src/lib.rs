@@ -562,7 +562,7 @@ pub use workflow::{
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{packaged_workflow, task, workflow};
+pub use cloacina_macros::{packaged_workflow, task, trigger, workflow};
 
 // PyO3 module entry point for the `cloaca` Python wheel.
 // This is used by maturin to build a standalone pip-installable wheel.

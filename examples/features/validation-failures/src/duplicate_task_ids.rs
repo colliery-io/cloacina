@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 // This should FAIL to compile with an error about duplicate task IDs
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{task, workflow};
+use cloacina_macros::{task, workflow_legacy};
 use serde_json::Value;
 
 // First task with ID "duplicate_id"
@@ -39,7 +39,7 @@ async fn task_two(_context: &mut Context<Value>) -> Result<(), TaskError> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("If you're reading this, the duplicate ID detection failed!");
 
-    let _pipeline = workflow! {
+    let _pipeline = workflow_legacy! {
         name: "duplicate_pipeline",
         tasks: [task_one, task_two]
     };

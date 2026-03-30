@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Create the ETL workflow
 fn create_etl_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow! {
+    let workflow = workflow_legacy! {
         name: "etl_workflow",
         description: "Simple ETL workflow with extract, transform, and load tasks",
         tasks: [
