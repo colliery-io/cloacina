@@ -4,14 +4,14 @@ level: task
 title: "Migrate examples and tutorials to unified #[workflow] + #[trigger] macros"
 short_code: "CLOACI-T-0306"
 created_at: 2026-03-29T20:39:45.867227+00:00
-updated_at: 2026-03-29T20:39:45.867227+00:00
+updated_at: 2026-03-30T03:03:40.515315+00:00
 parent: CLOACI-I-0058
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0058
 ## Objective
 
 Migrate all existing examples and tutorials from `workflow!` / `#[packaged_workflow]` to the unified `#[workflow]` + `#[trigger]` macros. Verify everything compiles, runs, and passes tests.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

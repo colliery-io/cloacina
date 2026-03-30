@@ -40,12 +40,10 @@
 //! - Recovery service for missed executions
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::workflow;
 use std::time::Duration;
 use tracing::info;
 
 mod tasks;
-use tasks::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -68,11 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("DefaultRunner initialized with cron scheduling enabled");
 
-    // Create our workflows
-    let _data_backup_workflow = create_data_backup_workflow()?;
-    let _health_check_workflow = create_health_check_workflow()?;
-    let _daily_report_workflow = create_daily_report_workflow()?;
-
+    // Workflows are auto-registered by the #[workflow] macro in tasks.rs
     info!("Workflows registered successfully");
 
     // Create cron schedules
@@ -108,53 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Cron Scheduling Example completed successfully");
     Ok(())
-}
-
-/// Create the data backup workflow that runs every 30 minutes
-fn create_data_backup_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow_legacy! {
-        name: "data_backup_workflow",
-        description: "Automated data backup process",
-        tasks: [
-            check_backup_prerequisites,
-            create_backup_snapshot,
-            verify_backup_integrity,
-            cleanup_old_backups
-        ]
-    };
-
-    Ok(workflow)
-}
-
-/// Create the health check workflow that runs every 5 minutes
-fn create_health_check_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow_legacy! {
-        name: "health_check_workflow",
-        description: "System health monitoring checks",
-        tasks: [
-            check_system_resources,
-            check_database_connectivity,
-            check_external_services,
-            update_health_metrics
-        ]
-    };
-
-    Ok(workflow)
-}
-
-/// Create the daily report workflow that runs once per day
-fn create_daily_report_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow_legacy! {
-        name: "daily_report_workflow",
-        description: "Daily summary report generation",
-        tasks: [
-            collect_daily_metrics,
-            generate_usage_report,
-            send_report_notification
-        ]
-    };
-
-    Ok(workflow)
 }
 
 /// Create cron schedules for our workflows

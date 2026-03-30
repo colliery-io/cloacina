@@ -18,31 +18,31 @@
 // This should FAIL to compile with an error about circular dependencies
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{task, workflow_legacy};
+use cloacina_macros::{task, workflow};
 use serde_json::Value;
 
-// Task A depends on Task B
-#[task(id = "task_a", dependencies = ["task_b"])]
-async fn task_a(_context: &mut Context<Value>) -> Result<(), TaskError> {
-    println!("Task A");
-    Ok(())
-}
+#[workflow(name = "circular_pipeline")]
+pub mod circular_pipeline {
+    use super::*;
 
-// Task B depends on Task A - this creates a circular dependency!
-#[task(id = "task_b", dependencies = ["task_a"])]
-async fn task_b(_context: &mut Context<Value>) -> Result<(), TaskError> {
-    println!("Task B");
-    Ok(())
+    // Task A depends on Task B
+    #[task(id = "task_a", dependencies = ["task_b"])]
+    pub async fn task_a(_context: &mut Context<Value>) -> Result<(), TaskError> {
+        println!("Task A");
+        Ok(())
+    }
+
+    // Task B depends on Task A - this creates a circular dependency!
+    #[task(id = "task_b", dependencies = ["task_a"])]
+    pub async fn task_b(_context: &mut Context<Value>) -> Result<(), TaskError> {
+        println!("Task B");
+        Ok(())
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("If you're reading this, the circular dependency detection failed!");
-
-    let _pipeline = workflow_legacy! {
-        name: "circular_pipeline",
-        tasks: [task_a, task_b]
-    };
 
     Ok(())
 }

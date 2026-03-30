@@ -42,13 +42,11 @@
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{workflow, Context};
+use cloacina::Context;
 use serde_json::json;
 use tracing::info;
 
 mod tasks;
-
-use tasks::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,9 +64,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         DefaultRunnerConfig::default(),
     )
     .await?;
-
-    // Create the ETL workflow
-    let _pipeline = create_etl_workflow()?;
 
     // Create two different input contexts
     let mut context1 = Context::new();
@@ -102,19 +97,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     runner.shutdown().await?;
 
     Ok(())
-}
-
-/// Create the ETL workflow
-fn create_etl_workflow() -> Result<cloacina::Workflow, Box<dyn std::error::Error>> {
-    let workflow = workflow_legacy! {
-        name: "etl_workflow",
-        description: "Simple ETL workflow with extract, transform, and load tasks",
-        tasks: [
-            extract_numbers,
-            transform_numbers,
-            load_numbers
-        ]
-    };
-
-    Ok(workflow)
 }

@@ -21,7 +21,7 @@
 use clap::Parser;
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow_legacy, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use std::time::Instant;
 use tracing::error;
@@ -38,107 +38,121 @@ struct Args {
     concurrency: usize,
 }
 
-/// Initial setup task that creates data for parallel processing
-#[task(
-    id = "setup_data",
-    dependencies = []
+#[workflow(
+    name = "parallel_workflow",
+    description = "Fan-out/fan-in parallel workflow with 5 tasks"
 )]
-async fn setup_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    context.insert("data_batch_1", json!([1, 2, 3, 4, 5]))?;
-    context.insert("data_batch_2", json!([6, 7, 8, 9, 10]))?;
-    context.insert("data_batch_3", json!([11, 12, 13, 14, 15]))?;
+pub mod parallel_workflow {
+    use super::*;
 
-    Ok(())
-}
+    /// Initial setup task that creates data for parallel processing
+    #[task(
+        id = "setup_data",
+        dependencies = []
+    )]
+    pub async fn setup_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        context.insert("data_batch_1", json!([1, 2, 3, 4, 5]))?;
+        context.insert("data_batch_2", json!([6, 7, 8, 9, 10]))?;
+        context.insert("data_batch_3", json!([11, 12, 13, 14, 15]))?;
 
-/// Process batch 1 in parallel
-#[task(
-    id = "process_batch_1",
-    dependencies = ["setup_data"]
-)]
-async fn process_batch_1(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context
-        .get("data_batch_1")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_i64())
-        .map(|v| v * 2)
-        .collect::<Vec<_>>();
+        Ok(())
+    }
 
-    context.insert("result_batch_1", json!(batch))?;
+    /// Process batch 1 in parallel
+    #[task(
+        id = "process_batch_1",
+        dependencies = ["setup_data"]
+    )]
+    pub async fn process_batch_1(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let batch = context
+            .get("data_batch_1")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_i64())
+            .map(|v| v * 2)
+            .collect::<Vec<_>>();
 
-    Ok(())
-}
+        context.insert("result_batch_1", json!(batch))?;
 
-/// Process batch 2 in parallel
-#[task(
-    id = "process_batch_2",
-    dependencies = ["setup_data"]
-)]
-async fn process_batch_2(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context
-        .get("data_batch_2")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_i64())
-        .map(|v| v * 3)
-        .collect::<Vec<_>>();
+        Ok(())
+    }
 
-    context.insert("result_batch_2", json!(batch))?;
+    /// Process batch 2 in parallel
+    #[task(
+        id = "process_batch_2",
+        dependencies = ["setup_data"]
+    )]
+    pub async fn process_batch_2(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let batch = context
+            .get("data_batch_2")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_i64())
+            .map(|v| v * 3)
+            .collect::<Vec<_>>();
 
-    Ok(())
-}
+        context.insert("result_batch_2", json!(batch))?;
 
-/// Process batch 3 in parallel
-#[task(
-    id = "process_batch_3",
-    dependencies = ["setup_data"]
-)]
-async fn process_batch_3(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch = context
-        .get("data_batch_3")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|v| v.as_i64())
-        .map(|v| v * 4)
-        .collect::<Vec<_>>();
+        Ok(())
+    }
 
-    context.insert("result_batch_3", json!(batch))?;
+    /// Process batch 3 in parallel
+    #[task(
+        id = "process_batch_3",
+        dependencies = ["setup_data"]
+    )]
+    pub async fn process_batch_3(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let batch = context
+            .get("data_batch_3")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|v| v.as_i64())
+            .map(|v| v * 4)
+            .collect::<Vec<_>>();
 
-    Ok(())
-}
+        context.insert("result_batch_3", json!(batch))?;
 
-/// Merge results from all parallel tasks
-#[task(
-    id = "merge_results",
-    dependencies = ["process_batch_1", "process_batch_2", "process_batch_3"]
-)]
-async fn merge_results(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let batch1 = context
-        .get("result_batch_1")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .len();
-    let batch2 = context
-        .get("result_batch_2")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .len();
-    let batch3 = context
-        .get("result_batch_3")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .len();
+        Ok(())
+    }
 
-    let total_items = batch1 + batch2 + batch3;
+    /// Merge results from all parallel tasks
+    #[task(
+        id = "merge_results",
+        dependencies = ["process_batch_1", "process_batch_2", "process_batch_3"]
+    )]
+    pub async fn merge_results(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        let batch1 = context
+            .get("result_batch_1")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .len();
+        let batch2 = context
+            .get("result_batch_2")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .len();
+        let batch3 = context
+            .get("result_batch_3")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .len();
 
-    context.insert("total_items_processed", json!(total_items))?;
-    context.insert("merge_status", json!("success"))?;
+        let total_items = batch1 + batch2 + batch3;
 
-    Ok(())
+        context.insert("total_items_processed", json!(total_items))?;
+        context.insert("merge_status", json!("success"))?;
+
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -161,18 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // Create a parallel workflow (automatically registers in global registry)
-    let _workflow = workflow_legacy! {
-        name: "parallel_workflow",
-        description: "Fan-out/fan-in parallel workflow with 5 tasks",
-        tasks: [
-            setup_data,
-            process_batch_1,
-            process_batch_2,
-            process_batch_3,
-            merge_results
-        ]
-    };
+    // Workflow is auto-registered by #[workflow] attribute macro
 
     let overall_start = Instant::now();
 

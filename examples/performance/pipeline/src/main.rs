@@ -21,7 +21,7 @@
 use clap::Parser;
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow_legacy, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use std::time::Instant;
 use tracing::error;
@@ -38,51 +38,63 @@ struct Args {
     concurrency: usize,
 }
 
-/// Extract numbers from the input context
-#[task(
-    id = "extract_numbers",
-    dependencies = []
+#[workflow(
+    name = "etl_workflow",
+    description = "Simple ETL workflow with extract, transform, and load tasks"
 )]
-async fn extract_numbers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    // Add some data to context for demonstration
-    context.insert("extracted_numbers", json!([1, 2, 3, 4, 5]))?;
-    Ok(())
-}
+pub mod etl_workflow {
+    use super::*;
 
-/// Transform the numbers (multiply by 2)
-#[task(
-    id = "transform_numbers",
-    dependencies = ["extract_numbers"]
-)]
-async fn transform_numbers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let numbers = context
-        .get("extracted_numbers")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|n| n.as_i64())
-        .map(|n| n * 2)
-        .collect::<Vec<_>>();
+    /// Extract numbers from the input context
+    #[task(
+        id = "extract_numbers",
+        dependencies = []
+    )]
+    pub async fn extract_numbers(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        // Add some data to context for demonstration
+        context.insert("extracted_numbers", json!([1, 2, 3, 4, 5]))?;
+        Ok(())
+    }
 
-    context.insert("transformed_numbers", json!(numbers))?;
-    Ok(())
-}
+    /// Transform the numbers (multiply by 2)
+    #[task(
+        id = "transform_numbers",
+        dependencies = ["extract_numbers"]
+    )]
+    pub async fn transform_numbers(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let numbers = context
+            .get("extracted_numbers")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|n| n.as_i64())
+            .map(|n| n * 2)
+            .collect::<Vec<_>>();
 
-/// Load the transformed numbers
-#[task(
-    id = "load_numbers",
-    dependencies = ["transform_numbers"]
-)]
-async fn load_numbers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let empty_vec = vec![];
-    let numbers = context
-        .get("transformed_numbers")
-        .and_then(|v| v.as_array())
-        .unwrap_or(&empty_vec);
+        context.insert("transformed_numbers", json!(numbers))?;
+        Ok(())
+    }
 
-    context.insert("loaded_numbers", json!(numbers))?;
-    context.insert("load_status", json!("success"))?;
-    Ok(())
+    /// Load the transformed numbers
+    #[task(
+        id = "load_numbers",
+        dependencies = ["transform_numbers"]
+    )]
+    pub async fn load_numbers(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        let empty_vec = vec![];
+        let numbers = context
+            .get("transformed_numbers")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty_vec);
+
+        context.insert("loaded_numbers", json!(numbers))?;
+        context.insert("load_status", json!("success"))?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -105,16 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // Create a simple 3-task pipeline workflow (automatically registers in global registry)
-    let _workflow = workflow_legacy! {
-        name: "etl_workflow",
-        description: "Simple ETL workflow with extract, transform, and load tasks",
-        tasks: [
-            extract_numbers,
-            transform_numbers,
-            load_numbers
-        ]
-    };
+    // Workflow is auto-registered by #[workflow] attribute macro
 
     let overall_start = Instant::now();
 

@@ -21,21 +21,29 @@
 use cloacina::executor::PipelineExecutor;
 
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow_legacy, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 use serde_json::json;
 use tracing::info;
 
-/// A simple task that just logs a message
-#[task(
-    id = "hello_world",
-    dependencies = []
+#[workflow(
+    name = "simple_workflow",
+    description = "A simple workflow with one task"
 )]
-async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    info!("Hello from Cloacina!");
+pub mod simple_workflow {
+    use super::*;
 
-    // Add some data to context for demonstration
-    context.insert("message", json!("Hello World!"))?;
-    Ok(())
+    /// A simple task that just logs a message
+    #[task(
+        id = "hello_world",
+        dependencies = []
+    )]
+    pub async fn hello_world(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        info!("Hello from Cloacina!");
+
+        // Add some data to context for demonstration
+        context.insert("message", json!("Hello World!"))?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -54,15 +62,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         DefaultRunnerConfig::default(),
     )
     .await?;
-
-    // Create a simple workflow (automatically registers in global registry)
-    let _workflow = workflow_legacy! {
-        name: "simple_workflow",
-        description: "A simple workflow with one task",
-        tasks: [
-            hello_world
-        ]
-    };
 
     // Create input context
     let input_context = Context::new();

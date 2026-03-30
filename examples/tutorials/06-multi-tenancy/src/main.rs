@@ -22,105 +22,125 @@
 use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
 use cloacina::executor::PipelineExecutor;
 use cloacina::runner::DefaultRunner;
-use cloacina::{task, workflow_legacy, Context, PipelineStatus, TaskError};
+use cloacina::{task, workflow, Context, PipelineStatus, TaskError};
 use serde_json::json;
 use std::collections::HashMap;
 use std::env;
 use tracing::{error, info, warn};
 
-#[task(
-    id = "process_customer_data",
-    dependencies = []
+#[workflow(
+    name = "customer_processing",
+    description = "Process customer data in isolated tenant environment"
 )]
-async fn process_customer_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let tenant_id = context
-        .get("tenant_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default")
-        .to_string();
-    let customer_name = context
-        .get("customer_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
+pub mod customer_processing {
+    use super::*;
 
-    info!(
-        "Processing data for customer: {} (tenant: {})",
-        customer_name, tenant_id
-    );
+    #[task(
+        id = "process_customer_data",
+        dependencies = []
+    )]
+    pub async fn process_customer_data(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let tenant_id = context
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let customer_name = context
+            .get("customer_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-    // Simulate tenant-specific processing
-    let processed_records = match tenant_id.as_str() {
-        "acme_corp" => 1250,
-        "globex_inc" => 890,
-        "initech" => 430,
-        _ => 100,
-    };
+        info!(
+            "Processing data for customer: {} (tenant: {})",
+            customer_name, tenant_id
+        );
 
-    info!(
-        "Processed {} records for {}",
-        processed_records, customer_name
-    );
+        // Simulate tenant-specific processing
+        let processed_records = match tenant_id.as_str() {
+            "acme_corp" => 1250,
+            "globex_inc" => 890,
+            "initech" => 430,
+            _ => 100,
+        };
 
-    context.insert("processed_records", json!(processed_records))?;
-    context.insert("processing_completed", json!(true))?;
+        info!(
+            "Processed {} records for {}",
+            processed_records, customer_name
+        );
 
-    Ok(())
+        context.insert("processed_records", json!(processed_records))?;
+        context.insert("processing_completed", json!(true))?;
+
+        Ok(())
+    }
 }
 
-#[task(
-    id = "tenant_onboarding",
-    dependencies = []
+#[workflow(
+    name = "tenant_onboarding",
+    description = "Complete tenant onboarding process"
 )]
-async fn tenant_onboarding(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let tenant_name = context
-        .get("tenant_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
-    let tenant_type = context
-        .get("tenant_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("starter")
-        .to_string();
+pub mod tenant_onboarding_workflow {
+    use super::*;
 
-    info!(
-        "Onboarding new tenant: {} (type: {})",
-        tenant_name, tenant_type
-    );
+    #[task(
+        id = "tenant_onboarding",
+        dependencies = []
+    )]
+    pub async fn tenant_onboarding(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let tenant_name = context
+            .get("tenant_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let tenant_type = context
+            .get("tenant_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("starter")
+            .to_string();
 
-    // Simulate tenant-specific setup
-    let setup_tasks = match tenant_type.as_str() {
-        "enterprise" => vec![
-            "provision_resources",
-            "setup_integrations",
-            "configure_billing",
-            "setup_support",
-        ],
-        "professional" => vec![
-            "provision_resources",
-            "setup_integrations",
-            "configure_billing",
-        ],
-        "starter" => vec!["provision_resources", "configure_billing"],
-        _ => vec!["provision_resources"],
-    };
+        info!(
+            "Onboarding new tenant: {} (type: {})",
+            tenant_name, tenant_type
+        );
 
-    info!(
-        "Executing {} setup tasks for {}",
-        setup_tasks.len(),
-        tenant_name
-    );
+        // Simulate tenant-specific setup
+        let setup_tasks = match tenant_type.as_str() {
+            "enterprise" => vec![
+                "provision_resources",
+                "setup_integrations",
+                "configure_billing",
+                "setup_support",
+            ],
+            "professional" => vec![
+                "provision_resources",
+                "setup_integrations",
+                "configure_billing",
+            ],
+            "starter" => vec!["provision_resources", "configure_billing"],
+            _ => vec!["provision_resources"],
+        };
 
-    for task in &setup_tasks {
-        info!("  ✓ Completed: {}", task);
+        info!(
+            "Executing {} setup tasks for {}",
+            setup_tasks.len(),
+            tenant_name
+        );
+
+        for task in &setup_tasks {
+            info!("  Completed: {}", task);
+        }
+
+        context.insert("onboarding_completed", json!(true))?;
+        context.insert("setup_tasks_count", json!(setup_tasks.len()))?;
+        context.insert("tenant_status", json!("active"))?;
+
+        Ok(())
     }
-
-    context.insert("onboarding_completed", json!(true))?;
-    context.insert("setup_tasks_count", json!(setup_tasks.len()))?;
-    context.insert("tenant_status", json!("active"))?;
-
-    Ok(())
 }
 
 #[tokio::main]
@@ -150,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    info!("\n✅ Tutorial 06 completed successfully!");
+    info!("\nTutorial 06 completed successfully!");
     Ok(())
 }
 
@@ -168,21 +188,11 @@ async fn basic_multi_tenant_demo(database_url: &str) -> Result<(), Box<dyn std::
         let runner = DefaultRunner::with_schema(database_url, tenant_id).await?;
         tenant_runners.insert(tenant_id.to_string(), runner);
 
-        info!(
-            "✓ Tenant {} runner created with schema isolation",
-            tenant_id
-        );
+        info!("Tenant {} runner created with schema isolation", tenant_id);
     }
 
     // Execute workflows for each tenant
-    // Create workflows using the macro system
-    let _customer_workflow = workflow_legacy! {
-        name: "customer_processing",
-        description: "Process customer data in isolated tenant environment",
-        tasks: [
-            process_customer_data
-        ]
-    };
+    // Workflows are auto-registered by the #[workflow] macro
 
     for (tenant_id, runner) in &tenant_runners {
         info!("Executing workflow for tenant: {}", tenant_id);
@@ -200,11 +210,11 @@ async fn basic_multi_tenant_demo(database_url: &str) -> Result<(), Box<dyn std::
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
             info!(
-                "✓ Tenant {} completed: {} records processed",
+                "Tenant {} completed: {} records processed",
                 tenant_id, records
             );
         } else {
-            warn!("✗ Tenant {} failed: {:?}", tenant_id, result.status);
+            warn!("Tenant {} failed: {:?}", tenant_id, result.status);
         }
     }
 
@@ -236,7 +246,7 @@ async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std
 
     match admin.create_tenant(tenant_config).await {
         Ok(credentials) => {
-            info!("✓ Tenant provisioned successfully!");
+            info!("Tenant provisioned successfully!");
             info!("  Schema: {}", credentials.schema_name);
             info!("  Username: {}", credentials.username);
             info!("  Connection ready");
@@ -245,14 +255,7 @@ async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std
             info!("Creating runner with dedicated credentials...");
             let tenant_runner = DefaultRunner::new(&credentials.connection_string).await?;
 
-            // Create onboarding workflow
-            let _onboarding_workflow = workflow_legacy! {
-                name: "tenant_onboarding",
-                description: "Complete tenant onboarding process",
-                tasks: [
-                    tenant_onboarding
-                ]
-            };
+            // Workflow is auto-registered by the #[workflow] macro
 
             // Execute onboarding workflow
             let mut context = Context::new();
@@ -269,11 +272,11 @@ async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
                 info!(
-                    "✓ Tenant onboarded successfully with {} setup tasks",
+                    "Tenant onboarded successfully with {} setup tasks",
                     task_count
                 );
             } else {
-                error!("✗ Tenant onboarding failed: {:?}", result.status);
+                error!("Tenant onboarding failed: {:?}", result.status);
             }
 
             tenant_runner.shutdown().await?;

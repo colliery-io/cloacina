@@ -18,22 +18,27 @@
 // This should FAIL to compile with an error about missing task in workflow
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{task, workflow_legacy};
+use cloacina_macros::{task, workflow};
 use serde_json::Value;
 
-#[task(id = "existing_task", dependencies = [])]
-async fn existing_task(_context: &mut Context<Value>) -> Result<(), TaskError> {
-    println!("This task exists");
-    Ok(())
+#[workflow(name = "failing_pipeline")]
+pub mod failing_pipeline {
+    use super::*;
+
+    #[task(id = "existing_task", dependencies = [])]
+    pub async fn existing_task(_context: &mut Context<Value>) -> Result<(), TaskError> {
+        println!("This task exists");
+        Ok(())
+    }
+
+    // nonexistent_task is referenced here but not defined - should cause compile error
+    #[task(id = "depends_on_missing", dependencies = ["nonexistent_task"])]
+    pub async fn depends_on_missing(_context: &mut Context<Value>) -> Result<(), TaskError> {
+        println!("This should never compile");
+        Ok(())
+    }
 }
 
 fn main() {
     println!("If you're reading this, the workflow validation failed!");
-
-    // This should cause a compile error because "nonexistent_task" doesn't exist
-    let _pipeline = workflow_legacy!(
-        name: "failing_pipeline",
-        tasks: [existing_task, nonexistent_task]
-    );
-    println!("Pipeline created: {:?}", _pipeline.name());
 }
