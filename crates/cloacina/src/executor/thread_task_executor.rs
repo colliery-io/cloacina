@@ -365,6 +365,7 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of result handling
+    #[allow(dead_code)]
     async fn handle_task_result(
         &self,
         claimed_task: ClaimedTask,
@@ -517,6 +518,7 @@ impl ThreadTaskExecutor {
     ///
     /// # Returns
     /// Result indicating success or failure of the operation
+    #[allow(dead_code)]
     async fn mark_task_failed(
         &self,
         task_execution_id: UniversalUuid,

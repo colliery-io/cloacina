@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -39,15 +39,14 @@ cargo run --example end_to_end_demo
 ```
 */
 
-use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{task, workflow, Context, TaskError};
 
 /// Simple Data Processing Workflow
 ///
 /// A minimal workflow that demonstrates the complete packaged workflow lifecycle
 /// with data processing, validation, and reporting.
-#[packaged_workflow(
+#[workflow(
     name = "data_processing",
-    package = "simple_demo",
     description = "Simple data processing workflow for demonstration",
     author = "Cloacina Demo Team"
 )]

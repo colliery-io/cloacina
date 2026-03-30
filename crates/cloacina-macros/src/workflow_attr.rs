@@ -248,7 +248,9 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         }
 
         #[cfg(not(feature = "packaged"))]
-        #embedded_registration
+        const _: () = {
+            #embedded_registration
+        };
 
         #[cfg(feature = "packaged")]
         const _: () = {

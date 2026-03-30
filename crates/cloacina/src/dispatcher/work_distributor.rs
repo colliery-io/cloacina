@@ -84,6 +84,7 @@ pub trait WorkDistributor: Send + Sync {
 #[cfg(feature = "postgres")]
 pub struct PostgresDistributor {
     /// The database URL for creating a dedicated listen connection
+    #[allow(dead_code)]
     database_url: String,
     /// Notification channel for waking waiters
     notify: Arc<Notify>,

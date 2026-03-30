@@ -1094,12 +1094,13 @@ impl PyDefaultRunner {
         // Test the connection and schema creation in a temporary runtime
         let rt = Runtime::new()
             .map_err(|e| PyValueError::new_err(format!("Failed to create Tokio runtime: {}", e)))?;
-        rt.block_on(async {
-            crate::DefaultRunner::with_schema(&database_url_clone, &schema_clone).await
-        })
-        .map_err(|e| {
-            PyValueError::new_err(format!("Failed to create DefaultRunner with schema: {}", e))
-        })?;
+        let _runner = rt
+            .block_on(async {
+                crate::DefaultRunner::with_schema(&database_url_clone, &schema_clone).await
+            })
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to create DefaultRunner with schema: {}", e))
+            })?;
 
         // If we got here, the creation succeeded, so spawn the background thread
         let thread_handle = thread::spawn(move || {

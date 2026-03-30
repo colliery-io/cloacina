@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,10 +24,9 @@
 //! - Complex branching and merging
 
 use cloacina::{Context, TaskError};
-use cloacina_macros::{packaged_workflow, task};
+use cloacina_macros::{task, workflow};
 
-#[packaged_workflow(
-    package = "complex_dag_workflow",
+#[workflow(
     name = "complex_dag_workflow",
     description = "Complex DAG structure for testing visualization capabilities",
     author = "Cloacina Team"

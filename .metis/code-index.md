@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-30T03:01:27Z | 381 files | JavaScript, Python, Rust
+> Generated: 2026-03-30T14:42:29Z | 379 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -368,8 +368,7 @@
 │   │   ├── cron-scheduling/
 │   │   │   ├── build.rs
 │   │   │   └── src/
-│   │   │       ├── main.rs
-│   │   │       └── tasks.rs
+│   │   │       └── main.rs
 │   │   ├── deferred-tasks/
 │   │   │   ├── build.rs
 │   │   │   └── src/
@@ -378,7 +377,6 @@
 │   │   │   ├── build.rs
 │   │   │   └── src/
 │   │   │       ├── main.rs
-│   │   │       ├── tasks.rs
 │   │   │       └── triggers.rs
 │   │   ├── multi-tenant/
 │   │   │   ├── build.rs
@@ -760,15 +758,15 @@
 #### crates/cloacina/src/crypto/key_encryption.rs
 
 - pub `KeyEncryptionError` enum L36-48 — `EncryptionFailed | DecryptionFailed | InvalidKeyLength | InvalidEncryptedData` — Errors that can occur during key encryption/decryption.
-- pub `encrypt_private_key` function L67-94 — `( private_key: &[u8], encryption_key: &[u8], ) -> Result<Vec<u8>, KeyEncryptionE...` — Encrypts an Ed25519 private key using AES-256-GCM.
-- pub `decrypt_private_key` function L110-136 — `( encrypted_data: &[u8], encryption_key: &[u8], ) -> Result<Vec<u8>, KeyEncrypti...` — Decrypts an Ed25519 private key that was encrypted with AES-256-GCM.
+- pub `encrypt_private_key` function L68-95 — `( private_key: &[u8], encryption_key: &[u8], ) -> Result<Vec<u8>, KeyEncryptionE...` — Encrypts an Ed25519 private key using AES-256-GCM.
+- pub `decrypt_private_key` function L112-138 — `( encrypted_data: &[u8], encryption_key: &[u8], ) -> Result<Vec<u8>, KeyEncrypti...` — Decrypts an Ed25519 private key that was encrypted with AES-256-GCM.
 -  `NONCE_SIZE` variable L51 — `: usize` — Size of the AES-256-GCM nonce in bytes.
--  `tests` module L139-206 — `-` — - A key management service (KMS)
--  `test_encrypt_decrypt_roundtrip` function L143-155 — `()` — - A key management service (KMS)
--  `test_wrong_key_fails` function L158-167 — `()` — - A key management service (KMS)
--  `test_invalid_key_length` function L170-179 — `()` — - A key management service (KMS)
--  `test_invalid_encrypted_data` function L182-191 — `()` — - A key management service (KMS)
--  `test_tampered_ciphertext_fails` function L194-205 — `()` — - A key management service (KMS)
+-  `tests` module L141-208 — `-` — - A key management service (KMS)
+-  `test_encrypt_decrypt_roundtrip` function L145-157 — `()` — - A key management service (KMS)
+-  `test_wrong_key_fails` function L160-169 — `()` — - A key management service (KMS)
+-  `test_invalid_key_length` function L172-181 — `()` — - A key management service (KMS)
+-  `test_invalid_encrypted_data` function L184-193 — `()` — - A key management service (KMS)
+-  `test_tampered_ciphertext_fails` function L196-207 — `()` — - A key management service (KMS)
 
 #### crates/cloacina/src/crypto/mod.rs
 
@@ -783,15 +781,15 @@
 - pub `compute_key_fingerprint` function L90-95 — `(public_key: &[u8]) -> String` — Computes the SHA256 hex fingerprint of a public key.
 - pub `sign_package` function L111-124 — `(package_hash: &[u8], private_key: &[u8]) -> Result<Vec<u8>, SigningError>` — Signs a package hash using an Ed25519 private key.
 - pub `verify_signature` function L141-169 — `( package_hash: &[u8], signature: &[u8], public_key: &[u8], ) -> Result<(), Sign...` — Verifies a package signature using an Ed25519 public key.
-- pub `compute_package_hash` function L180-185 — `(data: &[u8]) -> String` — Computes the SHA256 hash of package data.
--  `tests` module L188-285 — `-` — - Verifying signatures
--  `test_generate_keypair` function L192-198 — `()` — - Verifying signatures
--  `test_sign_and_verify` function L201-212 — `()` — - Verifying signatures
--  `test_verify_wrong_key_fails` function L215-225 — `()` — - Verifying signatures
--  `test_verify_tampered_data_fails` function L228-238 — `()` — - Verifying signatures
--  `test_fingerprint_is_deterministic` function L241-248 — `()` — - Verifying signatures
--  `test_invalid_key_lengths` function L251-271 — `()` — - Verifying signatures
--  `test_compute_package_hash` function L274-284 — `()` — - Verifying signatures
+- pub `compute_package_hash` function L181-186 — `(data: &[u8]) -> String` — Computes the SHA256 hash of package data.
+-  `tests` module L189-286 — `-` — - Verifying signatures
+-  `test_generate_keypair` function L193-199 — `()` — - Verifying signatures
+-  `test_sign_and_verify` function L202-213 — `()` — - Verifying signatures
+-  `test_verify_wrong_key_fails` function L216-226 — `()` — - Verifying signatures
+-  `test_verify_tampered_data_fails` function L229-239 — `()` — - Verifying signatures
+-  `test_fingerprint_is_deterministic` function L242-249 — `()` — - Verifying signatures
+-  `test_invalid_key_lengths` function L252-272 — `()` — - Verifying signatures
+-  `test_compute_package_hash` function L275-285 — `()` — - Verifying signatures
 
 ### crates/cloacina/src/dal/filesystem_dal
 
@@ -1137,7 +1135,7 @@
 
 #### crates/cloacina/src/dal/unified/workflow_registry.rs
 
-- pub `WorkflowRegistryDAL` struct L23-25 — `{ dal: &'a DAL }` — Data access layer for workflow registry operations.
+- pub `WorkflowRegistryDAL` struct L23-25 — `{ _dal: &'a DAL }` — Data access layer for workflow registry operations.
 - pub `new` function L29-31 — `(dal: &'a DAL) -> Self` — Creates a new WorkflowRegistryDAL instance.
 
 #### crates/cloacina/src/dal/unified/workflow_registry_storage.rs
@@ -1822,30 +1820,30 @@
 #### crates/cloacina/src/dispatcher/work_distributor.rs
 
 - pub `WorkDistributor` interface L56-71 — `{ fn wait_for_work(), fn shutdown() }` — Trait for abstracting work notification mechanisms.
-- pub `PostgresDistributor` struct L85-94 — `{ database_url: String, notify: Arc<Notify>, shutdown: Arc<std::sync::atomic::At...` — PostgreSQL work distributor using LISTEN/NOTIFY.
-- pub `new` function L113-128 — `(database_url: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>` — Creates a new PostgreSQL work distributor.
-- pub `SqliteDistributor` struct L257-264 — `{ poll_interval: Duration, shutdown: Arc<std::sync::atomic::AtomicBool>, notify:...` — SQLite work distributor using periodic polling.
-- pub `new` function L272-274 — `() -> Self` — Creates a new SQLite work distributor with default poll interval (500ms).
-- pub `with_poll_interval` function L281-287 — `(poll_interval: Duration) -> Self` — Creates a new SQLite work distributor with custom poll interval.
-- pub `create_work_distributor` function L331-346 — `( database: &crate::Database, ) -> Result<Box<dyn WorkDistributor>, Box<dyn std:...` — Creates the appropriate work distributor based on database backend.
--  `PostgresDistributor` type L97-218 — `= PostgresDistributor` — ```
--  `POLL_FALLBACK` variable L99 — `: Duration` — Fallback poll interval when no notifications received
--  `spawn_listener` function L131-217 — `( database_url: String, notify: Arc<Notify>, shutdown: Arc<std::sync::atomic::At...` — Spawns the background listener task.
--  `PostgresDistributor` type L222-240 — `impl WorkDistributor for PostgresDistributor` — ```
--  `wait_for_work` function L223-233 — `(&self)` — ```
--  `shutdown` function L235-239 — `(&self)` — ```
--  `PostgresDistributor` type L243-250 — `impl Drop for PostgresDistributor` — ```
--  `drop` function L244-249 — `(&mut self)` — ```
--  `SqliteDistributor` type L267-288 — `= SqliteDistributor` — ```
--  `DEFAULT_POLL_INTERVAL` variable L269 — `: Duration` — Default poll interval for SQLite
--  `SqliteDistributor` type L291-295 — `impl Default for SqliteDistributor` — ```
--  `default` function L292-294 — `() -> Self` — ```
--  `SqliteDistributor` type L299-320 — `impl WorkDistributor for SqliteDistributor` — ```
--  `wait_for_work` function L300-313 — `(&self)` — ```
--  `shutdown` function L315-319 — `(&self)` — ```
--  `tests` module L349-388 — `-` — ```
--  `test_sqlite_distributor_poll_interval` function L354-364 — `()` — ```
--  `test_sqlite_distributor_shutdown` function L368-387 — `()` — ```
+- pub `PostgresDistributor` struct L85-95 — `{ database_url: String, notify: Arc<Notify>, shutdown: Arc<std::sync::atomic::At...` — PostgreSQL work distributor using LISTEN/NOTIFY.
+- pub `new` function L114-129 — `(database_url: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>` — Creates a new PostgreSQL work distributor.
+- pub `SqliteDistributor` struct L258-265 — `{ poll_interval: Duration, shutdown: Arc<std::sync::atomic::AtomicBool>, notify:...` — SQLite work distributor using periodic polling.
+- pub `new` function L273-275 — `() -> Self` — Creates a new SQLite work distributor with default poll interval (500ms).
+- pub `with_poll_interval` function L282-288 — `(poll_interval: Duration) -> Self` — Creates a new SQLite work distributor with custom poll interval.
+- pub `create_work_distributor` function L332-347 — `( database: &crate::Database, ) -> Result<Box<dyn WorkDistributor>, Box<dyn std:...` — Creates the appropriate work distributor based on database backend.
+-  `PostgresDistributor` type L98-219 — `= PostgresDistributor` — ```
+-  `POLL_FALLBACK` variable L100 — `: Duration` — Fallback poll interval when no notifications received
+-  `spawn_listener` function L132-218 — `( database_url: String, notify: Arc<Notify>, shutdown: Arc<std::sync::atomic::At...` — Spawns the background listener task.
+-  `PostgresDistributor` type L223-241 — `impl WorkDistributor for PostgresDistributor` — ```
+-  `wait_for_work` function L224-234 — `(&self)` — ```
+-  `shutdown` function L236-240 — `(&self)` — ```
+-  `PostgresDistributor` type L244-251 — `impl Drop for PostgresDistributor` — ```
+-  `drop` function L245-250 — `(&mut self)` — ```
+-  `SqliteDistributor` type L268-289 — `= SqliteDistributor` — ```
+-  `DEFAULT_POLL_INTERVAL` variable L270 — `: Duration` — Default poll interval for SQLite
+-  `SqliteDistributor` type L292-296 — `impl Default for SqliteDistributor` — ```
+-  `default` function L293-295 — `() -> Self` — ```
+-  `SqliteDistributor` type L300-321 — `impl WorkDistributor for SqliteDistributor` — ```
+-  `wait_for_work` function L301-314 — `(&self)` — ```
+-  `shutdown` function L316-320 — `(&self)` — ```
+-  `tests` module L350-389 — `-` — ```
+-  `test_sqlite_distributor_poll_interval` function L355-365 — `()` — ```
+-  `test_sqlite_distributor_shutdown` function L369-388 — `()` — ```
 
 ### crates/cloacina/src/executor
 
@@ -1902,21 +1900,21 @@
 - pub `return_task_handle` function L79-83 — `(handle: TaskHandle)` — Returns a `TaskHandle` to task-local storage after the user function completes.
 - pub `with_task_handle` function L89-100 — `(handle: TaskHandle, f: F) -> (T, Option<TaskHandle>)` — Runs an async future with a `TaskHandle` available in task-local storage.
 - pub `TaskHandle` struct L110-114 — `{ slot_token: SlotToken, task_execution_id: UniversalUuid, dal: Option<DAL> }` — Execution control handle passed to tasks that need concurrency management.
-- pub `defer_until` function L162-227 — `( &mut self, condition: F, poll_interval: Duration, ) -> Result<(), ExecutorErro...` — Release the concurrency slot while polling an external condition.
-- pub `task_execution_id` function L230-232 — `(&self) -> UniversalUuid` — Returns the task execution ID associated with this handle.
-- pub `is_slot_held` function L235-237 — `(&self) -> bool` — Returns whether the handle currently holds a concurrency slot.
--  `TaskHandle` type L116-246 — `= TaskHandle` — ```
--  `new` function L120-126 — `(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self` — Creates a new TaskHandle.
--  `with_dal` function L129-139 — `( slot_token: SlotToken, task_execution_id: UniversalUuid, dal: DAL, ) -> Self` — Creates a new TaskHandle with DAL for sub_status persistence.
--  `into_slot_token` function L243-245 — `(self) -> SlotToken` — Consumes the handle, returning the inner SlotToken.
--  `tests` module L249-410 — `-` — ```
--  `make_handle` function L255-262 — `(semaphore: &Arc<Semaphore>) -> TaskHandle` — ```
--  `test_defer_until_releases_and_reclaims_slot` function L265-293 — `()` — ```
--  `test_defer_until_immediate_condition` function L296-307 — `()` — ```
--  `test_defer_until_frees_slot_for_other_tasks` function L310-341 — `()` — ```
--  `test_task_local_round_trip` function L344-366 — `()` — ```
--  `test_task_local_not_returned_yields_none` function L369-384 — `()` — ```
--  `test_with_task_handle_preserves_handle_through_defer` function L387-409 — `()` — ```
+- pub `defer_until` function L163-228 — `( &mut self, condition: F, poll_interval: Duration, ) -> Result<(), ExecutorErro...` — Release the concurrency slot while polling an external condition.
+- pub `task_execution_id` function L231-233 — `(&self) -> UniversalUuid` — Returns the task execution ID associated with this handle.
+- pub `is_slot_held` function L236-238 — `(&self) -> bool` — Returns whether the handle currently holds a concurrency slot.
+-  `TaskHandle` type L116-248 — `= TaskHandle` — ```
+-  `new` function L121-127 — `(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self` — Creates a new TaskHandle.
+-  `with_dal` function L130-140 — `( slot_token: SlotToken, task_execution_id: UniversalUuid, dal: DAL, ) -> Self` — Creates a new TaskHandle with DAL for sub_status persistence.
+-  `into_slot_token` function L245-247 — `(self) -> SlotToken` — Consumes the handle, returning the inner SlotToken.
+-  `tests` module L251-412 — `-` — ```
+-  `make_handle` function L257-264 — `(semaphore: &Arc<Semaphore>) -> TaskHandle` — ```
+-  `test_defer_until_releases_and_reclaims_slot` function L267-295 — `()` — ```
+-  `test_defer_until_immediate_condition` function L298-309 — `()` — ```
+-  `test_defer_until_frees_slot_for_other_tasks` function L312-343 — `()` — ```
+-  `test_task_local_round_trip` function L346-368 — `()` — ```
+-  `test_task_local_not_returned_yields_none` function L371-386 — `()` — ```
+-  `test_with_task_handle_preserves_handle_through_defer` function L389-411 — `()` — ```
 
 #### crates/cloacina/src/executor/thread_task_executor.rs
 
@@ -1924,25 +1922,25 @@
 - pub `new` function L100-118 — `( database: Database, task_registry: Arc<TaskRegistry>, config: ExecutorConfig, ...` — Creates a new ThreadTaskExecutor instance.
 - pub `with_global_registry` function L131-145 — `( database: Database, config: ExecutorConfig, ) -> Result<Self, crate::error::Re...` — Creates a TaskExecutor using the global task registry.
 - pub `semaphore` function L151-153 — `(&self) -> &Arc<Semaphore>` — Returns a reference to the concurrency semaphore.
--  `ThreadTaskExecutor` type L90-660 — `= ThreadTaskExecutor` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L90-662 — `= ThreadTaskExecutor` — to the executor based on routing rules.
 -  `build_task_context` function L163-284 — `( &self, claimed_task: &ClaimedTask, dependencies: &[crate::task::TaskNamespace]...` — Builds the execution context for a task by loading its dependencies.
 -  `merge_context_values` function L298-333 — `( existing: &serde_json::Value, new: &serde_json::Value, ) -> serde_json::Value` — Merges two context values using smart merging strategy.
 -  `execute_with_timeout` function L343-352 — `( &self, task: &dyn Task, context: Context<serde_json::Value>, ) -> Result<Conte...` — Executes a task with timeout protection.
--  `handle_task_result` function L368-414 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
--  `save_task_context` function L424-454 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
--  `mark_task_completed` function L463-484 — `( &self, task_execution_id: UniversalUuid, ) -> Result<(), ExecutorError>` — Marks a task as completed in the database.
--  `complete_task_transaction` function L497-510 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Completes a task by saving its context and marking it as completed in a single transaction.
--  `mark_task_failed` function L520-543 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
--  `should_retry_task` function L559-596 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
--  `is_transient_error` function L605-622 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
--  `schedule_task_retry` function L632-659 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
--  `ThreadTaskExecutor` type L662-676 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
--  `clone` function L663-675 — `(&self) -> Self` — to the executor based on routing rules.
--  `ThreadTaskExecutor` type L683-965 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
--  `execute` function L684-944 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
--  `has_capacity` function L946-948 — `(&self) -> bool` — to the executor based on routing rules.
--  `metrics` function L950-960 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
--  `name` function L962-964 — `(&self) -> &str` — to the executor based on routing rules.
+-  `handle_task_result` function L369-415 — `( &self, claimed_task: ClaimedTask, result: Result<Context<serde_json::Value>, E...` — Handles the result of task execution.
+-  `save_task_context` function L425-455 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Saves the task's execution context to the database.
+-  `mark_task_completed` function L464-485 — `( &self, task_execution_id: UniversalUuid, ) -> Result<(), ExecutorError>` — Marks a task as completed in the database.
+-  `complete_task_transaction` function L498-511 — `( &self, claimed_task: &ClaimedTask, context: Context<serde_json::Value>, ) -> R...` — Completes a task by saving its context and marking it as completed in a single transaction.
+-  `mark_task_failed` function L522-545 — `( &self, task_execution_id: UniversalUuid, error: &ExecutorError, ) -> Result<()...` — Marks a task as failed in the database.
+-  `should_retry_task` function L561-598 — `( &self, claimed_task: &ClaimedTask, error: &ExecutorError, retry_policy: &Retry...` — Determines if a failed task should be retried.
+-  `is_transient_error` function L607-624 — `(&self, error: &ExecutorError) -> bool` — Determines if an error is transient and potentially retryable.
+-  `schedule_task_retry` function L634-661 — `( &self, claimed_task: &ClaimedTask, retry_policy: &RetryPolicy, ) -> Result<(),...` — Schedules a task for retry execution.
+-  `ThreadTaskExecutor` type L664-678 — `impl Clone for ThreadTaskExecutor` — to the executor based on routing rules.
+-  `clone` function L665-677 — `(&self) -> Self` — to the executor based on routing rules.
+-  `ThreadTaskExecutor` type L685-967 — `impl TaskExecutor for ThreadTaskExecutor` — Implementation of the dispatcher's TaskExecutor trait.
+-  `execute` function L686-946 — `(&self, event: TaskReadyEvent) -> Result<ExecutionResult, DispatchError>` — to the executor based on routing rules.
+-  `has_capacity` function L948-950 — `(&self) -> bool` — to the executor based on routing rules.
+-  `metrics` function L952-962 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
+-  `name` function L964-966 — `(&self) -> &str` — to the executor based on routing rules.
 
 #### crates/cloacina/src/executor/types.rs
 
@@ -2206,20 +2204,20 @@
 
 - pub `ManifestError` enum L45-92 — `NullPointer | MisalignedPointer | NullString | InvalidUtf8 | InvalidDependencies...` — Errors that can occur during manifest extraction from FFI.
 - pub `generate_manifest` function L204-283 — `( cargo_toml: &CargoToml, so_path: &Path, target: &Option<String>, project_path:...` — Generate a package manifest from Cargo.toml and compiled library.
--  `MAX_TASKS` variable L31 — `: usize` — Maximum number of tasks allowed in a single package.
--  `PACKAGED_WORKFLOW_REGEX` variable L35-38 — `: Lazy<Regex>` — Statically compiled regex for matching packaged_workflow attributes.
+-  `MAX_TASKS` variable L30 — `: usize` — Maximum number of tasks allowed in a single package.
+-  `PACKAGED_WORKFLOW_REGEX` variable L35-38 — `: Lazy<Regex>` — Statically compiled regex for matching workflow attributes.
 -  `safe_cstr_to_string` function L108-124 — `( ptr: *const c_char, field_name: &str, ) -> Result<String, ManifestError>` — Safely converts a C string pointer to a Rust String.
 -  `safe_cstr_to_option_string` function L135-149 — `( ptr: *const c_char, field_name: &str, ) -> Result<Option<String>, ManifestErro...` — Safely converts a C string pointer to an optional Rust String.
 -  `validate_ptr` function L156-168 — `( ptr: *const T, field_name: &'static str, ) -> Result<&'a T, ManifestError>` — Validates and dereferences a pointer to a type T.
 -  `validate_slice` function L175-198 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
--  `PackageMetadata` struct L287-291 — `{ description: Option<String>, author: Option<String>, workflow_fingerprint: Opt...` — Package metadata extracted from the FFI
--  `FfiTaskInfo` struct L295-301 — `{ index: u32, id: String, dependencies: Vec<String>, description: String, source...` — Task information extracted from a cdylib via FFI (internal type).
+-  `PackageMetadata` struct L287-291 — `{ description: Option<String>, _author: Option<String>, workflow_fingerprint: Op...` — Package metadata extracted from the FFI
+-  `FfiTaskInfo` struct L295-301 — `{ _index: u32, id: String, dependencies: Vec<String>, description: String, _sour...` — Task information extracted from a cdylib via FFI (internal type).
 -  `extract_task_info_and_graph_from_library` function L304-473 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
 -  `CTaskMetadata` struct L315-322 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
 -  `CPackageTasks` struct L326-334 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
 -  `extract_package_names_from_source` function L476-500 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
 -  `get_current_platform` function L502-514 — `() -> String`
--  `get_current_architecture` function L517-519 — `() -> String` — Kept for backward compatibility with external callers.
+-  `get_current_architecture` function L518-520 — `() -> String` — Kept for backward compatibility with external callers.
 
 #### crates/cloacina/src/packaging/manifest_schema.rs
 
@@ -2331,8 +2329,8 @@
 - pub `validate_rust_crate_structure` function L25-44 — `(project_path: &PathBuf) -> Result<()>` — Validate that the project has a valid Rust crate structure
 - pub `validate_cargo_toml` function L47-71 — `(project_path: &Path) -> Result<CargoToml>` — Parse and validate Cargo.toml
 - pub `validate_cloacina_compatibility` function L77-94 — `(cargo_toml: &CargoToml) -> Result<()>` — Validate cloacina dependency compatibility.
-- pub `validate_packaged_workflow_presence` function L97-144 — `(project_path: &Path) -> Result<()>` — Check for packaged_workflow macros in the source code
-- pub `validate_rust_version_compatibility` function L147-169 — `(cargo_toml: &CargoToml) -> Result<()>` — Validate Rust version compatibility
+- pub `validate_packaged_workflow_presence` function L99-128 — `(project_path: &Path) -> Result<()>` — Check for workflow macros in the source code.
+- pub `validate_rust_version_compatibility` function L131-153 — `(cargo_toml: &CargoToml) -> Result<()>` — Validate Rust version compatibility
 
 ### crates/cloacina/src/python/bindings
 
@@ -3299,7 +3297,7 @@
 -  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
 -  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
 -  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
--  `start_stale_claim_sweeper` function L416-460 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the stale claim sweeper background service.
+-  `start_stale_claim_sweeper` function L416-460 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
 
 ### crates/cloacina/src/runner
 
@@ -3573,14 +3571,14 @@
 #### crates/cloacina/src/task_scheduler/scheduler_loop.rs
 
 - pub `SchedulerLoop` struct L40-46 — `{ dal: &'a DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<A...` — Scheduler loop operations.
-- pub `new` function L50-57 — `(dal: &'a DAL, instance_id: Uuid, poll_interval: Duration) -> Self` — Creates a new SchedulerLoop.
-- pub `with_dispatcher` function L60-72 — `( dal: &'a DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<A...` — Creates a new SchedulerLoop with an optional dispatcher.
-- pub `run` function L81-96 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
-- pub `process_active_pipelines` function L99-123 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
--  `process_pipelines_batch` function L131-182 — `( &self, active_executions: Vec<PipelineExecution>, ) -> Result<(), ValidationEr...` — Processes multiple pipelines in batch for better performance.
--  `dispatch_ready_tasks` function L189-217 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
--  `complete_pipeline` function L220-255 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
--  `update_pipeline_final_context` function L262-319 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
+- pub `new` function L51-58 — `(dal: &'a DAL, instance_id: Uuid, poll_interval: Duration) -> Self` — Creates a new SchedulerLoop.
+- pub `with_dispatcher` function L61-73 — `( dal: &'a DAL, instance_id: Uuid, poll_interval: Duration, dispatcher: Option<A...` — Creates a new SchedulerLoop with an optional dispatcher.
+- pub `run` function L82-97 — `(&self) -> Result<(), ValidationError>` — Runs the main scheduling loop that continuously processes active pipeline executions.
+- pub `process_active_pipelines` function L100-124 — `(&self) -> Result<(), ValidationError>` — Processes all active pipeline executions to update task readiness.
+-  `process_pipelines_batch` function L132-183 — `( &self, active_executions: Vec<PipelineExecution>, ) -> Result<(), ValidationEr...` — Processes multiple pipelines in batch for better performance.
+-  `dispatch_ready_tasks` function L190-218 — `(&self) -> Result<(), ValidationError>` — Dispatches all Ready tasks to the executor.
+-  `complete_pipeline` function L221-256 — `( &self, execution: &PipelineExecution, ) -> Result<(), ValidationError>` — Completes a pipeline by updating its final context and marking it as completed.
+-  `update_pipeline_final_context` function L263-320 — `( &self, pipeline_execution_id: UniversalUuid, all_tasks: &[TaskExecution], ) ->...` — Updates the pipeline's final context when it completes.
 
 #### crates/cloacina/src/task_scheduler/stale_claim_sweeper.rs
 
@@ -3616,36 +3614,36 @@
 
 - pub `registry` module L51 — `-` — # Trigger System
 - pub `TriggerError` enum L65-89 — `PollError | ContextError | TriggerNotFound | Database | ConnectionPool | Workflo...` — Errors that can occur during trigger operations.
-- pub `TriggerResult` enum L117-126 — `Skip | Fire` — Result of a trigger poll operation.
-- pub `should_fire` function L139-141 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
-- pub `into_context` function L144-149 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
-- pub `context_hash` function L155-168 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
-- pub `TriggerConfig` struct L176-191 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
-- pub `new` function L195-203 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
-- pub `with_allow_concurrent` function L206-209 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
-- pub `with_enabled` function L212-215 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
-- pub `Trigger` interface L277-298 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
+- pub `TriggerResult` enum L115-124 — `Skip | Fire` — Result of a trigger poll operation.
+- pub `should_fire` function L137-139 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
+- pub `into_context` function L142-147 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
+- pub `context_hash` function L153-166 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
+- pub `TriggerConfig` struct L174-189 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
+- pub `new` function L193-201 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
+- pub `with_allow_concurrent` function L204-207 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
+- pub `with_enabled` function L210-213 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
+- pub `Trigger` interface L275-296 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
 -  `TriggerError` type L91-95 — `= TriggerError` — ```
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — ```
--  `TriggerError` type L97-110 — `= TriggerError` — ```
--  `from` function L98-109 — `(err: cloacina_workflow::TriggerError) -> Self` — ```
--  `TriggerResult` type L128-135 — `= TriggerResult` — ```
--  `from` function L129-134 — `(r: cloacina_workflow::TriggerResult) -> Self` — ```
--  `TriggerResult` type L137-169 — `= TriggerResult` — ```
--  `TriggerConfig` type L193-216 — `= TriggerConfig` — ```
--  `tests` module L307-422 — `-` — ```
--  `TestTrigger` struct L311-314 — `{ name: String, should_fire: bool }` — ```
--  `TestTrigger` type L317-337 — `impl Trigger for TestTrigger` — ```
--  `name` function L318-320 — `(&self) -> &str` — ```
--  `poll_interval` function L322-324 — `(&self) -> Duration` — ```
--  `allow_concurrent` function L326-328 — `(&self) -> bool` — ```
--  `poll` function L330-336 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
--  `test_trigger_result_should_fire` function L340-344 — `()` — ```
--  `test_trigger_result_into_context` function L347-354 — `()` — ```
--  `test_trigger_result_context_hash` function L357-381 — `()` — ```
--  `test_trigger_config` function L384-395 — `()` — ```
--  `test_trigger_trait` function L398-410 — `()` — ```
--  `test_trigger_fires` function L413-421 — `()` — ```
+-  `TriggerError` type L97-108 — `= TriggerError` — ```
+-  `from` function L98-107 — `(err: cloacina_workflow::TriggerError) -> Self` — ```
+-  `TriggerResult` type L126-133 — `= TriggerResult` — ```
+-  `from` function L127-132 — `(r: cloacina_workflow::TriggerResult) -> Self` — ```
+-  `TriggerResult` type L135-167 — `= TriggerResult` — ```
+-  `TriggerConfig` type L191-214 — `= TriggerConfig` — ```
+-  `tests` module L305-420 — `-` — ```
+-  `TestTrigger` struct L309-312 — `{ name: String, should_fire: bool }` — ```
+-  `TestTrigger` type L315-335 — `impl Trigger for TestTrigger` — ```
+-  `name` function L316-318 — `(&self) -> &str` — ```
+-  `poll_interval` function L320-322 — `(&self) -> Duration` — ```
+-  `allow_concurrent` function L324-326 — `(&self) -> bool` — ```
+-  `poll` function L328-334 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
+-  `test_trigger_result_should_fire` function L338-342 — `()` — ```
+-  `test_trigger_result_into_context` function L345-352 — `()` — ```
+-  `test_trigger_result_context_hash` function L355-379 — `()` — ```
+-  `test_trigger_config` function L382-393 — `()` — ```
+-  `test_trigger_trait` function L396-408 — `()` — ```
+-  `test_trigger_fires` function L411-419 — `()` — ```
 
 #### crates/cloacina/src/trigger/registry.rs
 
@@ -4079,19 +4077,19 @@
 
 #### crates/cloacina/tests/integration/unified_workflow.rs
 
-- pub `unified_test_workflow` module L29-52 — `-` — Integration test for the unified #[workflow] macro (embedded mode).
-- pub `step_one` function L33-38 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
-- pub `step_two` function L41-51 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
-- pub `test_trigger` function L89-91 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
-- pub `my_trigger_fn` function L103-105 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_workflow_executes_sqlite` function L56-82 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_trigger_registered` function L94-100 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_trigger_custom_name` function L108-113 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `nightly_job` function L118 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_cron_trigger_registered` function L121-126 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `frequent_check` function L129 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_cron_trigger_custom_name` function L132-137 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
--  `test_cron_trigger_poll_returns_result` function L140-150 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `unified_test_workflow` module L29-48 — `-` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `step_one` function L33-36 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `step_two` function L39-47 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `test_trigger` function L85-87 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
+- pub `my_trigger_fn` function L104-106 — `() -> Result<TriggerResult, TriggerError>` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_workflow_executes_sqlite` function L52-78 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_trigger_registered` function L90-96 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_trigger_custom_name` function L109-114 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `nightly_job` function L119 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_registered` function L122-127 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `frequent_check` function L134 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_custom_name` function L137-142 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+-  `test_cron_trigger_poll_returns_result` function L145-155 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
 
 ### crates/cloacina/tests/integration/dal
 
@@ -4550,17 +4548,17 @@
 
 #### crates/cloacina/tests/integration/workflow/macro_test.rs
 
-- pub `document_processing` module L25-51 — `-`
-- pub `fetch_document` function L29-31 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `extract_text` function L34-36 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `generate_embeddings` function L39-43 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
-- pub `store_embeddings` function L46-50 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
-- pub `parallel_execution` module L77-94 — `-`
-- pub `task_a` function L81-83 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `task_b` function L86-88 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `task_c` function L91-93 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
--  `test_workflow_macro_basic` function L54-74 — `()`
--  `test_workflow_execution_levels` function L97-112 — `()`
+- pub `document_processing` module L25-53 — `-`
+- pub `fetch_document` function L29-33 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `extract_text` function L36-38 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `generate_embeddings` function L41-45 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `store_embeddings` function L48-52 — `( _context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `parallel_execution` module L79-96 — `-`
+- pub `task_a` function L83-85 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `task_b` function L88-90 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `task_c` function L93-95 — `(_context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+-  `test_workflow_macro_basic` function L56-76 — `()`
+-  `test_workflow_execution_levels` function L99-114 — `()`
 
 #### crates/cloacina/tests/integration/workflow/mod.rs
 
@@ -4601,7 +4599,6 @@
 - pub `task` function L56-58 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a task with retry policies and trigger rules.
 - pub `workflow` function L83-85 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a workflow as a module containing `#[task]` functions.
 - pub `trigger` function L104-106 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Define a trigger that fires a workflow on a schedule or condition.
-- pub `packaged_workflow` function L110-112 — `(args: TokenStream, input: TokenStream) -> TokenStream` — **Deprecated**: Use `#[workflow]` with `features = ["packaged"]` instead.
 -  `packaged_workflow` module L46 — `-` — # Cloacina Macros
 -  `registry` module L47 — `-` — ```
 -  `tasks` module L48 — `-` — ```
@@ -4612,44 +4609,44 @@
 
 - pub `TaskMetadata` struct L34-45 — `{ local_id: *const std::os::raw::c_char, namespaced_id_template: *const std::os:...` — C-compatible task metadata structure for FFI
 - pub `TaskMetadataCollection` struct L55-64 — `{ task_count: u32, tasks: *const TaskMetadata, workflow_name: *const std::os::ra...` — C-compatible collection of task metadata for FFI
-- pub `PackagedWorkflowAttributes` struct L79-85 — `{ name: String, package: String, tenant: String, description: Option<String>, au...` — Attributes for the packaged_workflow macro
-- pub `detect_package_cycles` function L171-203 — `( task_dependencies: &HashMap<String, Vec<String>>, ) -> Result<(), String>` — Detect circular dependencies within a package's task dependencies
-- pub `calculate_levenshtein_distance` function L273-308 — `(a: &str, b: &str) -> usize`
-- pub `find_similar_package_task_names` function L320-333 — `(target: &str, available: &[String]) -> Vec<String>` — Find task names similar to the given name for typo suggestions in packaged workflows
-- pub `build_package_graph_data` function L347-423 — `( detected_tasks: &HashMap<String, syn::Ident>, task_dependencies: &HashMap<Stri...` — Build graph data structure for a packaged workflow
-- pub `generate_packaged_workflow_impl` function L497-1217 — `( attrs: PackagedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate packaged workflow implementation
-- pub `packaged_workflow` function L1257-1289 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The packaged_workflow macro for creating distributable workflow packages
+- pub `PackagedWorkflowAttributes` struct L80-86 — `{ name: String, package: String, tenant: String, description: Option<String>, au...` — Attributes for the packaged_workflow macro
+- pub `detect_package_cycles` function L172-204 — `( task_dependencies: &HashMap<String, Vec<String>>, ) -> Result<(), String>` — Detect circular dependencies within a package's task dependencies
+- pub `calculate_levenshtein_distance` function L274-309 — `(a: &str, b: &str) -> usize`
+- pub `find_similar_package_task_names` function L321-334 — `(target: &str, available: &[String]) -> Vec<String>` — Find task names similar to the given name for typo suggestions in packaged workflows
+- pub `build_package_graph_data` function L348-424 — `( detected_tasks: &HashMap<String, syn::Ident>, task_dependencies: &HashMap<Stri...` — Build graph data structure for a packaged workflow
+- pub `generate_packaged_workflow_impl` function L499-1219 — `( attrs: PackagedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate packaged workflow implementation
+- pub `packaged_workflow` function L1260-1292 — `(args: TokenStream, input: TokenStream) -> TokenStream` — The packaged_workflow macro for creating distributable workflow packages
 -  `TaskMetadata` type L48 — `impl Send for TaskMetadata`
 -  `TaskMetadata` type L49 — `impl Sync for TaskMetadata`
 -  `TaskMetadataCollection` type L67 — `impl Send for TaskMetadataCollection`
 -  `TaskMetadataCollection` type L68 — `impl Sync for TaskMetadataCollection`
--  `PackagedWorkflowAttributes` type L87-155 — `impl Parse for PackagedWorkflowAttributes`
--  `parse` function L88-154 — `(input: ParseStream) -> SynResult<Self>`
--  `dfs_package_cycle_detection` function L219-257 — `( task_id: &str, task_dependencies: &HashMap<String, Vec<String>>, visited: &mut...` — Depth-first search implementation for package-level cycle detection
--  `calculate_max_depth` function L432-441 — `(task_dependencies: &HashMap<String, Vec<String>>) -> usize` — Calculate the maximum depth in the task dependency graph
--  `calculate_task_depth` function L452-477 — `( task_id: &str, task_dependencies: &HashMap<String, Vec<String>>, visited: &mut...` — Calculate the depth of a specific task in the dependency graph
+-  `PackagedWorkflowAttributes` type L88-156 — `impl Parse for PackagedWorkflowAttributes`
+-  `parse` function L89-155 — `(input: ParseStream) -> SynResult<Self>`
+-  `dfs_package_cycle_detection` function L220-258 — `( task_id: &str, task_dependencies: &HashMap<String, Vec<String>>, visited: &mut...` — Depth-first search implementation for package-level cycle detection
+-  `calculate_max_depth` function L433-442 — `(task_dependencies: &HashMap<String, Vec<String>>) -> usize` — Calculate the maximum depth in the task dependency graph
+-  `calculate_task_depth` function L453-478 — `( task_id: &str, task_dependencies: &HashMap<String, Vec<String>>, visited: &mut...` — Calculate the depth of a specific task in the dependency graph
 
 #### crates/cloacina-macros/src/registry.rs
 
 - pub `TaskInfo` struct L41-48 — `{ id: String, dependencies: Vec<String>, file_path: String }` — Information about a registered task
 - pub `CompileTimeTaskRegistry` struct L53-58 — `{ tasks: HashMap<String, TaskInfo>, dependency_graph: HashMap<String, Vec<String...` — Registry that maintains task information and dependency relationships
-- pub `new` function L62-67 — `() -> Self` — Creates a new empty task registry
-- pub `register_task` function L77-97 — `(&mut self, task_info: TaskInfo) -> Result<(), CompileTimeError>` — Register a task in the compile-time registry
-- pub `validate_dependencies` function L108-143 — `(&self, task_id: &str) -> Result<(), CompileTimeError>` — Validate that all dependencies for a task exist in the registry
-- pub `validate_single_dependency` function L154-163 — `(&self, dependency: &str) -> Result<(), CompileTimeError>` — Validate that a single dependency exists in the registry
-- pub `detect_cycles` function L170-194 — `(&self) -> Result<(), CompileTimeError>` — Detect circular dependencies in the task graph using Tarjan's algorithm
-- pub `get_all_task_ids` function L250-252 — `(&self) -> Vec<String>` — Get all registered task IDs
-- pub `clear` function L258-261 — `(&mut self)` — Clear the registry
-- pub `size` function L265-267 — `(&self) -> usize` — Get the current number of registered tasks
-- pub `CompileTimeError` enum L272-300 — `DuplicateTaskId | MissingDependency | CircularDependency | TaskNotFound` — Errors that can occur during compile-time task validation
-- pub `to_compile_error` function L307-371 — `(&self) -> TokenStream` — Convert the error into a compile-time error token stream
-- pub `get_registry` function L377-379 — `() -> &'static Lazy<Mutex<CompileTimeTaskRegistry>>` — Get the global compile-time registry instance
+- pub `new` function L63-68 — `() -> Self` — Creates a new empty task registry
+- pub `register_task` function L78-98 — `(&mut self, task_info: TaskInfo) -> Result<(), CompileTimeError>` — Register a task in the compile-time registry
+- pub `validate_dependencies` function L109-144 — `(&self, task_id: &str) -> Result<(), CompileTimeError>` — Validate that all dependencies for a task exist in the registry
+- pub `validate_single_dependency` function L155-164 — `(&self, dependency: &str) -> Result<(), CompileTimeError>` — Validate that a single dependency exists in the registry
+- pub `detect_cycles` function L171-195 — `(&self) -> Result<(), CompileTimeError>` — Detect circular dependencies in the task graph using Tarjan's algorithm
+- pub `get_all_task_ids` function L251-253 — `(&self) -> Vec<String>` — Get all registered task IDs
+- pub `clear` function L259-262 — `(&mut self)` — Clear the registry
+- pub `size` function L266-268 — `(&self) -> usize` — Get the current number of registered tasks
+- pub `CompileTimeError` enum L274-302 — `DuplicateTaskId | MissingDependency | CircularDependency | TaskNotFound` — Errors that can occur during compile-time task validation
+- pub `to_compile_error` function L309-373 — `(&self) -> TokenStream` — Convert the error into a compile-time error token stream
+- pub `get_registry` function L379-381 — `() -> &'static Lazy<Mutex<CompileTimeTaskRegistry>>` — Get the global compile-time registry instance
 -  `COMPILE_TIME_TASK_REGISTRY` variable L36-37 — `: Lazy<Mutex<CompileTimeTaskRegistry>>` — Global compile-time registry instance for task tracking
--  `CompileTimeTaskRegistry` type L60-268 — `= CompileTimeTaskRegistry` — for thread-safe access during compilation.
--  `dfs_cycle_detection` function L207-242 — `( &self, task_id: &str, visited: &mut HashMap<String, bool>, rec_stack: &mut Has...` — Depth-first search implementation for cycle detection
--  `CompileTimeError` type L302-372 — `= CompileTimeError` — for thread-safe access during compilation.
--  `find_similar_task_names` function L391-404 — `(target: &str, available: &[String]) -> Vec<String>` — Find task names similar to the given name for typo suggestions
--  `levenshtein_distance` function L417-452 — `(a: &str, b: &str) -> usize` — Calculate the Levenshtein distance between two strings
+-  `CompileTimeTaskRegistry` type L61-269 — `= CompileTimeTaskRegistry` — for thread-safe access during compilation.
+-  `dfs_cycle_detection` function L208-243 — `( &self, task_id: &str, visited: &mut HashMap<String, bool>, rec_stack: &mut Has...` — Depth-first search implementation for cycle detection
+-  `CompileTimeError` type L304-374 — `= CompileTimeError` — for thread-safe access during compilation.
+-  `find_similar_task_names` function L393-406 — `(target: &str, available: &[String]) -> Vec<String>` — Find task names similar to the given name for typo suggestions
+-  `levenshtein_distance` function L419-454 — `(a: &str, b: &str) -> usize` — Calculate the Levenshtein distance between two strings
 
 #### crates/cloacina-macros/src/tasks.rs
 
@@ -4672,25 +4669,25 @@
 #### crates/cloacina-macros/src/trigger_attr.rs
 
 - pub `TriggerAttributes` struct L37-44 — `{ on: String, poll_interval: Option<String>, cron: Option<String>, timezone: Opt...` — Attributes for the `#[trigger]` macro.
-- pub `trigger_attr` function L130-165 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[trigger]` attribute macro.
+- pub `trigger_attr` function L130-168 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[trigger]` attribute macro.
 -  `TriggerAttributes` type L46-127 — `impl Parse for TriggerAttributes` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
 -  `parse` function L47-126 — `(input: ParseStream) -> SynResult<Self>` — - **Cron**: `cron` parameter, no function body — framework provides poll logic (T-0305)
--  `parse_duration_ms` function L168-191 — `(s: &str) -> Result<u64, String>` — Parse a duration string like "100ms", "5s", "2m", "1h" into milliseconds.
--  `generate_custom_trigger` function L194-286 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
--  `generate_cron_trigger` function L289-397 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
--  `validate_cron_expression` function L400-422 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
+-  `parse_duration_ms` function L171-194 — `(s: &str) -> Result<u64, String>` — Parse a duration string like "100ms", "5s", "2m", "1h" into milliseconds.
+-  `generate_custom_trigger` function L197-286 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a custom poll trigger (function body provides poll logic).
+-  `generate_cron_trigger` function L289-395 — `(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenStream2` — Generate a cron trigger (schedule expression provides the poll logic).
+-  `validate_cron_expression` function L398-422 — `(expr: &str) -> Result<(), String>` — Validate a cron expression at compile time.
 
 #### crates/cloacina-macros/src/workflow_attr.rs
 
 - pub `UnifiedWorkflowAttributes` struct L49-54 — `{ name: String, tenant: String, description: Option<String>, author: Option<Stri...` — Attributes for the unified `#[workflow]` macro.
-- pub `workflow_attr` function L117-136 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
--  `UnifiedWorkflowAttributes` type L56-114 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
--  `parse` function L57-113 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
--  `generate_workflow_attr` function L144-271 — `( attrs: UnifiedWorkflowAttributes, input: ItemMod, ) -> TokenStream2` — Generate the unified workflow implementation.
--  `validate_dependencies` function L274-333 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L339-575 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L578-621 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L628-865 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+- pub `workflow_attr` function L114-133 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
+-  `UnifiedWorkflowAttributes` type L56-111 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+-  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
+-  `generate_workflow_attr` function L141-260 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L263-317 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L323-559 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L562-605 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L612-849 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 
@@ -7150,27 +7147,27 @@
 
 #### examples/features/complex-dag/src/lib.rs
 
--  `complex_dag_workflow` module L35-213 — `-` — - Complex branching and merging
--  `init_config` function L43-47 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `init_database` function L50-54 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `init_logging` function L57-61 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `load_schema` function L68-72 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `setup_security` function L75-79 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `configure_monitoring` function L82-88 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Complex branching and merging
--  `create_tables` function L95-99 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `setup_cache` function L102-106 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `load_raw_data` function L113-117 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `validate_data` function L120-124 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `clean_data` function L127-131 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `transform_customers` function L138-144 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Complex branching and merging
--  `transform_orders` function L147-151 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `transform_products` function L154-158 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `calculate_metrics` function L165-169 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `generate_insights` function L172-176 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `build_dashboard` function L183-187 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `generate_reports` function L190-194 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `send_notifications` function L201-205 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
--  `cleanup_staging` function L208-212 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `complex_dag_workflow` module L34-212 — `-` — - Complex branching and merging
+-  `init_config` function L42-46 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `init_database` function L49-53 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `init_logging` function L56-60 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `load_schema` function L67-71 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `setup_security` function L74-78 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `configure_monitoring` function L81-87 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Complex branching and merging
+-  `create_tables` function L94-98 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `setup_cache` function L101-105 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `load_raw_data` function L112-116 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `validate_data` function L119-123 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `clean_data` function L126-130 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `transform_customers` function L137-143 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Complex branching and merging
+-  `transform_orders` function L146-150 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `transform_products` function L153-157 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `calculate_metrics` function L164-168 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `generate_insights` function L171-175 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `build_dashboard` function L182-186 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `generate_reports` function L189-193 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `send_notifications` function L200-204 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
+-  `cleanup_staging` function L207-211 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
 
 ### examples/features/continuous-scheduling/src
 
@@ -7204,27 +7201,23 @@
 
 #### examples/features/cron-scheduling/src/main.rs
 
--  `tasks` module L47 — `-` — - Recovery service for missed executions
--  `main` function L51-112 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
--  `create_data_backup_workflow` function L115-128 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
--  `create_health_check_workflow` function L131-144 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
--  `create_daily_report_workflow` function L147-159 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
--  `create_cron_schedules` function L162-203 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
--  `show_execution_stats` function L206-218 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
-
-#### examples/features/cron-scheduling/src/tasks.rs
-
-- pub `check_backup_prerequisites` function L38-51 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `create_backup_snapshot` function L61-76 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `verify_backup_integrity` function L86-114 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `cleanup_old_backups` function L124-135 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_system_resources` function L149-176 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_database_connectivity` function L186-210 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_external_services` function L220-251 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `update_health_metrics` function L261-305 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `collect_daily_metrics` function L319-338 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `generate_usage_report` function L348-380 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `send_report_notification` function L390-420 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `data_backup_workflow` module L56-165 — `-` — - Recovery service for missed executions
+- pub `check_backup_prerequisites` function L67-80 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `create_backup_snapshot` function L90-105 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `verify_backup_integrity` function L115-143 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `cleanup_old_backups` function L153-164 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `health_check_workflow` module L175-345 — `-` — - Recovery service for missed executions
+- pub `check_system_resources` function L186-213 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `check_database_connectivity` function L223-249 — `( context: &mut Context<Value>, ) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `check_external_services` function L259-290 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `update_health_metrics` function L300-344 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `daily_report_workflow` module L355-468 — `-` — - Recovery service for missed executions
+- pub `collect_daily_metrics` function L366-385 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `generate_usage_report` function L395-427 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+- pub `send_report_notification` function L437-467 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
+-  `main` function L471-529 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
+-  `create_cron_schedules` function L532-573 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
+-  `show_execution_stats` function L576-588 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
 ### examples/features/deferred-tasks
 
@@ -7240,9 +7233,10 @@
 
 #### examples/features/deferred-tasks/src/main.rs
 
--  `wait_for_data` function L58-97 — `( context: &mut Context<serde_json::Value>, handle: &mut TaskHandle, ) -> Result...` — Simulates waiting for external data to become available.
--  `process_data` function L101-120 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes data that was fetched by the deferred task.
--  `main` function L123-161 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+- pub `deferred_pipeline` module L54-128 — `-` — ```
+- pub `wait_for_data` function L65-104 — `( context: &mut Context<serde_json::Value>, handle: &mut TaskHandle, ) -> Result...` — Simulates waiting for external data to become available.
+- pub `process_data` function L108-127 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes data that was fetched by the deferred task.
+-  `main` function L131-165 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
 
 ### examples/features/event-triggers
 
@@ -7258,27 +7252,23 @@
 
 #### examples/features/event-triggers/src/main.rs
 
--  `tasks` module L50 — `-` — ```
--  `triggers` module L51 — `-` — ```
--  `main` function L57-131 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
--  `create_file_processing_workflow` function L134-146 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the file processing workflow triggered by file watcher.
--  `create_queue_processing_workflow` function L149-161 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the queue processing workflow triggered by queue depth.
--  `create_service_recovery_workflow` function L164-177 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the service recovery workflow triggered by health check failures.
--  `register_triggers` function L180-195 — `()` — Register triggers in the global trigger registry.
--  `register_trigger_schedules` function L198-264 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
-
-#### examples/features/event-triggers/src/tasks.rs
-
-- pub `validate_file` function L32-51 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Validates and parses an incoming file.
-- pub `process_file` function L55-76 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes the validated file data.
-- pub `archive_file` function L80-97 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Archives the processed file.
-- pub `drain_queue` function L105-128 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Drains messages from the queue.
-- pub `process_messages` function L132-148 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes the drained messages.
-- pub `ack_messages` function L152-170 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Acknowledges processed messages.
-- pub `diagnose_failure` function L178-202 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Diagnoses the service failure.
-- pub `restart_service` function L206-223 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Attempts to restart the service.
-- pub `verify_recovery` function L227-247 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Verifies service health after restart.
-- pub `notify_incident` function L251-275 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Sends notification about the incident.
+- pub `file_processing_workflow` module L62-133 — `-` — ```
+- pub `validate_file` function L67-86 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Validates and parses an incoming file.
+- pub `process_file` function L90-111 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes the validated file data.
+- pub `archive_file` function L115-132 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Archives the processed file.
+- pub `queue_processing_workflow` module L143-216 — `-` — ```
+- pub `drain_queue` function L148-171 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Drains messages from the queue.
+- pub `process_messages` function L175-193 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Processes the drained messages.
+- pub `ack_messages` function L197-215 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Acknowledges processed messages.
+- pub `service_recovery_workflow` module L226-337 — `-` — ```
+- pub `diagnose_failure` function L231-257 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Diagnoses the service failure.
+- pub `restart_service` function L261-280 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Attempts to restart the service.
+- pub `verify_recovery` function L284-306 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Verifies service health after restart.
+- pub `notify_incident` function L310-336 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Sends notification about the incident.
+-  `triggers` module L50 — `-` — ```
+-  `main` function L340-411 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+-  `register_triggers` function L414-429 — `()` — Register triggers in the global trigger registry.
+-  `register_trigger_schedules` function L432-498 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
 
 #### examples/features/event-triggers/src/triggers.rs
 
@@ -7348,10 +7338,10 @@
 
 #### examples/features/packaged-triggers/src/lib.rs
 
-- pub `file_processing` module L89-167 — `-`
-- pub `validate` function L101-119 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `transform` function L128-145 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `archive` function L154-166 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `file_processing` module L88-166 — `-`
+- pub `validate` function L100-118 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `transform` function L127-144 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `archive` function L153-165 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
 ### examples/features/packaged-workflows
 
@@ -7367,11 +7357,11 @@
 
 #### examples/features/packaged-workflows/src/lib.rs
 
-- pub `analytics_workflow` module L55-285 — `-`
-- pub `extract_data` function L68-95 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `validate_data` function L107-151 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `transform_data` function L163-217 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `generate_reports` function L229-284 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+- pub `analytics_workflow` module L54-284 — `-`
+- pub `extract_data` function L67-94 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `validate_data` function L106-150 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `transform_data` function L162-216 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `generate_reports` function L228-283 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
 
 ### examples/features/per-tenant-credentials
 
@@ -7432,12 +7422,12 @@
 
 #### examples/features/simple-packaged/src/lib.rs
 
-- pub `data_processing` module L54-147 — `-`
-- pub `collect_data` function L63-78 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `process_data` function L86-109 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
-- pub `generate_report` function L117-146 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
--  `tests` module L150-169 — `-`
--  `test_workflow_execution` function L154-168 — `()`
+- pub `data_processing` module L53-146 — `-`
+- pub `collect_data` function L62-77 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `process_data` function L85-108 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
+- pub `generate_report` function L116-145 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
+-  `tests` module L149-168 — `-`
+-  `test_workflow_execution` function L153-167 — `()`
 
 ### examples/features/simple-packaged/tests
 
@@ -7469,26 +7459,31 @@
 
 #### examples/features/validation-failures/src/circular_dependency.rs
 
--  `task_a` function L26-29 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `task_b` function L33-36 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `main` function L39-48 — `() -> Result<(), Box<dyn std::error::Error>>`
+- pub `circular_pipeline` module L25-41 — `-`
+- pub `task_a` function L30-33 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+- pub `task_b` function L37-40 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `main` function L44-48 — `() -> Result<(), Box<dyn std::error::Error>>`
 
 #### examples/features/validation-failures/src/duplicate_task_ids.rs
 
--  `task_one` function L26-29 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `task_two` function L33-36 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `main` function L39-48 — `() -> Result<(), Box<dyn std::error::Error>>`
+- pub `duplicate_pipeline` module L25-41 — `-`
+- pub `task_one` function L30-33 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+- pub `task_two` function L37-40 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `main` function L44-48 — `() -> Result<(), Box<dyn std::error::Error>>`
 
 #### examples/features/validation-failures/src/missing_dependency.rs
 
--  `valid_task` function L25-28 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `invalid_task` function L32-35 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `main` function L38-47 — `() -> Result<(), Box<dyn std::error::Error>>`
+- pub `missing_dep_pipeline` module L25-40 — `-`
+- pub `valid_task` function L29-32 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+- pub `invalid_task` function L36-39 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `main` function L43-47 — `() -> Result<(), Box<dyn std::error::Error>>`
 
 #### examples/features/validation-failures/src/missing_workflow_task.rs
 
--  `existing_task` function L25-28 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `main` function L30-39 — `()`
+- pub `failing_pipeline` module L25-40 — `-`
+- pub `existing_task` function L29-32 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+- pub `depends_on_missing` function L36-39 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `main` function L42-44 — `()`
 
 ### examples/performance/parallel
 
@@ -7504,13 +7499,14 @@
 
 #### examples/performance/parallel/src/main.rs
 
+- pub `parallel_workflow` module L45-156 — `-` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+- pub `setup_data` function L53-59 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+- pub `process_batch_1` function L66-81 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+- pub `process_batch_2` function L88-103 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+- pub `process_batch_3` function L110-125 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+- pub `merge_results` function L132-155 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `setup_data` function L46-52 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `process_batch_1` function L59-72 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `process_batch_2` function L79-92 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `process_batch_3` function L99-112 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `merge_results` function L119-142 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
--  `main` function L145-246 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
+-  `main` function L159-249 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-03, this measures throughput of parallel 5-task fan-out/fan-in workflows.
 
 ### examples/performance/pipeline
 
@@ -7526,11 +7522,12 @@
 
 #### examples/performance/pipeline/src/main.rs
 
+- pub `etl_workflow` module L45-98 — `-` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+- pub `extract_numbers` function L53-59 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+- pub `transform_numbers` function L66-80 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+- pub `load_numbers` function L87-97 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
--  `extract_numbers` function L46-50 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
--  `transform_numbers` function L57-69 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
--  `load_numbers` function L76-86 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
--  `main` function L89-188 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
+-  `main` function L101-191 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-02, this measures throughput of sequential 3-task pipelines.
 
 ### examples/performance/simple
 
@@ -7546,9 +7543,10 @@
 
 #### examples/performance/simple/src/main.rs
 
+- pub `simple_workflow` module L45-58 — `-` — Based on tutorial-01, this measures throughput of simple single-task workflows.
+- pub `hello_world` function L53-57 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-01, this measures throughput of simple single-task workflows.
--  `hello_world` function L46-50 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
--  `main` function L53-147 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
+-  `main` function L61-148 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 
 ### examples/tutorials/01-basic-workflow
 
@@ -7564,8 +7562,9 @@
 
 #### examples/tutorials/01-basic-workflow/src/main.rs
 
--  `hello_world` function L33-39 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — This example demonstrates the most basic usage of Cloacina with a single task.
--  `main` function L42-92 — `() -> Result<(), Box<dyn std::error::Error>>` — This example demonstrates the most basic usage of Cloacina with a single task.
+- pub `simple_workflow` module L32-47 — `-` — This example demonstrates the most basic usage of Cloacina with a single task.
+- pub `hello_world` function L40-46 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — This example demonstrates the most basic usage of Cloacina with a single task.
+-  `main` function L50-91 — `() -> Result<(), Box<dyn std::error::Error>>` — This example demonstrates the most basic usage of Cloacina with a single task.
 
 ### examples/tutorials/02-multi-task
 
@@ -7582,14 +7581,14 @@
 #### examples/tutorials/02-multi-task/src/main.rs
 
 -  `tasks` module L49 — `-` — - Different retry policies for different task types
--  `main` function L54-105 — `() -> Result<(), Box<dyn std::error::Error>>` — - Different retry policies for different task types
--  `create_etl_workflow` function L108-120 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the ETL workflow
+-  `main` function L52-100 — `() -> Result<(), Box<dyn std::error::Error>>` — - Different retry policies for different task types
 
 #### examples/tutorials/02-multi-task/src/tasks.rs
 
-- pub `extract_numbers` function L36-55 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
-- pub `transform_numbers` function L65-91 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
-- pub `load_numbers` function L101-122 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
+- pub `etl_workflow` module L32-130 — `-` — - Load: Store the transformed numbers
+- pub `extract_numbers` function L43-62 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
+- pub `transform_numbers` function L72-98 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
+- pub `load_numbers` function L108-129 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
 
 ### examples/tutorials/03-dependencies
 
@@ -7605,18 +7604,19 @@
 
 #### examples/tutorials/03-dependencies/src/main.rs
 
+- pub `parallel_processing` module L76-551 — `-` — - **Final Convergence**: All processing completes before cleanup
+- pub `generate_data` function L85-107 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `partition_data` function L115-148 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `process_partition_1` function L157-206 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `process_partition_2` function L215-264 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `process_partition_3` function L273-322 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `combine_results` function L330-458 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `generate_report` function L466-501 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `send_notifications` function L509-539 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
+- pub `cleanup` function L547-550 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
 -  `Product` struct L57-63 — `{ id: u32, name: String, category: String, price: f64, stock: u32 }` — - **Final Convergence**: All processing completes before cleanup
 -  `CategoryStats` struct L66-70 — `{ total_value: f64, total_stock: u32, product_count: u32 }` — - **Final Convergence**: All processing completes before cleanup
--  `generate_data` function L78-100 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `partition_data` function L108-141 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `process_partition_1` function L150-197 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `process_partition_2` function L206-253 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `process_partition_3` function L262-309 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `combine_results` function L317-443 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `generate_report` function L451-484 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `send_notifications` function L492-520 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `cleanup` function L528-531 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
--  `main` function L534-581 — `() -> Result<(), Box<dyn std::error::Error>>` — - **Final Convergence**: All processing completes before cleanup
+-  `main` function L554-584 — `() -> Result<(), Box<dyn std::error::Error>>` — - **Final Convergence**: All processing completes before cleanup
 
 ### examples/tutorials/04-error-handling
 
@@ -7632,17 +7632,18 @@
 
 #### examples/tutorials/04-error-handling/src/main.rs
 
+- pub `resilient_pipeline` module L92-352 — `-` — - Monitoring task execution outcomes
+- pub `fetch_data` function L105-138 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `cached_data` function L146-166 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `process_data` function L176-210 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `high_quality_processing` function L221-250 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `low_quality_processing` function L261-290 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `failure_notification` function L301-317 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Monitoring task execution outcomes
+- pub `final_report` function L330-351 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
 -  `on_task_success` function L44-54 — `( task_id: &str, _context: &Context<serde_json::Value>, ) -> Result<(), Box<dyn ...` — Called when a task completes successfully.
 -  `on_task_failure` function L58-72 — `( task_id: &str, error: &cloacina::cloacina_workflow::TaskError, _context: &Cont...` — Called when a task fails (after all retries are exhausted).
 -  `on_data_fetch_failure` function L75-86 — `( task_id: &str, error: &cloacina::cloacina_workflow::TaskError, _context: &Cont...` — Specific callback for critical data operations
--  `fetch_data` function L98-131 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `cached_data` function L139-159 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `process_data` function L169-203 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `high_quality_processing` function L214-243 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `low_quality_processing` function L254-281 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `failure_notification` function L292-306 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `final_report` function L319-340 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
--  `main` function L343-429 — `() -> Result<(), Box<dyn std::error::Error>>` — - Monitoring task execution outcomes
+-  `main` function L355-426 — `() -> Result<(), Box<dyn std::error::Error>>` — - Monitoring task execution outcomes
 
 ### examples/tutorials/05-advanced
 
@@ -7658,27 +7659,27 @@
 
 #### examples/tutorials/05-advanced/src/main.rs
 
--  `tasks` module L47 — `-` — - Recovery service for missed executions
--  `main` function L51-111 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
--  `create_data_backup_workflow` function L114-127 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the data backup workflow that runs every 30 minutes
--  `create_health_check_workflow` function L130-143 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the health check workflow that runs every 5 minutes
--  `create_daily_report_workflow` function L146-158 — `() -> Result<cloacina::Workflow, Box<dyn std::error::Error>>` — Create the daily report workflow that runs once per day
--  `create_cron_schedules` function L161-202 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
--  `show_execution_stats` function L205-217 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
+-  `tasks` module L46 — `-` — - Recovery service for missed executions
+-  `main` function L49-105 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
+-  `create_cron_schedules` function L108-149 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
+-  `show_execution_stats` function L152-164 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
 #### examples/tutorials/05-advanced/src/tasks.rs
 
-- pub `check_backup_prerequisites` function L38-51 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `create_backup_snapshot` function L61-76 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `verify_backup_integrity` function L86-114 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `cleanup_old_backups` function L124-135 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_system_resources` function L149-176 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_database_connectivity` function L186-210 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `check_external_services` function L220-251 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `update_health_metrics` function L261-305 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `collect_daily_metrics` function L319-338 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `generate_usage_report` function L348-380 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
-- pub `send_report_notification` function L390-420 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `data_backup_workflow` module L34-143 — `-` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `check_backup_prerequisites` function L45-58 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `create_backup_snapshot` function L68-83 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `verify_backup_integrity` function L93-121 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `cleanup_old_backups` function L131-142 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `health_check_workflow` module L153-323 — `-` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `check_system_resources` function L164-191 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `check_database_connectivity` function L201-227 — `( context: &mut Context<Value>, ) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `check_external_services` function L237-268 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `update_health_metrics` function L278-322 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `daily_report_workflow` module L333-446 — `-` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `collect_daily_metrics` function L344-363 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `generate_usage_report` function L373-405 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
+- pub `send_report_notification` function L415-445 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
 
 ### examples/tutorials/06-multi-tenancy
 
@@ -7694,11 +7695,13 @@
 
 #### examples/tutorials/06-multi-tenancy/src/main.rs
 
--  `process_customer_data` function L35-69 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
--  `tenant_onboarding` function L75-124 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
--  `main` function L127-155 — `() -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
--  `basic_multi_tenant_demo` function L157-219 — `(database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
--  `advanced_admin_demo` function L221-288 — `(admin_database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+- pub `customer_processing` module L35-79 — `-` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+- pub `process_customer_data` function L42-78 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+- pub `tenant_onboarding_workflow` module L85-144 — `-` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+- pub `tenant_onboarding` function L92-143 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+-  `main` function L147-175 — `() -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+-  `basic_multi_tenant_demo` function L177-229 — `(database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
+-  `advanced_admin_demo` function L231-291 — `(admin_database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 
 ### examples/tutorials/python
 

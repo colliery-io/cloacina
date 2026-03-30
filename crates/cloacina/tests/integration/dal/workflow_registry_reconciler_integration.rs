@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -168,7 +168,9 @@ async fn test_dal_register_then_reconciler_load() {
         .expect("Failed to list packages");
     assert!(!packages.is_empty(), "Should have at least one package");
 
-    let our_package = packages.iter().find(|p| p.package_name == "simple_demo");
+    let our_package = packages
+        .iter()
+        .find(|p| p.package_name == "simple-packaged-demo");
     assert!(our_package.is_some(), "Should find our registered package");
     let our_package = our_package.unwrap();
 
@@ -188,7 +190,7 @@ async fn test_dal_register_then_reconciler_load() {
         "Should be able to retrieve package by ID"
     );
     let (metadata, binary_data) = retrieved_by_id.unwrap();
-    assert_eq!(metadata.package_name, "simple_demo");
+    assert_eq!(metadata.package_name, "simple-packaged-demo");
     assert_eq!(binary_data, package_data);
 
     println!("✅ Package retrieved by ID successfully");

@@ -177,6 +177,7 @@ pub fn verify_signature(
 /// # Returns
 ///
 /// A 64-character hex string representing the SHA256 hash.
+#[allow(dead_code)]
 pub fn compute_package_hash(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);

@@ -415,7 +415,7 @@ impl DefaultRunner {
     /// Starts the stale claim sweeper background service.
     async fn start_stale_claim_sweeper(
         &self,
-        handles: &mut super::RuntimeHandles,
+        _handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
     ) -> Result<(), PipelineError> {
         use crate::task_scheduler::stale_claim_sweeper::{

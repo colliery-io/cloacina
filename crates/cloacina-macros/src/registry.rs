@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -57,6 +57,7 @@ pub struct CompileTimeTaskRegistry {
     dependency_graph: HashMap<String, Vec<String>>,
 }
 
+#[allow(dead_code)]
 impl CompileTimeTaskRegistry {
     /// Creates a new empty task registry
     pub fn new() -> Self {
@@ -269,6 +270,7 @@ impl CompileTimeTaskRegistry {
 
 /// Errors that can occur during compile-time task validation
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum CompileTimeError {
     /// A task ID was defined multiple times
     DuplicateTaskId {

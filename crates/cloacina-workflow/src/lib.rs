@@ -82,7 +82,7 @@ pub use trigger::{TriggerError, TriggerResult};
 
 // Re-export macros when the feature is enabled
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{packaged_workflow, task, trigger, workflow};
+pub use cloacina_macros::{task, trigger, workflow};
 
 /// Private re-exports used by generated macro code. Not part of the public API.
 #[doc(hidden)]

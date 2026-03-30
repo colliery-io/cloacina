@@ -26,7 +26,7 @@ functions that fire workflows when conditions are met.
 The `event-triggers` example shows triggers used via the library API.
 This example shows the same concept in a **packageable** form:
 
-- Tasks and triggers are defined in a cdylib using `#[packaged_workflow]`
+- Tasks and triggers are defined in a cdylib using `#[workflow]`
   and `#[trigger]` macros
 - When the cdylib is loaded by the reconciler, triggers are automatically
   registered in the global trigger registry via `ctor`
@@ -73,15 +73,14 @@ cargo build --release
 ```
 */
 
-use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{task, workflow, Context, TaskError};
 
 /// File Processing Pipeline — triggered when new files arrive.
 ///
 /// This package demonstrates a workflow that is designed to be fired
 /// by a trigger rather than scheduled on a cron. The trigger polls
 /// for new files and passes the filename via context.
-#[packaged_workflow(
-    package = "file_pipeline",
+#[workflow(
     name = "file_processing",
     description = "Process incoming files detected by trigger",
     author = "Platform Team <platform@company.com>"

@@ -117,6 +117,7 @@ impl TaskHandle {
     /// Creates a new TaskHandle.
     ///
     /// This is called internally by the executor — tasks receive it as a parameter.
+    #[allow(dead_code)]
     pub(crate) fn new(slot_token: SlotToken, task_execution_id: UniversalUuid) -> Self {
         Self {
             slot_token,
@@ -240,6 +241,7 @@ impl TaskHandle {
     ///
     /// Used by the executor to reclaim ownership of the permit after
     /// task execution completes.
+    #[allow(dead_code)]
     pub(crate) fn into_slot_token(self) -> SlotToken {
         self.slot_token
     }

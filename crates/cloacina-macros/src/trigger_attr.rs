@@ -200,7 +200,7 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
     let fn_block = &input_fn.block;
 
     let trigger_name = attrs.name.unwrap_or_else(|| fn_name.to_string());
-    let workflow_name = &attrs.on;
+    let _workflow_name = &attrs.on;
     let allow_concurrent = attrs.allow_concurrent;
 
     let poll_interval_str = attrs.poll_interval.as_deref().unwrap_or("30s");
@@ -263,7 +263,7 @@ fn generate_custom_trigger(attrs: TriggerAttributes, input_fn: ItemFn) -> TokenS
     };
 
     // Packaged mode: just record metadata (trigger goes into manifest)
-    let packaged_code = quote! {
+    let _packaged_code = quote! {
         // In packaged mode, trigger metadata is included in the manifest.
         // The poll function is preserved for FFI execution.
         #fn_vis async fn #fn_name() -> Result<cloacina_workflow::TriggerResult, cloacina_workflow::TriggerError>

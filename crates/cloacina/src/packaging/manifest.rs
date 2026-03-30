@@ -23,18 +23,20 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::manifest_schema::{Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
-use super::platform::SUPPORTED_TARGETS;
-use super::types::{CargoToml, CLOACINA_VERSION, EXECUTE_TASK_SYMBOL};
+use super::types::{CargoToml, EXECUTE_TASK_SYMBOL};
 
 /// Maximum number of tasks allowed in a single package.
 /// This limit prevents resource exhaustion from malformed packages.
 const MAX_TASKS: usize = 10_000;
 
-/// Statically compiled regex for matching packaged_workflow attributes.
+/// Statically compiled regex for matching workflow attributes.
+/// Matches both `#[workflow(name = "...")]` (new) and `#[packaged_workflow(package = "...")]` (legacy).
 /// Compiled once at first use, avoiding runtime compilation overhead.
 static PACKAGED_WORKFLOW_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"#\[packaged_workflow\s*\(\s*[^)]*package\s*=\s*"([^"]+)"[^)]*\)\s*\]"#)
-        .expect("Invalid packaged_workflow regex pattern - this is a compile-time bug")
+    Regex::new(
+        r#"#\[(?:packaged_)?workflow\s*\(\s*[^)]*(?:package|name)\s*=\s*"([^"]+)"[^)]*\)\s*\]"#,
+    )
+    .expect("Invalid workflow regex pattern - this is a compile-time bug")
 });
 
 /// Errors that can occur during manifest extraction from FFI.
@@ -286,18 +288,18 @@ pub fn generate_manifest(
 #[derive(Debug, Clone)]
 pub(crate) struct PackageMetadata {
     pub description: Option<String>,
-    pub author: Option<String>,
+    pub _author: Option<String>,
     pub workflow_fingerprint: Option<String>,
 }
 
 /// Task information extracted from a cdylib via FFI (internal type).
 #[derive(Debug, Clone)]
 struct FfiTaskInfo {
-    pub index: u32,
+    pub _index: u32,
     pub id: String,
     pub dependencies: Vec<String>,
     pub description: String,
-    pub source_location: String,
+    pub _source_location: String,
 }
 
 /// Extract task information and graph data from a compiled library using FFI metadata functions
@@ -390,7 +392,7 @@ fn extract_task_info_and_graph_from_library(
             None,
             PackageMetadata {
                 description: None,
-                author: None,
+                _author: None,
                 workflow_fingerprint: None,
             },
         ));
@@ -443,11 +445,11 @@ fn extract_task_info_and_graph_from_library(
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         tasks.push(FfiTaskInfo {
-            index: index as u32,
+            _index: index as u32,
             id: local_id,
             dependencies,
             description,
-            source_location,
+            _source_location: source_location,
         });
     }
 
@@ -465,7 +467,7 @@ fn extract_task_info_and_graph_from_library(
 
     let package_metadata = PackageMetadata {
         description: package_description,
-        author: package_author,
+        _author: package_author,
         workflow_fingerprint,
     };
 
@@ -514,6 +516,7 @@ pub(crate) fn get_current_platform() -> String {
 }
 
 /// Kept for backward compatibility with external callers.
+#[allow(dead_code)]
 pub(crate) fn get_current_architecture() -> String {
     std::env::consts::ARCH.to_string()
 }

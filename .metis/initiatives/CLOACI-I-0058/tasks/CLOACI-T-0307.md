@@ -4,14 +4,14 @@ level: task
 title: "Deprecate workflow! and #[packaged_workflow], terminology cleanup"
 short_code: "CLOACI-T-0307"
 created_at: 2026-03-29T20:39:46.797557+00:00
-updated_at: 2026-03-29T20:39:46.797557+00:00
+updated_at: 2026-03-30T11:22:59.126264+00:00
 parent: CLOACI-I-0058
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0058
 ## Objective
 
 Remove the old `workflow!` and `#[packaged_workflow]` macros (or mark deprecated with compile warnings). Clean up terminology throughout the codebase — "workflow" for the execution unit, "package" only for `.cloacina` archives, no more "packaged workflow" as a concept.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -51,4 +53,15 @@ Remove the old `workflow!` and `#[packaged_workflow]` macros (or mark deprecated
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-03-30**: Implementation complete.
+
+- `workflow!` macro was already deleted in T-0302 (breaking change)
+- `#[packaged_workflow]` proc macro export removed from `cloacina-macros/src/lib.rs`
+- `packaged_workflow` removed from re-exports in `cloacina-workflow` and `cloacina`
+- `packaged_workflow.rs` kept as `pub(crate)` — used internally by `workflow_attr.rs` for shared utilities
+- 4 packaged examples migrated from `#[packaged_workflow]` to `#[workflow]` with `features = ["packaged"]`
+- Packaging validation regex updated to match both `#[workflow]` and `#[packaged_workflow]` (backward compat for any remaining .cloacina archives)
+- Packaging test fixture updated to use `#[workflow]` pattern
+- Doc/comment cleanup: key code references updated (validation.rs, manifest.rs, tests.rs)
+- Full doc cleanup (markdown files) deferred — doesn't affect compilation or runtime
+- All unit tests pass (angreal cloacina unit), all macro validation tests pass

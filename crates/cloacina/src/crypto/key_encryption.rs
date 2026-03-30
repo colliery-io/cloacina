@@ -64,6 +64,7 @@ const NONCE_SIZE: usize = 12;
 /// # Errors
 ///
 /// Returns `KeyEncryptionError` if encryption fails or key lengths are invalid.
+#[allow(deprecated)]
 pub fn encrypt_private_key(
     private_key: &[u8],
     encryption_key: &[u8],
@@ -107,6 +108,7 @@ pub fn encrypt_private_key(
 /// # Errors
 ///
 /// Returns `KeyEncryptionError` if decryption fails or data is invalid.
+#[allow(deprecated)]
 pub fn decrypt_private_key(
     encrypted_data: &[u8],
     encryption_key: &[u8],

@@ -93,13 +93,14 @@ pub fn validate_cloacina_compatibility(cargo_toml: &CargoToml) -> Result<()> {
     }
 }
 
-/// Check for packaged_workflow macros in the source code
+/// Check for workflow macros in the source code.
+///
+/// Accepts both `#[workflow]` (new unified macro) and `#[packaged_workflow]` (legacy).
 pub fn validate_packaged_workflow_presence(project_path: &Path) -> Result<()> {
     let src_dir = project_path.join("src");
     let lib_rs = src_dir.join("lib.rs");
     let main_rs = src_dir.join("main.rs");
 
-    // Check lib.rs first, then main.rs if lib.rs doesn't exist
     let source_file = if lib_rs.exists() {
         lib_rs
     } else if main_rs.exists() {
@@ -111,33 +112,16 @@ pub fn validate_packaged_workflow_presence(project_path: &Path) -> Result<()> {
     let source_content = fs::read_to_string(&source_file)
         .with_context(|| format!("Failed to read source file: {:?}", source_file))?;
 
-    // Look for #[packaged_workflow] macro usage - just detect the beginning
-    // This regex matches:
-    // - #[packaged_workflow]
-    // - #[packaged_workflow(
-    // We don't need to match the entire macro, just verify it exists
-    let workflow_regex = Regex::new(r"#\[\s*packaged_workflow\s*[\]\(]")
-        .context("Failed to compile regex for packaged_workflow detection")?;
+    // Match #[workflow(...)] or #[packaged_workflow(...)]
+    let workflow_regex = Regex::new(r"#\[\s*(?:packaged_)?workflow\s*[\]\(]")
+        .context("Failed to compile regex for workflow detection")?;
 
     if !workflow_regex.is_match(&source_content) {
-        // Try a more permissive search for debugging
-        let simple_regex = Regex::new(r"packaged_workflow")
-            .context("Failed to compile simple regex for packaged_workflow detection")?;
-
-        if simple_regex.is_match(&source_content) {
-            // Found the text but not in macro format
-            bail!(
-                "Found 'packaged_workflow' text in {:?} but not in proper macro format. \
-                Ensure you use #[packaged_workflow] or #[packaged_workflow(...)] syntax.",
-                source_file
-            );
-        } else {
-            bail!(
-                "No #[packaged_workflow] macro found in {:?}. \
-                Workflows must use the #[packaged_workflow] macro to be packageable.",
-                source_file
-            );
-        }
+        bail!(
+            "No #[workflow] macro found in {:?}. \
+            Workflows must use the #[workflow] macro to be packageable.",
+            source_file
+        );
     }
 
     Ok(())

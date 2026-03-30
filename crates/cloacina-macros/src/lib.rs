@@ -104,9 +104,3 @@ pub fn workflow(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
     trigger_attr::trigger_attr(args, input)
 }
-
-/// **Deprecated**: Use `#[workflow]` with `features = ["packaged"]` instead.
-#[proc_macro_attribute]
-pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
-    packaged_workflow::packaged_workflow(args, input)
-}
