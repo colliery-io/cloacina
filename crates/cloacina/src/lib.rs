@@ -600,10 +600,13 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<python::bindings::value_objects::PyBackoffStrategy>()?;
     m.add_class::<python::bindings::value_objects::PyRetryCondition>()?;
 
-    // Admin classes (postgres only but always registered)
-    m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
-    m.add_class::<python::bindings::admin::PyTenantConfig>()?;
-    m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
+    // Admin classes (postgres only)
+    #[cfg(feature = "postgres")]
+    {
+        m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
+        m.add_class::<python::bindings::admin::PyTenantConfig>()?;
+        m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
+    }
 
     Ok(())
 }

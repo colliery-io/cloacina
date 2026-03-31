@@ -23,12 +23,14 @@
 //! - `PyTriggerResult` — trigger results
 //! - `PyRetryPolicy` / `PyBackoffStrategy` / `PyRetryCondition` — retry config
 
+#[cfg(feature = "postgres")]
 pub mod admin;
 pub mod context;
 pub mod runner;
 pub mod trigger;
 pub mod value_objects;
 
+#[cfg(feature = "postgres")]
 pub use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 pub use context::PyDefaultRunnerConfig;
 pub use runner::{PyDefaultRunner, PyPipelineResult};
