@@ -241,20 +241,31 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &task_dependencies,
     );
 
+    let packaged_mod_name = syn::Ident::new(
+        &format!(
+            "_packaged_ffi_{}",
+            workflow_name.replace('-', "_").replace(' ', "_")
+        ),
+        Span::call_site(),
+    );
+
     quote! {
         #(#mod_attrs)*
         #mod_vis mod #mod_name {
             #module_items
+
+            // Packaged FFI code lives inside the module (same scope as task functions)
+            // Wrapped in cfg-gated sub-module to exclude all items when not packaged
+            #[cfg(feature = "packaged")]
+            pub mod _ffi {
+                use super::*;
+                #packaged_registration
+            }
         }
 
         #[cfg(not(feature = "packaged"))]
         const _: () = {
             #embedded_registration
-        };
-
-        #[cfg(feature = "packaged")]
-        const _: () = {
-            #packaged_registration
         };
     }
 }
@@ -662,7 +673,7 @@ fn generate_packaged_registration(
 
         task_execution_cases.push(quote! {
             #task_id => {
-                match #mod_name::#fn_name(&mut context).await {
+                match #fn_name(&mut context).await {
                     Ok(()) => Ok(()),
                     Err(e) => Err(format!("Task '{}' failed: {:?}", #task_id, e))
                 }

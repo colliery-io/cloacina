@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-30T14:42:29Z | 379 files | JavaScript, Python, Rust
+> Generated: 2026-03-31T10:34:20Z | 380 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -261,6 +261,7 @@
 │   │           │   ├── macro_test.rs
 │   │           │   ├── mod.rs
 │   │           │   └── simple_macro.rs
+│   │           ├── test_dlopen_packaged.rs
 │   │           ├── test_registry_dynamic_loading.rs
 │   │           ├── test_registry_dynamic_loading_simple.rs
 │   │           ├── trigger_packaging.rs
@@ -2202,22 +2203,22 @@
 
 #### crates/cloacina/src/packaging/manifest.rs
 
-- pub `ManifestError` enum L45-92 — `NullPointer | MisalignedPointer | NullString | InvalidUtf8 | InvalidDependencies...` — Errors that can occur during manifest extraction from FFI.
-- pub `generate_manifest` function L204-283 — `( cargo_toml: &CargoToml, so_path: &Path, target: &Option<String>, project_path:...` — Generate a package manifest from Cargo.toml and compiled library.
+- pub `ManifestError` enum L47-94 — `NullPointer | MisalignedPointer | NullString | InvalidUtf8 | InvalidDependencies...` — Errors that can occur during manifest extraction from FFI.
+- pub `generate_manifest` function L206-285 — `( cargo_toml: &CargoToml, so_path: &Path, target: &Option<String>, project_path:...` — Generate a package manifest from Cargo.toml and compiled library.
 -  `MAX_TASKS` variable L30 — `: usize` — Maximum number of tasks allowed in a single package.
--  `PACKAGED_WORKFLOW_REGEX` variable L35-38 — `: Lazy<Regex>` — Statically compiled regex for matching workflow attributes.
--  `safe_cstr_to_string` function L108-124 — `( ptr: *const c_char, field_name: &str, ) -> Result<String, ManifestError>` — Safely converts a C string pointer to a Rust String.
--  `safe_cstr_to_option_string` function L135-149 — `( ptr: *const c_char, field_name: &str, ) -> Result<Option<String>, ManifestErro...` — Safely converts a C string pointer to an optional Rust String.
--  `validate_ptr` function L156-168 — `( ptr: *const T, field_name: &'static str, ) -> Result<&'a T, ManifestError>` — Validates and dereferences a pointer to a type T.
--  `validate_slice` function L175-198 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
--  `PackageMetadata` struct L287-291 — `{ description: Option<String>, _author: Option<String>, workflow_fingerprint: Op...` — Package metadata extracted from the FFI
--  `FfiTaskInfo` struct L295-301 — `{ _index: u32, id: String, dependencies: Vec<String>, description: String, _sour...` — Task information extracted from a cdylib via FFI (internal type).
--  `extract_task_info_and_graph_from_library` function L304-473 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
--  `CTaskMetadata` struct L315-322 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
--  `CPackageTasks` struct L326-334 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
--  `extract_package_names_from_source` function L476-500 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
--  `get_current_platform` function L502-514 — `() -> String`
--  `get_current_architecture` function L518-520 — `() -> String` — Kept for backward compatibility with external callers.
+-  `PACKAGED_WORKFLOW_REGEX` variable L35-40 — `: Lazy<Regex>` — Statically compiled regex for matching workflow attributes.
+-  `safe_cstr_to_string` function L110-126 — `( ptr: *const c_char, field_name: &str, ) -> Result<String, ManifestError>` — Safely converts a C string pointer to a Rust String.
+-  `safe_cstr_to_option_string` function L137-151 — `( ptr: *const c_char, field_name: &str, ) -> Result<Option<String>, ManifestErro...` — Safely converts a C string pointer to an optional Rust String.
+-  `validate_ptr` function L158-170 — `( ptr: *const T, field_name: &'static str, ) -> Result<&'a T, ManifestError>` — Validates and dereferences a pointer to a type T.
+-  `validate_slice` function L177-200 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
+-  `PackageMetadata` struct L289-293 — `{ description: Option<String>, _author: Option<String>, workflow_fingerprint: Op...` — Package metadata extracted from the FFI
+-  `FfiTaskInfo` struct L297-303 — `{ _index: u32, id: String, dependencies: Vec<String>, description: String, _sour...` — Task information extracted from a cdylib via FFI (internal type).
+-  `extract_task_info_and_graph_from_library` function L306-475 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
+-  `CTaskMetadata` struct L317-324 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
+-  `CPackageTasks` struct L328-336 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
+-  `extract_package_names_from_source` function L478-502 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
+-  `get_current_platform` function L504-516 — `() -> String`
+-  `get_current_architecture` function L520-522 — `() -> String` — Kept for backward compatibility with external callers.
 
 #### crates/cloacina/src/packaging/manifest_schema.rs
 
@@ -2421,27 +2422,27 @@
 - pub `PyDefaultRunner` struct L276-278 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
 - pub `new` function L284-665 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
 - pub `with_config` function L669-1030 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L1061-1464 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L1467-1513 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
-- pub `start` function L1516-1523 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
-- pub `stop` function L1526-1533 — `(&self) -> PyResult<()>` — Stop the runner
-- pub `shutdown` function L1543-1562 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L1582-1614 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L1625-1684 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L1691-1721 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L1727-1751 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L1760-1800 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L1808-1840 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L1851-1909 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L1918-1957 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L1973-2034 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L2043-2089 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L2096-2124 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L2136-2197 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `__repr__` function L2200-2202 — `(&self) -> String` — String representation
-- pub `__enter__` function L2205-2207 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
-- pub `__exit__` function L2210-2219 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
-- pub `from_result` function L2223-2225 — `(result: crate::executor::PipelineResult) -> Self`
+- pub `with_schema` function L1061-1465 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L1468-1514 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
+- pub `start` function L1517-1524 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
+- pub `stop` function L1527-1534 — `(&self) -> PyResult<()>` — Stop the runner
+- pub `shutdown` function L1544-1563 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L1583-1615 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L1626-1685 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L1692-1722 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L1728-1752 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L1761-1801 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L1809-1841 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L1852-1910 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1919-1958 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L1974-2035 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L2044-2090 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L2097-2125 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L2137-2198 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `__repr__` function L2201-2203 — `(&self) -> String` — String representation
+- pub `__enter__` function L2206-2208 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
+- pub `__exit__` function L2211-2220 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
+- pub `from_result` function L2224-2226 — `(result: crate::executor::PipelineResult) -> Self`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
 -  `RuntimeMessage` enum L49-146 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
 -  `AsyncRuntimeHandle` struct L149-152 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
@@ -2450,8 +2451,8 @@
 -  `AsyncRuntimeHandle` type L215-222 — `impl Drop for AsyncRuntimeHandle`
 -  `drop` function L216-221 — `(&mut self)`
 -  `PyPipelineResult` type L231-272 — `= PyPipelineResult`
--  `PyDefaultRunner` type L281-2220 — `= PyDefaultRunner`
--  `PyPipelineResult` type L2222-2226 — `= PyPipelineResult`
+-  `PyDefaultRunner` type L281-2221 — `= PyDefaultRunner`
+-  `PyPipelineResult` type L2223-2227 — `= PyPipelineResult`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -3614,36 +3615,32 @@
 
 - pub `registry` module L51 — `-` — # Trigger System
 - pub `TriggerError` enum L65-89 — `PollError | ContextError | TriggerNotFound | Database | ConnectionPool | Workflo...` — Errors that can occur during trigger operations.
-- pub `TriggerResult` enum L115-124 — `Skip | Fire` — Result of a trigger poll operation.
-- pub `should_fire` function L137-139 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
-- pub `into_context` function L142-147 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
-- pub `context_hash` function L153-166 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
-- pub `TriggerConfig` struct L174-189 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
-- pub `new` function L193-201 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
-- pub `with_allow_concurrent` function L204-207 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
-- pub `with_enabled` function L210-213 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
-- pub `Trigger` interface L275-296 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
+- pub `TriggerResult` enum L102-111 — `Skip | Fire` — Result of a trigger poll operation.
+- pub `should_fire` function L115-117 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
+- pub `into_context` function L120-125 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
+- pub `context_hash` function L131-144 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
+- pub `TriggerConfig` struct L152-167 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
+- pub `new` function L171-179 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
+- pub `with_allow_concurrent` function L182-185 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
+- pub `with_enabled` function L188-191 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
+- pub `Trigger` interface L253-274 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
 -  `TriggerError` type L91-95 — `= TriggerError` — ```
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — ```
--  `TriggerError` type L97-108 — `= TriggerError` — ```
--  `from` function L98-107 — `(err: cloacina_workflow::TriggerError) -> Self` — ```
--  `TriggerResult` type L126-133 — `= TriggerResult` — ```
--  `from` function L127-132 — `(r: cloacina_workflow::TriggerResult) -> Self` — ```
--  `TriggerResult` type L135-167 — `= TriggerResult` — ```
--  `TriggerConfig` type L191-214 — `= TriggerConfig` — ```
--  `tests` module L305-420 — `-` — ```
--  `TestTrigger` struct L309-312 — `{ name: String, should_fire: bool }` — ```
--  `TestTrigger` type L315-335 — `impl Trigger for TestTrigger` — ```
--  `name` function L316-318 — `(&self) -> &str` — ```
--  `poll_interval` function L320-322 — `(&self) -> Duration` — ```
--  `allow_concurrent` function L324-326 — `(&self) -> bool` — ```
--  `poll` function L328-334 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
--  `test_trigger_result_should_fire` function L338-342 — `()` — ```
--  `test_trigger_result_into_context` function L345-352 — `()` — ```
--  `test_trigger_result_context_hash` function L355-379 — `()` — ```
--  `test_trigger_config` function L382-393 — `()` — ```
--  `test_trigger_trait` function L396-408 — `()` — ```
--  `test_trigger_fires` function L411-419 — `()` — ```
+-  `TriggerResult` type L113-145 — `= TriggerResult` — ```
+-  `TriggerConfig` type L169-192 — `= TriggerConfig` — ```
+-  `tests` module L283-398 — `-` — ```
+-  `TestTrigger` struct L287-290 — `{ name: String, should_fire: bool }` — ```
+-  `TestTrigger` type L293-313 — `impl Trigger for TestTrigger` — ```
+-  `name` function L294-296 — `(&self) -> &str` — ```
+-  `poll_interval` function L298-300 — `(&self) -> Duration` — ```
+-  `allow_concurrent` function L302-304 — `(&self) -> bool` — ```
+-  `poll` function L306-312 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
+-  `test_trigger_result_should_fire` function L316-320 — `()` — ```
+-  `test_trigger_result_into_context` function L323-330 — `()` — ```
+-  `test_trigger_result_context_hash` function L333-357 — `()` — ```
+-  `test_trigger_config` function L360-371 — `()` — ```
+-  `test_trigger_trait` function L374-386 — `()` — ```
+-  `test_trigger_fires` function L389-397 — `()` — ```
 
 #### crates/cloacina/src/trigger/registry.rs
 
@@ -4035,6 +4032,10 @@
 -  `integration_tests` module L373-451 — `-` — correctly in end-to-end scenarios.
 -  `test_filesystem_and_current_backend_runners` function L378-450 — `()` — correctly in end-to-end scenarios.
 
+#### crates/cloacina/tests/integration/test_dlopen_packaged.rs
+
+-  `test_dlopen_packaged_workflow_library` function L21-82 — `()` — Minimal test: load a packaged .dylib/.so via dlopen within the test process.
+
 #### crates/cloacina/tests/integration/test_registry_dynamic_loading.rs
 
 -  `test_reconciler_creation_with_loaders` function L35-67 — `()` — Test that the reconciler can be created with dynamic loading components
@@ -4198,8 +4199,8 @@
 -  `get_test_package` function L38-42 — `() -> Vec<u8>` — Get the cached test package, creating it from pre-built .so if necessary.
 -  `create_package_from_prebuilt_so` function L50-103 — `() -> Vec<u8>` — Create a package from pre-built .so file without spawning cargo.
 -  `find_prebuilt_library` function L106-135 — `(project_path: &std::path::Path) -> Option<std::path::PathBuf>` — Find the pre-built library in the project's target directory.
--  `test_dal_register_then_reconciler_load` function L139-229 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
--  `test_dal_register_then_get_workflow_package_by_id_failure_case` function L233-275 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
+-  `test_dal_register_then_reconciler_load` function L139-231 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
+-  `test_dal_register_then_get_workflow_package_by_id_failure_case` function L235-277 — `()` — Integration tests for the end-to-end workflow: register package via DAL → load via reconciler
 
 ### crates/cloacina/tests/integration/database
 
@@ -4683,11 +4684,11 @@
 - pub `workflow_attr` function L114-133 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
 -  `UnifiedWorkflowAttributes` type L56-111 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
 -  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
--  `generate_workflow_attr` function L141-260 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
--  `validate_dependencies` function L263-317 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L323-559 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L562-605 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L612-849 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_workflow_attr` function L141-268 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L271-325 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L331-567 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L570-613 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L620-857 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 

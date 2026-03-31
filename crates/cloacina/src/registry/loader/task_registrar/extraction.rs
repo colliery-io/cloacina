@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -58,11 +58,13 @@ impl TaskRegistrar {
 
         // Get the get_task_metadata function
         let get_metadata = unsafe {
-            lib.get::<unsafe extern "C" fn() -> *const TaskMetadataCollection>(b"get_task_metadata")
-                .map_err(|e| LoaderError::SymbolNotFound {
-                    symbol: "get_task_metadata".to_string(),
-                    error: e.to_string(),
-                })?
+            lib.get::<unsafe extern "C" fn() -> *const TaskMetadataCollection>(
+                b"cloacina_get_task_metadata",
+            )
+            .map_err(|e| LoaderError::SymbolNotFound {
+                symbol: "cloacina_get_task_metadata".to_string(),
+                error: e.to_string(),
+            })?
         };
 
         // Call the FFI function to get metadata
