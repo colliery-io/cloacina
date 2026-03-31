@@ -50,7 +50,7 @@ pub mod unified_test_workflow {
 #[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn test_workflow_executes_sqlite() {
-    let db_url = "sqlite://:memory:?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL";
+    let db_url = ":memory:";
     let config = DefaultRunnerConfig::builder()
         .enable_registry_reconciler(false)
         .build();
