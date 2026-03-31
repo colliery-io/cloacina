@@ -50,6 +50,8 @@ pub mod execution_event;
 pub mod models;
 pub mod pipeline_execution;
 pub mod recovery_event;
+pub mod schedule;
+pub mod schedule_execution;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
@@ -66,6 +68,8 @@ pub use cron_schedule::CronScheduleDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
+pub use schedule::ScheduleDAL;
+pub use schedule_execution::ScheduleExecutionDAL;
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use task_outbox::TaskOutboxDAL;
@@ -240,6 +244,16 @@ impl DAL {
     /// Returns a cron execution DAL for cron execution operations.
     pub fn cron_execution(&self) -> CronExecutionDAL<'_> {
         CronExecutionDAL::new(self)
+    }
+
+    /// Returns a unified schedule DAL for schedule operations.
+    pub fn schedule(&self) -> ScheduleDAL<'_> {
+        ScheduleDAL::new(self)
+    }
+
+    /// Returns a unified schedule execution DAL for schedule execution operations.
+    pub fn schedule_execution(&self) -> ScheduleExecutionDAL<'_> {
+        ScheduleExecutionDAL::new(self)
     }
 
     /// Returns a trigger schedule DAL for trigger schedule operations.

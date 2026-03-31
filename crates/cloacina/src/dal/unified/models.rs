@@ -21,9 +21,9 @@
 
 use crate::database::schema::unified::{
     contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
-    package_signatures, pipeline_executions, recovery_events, signing_keys,
-    task_execution_metadata, task_executions, task_outbox, trigger_executions, trigger_schedules,
-    trusted_keys, workflow_packages, workflow_registry,
+    package_signatures, pipeline_executions, recovery_events, schedule_executions, schedules,
+    signing_keys, task_execution_metadata, task_executions, task_outbox, trigger_executions,
+    trigger_schedules, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -370,6 +370,85 @@ pub struct NewUnifiedTriggerExecution {
 }
 
 // ============================================================================
+// Unified Schedule Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = schedules)]
+pub struct UnifiedSchedule {
+    pub id: UniversalUuid,
+    pub schedule_type: String,
+    pub workflow_name: String,
+    pub enabled: UniversalBool,
+    pub cron_expression: Option<String>,
+    pub timezone: Option<String>,
+    pub catchup_policy: Option<String>,
+    pub start_date: Option<UniversalTimestamp>,
+    pub end_date: Option<UniversalTimestamp>,
+    pub trigger_name: Option<String>,
+    pub poll_interval_ms: Option<i32>,
+    pub allow_concurrent: Option<UniversalBool>,
+    pub next_run_at: Option<UniversalTimestamp>,
+    pub last_run_at: Option<UniversalTimestamp>,
+    pub last_poll_at: Option<UniversalTimestamp>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = schedules)]
+pub struct NewUnifiedSchedule {
+    pub id: UniversalUuid,
+    pub schedule_type: String,
+    pub workflow_name: String,
+    pub enabled: UniversalBool,
+    pub cron_expression: Option<String>,
+    pub timezone: Option<String>,
+    pub catchup_policy: Option<String>,
+    pub start_date: Option<UniversalTimestamp>,
+    pub end_date: Option<UniversalTimestamp>,
+    pub trigger_name: Option<String>,
+    pub poll_interval_ms: Option<i32>,
+    pub allow_concurrent: Option<UniversalBool>,
+    pub next_run_at: Option<UniversalTimestamp>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
+// Unified Schedule Execution Models
+// ============================================================================
+
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = schedule_executions)]
+pub struct UnifiedScheduleExecution {
+    pub id: UniversalUuid,
+    pub schedule_id: UniversalUuid,
+    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub scheduled_time: Option<UniversalTimestamp>,
+    pub claimed_at: Option<UniversalTimestamp>,
+    pub context_hash: Option<String>,
+    pub started_at: UniversalTimestamp,
+    pub completed_at: Option<UniversalTimestamp>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = schedule_executions)]
+pub struct NewUnifiedScheduleExecution {
+    pub id: UniversalUuid,
+    pub schedule_id: UniversalUuid,
+    pub pipeline_execution_id: Option<UniversalUuid>,
+    pub scheduled_time: Option<UniversalTimestamp>,
+    pub claimed_at: Option<UniversalTimestamp>,
+    pub context_hash: Option<String>,
+    pub started_at: UniversalTimestamp,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+// ============================================================================
 // Workflow Registry Models
 // ============================================================================
 
@@ -540,6 +619,7 @@ use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
 use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::RecoveryEvent;
+use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
@@ -792,6 +872,47 @@ impl From<UnifiedPackageSignature> for PackageSignature {
             key_fingerprint: u.key_fingerprint,
             signature: u.signature.into_inner(),
             signed_at: u.signed_at,
+        }
+    }
+}
+
+impl From<UnifiedSchedule> for Schedule {
+    fn from(u: UnifiedSchedule) -> Self {
+        Schedule {
+            id: u.id,
+            schedule_type: u.schedule_type,
+            workflow_name: u.workflow_name,
+            enabled: u.enabled,
+            cron_expression: u.cron_expression,
+            timezone: u.timezone,
+            catchup_policy: u.catchup_policy,
+            start_date: u.start_date,
+            end_date: u.end_date,
+            trigger_name: u.trigger_name,
+            poll_interval_ms: u.poll_interval_ms,
+            allow_concurrent: u.allow_concurrent,
+            next_run_at: u.next_run_at,
+            last_run_at: u.last_run_at,
+            last_poll_at: u.last_poll_at,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedScheduleExecution> for ScheduleExecution {
+    fn from(u: UnifiedScheduleExecution) -> Self {
+        ScheduleExecution {
+            id: u.id,
+            schedule_id: u.schedule_id,
+            pipeline_execution_id: u.pipeline_execution_id,
+            scheduled_time: u.scheduled_time,
+            claimed_at: u.claimed_at,
+            context_hash: u.context_hash,
+            started_at: u.started_at,
+            completed_at: u.completed_at,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
         }
     }
 }
