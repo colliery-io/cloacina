@@ -499,6 +499,7 @@ pub mod python;
 pub mod registry;
 pub mod retry;
 pub mod runner;
+pub mod scheduler;
 pub mod security;
 pub mod task;
 pub mod task_scheduler;
@@ -545,6 +546,7 @@ pub use graph::{
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
+pub use scheduler::{Scheduler, SchedulerConfig};
 pub use task::namespace::parse_namespace;
 pub use task::{
     global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
