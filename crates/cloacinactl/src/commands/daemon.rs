@@ -370,10 +370,10 @@ async fn register_triggers_from_reconcile(
         return;
     }
 
-    let trigger_scheduler = match runner.trigger_scheduler().await {
-        Some(ts) => ts,
+    let scheduler = match runner.unified_scheduler().await {
+        Some(s) => s,
         None => {
-            debug!("Trigger scheduler not available — skipping trigger registration");
+            debug!("Unified scheduler not available — skipping trigger registration");
             return;
         }
     };
@@ -412,7 +412,7 @@ async fn register_triggers_from_reconcile(
         for trigger_def in &manifest.triggers {
             // Get the trigger from the global registry (it should be registered by the reconciler)
             if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
-                match trigger_scheduler
+                match scheduler
                     .register_trigger(trigger.as_ref(), &trigger_def.workflow)
                     .await
                 {

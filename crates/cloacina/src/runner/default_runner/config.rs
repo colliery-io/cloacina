@@ -649,17 +649,15 @@ impl DefaultRunnerBuilder {
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
-                cron_scheduler_handle: None,
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
-                trigger_scheduler_handle: None,
+                unified_scheduler_handle: None,
                 shutdown_sender: None,
             })),
-            cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
-            cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
+            cron_recovery: Arc::new(RwLock::new(None)), // Initially empty
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
-            trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately

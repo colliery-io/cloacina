@@ -62,16 +62,16 @@ mod tests {
 
         // Create lib.rs with test workflow
         let lib_rs_content = r#"
-use cloacina::packaged_workflow;
+use cloacina::{workflow, task, Context, TaskError};
 
-#[packaged_workflow(package = "test-package")]
-pub fn simple_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(serde_json::json!({"status": "complete"}))
-}
+#[workflow(name = "test_package")]
+pub mod test_package {
+    use super::*;
 
-#[packaged_workflow(package = "test-package")]
-pub fn complex_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(serde_json::json!({"data": "processed"}))
+    #[task(id = "simple_task", dependencies = [])]
+    pub async fn simple_task(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
 }
 "#;
         std::fs::write(src_dir.join("lib.rs"), lib_rs_content).expect("Failed to write lib.rs");
@@ -157,7 +157,7 @@ pub fn complex_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         match result {
             Ok(package_names) => {
                 assert!(!package_names.is_empty());
-                assert!(package_names.contains(&"test-package".to_string()));
+                assert!(package_names.contains(&"test_package".to_string()));
             }
             Err(e) => {
                 panic!("Should be able to extract package names: {}", e);
@@ -170,7 +170,7 @@ pub fn complex_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let project_path = temp_dir.path().to_path_buf();
 
-        // Create src directory with no packaged workflows
+        // Create src directory with no workflows
         let src_dir = project_path.join("src");
         std::fs::create_dir_all(&src_dir).expect("Failed to create src dir");
 

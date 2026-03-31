@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -21,102 +21,110 @@
 //! - Transform: Multiply numbers by 2
 //! - Load: Store the transformed numbers
 
-use cloacina::{task, Context, TaskError};
+use cloacina::{task, workflow, Context, TaskError};
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
-/// Extract numbers from the input context
-#[task(
-    id = "extract_numbers",
-    dependencies = [],
-    retry_attempts = 2,
-    retry_backoff = "fixed",
-    retry_delay_ms = 1000
+#[workflow(
+    name = "etl_workflow",
+    description = "Simple ETL workflow with extract, transform, and load tasks"
 )]
-pub async fn extract_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
-    info!("Extracting numbers from input");
+pub mod etl_workflow {
+    use super::*;
 
-    let numbers = context
-        .get("numbers")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| TaskError::ValidationFailed {
-            message: "No numbers found in context".to_string(),
-        })?
-        .clone(); // Clone the array to avoid borrow issues
+    /// Extract numbers from the input context
+    #[task(
+        id = "extract_numbers",
+        dependencies = [],
+        retry_attempts = 2,
+        retry_backoff = "fixed",
+        retry_delay_ms = 1000
+    )]
+    pub async fn extract_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
+        info!("Extracting numbers from input");
 
-    debug!("Found {} numbers to process", numbers.len());
+        let numbers = context
+            .get("numbers")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| TaskError::ValidationFailed {
+                message: "No numbers found in context".to_string(),
+            })?
+            .clone(); // Clone the array to avoid borrow issues
 
-    // Store the extracted numbers
-    context.insert("extracted_numbers", json!(numbers))?;
-    context.insert("extract_timestamp", json!(chrono::Utc::now()))?;
+        debug!("Found {} numbers to process", numbers.len());
 
-    info!("Successfully extracted {} numbers", numbers.len());
-    Ok(())
-}
+        // Store the extracted numbers
+        context.insert("extracted_numbers", json!(numbers))?;
+        context.insert("extract_timestamp", json!(chrono::Utc::now()))?;
 
-/// Transform the numbers (multiply by 2)
-#[task(
-    id = "transform_numbers",
-    dependencies = ["extract_numbers"],
-    retry_attempts = 2,
-    retry_backoff = "fixed",
-    retry_delay_ms = 1000
-)]
-pub async fn transform_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
-    info!("Transforming numbers");
+        info!("Successfully extracted {} numbers", numbers.len());
+        Ok(())
+    }
 
-    let numbers = context
-        .get("extracted_numbers")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| TaskError::ValidationFailed {
-            message: "No extracted numbers found for transformation".to_string(),
-        })?
-        .clone(); // Clone the array to avoid borrow issues
+    /// Transform the numbers (multiply by 2)
+    #[task(
+        id = "transform_numbers",
+        dependencies = ["extract_numbers"],
+        retry_attempts = 2,
+        retry_backoff = "fixed",
+        retry_delay_ms = 1000
+    )]
+    pub async fn transform_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
+        info!("Transforming numbers");
 
-    // Transform numbers (multiply by 2)
-    let transformed: Vec<i64> = numbers
-        .iter()
-        .filter_map(|n| n.as_i64())
-        .map(|n| n * 2)
-        .collect();
+        let numbers = context
+            .get("extracted_numbers")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| TaskError::ValidationFailed {
+                message: "No extracted numbers found for transformation".to_string(),
+            })?
+            .clone(); // Clone the array to avoid borrow issues
 
-    debug!("Transformed {} numbers", transformed.len());
+        // Transform numbers (multiply by 2)
+        let transformed: Vec<i64> = numbers
+            .iter()
+            .filter_map(|n| n.as_i64())
+            .map(|n| n * 2)
+            .collect();
 
-    // Store transformed numbers
-    context.insert("transformed_numbers", json!(transformed))?;
-    context.insert("transform_timestamp", json!(chrono::Utc::now()))?;
+        debug!("Transformed {} numbers", transformed.len());
 
-    info!("Successfully transformed {} numbers", transformed.len());
-    Ok(())
-}
+        // Store transformed numbers
+        context.insert("transformed_numbers", json!(transformed))?;
+        context.insert("transform_timestamp", json!(chrono::Utc::now()))?;
 
-/// Load the transformed numbers
-#[task(
-    id = "load_numbers",
-    dependencies = ["transform_numbers"],
-    retry_attempts = 2,
-    retry_backoff = "fixed",
-    retry_delay_ms = 1000
-)]
-pub async fn load_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
-    info!("Loading transformed numbers");
+        info!("Successfully transformed {} numbers", transformed.len());
+        Ok(())
+    }
 
-    let numbers = context
-        .get("transformed_numbers")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| TaskError::ValidationFailed {
-            message: "No transformed numbers found for loading".to_string(),
-        })?
-        .clone(); // Clone the array to avoid borrow issues
+    /// Load the transformed numbers
+    #[task(
+        id = "load_numbers",
+        dependencies = ["transform_numbers"],
+        retry_attempts = 2,
+        retry_backoff = "fixed",
+        retry_delay_ms = 1000
+    )]
+    pub async fn load_numbers(context: &mut Context<Value>) -> Result<(), TaskError> {
+        info!("Loading transformed numbers");
 
-    // Simulate loading the numbers (in a real scenario, this would write to a database or file)
-    debug!("Loading {} numbers", numbers.len());
+        let numbers = context
+            .get("transformed_numbers")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| TaskError::ValidationFailed {
+                message: "No transformed numbers found for loading".to_string(),
+            })?
+            .clone(); // Clone the array to avoid borrow issues
 
-    // Store load results
-    context.insert("loaded_numbers", json!(numbers))?;
-    context.insert("load_timestamp", json!(chrono::Utc::now()))?;
-    context.insert("load_status", json!("success"))?;
+        // Simulate loading the numbers (in a real scenario, this would write to a database or file)
+        debug!("Loading {} numbers", numbers.len());
 
-    info!("Successfully loaded {} numbers", numbers.len());
-    Ok(())
+        // Store load results
+        context.insert("loaded_numbers", json!(numbers))?;
+        context.insert("load_timestamp", json!(chrono::Utc::now()))?;
+        context.insert("load_status", json!("success"))?;
+
+        info!("Successfully loaded {} numbers", numbers.len());
+        Ok(())
+    }
 }

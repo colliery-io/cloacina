@@ -30,8 +30,7 @@ use crate::dal::DAL;
 use crate::executor::pipeline_executor::PipelineError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
-use crate::{CronScheduler, CronSchedulerConfig};
-use crate::{TriggerScheduler, TriggerSchedulerConfig};
+use crate::{Scheduler, SchedulerConfig};
 
 use super::DefaultRunner;
 
@@ -109,20 +108,20 @@ impl DefaultRunner {
         handles.executor_handle = None; // No polling loop in dispatcher mode
         handles.shutdown_sender = Some(shutdown_tx.clone());
 
-        // Start cron services if enabled
-        if self.config.enable_cron_scheduling() {
-            self.start_cron_services(&mut handles, &shutdown_tx).await?;
+        // Start unified scheduler if cron or trigger scheduling is enabled
+        if self.config.enable_cron_scheduling() || self.config.enable_trigger_scheduling() {
+            self.start_unified_scheduler(&mut handles, &shutdown_tx)
+                .await?;
+        }
+
+        // Start cron recovery service if cron scheduling is enabled
+        if self.config.enable_cron_scheduling() && self.config.cron_enable_recovery() {
+            self.start_cron_recovery(&mut handles, &shutdown_tx).await?;
         }
 
         // Start registry reconciler if enabled
         if self.config.enable_registry_reconciler() {
             self.start_registry_reconciler(&mut handles, &shutdown_tx)
-                .await?;
-        }
-
-        // Start trigger scheduler if enabled
-        if self.config.enable_trigger_scheduling() {
-            self.start_trigger_services(&mut handles, &shutdown_tx)
                 .await?;
         }
 
@@ -135,65 +134,62 @@ impl DefaultRunner {
         Ok(())
     }
 
-    /// Starts cron scheduler and recovery services
-    async fn start_cron_services(
+    /// Starts the unified scheduler that handles both cron and trigger schedules.
+    async fn start_unified_scheduler(
         &self,
         handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
     ) -> Result<(), PipelineError> {
-        tracing::info!("Starting cron scheduler");
+        tracing::info!("Starting unified scheduler");
 
-        // Create watch channel for cron scheduler shutdown
-        let (cron_shutdown_tx, cron_shutdown_rx) = watch::channel(false);
+        // Create watch channel for unified scheduler shutdown
+        let (unified_shutdown_tx, unified_shutdown_rx) = watch::channel(false);
 
-        // Create cron scheduler config
-        let cron_config = CronSchedulerConfig {
-            poll_interval: self.config.cron_poll_interval(),
+        // Build SchedulerConfig from runner config
+        let scheduler_config = SchedulerConfig {
+            cron_poll_interval: self.config.cron_poll_interval(),
             max_catchup_executions: self.config.cron_max_catchup_executions(),
             max_acceptable_delay: Duration::from_secs(300), // 5 minutes
+            trigger_base_poll_interval: self.config.trigger_base_poll_interval(),
+            trigger_poll_timeout: self.config.trigger_poll_timeout(),
         };
 
-        // Create CronScheduler with DefaultRunner as PipelineExecutor
+        // Create Scheduler with DefaultRunner as PipelineExecutor
         let dal = DAL::new(self.database.clone());
-        let cron_scheduler = CronScheduler::new(
+        let unified_scheduler = Scheduler::new(
             Arc::new(dal),
             Arc::new(self.clone()), // self implements PipelineExecutor!
-            cron_config,
-            cron_shutdown_rx,
+            scheduler_config,
+            unified_shutdown_rx,
         );
 
-        // Start cron background service
-        let mut cron_scheduler_clone = cron_scheduler.clone();
+        // Start unified scheduler background service
+        let mut scheduler_clone = unified_scheduler.clone();
         let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-        let cron_span = self.create_runner_span("cron_scheduler");
-        let cron_handle = tokio::spawn(
+        let span = self.create_runner_span("unified_scheduler");
+        let handle = tokio::spawn(
             async move {
                 tokio::select! {
-                    result = cron_scheduler_clone.run_polling_loop() => {
+                    result = scheduler_clone.run_polling_loop() => {
                         if let Err(e) = result {
-                            tracing::error!("Cron scheduler failed: {}", e);
+                            tracing::error!("Unified scheduler failed: {}", e);
                         } else {
-                            tracing::info!("Cron scheduler completed");
+                            tracing::info!("Unified scheduler completed");
                         }
                     }
                     _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Cron scheduler shutdown requested via broadcast");
-                        // Send shutdown signal to cron scheduler
-                        let _ = cron_shutdown_tx.send(true);
+                        tracing::info!("Unified scheduler shutdown requested via broadcast");
+                        // Send shutdown signal to unified scheduler
+                        let _ = unified_shutdown_tx.send(true);
                     }
                 }
             }
-            .instrument(cron_span),
+            .instrument(span),
         );
 
-        // Store cron scheduler and handle
-        *self.cron_scheduler.write().await = Some(Arc::new(cron_scheduler));
-        handles.cron_scheduler_handle = Some(cron_handle);
-
-        // Start cron recovery service if enabled
-        if self.config.cron_enable_recovery() {
-            self.start_cron_recovery(handles, shutdown_tx).await?;
-        }
+        // Store unified scheduler and handle
+        *self.unified_scheduler.write().await = Some(Arc::new(unified_scheduler));
+        handles.unified_scheduler_handle = Some(handle);
 
         Ok(())
     }
@@ -355,67 +351,10 @@ impl DefaultRunner {
         Ok(())
     }
 
-    /// Starts the trigger scheduler service
-    async fn start_trigger_services(
-        &self,
-        handles: &mut super::RuntimeHandles,
-        shutdown_tx: &broadcast::Sender<()>,
-    ) -> Result<(), PipelineError> {
-        tracing::info!("Starting trigger scheduler");
-
-        // Create watch channel for trigger scheduler shutdown
-        let (trigger_shutdown_tx, trigger_shutdown_rx) = watch::channel(false);
-
-        // Create trigger scheduler config
-        let trigger_config = TriggerSchedulerConfig {
-            base_poll_interval: self.config.trigger_base_poll_interval(),
-            poll_timeout: self.config.trigger_poll_timeout(),
-        };
-
-        // Create TriggerScheduler with DefaultRunner as PipelineExecutor
-        let dal = DAL::new(self.database.clone());
-        let trigger_scheduler = TriggerScheduler::new(
-            Arc::new(dal),
-            Arc::new(self.clone()), // self implements PipelineExecutor!
-            trigger_config,
-            trigger_shutdown_rx,
-        );
-
-        // Start trigger scheduler background service
-        let mut trigger_scheduler_clone = trigger_scheduler.clone();
-        let mut broadcast_shutdown_rx = shutdown_tx.subscribe();
-        let trigger_span = self.create_runner_span("trigger_scheduler");
-        let trigger_handle = tokio::spawn(
-            async move {
-                tokio::select! {
-                    result = trigger_scheduler_clone.run_polling_loop() => {
-                        if let Err(e) = result {
-                            tracing::error!("Trigger scheduler failed: {}", e);
-                        } else {
-                            tracing::info!("Trigger scheduler completed");
-                        }
-                    }
-                    _ = broadcast_shutdown_rx.recv() => {
-                        tracing::info!("Trigger scheduler shutdown requested via broadcast");
-                        // Send shutdown signal to trigger scheduler
-                        let _ = trigger_shutdown_tx.send(true);
-                    }
-                }
-            }
-            .instrument(trigger_span),
-        );
-
-        // Store trigger scheduler and handle
-        *self.trigger_scheduler.write().await = Some(Arc::new(trigger_scheduler));
-        handles.trigger_scheduler_handle = Some(trigger_handle);
-
-        Ok(())
-    }
-
     /// Starts the stale claim sweeper background service.
     async fn start_stale_claim_sweeper(
         &self,
-        handles: &mut super::RuntimeHandles,
+        _handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
     ) -> Result<(), PipelineError> {
         use crate::task_scheduler::stale_claim_sweeper::{

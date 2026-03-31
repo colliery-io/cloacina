@@ -64,8 +64,7 @@ The core workflow orchestration library. Provides:
 Procedural macros for workflow definition:
 
 - `#[task]` - Define tasks from async functions
-- `#[workflow]` - Define workflows declaratively
-- `#[packaged_workflow]` - Create distributable workflow packages
+- `#[workflow]` - Define workflows declaratively (also generates FFI exports with `features = ["packaged"]` for cdylib mode)
 
 ## Python Support
 

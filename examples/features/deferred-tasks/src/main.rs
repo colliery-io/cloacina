@@ -33,9 +33,9 @@
 //! ## Workflow
 //!
 //! ```text
-//! wait_for_data ──► process_data
-//!     │
-//!     └─ defers until simulated external data is "ready"
+//! wait_for_data --> process_data
+//!     |
+//!     +- defers until simulated external data is "ready"
 //! ```
 
 use cloacina::executor::PipelineExecutor;
@@ -47,76 +47,84 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
-/// Simulates waiting for external data to become available.
-///
-/// This task uses `defer_until` to release its concurrency slot while polling
-/// for a condition. In a real application, the condition might check:
-/// - Whether a file has appeared on disk
-/// - Whether an API endpoint returns a ready status
-/// - Whether a message has arrived in a queue
-#[task(id = "wait_for_data", dependencies = [])]
-async fn wait_for_data(
-    context: &mut Context<serde_json::Value>,
-    handle: &mut TaskHandle,
-) -> Result<(), TaskError> {
-    info!("wait_for_data: Starting — will defer until data is ready");
+#[workflow(
+    name = "deferred_pipeline",
+    description = "Pipeline demonstrating deferred task execution"
+)]
+pub mod deferred_pipeline {
+    use super::*;
 
-    // Simulate an external readiness check.
-    // In production this would call an API, check a file, etc.
-    let poll_count = Arc::new(AtomicUsize::new(0));
-    let pc = poll_count.clone();
+    /// Simulates waiting for external data to become available.
+    ///
+    /// This task uses `defer_until` to release its concurrency slot while polling
+    /// for a condition. In a real application, the condition might check:
+    /// - Whether a file has appeared on disk
+    /// - Whether an API endpoint returns a ready status
+    /// - Whether a message has arrived in a queue
+    #[task(id = "wait_for_data", dependencies = [])]
+    pub async fn wait_for_data(
+        context: &mut Context<serde_json::Value>,
+        handle: &mut TaskHandle,
+    ) -> Result<(), TaskError> {
+        info!("wait_for_data: Starting — will defer until data is ready");
 
-    handle
-        .defer_until(
-            move || {
-                let pc = pc.clone();
-                async move {
-                    let n = pc.fetch_add(1, Ordering::SeqCst);
-                    info!("wait_for_data: polling external source (attempt {})", n + 1);
-                    // Simulate: data becomes ready after 3 polls
-                    n >= 2
-                }
-            },
-            Duration::from_millis(500),
-        )
-        .await
-        .map_err(|e| TaskError::ExecutionFailed {
-            message: format!("defer_until failed: {e}"),
-            task_id: "wait_for_data".into(),
-            timestamp: chrono::Utc::now(),
-        })?;
+        // Simulate an external readiness check.
+        // In production this would call an API, check a file, etc.
+        let poll_count = Arc::new(AtomicUsize::new(0));
+        let pc = poll_count.clone();
 
-    info!(
-        "wait_for_data: Data is ready after {} polls — slot reclaimed",
-        poll_count.load(Ordering::SeqCst)
-    );
+        handle
+            .defer_until(
+                move || {
+                    let pc = pc.clone();
+                    async move {
+                        let n = pc.fetch_add(1, Ordering::SeqCst);
+                        info!("wait_for_data: polling external source (attempt {})", n + 1);
+                        // Simulate: data becomes ready after 3 polls
+                        n >= 2
+                    }
+                },
+                Duration::from_millis(500),
+            )
+            .await
+            .map_err(|e| TaskError::ExecutionFailed {
+                message: format!("defer_until failed: {e}"),
+                task_id: "wait_for_data".into(),
+                timestamp: chrono::Utc::now(),
+            })?;
 
-    // Write the "received" data into context for downstream tasks
-    context.insert("external_data", json!({"status": "ready", "records": 42}))?;
-    Ok(())
-}
+        info!(
+            "wait_for_data: Data is ready after {} polls — slot reclaimed",
+            poll_count.load(Ordering::SeqCst)
+        );
 
-/// Processes data that was fetched by the deferred task.
-#[task(id = "process_data", dependencies = ["wait_for_data"])]
-async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
-    let data = context
-        .get("external_data")
-        .ok_or_else(|| TaskError::ExecutionFailed {
-            message: "external_data not found in context".into(),
-            task_id: "process_data".into(),
-            timestamp: chrono::Utc::now(),
-        })?
-        .clone();
+        // Write the "received" data into context for downstream tasks
+        context.insert("external_data", json!({"status": "ready", "records": 42}))?;
+        Ok(())
+    }
 
-    info!("process_data: Processing external data: {}", data);
+    /// Processes data that was fetched by the deferred task.
+    #[task(id = "process_data", dependencies = ["wait_for_data"])]
+    pub async fn process_data(context: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        let data = context
+            .get("external_data")
+            .ok_or_else(|| TaskError::ExecutionFailed {
+                message: "external_data not found in context".into(),
+                task_id: "process_data".into(),
+                timestamp: chrono::Utc::now(),
+            })?
+            .clone();
 
-    let records = data.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
+        info!("process_data: Processing external data: {}", data);
 
-    context.insert("processed_count", json!(records))?;
-    context.insert("processing_complete", json!(true))?;
+        let records = data.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
 
-    info!("process_data: Processed {} records", records);
-    Ok(())
+        context.insert("processed_count", json!(records))?;
+        context.insert("processing_complete", json!(true))?;
+
+        info!("process_data: Processed {} records", records);
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -134,11 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    let _workflow = workflow! {
-        name: "deferred_pipeline",
-        description: "Pipeline demonstrating deferred task execution",
-        tasks: [wait_for_data, process_data]
-    };
+    // Workflow is auto-registered by #[workflow] attribute macro
 
     info!("Executing deferred_pipeline...");
 

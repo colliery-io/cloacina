@@ -29,6 +29,7 @@ edition = "2021"
 [features]
 default = ["macros"]
 macros = ["cloacina-macros", "tokio"]
+packaged = []
 
 [dependencies]
 cloacina-macros = { workspace = true, optional = true }

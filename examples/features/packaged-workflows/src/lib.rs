@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 # Packaged Workflow Example
 
 This example demonstrates how to create distributable workflow packages using the
-`#[packaged_workflow]` macro. These packages can be compiled into shared libraries
+`#[workflow]` macro. These packages can be compiled into shared libraries
 and dynamically loaded by Cloacina executors.
 
 ## Key Features Demonstrated
@@ -39,15 +39,14 @@ cargo build --release
 ```
 */
 
-use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{task, workflow, Context, TaskError};
 
 /// Analytics Pipeline - A complete data processing workflow package
 ///
 /// This package demonstrates a real-world analytics pipeline with data extraction,
 /// transformation, validation, and reporting tasks. Each task is isolated within
 /// the package namespace to prevent conflicts with other workflow packages.
-#[packaged_workflow(
-    package = "analytics_pipeline",
+#[workflow(
     name = "analytics_workflow",
     description = "Analytics and data processing pipeline",
     author = "Analytics Team <analytics@company.com>"

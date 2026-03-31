@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -168,7 +168,7 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
 
     assert!(retrieved.is_some());
     let (metadata, binary_data) = retrieved.unwrap();
-    assert_eq!(metadata.package_name, "analytics_pipeline");
+    assert_eq!(metadata.package_name, "packaged-workflow-example");
     // Version will be the workflow fingerprint from the real package
     assert_eq!(binary_data, package_data);
 }
@@ -202,7 +202,7 @@ async fn test_register_and_get_workflow_package_with_fs_storage() {
 
     assert!(retrieved.is_some());
     let (metadata, binary_data) = retrieved.unwrap();
-    assert_eq!(metadata.package_name, "analytics_pipeline");
+    assert_eq!(metadata.package_name, "packaged-workflow-example");
     // Version will be the workflow fingerprint from the real package
     assert_eq!(binary_data, package_data);
 }
@@ -253,7 +253,7 @@ async fn test_get_workflow_package_by_name_with_db_storage() {
 
     assert!(retrieved.is_some());
     let (metadata, binary_data) = retrieved.unwrap();
-    assert_eq!(metadata.package_name, "analytics_pipeline");
+    assert_eq!(metadata.package_name, "packaged-workflow-example");
     // Version will be the workflow fingerprint from the real package
     assert_eq!(binary_data, package_data);
 }
@@ -295,7 +295,7 @@ async fn test_get_workflow_package_by_name_with_fs_storage() {
 
     assert!(retrieved.is_some());
     let (metadata, binary_data) = retrieved.unwrap();
-    assert_eq!(metadata.package_name, "analytics_pipeline");
+    assert_eq!(metadata.package_name, "packaged-workflow-example");
     // Version will be the workflow fingerprint from the real package
     assert_eq!(binary_data, package_data);
 }
@@ -540,10 +540,10 @@ async fn test_list_packages_with_db_storage() {
         .expect("Failed to list packages");
     assert_eq!(packages.len(), initial_count + 1);
 
-    // Find our package in the list (package name comes from #[packaged_workflow(package = "analytics_pipeline")])
+    // Find our package in the list (package name comes from #[packaged_workflow(package = "packaged-workflow-example")])
     let our_package = packages
         .iter()
-        .find(|p| p.package_name == "analytics_pipeline");
+        .find(|p| p.package_name == "packaged-workflow-example");
     assert!(our_package.is_some());
 }
 
@@ -582,10 +582,10 @@ async fn test_list_packages_with_fs_storage() {
         .expect("Failed to list packages");
     assert_eq!(packages.len(), initial_count + 1);
 
-    // Find our package in the list (package name comes from #[packaged_workflow(package = "analytics_pipeline")])
+    // Find our package in the list (package name comes from #[packaged_workflow(package = "packaged-workflow-example")])
     let our_package = packages
         .iter()
-        .find(|p| p.package_name == "analytics_pipeline");
+        .find(|p| p.package_name == "packaged-workflow-example");
     assert!(our_package.is_some());
 }
 
@@ -628,7 +628,7 @@ async fn test_register_duplicate_package_with_db_storage() {
             package_name,
             version,
         } => {
-            assert_eq!(package_name, "analytics_pipeline");
+            assert_eq!(package_name, "packaged-workflow-example");
             // Version will be the real fingerprint from the package
         }
         other => panic!("Expected PackageExists error, got: {:?}", other),
@@ -665,7 +665,7 @@ async fn test_register_duplicate_package_with_fs_storage() {
             package_name,
             version,
         } => {
-            assert_eq!(package_name, "analytics_pipeline");
+            assert_eq!(package_name, "packaged-workflow-example");
             // Version will be the real fingerprint from the package
         }
         other => panic!("Expected PackageExists error, got: {:?}", other),

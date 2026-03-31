@@ -1,0 +1,173 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! Unified Schedule Execution DAL with runtime backend selection
+//!
+//! This module provides operations for the unified `schedule_executions` table
+//! that replaces the separate `cron_executions` and `trigger_executions` tables.
+//! Works with both PostgreSQL and SQLite backends, selecting the appropriate
+//! implementation at runtime based on the database connection type.
+
+mod crud;
+
+use super::DAL;
+use crate::database::universal_types::UniversalUuid;
+use crate::error::ValidationError;
+use crate::models::schedule::{NewScheduleExecution, ScheduleExecution};
+use chrono::{DateTime, Utc};
+
+/// Statistics about schedule execution performance
+#[derive(Debug)]
+pub struct ScheduleExecutionStats {
+    /// Total number of executions attempted
+    pub total_executions: i64,
+    /// Number of executions that successfully handed off to pipeline executor
+    pub successful_executions: i64,
+    /// Number of executions that were lost (started but never completed within expected time)
+    pub lost_executions: i64,
+    /// Success rate as a percentage
+    pub success_rate: f64,
+}
+
+/// Data access layer for unified schedule execution operations with runtime backend selection.
+#[derive(Clone)]
+pub struct ScheduleExecutionDAL<'a> {
+    dal: &'a DAL,
+}
+
+impl<'a> ScheduleExecutionDAL<'a> {
+    /// Creates a new ScheduleExecutionDAL instance.
+    pub fn new(dal: &'a DAL) -> Self {
+        Self { dal }
+    }
+
+    /// Creates a new schedule execution record in the database.
+    pub async fn create(
+        &self,
+        new_execution: NewScheduleExecution,
+    ) -> Result<ScheduleExecution, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.create_postgres(new_execution).await,
+            self.create_sqlite(new_execution).await
+        )
+    }
+
+    /// Retrieves a schedule execution by its ID.
+    pub async fn get_by_id(&self, id: UniversalUuid) -> Result<ScheduleExecution, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_by_id_postgres(id).await,
+            self.get_by_id_sqlite(id).await
+        )
+    }
+
+    /// Lists schedule executions for a given schedule.
+    pub async fn list_by_schedule(
+        &self,
+        schedule_id: UniversalUuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ScheduleExecution>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.list_by_schedule_postgres(schedule_id, limit, offset)
+                .await,
+            self.list_by_schedule_sqlite(schedule_id, limit, offset)
+                .await
+        )
+    }
+
+    /// Marks a schedule execution as completed.
+    pub async fn complete(
+        &self,
+        id: UniversalUuid,
+        completed_at: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.complete_postgres(id, completed_at).await,
+            self.complete_sqlite(id, completed_at).await
+        )
+    }
+
+    /// Checks if there is an active (uncompleted) execution for a schedule with the given context hash.
+    pub async fn has_active_execution(
+        &self,
+        schedule_id: UniversalUuid,
+        context_hash: &str,
+    ) -> Result<bool, ValidationError> {
+        let context_hash_owned = context_hash.to_string();
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.has_active_execution_postgres(schedule_id, context_hash_owned.clone())
+                .await,
+            self.has_active_execution_sqlite(schedule_id, context_hash_owned)
+                .await
+        )
+    }
+
+    /// Updates the pipeline execution ID for a schedule execution.
+    pub async fn update_pipeline_execution_id(
+        &self,
+        id: UniversalUuid,
+        pipeline_execution_id: UniversalUuid,
+    ) -> Result<(), ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_pipeline_execution_id_postgres(id, pipeline_execution_id)
+                .await,
+            self.update_pipeline_execution_id_sqlite(id, pipeline_execution_id)
+                .await
+        )
+    }
+
+    /// Finds lost executions (started but not completed) older than the specified minutes.
+    pub async fn find_lost_executions(
+        &self,
+        older_than_minutes: i32,
+    ) -> Result<Vec<ScheduleExecution>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.find_lost_executions_postgres(older_than_minutes).await,
+            self.find_lost_executions_sqlite(older_than_minutes).await
+        )
+    }
+
+    /// Gets the latest execution for a given schedule.
+    pub async fn get_latest_by_schedule(
+        &self,
+        schedule_id: UniversalUuid,
+    ) -> Result<Option<ScheduleExecution>, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_latest_by_schedule_postgres(schedule_id).await,
+            self.get_latest_by_schedule_sqlite(schedule_id).await
+        )
+    }
+
+    /// Gets execution statistics for monitoring and alerting.
+    pub async fn get_execution_stats(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<ScheduleExecutionStats, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_execution_stats_postgres(since).await,
+            self.get_execution_stats_sqlite(since).await
+        )
+    }
+}

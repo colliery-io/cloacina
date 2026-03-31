@@ -20,10 +20,9 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    contexts, cron_executions, cron_schedules, execution_events, key_trust_acls,
-    package_signatures, pipeline_executions, recovery_events, signing_keys,
-    task_execution_metadata, task_executions, task_outbox, trigger_executions, trigger_schedules,
-    trusted_keys, workflow_packages, workflow_registry,
+    contexts, execution_events, key_trust_acls, package_signatures, pipeline_executions,
+    recovery_events, schedule_executions, schedules, signing_keys, task_execution_metadata,
+    task_executions, task_outbox, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -245,112 +244,64 @@ pub struct NewUnifiedTaskOutbox {
 }
 
 // ============================================================================
-// Cron Schedule Models
+// Unified Schedule Models
 // ============================================================================
 
 #[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = cron_schedules)]
-pub struct UnifiedCronSchedule {
+#[diesel(table_name = schedules)]
+pub struct UnifiedSchedule {
     pub id: UniversalUuid,
+    pub schedule_type: String,
     pub workflow_name: String,
-    pub cron_expression: String,
-    pub timezone: String,
     pub enabled: UniversalBool,
-    pub catchup_policy: String,
+    pub cron_expression: Option<String>,
+    pub timezone: Option<String>,
+    pub catchup_policy: Option<String>,
     pub start_date: Option<UniversalTimestamp>,
     pub end_date: Option<UniversalTimestamp>,
-    pub next_run_at: UniversalTimestamp,
+    pub trigger_name: Option<String>,
+    pub poll_interval_ms: Option<i32>,
+    pub allow_concurrent: Option<UniversalBool>,
+    pub next_run_at: Option<UniversalTimestamp>,
     pub last_run_at: Option<UniversalTimestamp>,
-    pub created_at: UniversalTimestamp,
-    pub updated_at: UniversalTimestamp,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = cron_schedules)]
-pub struct NewUnifiedCronSchedule {
-    pub id: UniversalUuid,
-    pub workflow_name: String,
-    pub cron_expression: String,
-    pub timezone: String,
-    pub enabled: UniversalBool,
-    pub catchup_policy: String,
-    pub start_date: Option<UniversalTimestamp>,
-    pub end_date: Option<UniversalTimestamp>,
-    pub next_run_at: UniversalTimestamp,
-    pub created_at: UniversalTimestamp,
-    pub updated_at: UniversalTimestamp,
-}
-
-// ============================================================================
-// Cron Execution Models
-// ============================================================================
-
-#[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = cron_executions)]
-pub struct UnifiedCronExecution {
-    pub id: UniversalUuid,
-    pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
-    pub scheduled_time: UniversalTimestamp,
-    pub claimed_at: UniversalTimestamp,
-    pub created_at: UniversalTimestamp,
-    pub updated_at: UniversalTimestamp,
-}
-
-#[derive(Debug, Insertable)]
-#[diesel(table_name = cron_executions)]
-pub struct NewUnifiedCronExecution {
-    pub id: UniversalUuid,
-    pub schedule_id: UniversalUuid,
-    pub pipeline_execution_id: Option<UniversalUuid>,
-    pub scheduled_time: UniversalTimestamp,
-    pub claimed_at: UniversalTimestamp,
-    pub created_at: UniversalTimestamp,
-    pub updated_at: UniversalTimestamp,
-}
-
-// ============================================================================
-// Trigger Schedule Models
-// ============================================================================
-
-#[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = trigger_schedules)]
-pub struct UnifiedTriggerSchedule {
-    pub id: UniversalUuid,
-    pub trigger_name: String,
-    pub workflow_name: String,
-    pub poll_interval_ms: i32,
-    pub allow_concurrent: UniversalBool,
-    pub enabled: UniversalBool,
     pub last_poll_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
 
 #[derive(Debug, Insertable)]
-#[diesel(table_name = trigger_schedules)]
-pub struct NewUnifiedTriggerSchedule {
+#[diesel(table_name = schedules)]
+pub struct NewUnifiedSchedule {
     pub id: UniversalUuid,
-    pub trigger_name: String,
+    pub schedule_type: String,
     pub workflow_name: String,
-    pub poll_interval_ms: i32,
-    pub allow_concurrent: UniversalBool,
     pub enabled: UniversalBool,
+    pub cron_expression: Option<String>,
+    pub timezone: Option<String>,
+    pub catchup_policy: Option<String>,
+    pub start_date: Option<UniversalTimestamp>,
+    pub end_date: Option<UniversalTimestamp>,
+    pub trigger_name: Option<String>,
+    pub poll_interval_ms: Option<i32>,
+    pub allow_concurrent: Option<UniversalBool>,
+    pub next_run_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
 }
 
 // ============================================================================
-// Trigger Execution Models
+// Unified Schedule Execution Models
 // ============================================================================
 
 #[derive(Debug, Clone, Queryable, Selectable)]
-#[diesel(table_name = trigger_executions)]
-pub struct UnifiedTriggerExecution {
+#[diesel(table_name = schedule_executions)]
+pub struct UnifiedScheduleExecution {
     pub id: UniversalUuid,
-    pub trigger_name: String,
-    pub context_hash: String,
+    pub schedule_id: UniversalUuid,
     pub pipeline_execution_id: Option<UniversalUuid>,
+    pub scheduled_time: Option<UniversalTimestamp>,
+    pub claimed_at: Option<UniversalTimestamp>,
+    pub context_hash: Option<String>,
     pub started_at: UniversalTimestamp,
     pub completed_at: Option<UniversalTimestamp>,
     pub created_at: UniversalTimestamp,
@@ -358,12 +309,14 @@ pub struct UnifiedTriggerExecution {
 }
 
 #[derive(Debug, Insertable)]
-#[diesel(table_name = trigger_executions)]
-pub struct NewUnifiedTriggerExecution {
+#[diesel(table_name = schedule_executions)]
+pub struct NewUnifiedScheduleExecution {
     pub id: UniversalUuid,
-    pub trigger_name: String,
-    pub context_hash: String,
+    pub schedule_id: UniversalUuid,
     pub pipeline_execution_id: Option<UniversalUuid>,
+    pub scheduled_time: Option<UniversalTimestamp>,
+    pub claimed_at: Option<UniversalTimestamp>,
+    pub context_hash: Option<String>,
     pub started_at: UniversalTimestamp,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
@@ -533,18 +486,15 @@ pub struct NewUnifiedPackageSignature {
 // models is straightforward - mostly just field-by-field mapping.
 
 use crate::models::context::DbContext;
-use crate::models::cron_execution::CronExecution;
-use crate::models::cron_schedule::CronSchedule;
 use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
 use crate::models::pipeline_execution::PipelineExecution;
 use crate::models::recovery_event::RecoveryEvent;
+use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
 use crate::models::task_execution::TaskExecution;
 use crate::models::task_execution_metadata::TaskExecutionMetadata;
-use crate::models::trigger_execution::TriggerExecution;
-use crate::models::trigger_schedule::TriggerSchedule;
 use crate::models::trusted_key::TrustedKey;
 use crate::models::workflow_packages::WorkflowPackage;
 use crate::models::workflow_registry::WorkflowRegistryEntry;
@@ -652,39 +602,6 @@ impl From<UnifiedExecutionEvent> for ExecutionEvent {
     }
 }
 
-impl From<UnifiedCronSchedule> for CronSchedule {
-    fn from(u: UnifiedCronSchedule) -> Self {
-        CronSchedule {
-            id: u.id,
-            workflow_name: u.workflow_name,
-            cron_expression: u.cron_expression,
-            timezone: u.timezone,
-            enabled: u.enabled,
-            catchup_policy: u.catchup_policy,
-            start_date: u.start_date,
-            end_date: u.end_date,
-            next_run_at: u.next_run_at,
-            last_run_at: u.last_run_at,
-            created_at: u.created_at,
-            updated_at: u.updated_at,
-        }
-    }
-}
-
-impl From<UnifiedCronExecution> for CronExecution {
-    fn from(u: UnifiedCronExecution) -> Self {
-        CronExecution {
-            id: u.id,
-            schedule_id: u.schedule_id,
-            pipeline_execution_id: u.pipeline_execution_id,
-            scheduled_time: u.scheduled_time,
-            claimed_at: u.claimed_at,
-            created_at: u.created_at,
-            updated_at: u.updated_at,
-        }
-    }
-}
-
 impl From<UnifiedWorkflowRegistryEntry> for WorkflowRegistryEntry {
     fn from(u: UnifiedWorkflowRegistryEntry) -> Self {
         WorkflowRegistryEntry {
@@ -706,37 +623,6 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             author: u.author,
             metadata: u.metadata,
             storage_type: u.storage_type.parse().unwrap(),
-            created_at: u.created_at,
-            updated_at: u.updated_at,
-        }
-    }
-}
-
-impl From<UnifiedTriggerSchedule> for TriggerSchedule {
-    fn from(u: UnifiedTriggerSchedule) -> Self {
-        TriggerSchedule {
-            id: u.id,
-            trigger_name: u.trigger_name,
-            workflow_name: u.workflow_name,
-            poll_interval_ms: u.poll_interval_ms,
-            allow_concurrent: u.allow_concurrent,
-            enabled: u.enabled,
-            last_poll_at: u.last_poll_at,
-            created_at: u.created_at,
-            updated_at: u.updated_at,
-        }
-    }
-}
-
-impl From<UnifiedTriggerExecution> for TriggerExecution {
-    fn from(u: UnifiedTriggerExecution) -> Self {
-        TriggerExecution {
-            id: u.id,
-            trigger_name: u.trigger_name,
-            context_hash: u.context_hash,
-            pipeline_execution_id: u.pipeline_execution_id,
-            started_at: u.started_at,
-            completed_at: u.completed_at,
             created_at: u.created_at,
             updated_at: u.updated_at,
         }
@@ -792,6 +678,47 @@ impl From<UnifiedPackageSignature> for PackageSignature {
             key_fingerprint: u.key_fingerprint,
             signature: u.signature.into_inner(),
             signed_at: u.signed_at,
+        }
+    }
+}
+
+impl From<UnifiedSchedule> for Schedule {
+    fn from(u: UnifiedSchedule) -> Self {
+        Schedule {
+            id: u.id,
+            schedule_type: u.schedule_type,
+            workflow_name: u.workflow_name,
+            enabled: u.enabled,
+            cron_expression: u.cron_expression,
+            timezone: u.timezone,
+            catchup_policy: u.catchup_policy,
+            start_date: u.start_date,
+            end_date: u.end_date,
+            trigger_name: u.trigger_name,
+            poll_interval_ms: u.poll_interval_ms,
+            allow_concurrent: u.allow_concurrent,
+            next_run_at: u.next_run_at,
+            last_run_at: u.last_run_at,
+            last_poll_at: u.last_poll_at,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+        }
+    }
+}
+
+impl From<UnifiedScheduleExecution> for ScheduleExecution {
+    fn from(u: UnifiedScheduleExecution) -> Self {
+        ScheduleExecution {
+            id: u.id,
+            schedule_id: u.schedule_id,
+            pipeline_execution_id: u.pipeline_execution_id,
+            scheduled_time: u.scheduled_time,
+            claimed_at: u.claimed_at,
+            context_hash: u.context_hash,
+            started_at: u.started_at,
+            completed_at: u.completed_at,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
         }
     }
 }

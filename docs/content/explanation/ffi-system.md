@@ -6,7 +6,7 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
-This article provides a comprehensive technical overview of Cloacina's FFI (Foreign Function Interface) system, which enables dynamic loading and execution of packaged workflows. The FFI system creates a standardized C-compatible interface that allows Cloacina to load and execute workflow packages at runtime.
+This article provides a comprehensive technical overview of Cloacina's FFI (Foreign Function Interface) system, which enables dynamic loading and execution of workflow packages. The FFI system creates a standardized C-compatible interface that allows Cloacina to load and execute workflow packages at runtime.
 
 ## Overview
 
@@ -20,7 +20,7 @@ The FFI system serves as the bridge between dynamically loaded workflow packages
 
 ## Required FFI Symbols
 
-Every packaged workflow must export exactly two C-compatible symbols:
+Every workflow package must export exactly two C-compatible symbols:
 
 ### 1. `cloacina_execute_task`
 
@@ -93,14 +93,14 @@ All string pointers in FFI structures point to static data within the library. T
 
 ## Generated FFI Implementation
 
-The `#[packaged_workflow]` macro automatically generates the complete FFI implementation. Here's what it actually generates based on the implementation in `cloacina-macros/src/packaged_workflow.rs`:
+The `#[workflow]` macro (with `features = ["packaged"]`) automatically generates the complete FFI implementation. Here's what it generates for cdylib builds:
 
 ### Static Data Generation
 
 For a workflow like:
 
 ```rust
-#[packaged_workflow(
+#[workflow(
     name = "data_processing",
     package = "example",
     description = "Example data processing workflow"
@@ -474,6 +474,6 @@ pub extern "C" fn cloacina_execute_task(...) -> i32 {
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
+- [Tutorial: Creating Your First Workflow Package]({{< ref "/tutorials/07-packaged-workflows/" >}})
 - [Explanation: Package Format]({{< ref "/explanation/package-format/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/explanation/packaged-workflow-architecture/" >}})

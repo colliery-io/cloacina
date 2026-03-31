@@ -833,7 +833,7 @@ pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     // Use a timeout to avoid hanging if there are mutex issues
     let file_path = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "unknown".to_string());
 
-    // Note: We no longer need to check if we're in a packaged workflow context
+    // Note: We no longer need to check if we're in a workflow package context
     // since validation is deferred for all tasks
 
     let task_info = TaskInfo {

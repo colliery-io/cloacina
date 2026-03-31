@@ -35,6 +35,7 @@ pub mod scheduler;
 pub mod signing;
 pub mod task;
 pub mod trigger_packaging;
+pub mod unified_workflow;
 pub mod workflow;
 
 #[path = "../fixtures.rs"]

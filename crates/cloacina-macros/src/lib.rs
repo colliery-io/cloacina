@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,61 +16,91 @@
 
 //! # Cloacina Macros
 //!
-//! This crate provides procedural macros for defining tasks and workflows in the Cloacina framework.
-//! It enables compile-time validation of task dependencies and workflow structure.
+//! Procedural macros for defining tasks and workflows in the Cloacina framework.
 //!
 //! ## Key Features
 //!
-//! - `#[task]` attribute macro for defining tasks with retry policies and trigger rules
-//! - `workflow!` macro for declarative workflow definition
-//! - `#[packaged_workflow]` attribute macro for creating distributable workflow packages
+//! - `#[task]` — define tasks with retry policies and trigger rules
+//! - `#[workflow]` — define workflows as modules containing `#[task]` functions
 //! - Compile-time validation of task dependencies and workflow structure
 //! - Automatic task and workflow registration
 //! - Code fingerprinting for task versioning
 //!
 //! ## Example
 //!
-//! ```rust
-//! use cloacina_macros::task;
+//! ```rust,ignore
+//! use cloacina::{task, workflow, Context, TaskError};
 //!
-//! #[task(
-//!     id = "my_task",
-//!     dependencies = ["other_task"],
-//!     retry_attempts = 3,
-//!     retry_backoff = "exponential"
-//! )]
-//! async fn my_task(context: &mut Context<Value>) -> Result<(), TaskError> {
-//!     // Task implementation
-//!     Ok(())
+//! #[workflow(name = "my_pipeline", description = "Process data")]
+//! pub mod my_pipeline {
+//!     use super::*;
+//!
+//!     #[task(id = "fetch", dependencies = [])]
+//!     pub async fn fetch(ctx: &mut Context<Value>) -> Result<(), TaskError> { Ok(()) }
+//!
+//!     #[task(id = "process", dependencies = ["fetch"])]
+//!     pub async fn process(ctx: &mut Context<Value>) -> Result<(), TaskError> { Ok(()) }
 //! }
-//!
-//! use cloacina_macros::workflow;
-//!
-//! let workflow = workflow! {
-//!     name: "my_workflow",
-//!     description: "A sample workflow",
-//!     tasks: [my_task, other_task]
-//! };
 //! ```
 
-mod packaged_workflow;
+pub(crate) mod packaged_workflow;
 mod registry;
-mod tasks;
-mod workflow;
+pub(crate) mod tasks;
+mod trigger_attr;
+mod workflow_attr;
 
 use proc_macro::TokenStream;
 
+/// Define a task with retry policies and trigger rules.
 #[proc_macro_attribute]
 pub fn task(args: TokenStream, input: TokenStream) -> TokenStream {
     tasks::task(args, input)
 }
 
-#[proc_macro]
-pub fn workflow(input: TokenStream) -> TokenStream {
-    workflow::workflow(input)
+/// Define a workflow as a module containing `#[task]` functions.
+///
+/// Applied to a `pub mod` containing `#[task]` functions. Auto-discovers tasks,
+/// validates dependencies, and generates registration code based on delivery mode:
+///
+/// - **Embedded** (default): `#[ctor]` auto-registration
+/// - **Packaged** (`features = ["packaged"]`): FFI exports for `.cloacina` packages
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[workflow(name = "my_pipeline", description = "Process data")]
+/// pub mod my_pipeline {
+///     use super::*;
+///
+///     #[task(id = "fetch", dependencies = [])]
+///     pub async fn fetch(ctx: &mut Context<Value>) -> Result<(), TaskError> { Ok(()) }
+///
+///     #[task(id = "process", dependencies = ["fetch"])]
+///     pub async fn process(ctx: &mut Context<Value>) -> Result<(), TaskError> { Ok(()) }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn workflow(args: TokenStream, input: TokenStream) -> TokenStream {
+    workflow_attr::workflow_attr(args, input)
 }
 
+/// Define a trigger that fires a workflow on a schedule or condition.
+///
+/// # Custom poll trigger
+///
+/// ```rust,ignore
+/// #[trigger(on = "my_workflow", poll_interval = "5s")]
+/// pub async fn check_inbox() -> Result<TriggerResult, TriggerError> {
+///     // check condition, return Fire(ctx) or Skip
+/// }
+/// ```
+///
+/// # Cron trigger (T-0305)
+///
+/// ```rust,ignore
+/// #[trigger(on = "my_workflow", cron = "0 2 * * *", timezone = "UTC")]
+/// ```
 #[proc_macro_attribute]
-pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
-    packaged_workflow::packaged_workflow(args, input)
+pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
+    trigger_attr::trigger_attr(args, input)
 }

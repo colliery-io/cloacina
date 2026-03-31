@@ -76,6 +76,7 @@ unsafe impl Sync for TaskMetadataCollection {}
 /// * `tenant` - Tenant identifier for the workflow (optional, defaults to "public")
 /// * `description` - Optional description of the workflow package
 /// * `author` - Optional author information
+#[allow(dead_code)]
 pub struct PackagedWorkflowAttributes {
     pub name: String,
     pub package: String,
@@ -494,6 +495,7 @@ fn calculate_task_depth(
 /// # Returns
 ///
 /// A `TokenStream2` containing the generated packaged workflow implementation
+#[allow(dead_code)]
 pub fn generate_packaged_workflow_impl(
     attrs: PackagedWorkflowAttributes,
     input: ItemMod,
@@ -1254,6 +1256,7 @@ pub fn generate_packaged_workflow_impl(
 /// # Attributes
 ///
 /// See `PackagedWorkflowAttributes` for available configuration options.
+#[allow(dead_code)]
 pub fn packaged_workflow(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = TokenStream2::from(args);
     let input = TokenStream2::from(input);

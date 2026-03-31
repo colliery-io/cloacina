@@ -44,10 +44,9 @@ use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::RegistryReconciler;
-use crate::CronScheduler;
 use crate::Database;
+use crate::Scheduler;
 use crate::TaskScheduler;
-use crate::TriggerScheduler;
 
 /// Default runner that coordinates workflow scheduling and task execution
 ///
@@ -75,16 +74,14 @@ pub struct DefaultRunner {
     pub(super) scheduler: Arc<TaskScheduler>,
     /// Runtime handles for managing background services
     pub(super) runtime_handles: Arc<RwLock<RuntimeHandles>>,
-    /// Optional cron scheduler for time-based workflow execution
-    pub(super) cron_scheduler: Arc<RwLock<Option<Arc<CronScheduler>>>>,
     /// Optional cron recovery service for handling lost executions
     pub(super) cron_recovery: Arc<RwLock<Option<Arc<crate::CronRecoveryService>>>>,
     /// Optional workflow registry for packaged workflows
     pub(super) workflow_registry: Arc<RwLock<Option<Arc<dyn WorkflowRegistry>>>>,
     /// Optional registry reconciler for packaged workflows
     pub(super) registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
-    /// Optional trigger scheduler for event-based workflow execution
-    pub(super) trigger_scheduler: Arc<RwLock<Option<Arc<TriggerScheduler>>>>,
+    /// Optional unified scheduler for both cron and trigger-based workflow execution
+    pub(super) unified_scheduler: Arc<RwLock<Option<Arc<Scheduler>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -96,14 +93,12 @@ pub(super) struct RuntimeHandles {
     pub(super) scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the executor background task
     pub(super) executor_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Handle to the cron scheduler background task (if enabled)
-    pub(super) cron_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the cron recovery service background task (if enabled)
     pub(super) cron_recovery_handle: Option<tokio::task::JoinHandle<()>>,
     /// Handle to the registry reconciler background task (if enabled)
     pub(super) registry_reconciler_handle: Option<tokio::task::JoinHandle<()>>,
-    /// Handle to the trigger scheduler background task (if enabled)
-    pub(super) trigger_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Handle to the unified scheduler background task (if enabled)
+    pub(super) unified_scheduler_handle: Option<tokio::task::JoinHandle<()>>,
     /// Channel sender for broadcasting shutdown signals
     pub(super) shutdown_sender: Option<broadcast::Sender<()>>,
 }
@@ -232,17 +227,15 @@ impl DefaultRunner {
             runtime_handles: Arc::new(RwLock::new(RuntimeHandles {
                 scheduler_handle: None,
                 executor_handle: None,
-                cron_scheduler_handle: None,
                 cron_recovery_handle: None,
                 registry_reconciler_handle: None,
-                trigger_scheduler_handle: None,
+                unified_scheduler_handle: None,
                 shutdown_sender: None,
             })),
-            cron_scheduler: Arc::new(RwLock::new(None)), // Initially empty
-            cron_recovery: Arc::new(RwLock::new(None)),  // Initially empty
+            cron_recovery: Arc::new(RwLock::new(None)), // Initially empty
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
-            trigger_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -261,11 +254,12 @@ impl DefaultRunner {
         DAL::new(self.database.clone())
     }
 
-    /// Returns the trigger scheduler if enabled.
+    /// Returns the unified scheduler if enabled.
     ///
-    /// Returns `None` if trigger scheduling is disabled or not yet initialized.
-    pub async fn trigger_scheduler(&self) -> Option<Arc<crate::TriggerScheduler>> {
-        self.trigger_scheduler.read().await.clone()
+    /// Returns `None` if neither cron nor trigger scheduling is enabled or
+    /// the unified scheduler has not yet been initialized.
+    pub async fn unified_scheduler(&self) -> Option<Arc<Scheduler>> {
+        self.unified_scheduler.read().await.clone()
     }
 
     /// Gracefully shuts down the executor and its background services
@@ -296,11 +290,6 @@ impl DefaultRunner {
             let _ = handle.await;
         }
 
-        // Wait for cron scheduler to finish (if enabled)
-        if let Some(handle) = handles.cron_scheduler_handle.take() {
-            let _ = handle.await;
-        }
-
         // Wait for cron recovery service to finish (if enabled)
         if let Some(handle) = handles.cron_recovery_handle.take() {
             let _ = handle.await;
@@ -311,8 +300,8 @@ impl DefaultRunner {
             let _ = handle.await;
         }
 
-        // Wait for trigger scheduler to finish (if enabled)
-        if let Some(handle) = handles.trigger_scheduler_handle.take() {
+        // Wait for unified scheduler to finish (if enabled)
+        if let Some(handle) = handles.unified_scheduler_handle.take() {
             let _ = handle.await;
         }
 
@@ -330,11 +319,10 @@ impl Clone for DefaultRunner {
             config: self.config.clone(),
             scheduler: self.scheduler.clone(),
             runtime_handles: self.runtime_handles.clone(),
-            cron_scheduler: self.cron_scheduler.clone(),
             cron_recovery: self.cron_recovery.clone(),
             workflow_registry: self.workflow_registry.clone(),
             registry_reconciler: self.registry_reconciler.clone(),
-            trigger_scheduler: self.trigger_scheduler.clone(),
+            unified_scheduler: self.unified_scheduler.clone(),
         }
     }
 }

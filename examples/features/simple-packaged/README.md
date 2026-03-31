@@ -1,11 +1,11 @@
-# Simple Packaged Workflow Demo
+# Simple Workflow Package Demo
 
-This example provides a **complete end-to-end demonstration** of packaged workflows in Cloacina, showing the entire lifecycle from development to execution.
+This example provides a **complete end-to-end demonstration** of workflow packages in Cloacina, showing the entire lifecycle from development to execution.
 
 ## 🎯 What This Demonstrates
 
-### Complete Packaged Workflow Lifecycle:
-1. **📝 Define** - Create packaged workflow with `#[packaged_workflow]` macro
+### Complete Workflow Package Lifecycle:
+1. **📝 Define** - Create workflow with `#[workflow]` macro
 2. **🏗️ Compile** - Build to shared library (`.so`/`.dylib`/`.dll`)
 3. **📦 Package** - Create distributable `.cloacina` archive
 4. **🔄 Load** - Dynamically load via workflow registry
@@ -22,7 +22,7 @@ This example provides a **complete end-to-end demonstration** of packaged workfl
 ## 🚀 Quick Start
 
 ```bash
-# 1. Build the packaged workflow
+# 1. Build the workflow package
 cargo build --release
 
 # 2. See the compilation process
@@ -57,7 +57,7 @@ raw_data → processed_data → final_report
 
 ### Dependencies
 
-Packaged workflows only need `cloacina-workflow`:
+Workflow packages only need `cloacina-workflow`:
 
 ```toml
 [dependencies]
@@ -68,9 +68,9 @@ tokio = { version = "1.0", features = ["full"] }
 
 ### Development:
 ```rust
-use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{workflow, task, Context, TaskError};
 
-#[packaged_workflow(
+#[workflow(
     name = "data_processing",
     package = "simple_demo",
     description = "Data processing workflow",
@@ -106,7 +106,7 @@ scheduler.schedule_workflow("data_processing", context).await?;
 
 ## 🏗️ Architecture
 
-### Packaged Workflow Structure:
+### Workflow Package Structure:
 ```
 simple_demo.cloacina
 ├── metadata.json           # Package information
@@ -178,6 +178,6 @@ simple_demo.cloacina
 
 ## 📚 Further Reading
 
-- [Packaged Workflow Architecture](../../docs/architecture/packaged-workflows.md)
+- [Workflow Package Architecture](../../docs/architecture/packaged-workflows.md)
 - [Deployment Guide](../../docs/deployment/packaged-workflows.md)
 - [Best Practices](../../docs/best-practices/workflow-design.md)

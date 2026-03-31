@@ -484,7 +484,6 @@ pub mod prelude {
 pub mod context;
 pub mod cron_evaluator;
 pub mod cron_recovery;
-pub mod cron_scheduler;
 pub mod crypto;
 pub mod dal;
 pub mod database;
@@ -499,11 +498,11 @@ pub mod python;
 pub mod registry;
 pub mod retry;
 pub mod runner;
+pub mod scheduler;
 pub mod security;
 pub mod task;
 pub mod task_scheduler;
 pub mod trigger;
-pub mod trigger_scheduler;
 pub mod workflow;
 
 pub use logging::init_logging;
@@ -522,7 +521,6 @@ pub use database::connection::Database;
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
-pub use cron_scheduler::{CronScheduler, CronSchedulerConfig};
 #[cfg(feature = "postgres")]
 pub use database::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub use database::{UniversalBool, UniversalTimestamp, UniversalUuid};
@@ -545,6 +543,7 @@ pub use graph::{
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
+pub use scheduler::{Scheduler, SchedulerConfig};
 pub use task::namespace::parse_namespace;
 pub use task::{
     global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
@@ -554,7 +553,6 @@ pub use trigger::{
     get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor, Trigger,
     TriggerConfig, TriggerError, TriggerResult,
 };
-pub use trigger_scheduler::{TriggerScheduler, TriggerSchedulerConfig};
 pub use workflow::{
     get_all_workflows, global_workflow_registry, register_workflow_constructor, DependencyGraph,
     Workflow, WorkflowBuilder, WorkflowMetadata,
@@ -562,7 +560,7 @@ pub use workflow::{
 
 // Re-export the macros from cloacina-macros
 #[cfg(feature = "macros")]
-pub use cloacina_macros::{packaged_workflow, task, workflow};
+pub use cloacina_macros::{task, trigger, workflow};
 
 // PyO3 module entry point for the `cloaca` Python wheel.
 // This is used by maturin to build a standalone pip-installable wheel.
@@ -602,10 +600,13 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<python::bindings::value_objects::PyBackoffStrategy>()?;
     m.add_class::<python::bindings::value_objects::PyRetryCondition>()?;
 
-    // Admin classes (postgres only but always registered)
-    m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
-    m.add_class::<python::bindings::admin::PyTenantConfig>()?;
-    m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
+    // Admin classes (postgres only)
+    #[cfg(feature = "postgres")]
+    {
+        m.add_class::<python::bindings::admin::PyDatabaseAdmin>()?;
+        m.add_class::<python::bindings::admin::PyTenantConfig>()?;
+        m.add_class::<python::bindings::admin::PyTenantCredentials>()?;
+    }
 
     Ok(())
 }

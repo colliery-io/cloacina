@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -47,6 +47,7 @@ pub struct SchedulerLoop<'a> {
 
 impl<'a> SchedulerLoop<'a> {
     /// Creates a new SchedulerLoop.
+    #[allow(dead_code)]
     pub fn new(dal: &'a DAL, instance_id: Uuid, poll_interval: Duration) -> Self {
         Self {
             dal,

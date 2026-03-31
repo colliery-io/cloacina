@@ -65,7 +65,7 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::cron_schedule::CronSchedule>, crate::executor::PipelineError>,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
         >,
     },
     SetCronScheduleEnabled {
@@ -80,7 +80,7 @@ enum RuntimeMessage {
     GetCronSchedule {
         schedule_id: String,
         response_tx: oneshot::Sender<
-            Result<crate::models::cron_schedule::CronSchedule, crate::executor::PipelineError>,
+            Result<crate::models::schedule::Schedule, crate::executor::PipelineError>,
         >,
     },
     UpdateCronSchedule {
@@ -94,16 +94,14 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<
-                Vec<crate::models::cron_execution::CronExecution>,
-                crate::executor::PipelineError,
-            >,
+            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
         >,
     },
     GetCronExecutionStats {
         since: chrono::DateTime<chrono::Utc>,
-        response_tx:
-            oneshot::Sender<Result<crate::dal::CronExecutionStats, crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<
+            Result<crate::dal::ScheduleExecutionStats, crate::executor::PipelineError>,
+        >,
     },
     // Trigger management messages
     ListTriggerSchedules {
@@ -111,19 +109,13 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<
-                Vec<crate::models::trigger_schedule::TriggerSchedule>,
-                crate::executor::PipelineError,
-            >,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
         >,
     },
     GetTriggerSchedule {
         trigger_name: String,
         response_tx: oneshot::Sender<
-            Result<
-                Option<crate::models::trigger_schedule::TriggerSchedule>,
-                crate::executor::PipelineError,
-            >,
+            Result<Option<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
         >,
     },
     SetTriggerEnabled {
@@ -136,10 +128,7 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<
-                Vec<crate::models::trigger_execution::TriggerExecution>,
-                crate::executor::PipelineError,
-            >,
+            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
         >,
     },
     Shutdown,
@@ -551,9 +540,11 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result = if enabled_only {
-                                    dal.trigger_schedule().get_enabled().await
+                                    dal.schedule().get_enabled_triggers().await
                                 } else {
-                                    dal.trigger_schedule().list(limit, offset).await
+                                    dal.schedule()
+                                        .list(Some("trigger"), false, limit, offset)
+                                        .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
@@ -572,7 +563,7 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
-                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
                                         message: e.to_string(),
@@ -590,7 +581,7 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
-                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
                                     {
                                         if enabled {
                                             scheduler.enable_trigger(&trigger_name).await
@@ -598,17 +589,17 @@ impl PyDefaultRunner {
                                             scheduler.disable_trigger(&trigger_name).await
                                         }
                                     } else {
-                                        // No trigger scheduler, use DAL directly
+                                        // No unified scheduler, use DAL directly
                                         let dal = runner_clone.dal();
                                         if let Some(schedule) = dal
-                                            .trigger_schedule()
-                                            .get_by_name(&trigger_name)
+                                            .schedule()
+                                            .get_by_trigger_name(&trigger_name)
                                             .await?
                                         {
                                             if enabled {
-                                                dal.trigger_schedule().enable(schedule.id).await
+                                                dal.schedule().enable(schedule.id).await
                                             } else {
-                                                dal.trigger_schedule().disable(schedule.id).await
+                                                dal.schedule().disable(schedule.id).await
                                             }
                                         } else {
                                             Ok(())
@@ -634,15 +625,32 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
-                                let result = dal
-                                    .trigger_execution()
-                                    .list_by_trigger(&trigger_name, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
-                                        message: e.to_string(),
+                                let result = async {
+                                    // Look up schedule by trigger name, then list executions
+                                    let schedule_opt = dal
+                                        .schedule()
+                                        .get_by_trigger_name(&trigger_name)
+                                        .await
+                                        .map_err(|e| {
+                                            crate::executor::PipelineError::Configuration {
+                                                message: e.to_string(),
+                                            }
+                                        })?;
+                                    if let Some(schedule) = schedule_opt {
+                                        dal.schedule_execution()
+                                            .list_by_schedule(schedule.id, limit, offset)
+                                            .await
+                                            .map_err(|e| {
+                                                crate::executor::PipelineError::Configuration {
+                                                    message: e.to_string(),
+                                                }
+                                            })
+                                    } else {
+                                        Ok(vec![])
                                     }
-                                }));
+                                }
+                                .await;
+                                let _ = response_tx.send(result);
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -916,9 +924,11 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result = if enabled_only {
-                                    dal.trigger_schedule().get_enabled().await
+                                    dal.schedule().get_enabled_triggers().await
                                 } else {
-                                    dal.trigger_schedule().list(limit, offset).await
+                                    dal.schedule()
+                                        .list(Some("trigger"), false, limit, offset)
+                                        .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
@@ -937,7 +947,7 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
-                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
                                         message: e.to_string(),
@@ -955,7 +965,7 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
-                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
                                     {
                                         if enabled {
                                             scheduler.enable_trigger(&trigger_name).await
@@ -963,17 +973,17 @@ impl PyDefaultRunner {
                                             scheduler.disable_trigger(&trigger_name).await
                                         }
                                     } else {
-                                        // No trigger scheduler, use DAL directly
+                                        // No unified scheduler, use DAL directly
                                         let dal = runner_clone.dal();
                                         if let Some(schedule) = dal
-                                            .trigger_schedule()
-                                            .get_by_name(&trigger_name)
+                                            .schedule()
+                                            .get_by_trigger_name(&trigger_name)
                                             .await?
                                         {
                                             if enabled {
-                                                dal.trigger_schedule().enable(schedule.id).await
+                                                dal.schedule().enable(schedule.id).await
                                             } else {
-                                                dal.trigger_schedule().disable(schedule.id).await
+                                                dal.schedule().disable(schedule.id).await
                                             }
                                         } else {
                                             Ok(())
@@ -999,15 +1009,32 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
-                                let result = dal
-                                    .trigger_execution()
-                                    .list_by_trigger(&trigger_name, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
-                                        message: e.to_string(),
+                                let result = async {
+                                    // Look up schedule by trigger name, then list executions
+                                    let schedule_opt = dal
+                                        .schedule()
+                                        .get_by_trigger_name(&trigger_name)
+                                        .await
+                                        .map_err(|e| {
+                                            crate::executor::PipelineError::Configuration {
+                                                message: e.to_string(),
+                                            }
+                                        })?;
+                                    if let Some(schedule) = schedule_opt {
+                                        dal.schedule_execution()
+                                            .list_by_schedule(schedule.id, limit, offset)
+                                            .await
+                                            .map_err(|e| {
+                                                crate::executor::PipelineError::Configuration {
+                                                    message: e.to_string(),
+                                                }
+                                            })
+                                    } else {
+                                        Ok(vec![])
                                     }
-                                }));
+                                }
+                                .await;
+                                let _ = response_tx.send(result);
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -1094,12 +1121,13 @@ impl PyDefaultRunner {
         // Test the connection and schema creation in a temporary runtime
         let rt = Runtime::new()
             .map_err(|e| PyValueError::new_err(format!("Failed to create Tokio runtime: {}", e)))?;
-        rt.block_on(async {
-            crate::DefaultRunner::with_schema(&database_url_clone, &schema_clone).await
-        })
-        .map_err(|e| {
-            PyValueError::new_err(format!("Failed to create DefaultRunner with schema: {}", e))
-        })?;
+        let _runner = rt
+            .block_on(async {
+                crate::DefaultRunner::with_schema(&database_url_clone, &schema_clone).await
+            })
+            .map_err(|e| {
+                PyValueError::new_err(format!("Failed to create DefaultRunner with schema: {}", e))
+            })?;
 
         // If we got here, the creation succeeded, so spawn the background thread
         let thread_handle = thread::spawn(move || {
@@ -1345,9 +1373,11 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result = if enabled_only {
-                                    dal.trigger_schedule().get_enabled().await
+                                    dal.schedule().get_enabled_triggers().await
                                 } else {
-                                    dal.trigger_schedule().list(limit, offset).await
+                                    dal.schedule()
+                                        .list(Some("trigger"), false, limit, offset)
+                                        .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
@@ -1366,7 +1396,7 @@ impl PyDefaultRunner {
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
                                 let result =
-                                    dal.trigger_schedule().get_by_name(&trigger_name).await;
+                                    dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
                                     crate::executor::PipelineError::Configuration {
                                         message: e.to_string(),
@@ -1384,7 +1414,7 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
-                                    if let Some(scheduler) = runner_clone.trigger_scheduler().await
+                                    if let Some(scheduler) = runner_clone.unified_scheduler().await
                                     {
                                         if enabled {
                                             scheduler.enable_trigger(&trigger_name).await
@@ -1392,17 +1422,17 @@ impl PyDefaultRunner {
                                             scheduler.disable_trigger(&trigger_name).await
                                         }
                                     } else {
-                                        // No trigger scheduler, use DAL directly
+                                        // No unified scheduler, use DAL directly
                                         let dal = runner_clone.dal();
                                         if let Some(schedule) = dal
-                                            .trigger_schedule()
-                                            .get_by_name(&trigger_name)
+                                            .schedule()
+                                            .get_by_trigger_name(&trigger_name)
                                             .await?
                                         {
                                             if enabled {
-                                                dal.trigger_schedule().enable(schedule.id).await
+                                                dal.schedule().enable(schedule.id).await
                                             } else {
-                                                dal.trigger_schedule().disable(schedule.id).await
+                                                dal.schedule().disable(schedule.id).await
                                             }
                                         } else {
                                             Ok(())
@@ -1428,15 +1458,32 @@ impl PyDefaultRunner {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
-                                let result = dal
-                                    .trigger_execution()
-                                    .list_by_trigger(&trigger_name, limit, offset)
-                                    .await;
-                                let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
-                                        message: e.to_string(),
+                                let result = async {
+                                    // Look up schedule by trigger name, then list executions
+                                    let schedule_opt = dal
+                                        .schedule()
+                                        .get_by_trigger_name(&trigger_name)
+                                        .await
+                                        .map_err(|e| {
+                                            crate::executor::PipelineError::Configuration {
+                                                message: e.to_string(),
+                                            }
+                                        })?;
+                                    if let Some(schedule) = schedule_opt {
+                                        dal.schedule_execution()
+                                            .list_by_schedule(schedule.id, limit, offset)
+                                            .await
+                                            .map_err(|e| {
+                                                crate::executor::PipelineError::Configuration {
+                                                    message: e.to_string(),
+                                                }
+                                            })
+                                    } else {
+                                        Ok(vec![])
                                     }
-                                }));
+                                }
+                                .await;
+                                let _ = response_tx.send(result);
                             });
                         }
                         RuntimeMessage::Shutdown => {
@@ -1665,12 +1712,18 @@ impl PyDefaultRunner {
                     Python::with_gil(|py| {
                         let dict = pyo3::types::PyDict::new(py);
                         dict.set_item("id", schedule.id.to_string())?;
-                        dict.set_item("workflow_name", schedule.workflow_name)?;
-                        dict.set_item("cron_expression", schedule.cron_expression)?;
-                        dict.set_item("timezone", schedule.timezone)?;
+                        dict.set_item("workflow_name", &schedule.workflow_name)?;
+                        dict.set_item(
+                            "cron_expression",
+                            schedule.cron_expression.as_deref().unwrap_or(""),
+                        )?;
+                        dict.set_item("timezone", schedule.timezone.as_deref().unwrap_or("UTC"))?;
                         dict.set_item("enabled", schedule.enabled.is_true())?;
-                        dict.set_item("catchup_policy", schedule.catchup_policy)?;
-                        dict.set_item("next_run_at", schedule.next_run_at.to_string())?;
+                        dict.set_item(
+                            "catchup_policy",
+                            schedule.catchup_policy.as_deref().unwrap_or("skip"),
+                        )?;
+                        dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
                         dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
                         dict.set_item("created_at", schedule.created_at.to_string())?;
                         dict.set_item("updated_at", schedule.updated_at.to_string())?;
@@ -1785,12 +1838,18 @@ impl PyDefaultRunner {
             Python::with_gil(|py| {
                 let dict = pyo3::types::PyDict::new(py);
                 dict.set_item("id", schedule.id.to_string())?;
-                dict.set_item("workflow_name", schedule.workflow_name)?;
-                dict.set_item("cron_expression", schedule.cron_expression)?;
-                dict.set_item("timezone", schedule.timezone)?;
+                dict.set_item("workflow_name", &schedule.workflow_name)?;
+                dict.set_item(
+                    "cron_expression",
+                    schedule.cron_expression.as_deref().unwrap_or(""),
+                )?;
+                dict.set_item("timezone", schedule.timezone.as_deref().unwrap_or("UTC"))?;
                 dict.set_item("enabled", schedule.enabled.is_true())?;
-                dict.set_item("catchup_policy", schedule.catchup_policy)?;
-                dict.set_item("next_run_at", schedule.next_run_at.to_string())?;
+                dict.set_item(
+                    "catchup_policy",
+                    schedule.catchup_policy.as_deref().unwrap_or("skip"),
+                )?;
+                dict.set_item("next_run_at", schedule.next_run_at.map(|t| t.to_string()))?;
                 dict.set_item("last_run_at", schedule.last_run_at.map(|t| t.to_string()))?;
                 dict.set_item("created_at", schedule.created_at.to_string())?;
                 dict.set_item("updated_at", schedule.updated_at.to_string())?;
@@ -1891,8 +1950,11 @@ impl PyDefaultRunner {
                         let dict = pyo3::types::PyDict::new(py);
                         dict.set_item("id", execution.id.to_string())?;
                         dict.set_item("schedule_id", execution.schedule_id.to_string())?;
-                        dict.set_item("scheduled_time", execution.scheduled_time.to_string())?;
-                        dict.set_item("claimed_at", execution.claimed_at.to_string())?;
+                        dict.set_item(
+                            "scheduled_time",
+                            execution.scheduled_time.map(|t| t.to_string()),
+                        )?;
+                        dict.set_item("claimed_at", execution.claimed_at.map(|t| t.to_string()))?;
                         dict.set_item(
                             "pipeline_execution_id",
                             execution.pipeline_execution_id.map(|id| id.to_string()),
@@ -2013,10 +2075,13 @@ impl PyDefaultRunner {
                     Python::with_gil(|py| {
                         let dict = pyo3::types::PyDict::new(py);
                         dict.set_item("id", schedule.id.to_string())?;
-                        dict.set_item("trigger_name", schedule.trigger_name)?;
-                        dict.set_item("workflow_name", schedule.workflow_name)?;
-                        dict.set_item("poll_interval_ms", schedule.poll_interval_ms)?;
-                        dict.set_item("allow_concurrent", schedule.allow_concurrent.is_true())?;
+                        dict.set_item(
+                            "trigger_name",
+                            schedule.trigger_name.as_deref().unwrap_or(""),
+                        )?;
+                        dict.set_item("workflow_name", &schedule.workflow_name)?;
+                        dict.set_item("poll_interval_ms", schedule.poll_interval_ms.unwrap_or(0))?;
+                        dict.set_item("allow_concurrent", schedule.allows_concurrent())?;
                         dict.set_item("enabled", schedule.enabled.is_true())?;
                         dict.set_item(
                             "last_poll_at",
@@ -2073,10 +2138,13 @@ impl PyDefaultRunner {
                 Some(schedule) => Python::with_gil(|py| {
                     let dict = pyo3::types::PyDict::new(py);
                     dict.set_item("id", schedule.id.to_string())?;
-                    dict.set_item("trigger_name", schedule.trigger_name)?;
-                    dict.set_item("workflow_name", schedule.workflow_name)?;
-                    dict.set_item("poll_interval_ms", schedule.poll_interval_ms)?;
-                    dict.set_item("allow_concurrent", schedule.allow_concurrent.is_true())?;
+                    dict.set_item(
+                        "trigger_name",
+                        schedule.trigger_name.as_deref().unwrap_or(""),
+                    )?;
+                    dict.set_item("workflow_name", &schedule.workflow_name)?;
+                    dict.set_item("poll_interval_ms", schedule.poll_interval_ms.unwrap_or(0))?;
+                    dict.set_item("allow_concurrent", schedule.allows_concurrent())?;
                     dict.set_item("enabled", schedule.enabled.is_true())?;
                     dict.set_item("last_poll_at", schedule.last_poll_at.map(|t| t.to_string()))?;
                     dict.set_item("created_at", schedule.created_at.to_string())?;
@@ -2175,8 +2243,8 @@ impl PyDefaultRunner {
                     Python::with_gil(|py| {
                         let dict = pyo3::types::PyDict::new(py);
                         dict.set_item("id", execution.id.to_string())?;
-                        dict.set_item("trigger_name", execution.trigger_name)?;
-                        dict.set_item("context_hash", execution.context_hash)?;
+                        dict.set_item("schedule_id", execution.schedule_id.to_string())?;
+                        dict.set_item("context_hash", execution.context_hash.as_deref())?;
                         dict.set_item(
                             "pipeline_execution_id",
                             execution.pipeline_execution_id.map(|id| id.to_string()),
