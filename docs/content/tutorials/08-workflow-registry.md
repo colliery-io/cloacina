@@ -6,7 +6,7 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
-Welcome to the workflow registry tutorial! Building on the packaged workflows from Tutorial 07, you'll now learn how to set up a workflow registry, register packaged workflows, and execute them dynamically with cron scheduling. The registry system enables you to manage workflows independently from your application code.
+Welcome to the workflow registry tutorial! Building on the workflow packages from Tutorial 07, you'll now learn how to set up a workflow registry, register workflow packages, and execute them dynamically with cron scheduling. The registry system enables you to manage workflows independently from your application code.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Welcome to the workflow registry tutorial! Building on the packaged workflows fr
 
 The workflow registry is a system that allows you to:
 
-- **Store and manage** packaged workflows (.cloacina files)
+- **Store and manage** workflow packages (.cloacina files)
 - **Dynamically load** workflows at runtime without application restarts
 - **Execute workflows** on-demand or on schedules
 - **Version and update** workflows independently

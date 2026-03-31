@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 //!
 //! This module provides hierarchical namespace support for tasks, enabling:
 //! - Multi-tenant task isolation
-//! - Packaged workflow separation
+//! - Workflow package separation
 //! - Conflict resolution between workflows with same task IDs
 //!
 //! ## Namespace Format
@@ -26,8 +26,8 @@
 //! Namespaces follow the format: `tenant_id::package_name::workflow_id::task_id`
 //!
 //! - `tenant_id`: Default "public", can be tenant-specific for multi-tenancy
-//! - `package_name`: Default "embedded", or name from .so file metadata
-//! - `workflow_id`: From workflow! macro name field (required)
+//! - `package_name`: Default "embedded", or name from .dylib/.so file metadata
+//! - `workflow_id`: From `#[workflow]` macro name attribute (required)
 //! - `task_id`: From #[task] macro id parameter (required)
 //!
 //! ## Examples
@@ -39,7 +39,7 @@
 //! let ns = TaskNamespace::new("public", "embedded", "customer_etl", "extract_data");
 //! assert_eq!(ns.to_string(), "public::embedded::customer_etl::extract_data");
 //!
-//! // Packaged workflow
+//! // Workflow package
 //! let ns = TaskNamespace::new("public", "analytics.so", "data_pipeline", "extract_data");
 //! assert_eq!(ns.to_string(), "public::analytics.so::data_pipeline::extract_data");
 //!
@@ -53,7 +53,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 /// Hierarchical namespace for task identification and isolation.
 ///
 /// Provides a structured way to identify tasks across different contexts:
-/// multi-tenant environments, packaged workflows, and embedded workflows.
+/// multi-tenant environments, workflow packages, and embedded workflows.
 ///
 /// The namespace components form a hierarchy from most general (tenant) to
 /// most specific (task), enabling precise task resolution while supporting
@@ -66,7 +66,7 @@ pub struct TaskNamespace {
 
     /// Package or deployment context identifier.
     /// Default: "embedded" for tasks compiled into the binary
-    /// For packaged workflows: name from .so file metadata
+    /// For workflow packages: name from .dylib/.so file metadata
     pub package_name: String,
 
     /// Workflow identifier from workflow macro.

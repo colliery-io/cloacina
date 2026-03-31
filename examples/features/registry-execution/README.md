@@ -4,7 +4,7 @@ This example demonstrates the end-to-end workflow execution using Cloacina's wor
 
 ## What it does
 
-1. **Builds a .cloacina package** - Uses cloacina-ctl to compile the packaged-workflow-example into a distributable package
+1. **Builds a .cloacina package** - Uses cloacina-ctl to compile the workflow example into a distributable package
 2. **Registers the package** - Loads the package into the workflow registry with metadata extraction
 3. **Lists available workflows** - Shows what workflows are available in the registry
 4. **Loads the workflow** - Dynamically loads the workflow from the registry
@@ -46,7 +46,7 @@ cargo run
 
 ## Key features demonstrated
 
-- **Package compilation**: Shows how to build distributable workflow packages
+- **Package compilation**: Shows how to build distributable packages
 - **Registry management**: Demonstrates package registration and metadata extraction
 - **Dynamic loading**: Loads workflows from the registry at runtime
 - **Complete execution**: Full workflow execution through scheduler/executor pipeline
@@ -58,6 +58,6 @@ The demo uses:
 - `FilesystemRegistryStorage` for binary package storage
 - SQLite in-memory database for metadata and execution tracking
 - `DefaultRunner` which manages both scheduler and executor
-- The packaged-workflow-example as the workflow to execute
+- The simple-packaged example as the workflow to execute
 
 This demonstrates how Cloacina can dynamically load and execute workflows from packages, enabling a plugin-style architecture for workflow distribution.

@@ -62,18 +62,18 @@ serde_json = "1.0"
 "#;
         std::fs::write(project_path.join("Cargo.toml"), cargo_toml)?;
 
-        // Create lib.rs with a packaged workflow
+        // Create lib.rs with a workflow package
         let lib_rs = r#"
-use cloacina::packaged_workflow;
+use cloacina::{workflow, task, Context, TaskError};
 
-#[packaged_workflow]
-pub fn test_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(serde_json::json!({"result": "success"}))
-}
+#[workflow(name = "test_package")]
+pub mod test_package {
+    use super::*;
 
-#[packaged_workflow(package = "test-package")]
-pub fn another_task() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    Ok(serde_json::json!({"result": "another_success"}))
+    #[task(id = "test_task", dependencies = [])]
+    pub async fn test_task(ctx: &mut Context<serde_json::Value>) -> Result<(), TaskError> {
+        Ok(())
+    }
 }
 "#;
         std::fs::write(project_path.join("src/lib.rs"), lib_rs)?;

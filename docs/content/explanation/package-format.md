@@ -169,7 +169,7 @@ async-trait = "0.1"
 ```
 
 {{< hint type=info title="cloacina-workflow" >}}
-Packaged workflows use `cloacina-workflow`, which contains only the types needed for workflow compilation (`Context`, `Task`, `TaskError`, `RetryPolicy`). This enables fast compilation without database drivers or runtime dependencies.
+Workflow packages use `cloacina-workflow`, which contains only the types needed for workflow compilation (`Context`, `Task`, `TaskError`, `RetryPolicy`). This enables fast compilation without database drivers or runtime dependencies.
 {{< /hint >}}
 
 **Source Structure:**
@@ -414,6 +414,6 @@ pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 
 ## Related Resources
 
-- [Tutorial: Creating Your First Packaged Workflow]({{< ref "/tutorials/07-packaged-workflows/" >}})
+- [Tutorial: Creating Your First Workflow Package]({{< ref "/tutorials/07-packaged-workflows/" >}})
 - [Explanation: FFI System]({{< ref "/explanation/ffi-system/" >}})
 - [Explanation: Packaged Workflow Architecture]({{< ref "/explanation/packaged-workflow-architecture/" >}})

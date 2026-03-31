@@ -6,7 +6,7 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
-Welcome to the packaged workflows tutorial! In this guide, you'll learn how to create distributable workflow packages that can be compiled to shared libraries and dynamically loaded at runtime. Packaged workflows enable you to distribute complex workflows as standalone packages that can be shared, version-controlled, and deployed independently from the main application.
+Welcome to the workflow packages tutorial! In this guide, you'll learn how to create distributable workflow packages that can be compiled to shared libraries and dynamically loaded at runtime. Workflow packages enable you to distribute complex workflows as standalone packages that can be shared, version-controlled, and deployed independently from the main application.
 
 ## Prerequisites
 
@@ -19,24 +19,24 @@ Welcome to the packaged workflows tutorial! In this guide, you'll learn how to c
 ## Time Estimate
 15-20 minutes
 
-## What Are Packaged Workflows?
+## What Are Workflow Packages?
 
-Before we start building, let's understand what packaged workflows are and when to use them:
+Before we start building, let's understand what workflow packages are and when to use them:
 
 **Embedded Workflows** (from previous tutorials):
 - Defined directly in your application code
 - Compiled into your binary
 - Great for application-specific business logic
 
-**Packaged Workflows** (this tutorial):
+**Workflow Packages** (this tutorial):
 - Defined in separate Cargo projects
 - Compiled to shared libraries (.so/.dylib/.dll)
 - Packaged into .cloacina archives for distribution
 - Dynamically loaded at runtime
 - Perfect for reusable workflows and multi-tenant scenarios
 
-{{< hint type=info title="When to Use Packaged Workflows" >}}
-Choose packaged workflows when you need:
+{{< hint type=info title="When to Use Workflow Packages" >}}
+Choose workflow packages when you need:
 - **Distribution**: Share workflows between teams or applications
 - **Versioning**: Independent workflow lifecycle management
 - **Multi-tenancy**: Different workflows per tenant
@@ -68,7 +68,7 @@ examples/features/simple-packaged/
     └── host_managed_registry_tests.rs
 ```
 
-Let's examine the `Cargo.toml` configuration for packaged workflows:
+Let's examine the `Cargo.toml` configuration for workflow packages:
 
 ```toml
 [package]
@@ -76,7 +76,7 @@ name = "simple-packaged-demo"
 version = "1.0.0"
 edition = "2021"
 
-# Required for packaged workflows - generates shared library
+# Required for workflow packages - generates shared library
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -89,20 +89,20 @@ async-trait = "0.1"
 ```
 
 {{< hint type=info title="Why cloacina-workflow?" >}}
-Packaged workflows use **cloacina-workflow**, which contains only the types needed for workflow compilation:
+Workflow packages use **cloacina-workflow**, which contains only the types needed for workflow compilation:
 - `Context`, `Task`, `TaskError`, `RetryPolicy`
 - Fast compilation - no database drivers, no runtime dependencies
 - Smaller binary size
 
-The full `cloacina` crate is for host applications that load and execute packaged workflows.
+The full `cloacina` crate is for host applications that load and execute workflow packages.
 {{< /hint >}}
 
 {{< hint type=warning title="Important Configuration Differences" >}}
-Packaged workflows have different requirements:
+Workflow packages have different requirements:
 
 1. **Library crate**: Use `lib.rs` instead of `main.rs`
 2. **Crate type**: Must include `"cdylib"` for shared library generation
-3. **cloacina-macros**: Explicit dependency required for packaged workflows
+3. **`features = ["packaged"]`**: Enable the `packaged` feature on `cloacina-workflow` for FFI export generation
 
 This configuration allows the workflow to be compiled as both a regular library (`rlib`) and a shared library (`cdylib`) for dynamic loading. The database backend (PostgreSQL or SQLite) is detected automatically at runtime based on the connection URL.
 {{< /hint >}}
@@ -124,13 +124,13 @@ This example demonstrates the complete end-to-end lifecycle of packaged workflow
 5. **Execute** - Run tasks through scheduler
 */
 
-use cloacina_workflow::{packaged_workflow, task, Context, TaskError};
+use cloacina_workflow::{workflow, task, Context, TaskError};
 
 /// Simple Data Processing Workflow
 ///
-/// A minimal workflow that demonstrates the complete packaged workflow lifecycle
+/// A minimal workflow that demonstrates the complete workflow package lifecycle
 /// with data processing, validation, and reporting.
-#[packaged_workflow(
+#[workflow(
     name = "data_processing",
     package = "simple_demo",
     description = "Simple data processing workflow for demonstration",
@@ -254,14 +254,14 @@ mod tests {
 }
 ```
 
-## Understanding Packaged Workflow Code
+## Understanding Workflow Package Code
 
 Let's examine the key differences from embedded workflows:
 
-### 1. The `#[packaged_workflow]` Macro
+### 1. The `#[workflow]` Macro
 
 ```rust
-#[packaged_workflow(
+#[workflow(
     name = "data_processing",
     package = "simple_demo",
     description = "Simple data processing workflow for demonstration",
@@ -269,7 +269,7 @@ Let's examine the key differences from embedded workflows:
 )]
 ```
 
-This macro:
+When compiled as a `cdylib` (with `features = ["packaged"]`), this macro:
 - **Generates FFI exports** for dynamic loading
 - **Creates metadata** for package identification
 - **Enables dynamic registration** with workflow registries
@@ -283,7 +283,7 @@ pub mod data_processing {
 }
 ```
 
-The workflow tasks must be defined inside the module created by the `#[packaged_workflow]` macro. This ensures proper namespacing and registration.
+The workflow tasks must be defined inside the module created by the `#[workflow]` macro. This ensures proper namespacing and registration.
 
 ### 3. Task Dependencies and Context Flow
 
@@ -292,7 +292,7 @@ Our workflow demonstrates a typical data pipeline:
 - Each task receives data through context from previous tasks
 - Error handling ensures the pipeline fails gracefully if data is missing
 
-## Building and Testing Your Packaged Workflow
+## Building and Testing Your Workflow Package
 
 Let's build and test the simple-packaged-demo:
 
@@ -308,7 +308,7 @@ This creates a shared library in your target directory:
 
 ## Running the Examples
 
-The demo includes several examples to demonstrate different aspects of packaged workflows:
+The demo includes several examples to demonstrate different aspects of workflow packages:
 
 ### 1. Testing the Workflow Logic
 
@@ -407,18 +407,18 @@ You should see output showing:
 
 ## What's Different from Embedded Workflows?
 
-| Aspect | Embedded Workflows | Packaged Workflows |
+| Aspect | Embedded Workflows | Workflow Packages |
 |--------|-------------------|-------------------|
 | **Distribution** | Part of application binary | Standalone .cloacina packages |
 | **Loading** | Compile-time registration | Dynamic runtime loading |
 | **Versioning** | Application version | Independent package versioning |
 | **Deployment** | Requires application redeployment | Hot-swappable without downtime |
-| **Multi-tenancy** | Shared across all tenants | Per-tenant workflow packages |
+| **Multi-tenancy** | Shared across all tenants | Per-tenant packages |
 | **Testing** | Application integration tests | Independent package tests |
 
 ## Next Steps
 
-Congratulations! You've created and tested your first packaged workflow. Next, you'll learn how to work with the workflow registry for dynamic loading and execution:
+Congratulations! You've created and tested your first workflow package. Next, you'll learn how to work with the workflow registry for dynamic loading and execution:
 
 - [**Tutorial 08: Working with the Workflow Registry**]({{< ref "/tutorials/08-workflow-registry/" >}}) - Register and execute workflows dynamically
 - **Multi-tenant Deployments**: Different workflows per tenant
