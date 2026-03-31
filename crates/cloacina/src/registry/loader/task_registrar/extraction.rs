@@ -115,17 +115,9 @@ impl TaskRegistrar {
                 })?
                 .to_string();
 
-            let constructor_fn_name = unsafe { CStr::from_ptr(task.constructor_fn_name) }
-                .to_str()
-                .map_err(|e| LoaderError::MetadataExtraction {
-                    reason: format!("Invalid task constructor_fn_name: {}", e),
-                })?
-                .to_string();
-
             owned_tasks.push(OwnedTaskMetadata {
                 local_id,
                 dependencies_json,
-                constructor_fn_name,
             });
         }
 

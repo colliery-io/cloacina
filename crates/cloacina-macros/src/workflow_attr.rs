@@ -704,6 +704,7 @@ fn generate_packaged_registration(
         pub struct cloacina_ctl_package_tasks {
             pub task_count: u32,
             pub tasks: *const cloacina_ctl_task_metadata,
+            pub workflow_name: *const std::os::raw::c_char,
             pub package_name: *const std::os::raw::c_char,
             pub package_description: *const std::os::raw::c_char,
             pub package_author: *const std::os::raw::c_char,
@@ -722,6 +723,7 @@ fn generate_packaged_registration(
         static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
             task_count: #task_count as u32,
             tasks: TASK_METADATA_ARRAY.as_ptr(),
+            workflow_name: concat!(#workflow_name, "\0").as_ptr() as *const std::os::raw::c_char,
             package_name: concat!(env!("CARGO_PKG_NAME"), "\0").as_ptr() as *const std::os::raw::c_char,
             package_description: concat!(#package_description, "\0").as_ptr() as *const std::os::raw::c_char,
             package_author: concat!(#package_author, "\0").as_ptr() as *const std::os::raw::c_char,

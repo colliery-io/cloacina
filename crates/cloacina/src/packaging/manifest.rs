@@ -328,6 +328,7 @@ fn extract_task_info_and_graph_from_library(
     struct CPackageTasks {
         task_count: u32,
         tasks: *const CTaskMetadata,
+        workflow_name: *const std::os::raw::c_char,
         package_name: *const std::os::raw::c_char,
         package_description: *const std::os::raw::c_char,
         package_author: *const std::os::raw::c_char,

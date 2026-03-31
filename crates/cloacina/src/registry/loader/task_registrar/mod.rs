@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -106,7 +106,6 @@ impl TaskRegistrar {
 
         for task in &task_metadata.tasks {
             let task_id = &task.local_id;
-            let _constructor_fn_name = &task.constructor_fn_name;
             let dependencies_json = &task.dependencies_json;
 
             // Parse dependencies JSON to get dependency namespaces
@@ -126,18 +125,26 @@ impl TaskRegistrar {
                 dep_names
                     .into_iter()
                     .map(|dep_name| {
-                        // Dependencies are stored as fully qualified namespaces with {tenant} placeholder
-                        // Replace {tenant} with actual tenant_id
-                        let full_name = dep_name.replace("{tenant}", tenant_id);
-                        // Parse the namespace
-                        crate::parse_namespace(&full_name).map_err(|e| {
-                            LoaderError::MetadataExtraction {
-                                reason: format!(
-                                    "Invalid dependency namespace '{}': {}",
-                                    full_name, e
-                                ),
-                            }
-                        })
+                        if dep_name.contains("::") {
+                            // Fully qualified namespace with {tenant} placeholder
+                            let full_name = dep_name.replace("{tenant}", tenant_id);
+                            crate::parse_namespace(&full_name).map_err(|e| {
+                                LoaderError::MetadataExtraction {
+                                    reason: format!(
+                                        "Invalid dependency namespace '{}': {}",
+                                        full_name, e
+                                    ),
+                                }
+                            })
+                        } else {
+                            // Local task name — expand to full namespace
+                            Ok(TaskNamespace::new(
+                                tenant_id,
+                                package_name,
+                                workflow_name,
+                                &dep_name,
+                            ))
+                        }
                     })
                     .collect::<Result<Vec<_>, _>>()?
             };
