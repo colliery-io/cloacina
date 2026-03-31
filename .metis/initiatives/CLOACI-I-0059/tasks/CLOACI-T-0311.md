@@ -4,14 +4,14 @@ level: task
 title: "Drop old cron/trigger tables, DAL modules, and scheduler code"
 short_code: "CLOACI-T-0311"
 created_at: 2026-03-29T22:16:17.928797+00:00
-updated_at: 2026-03-31T19:03:20.463262+00:00
+updated_at: 2026-03-31T21:42:23.923063+00:00
 parent: CLOACI-I-0059
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0059
 ## Objective
 
 Remove old infrastructure now that the unified scheduler (T-0310) and DAL (T-0309) are in place. Drop the old tables via migration, delete the old DAL modules, delete `CronScheduler` and `TriggerScheduler`, remove old config structs. Clean sweep.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
