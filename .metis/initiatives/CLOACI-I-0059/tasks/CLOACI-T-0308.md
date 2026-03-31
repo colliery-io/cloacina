@@ -43,8 +43,8 @@ Create the unified `schedules` and `schedule_executions` tables for both Postgre
 ## Implementation Notes
 
 ### Files to create/modify
-- `crates/cloacina/src/database/migrations/postgres/015_unified_schedules/up.sql` + `down.sql`
-- `crates/cloacina/src/database/migrations/sqlite/014_unified_schedules/up.sql` + `down.sql`
+- `crates/cloacina/src/database/migrations/postgres/014_unified_schedules/up.sql` + `down.sql`
+- `crates/cloacina/src/database/migrations/sqlite/013_unified_schedules/up.sql` + `down.sql`
 - `crates/cloacina/src/database/schema.rs` — add unified table definitions
 - `crates/cloacina/src/models/schedule.rs` — new domain models
 

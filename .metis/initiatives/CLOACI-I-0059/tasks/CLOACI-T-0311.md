@@ -32,11 +32,12 @@ Remove old infrastructure now that the unified scheduler (T-0310) and DAL (T-030
 
 - [ ] Migration drops `cron_schedules`, `cron_executions`, `trigger_schedules`, `trigger_executions` tables (Postgres + SQLite)
 - [ ] Delete `dal/unified/cron_schedule/`, `dal/unified/cron_execution/`, `dal/unified/trigger_schedule/`, `dal/unified/trigger_execution/`
-- [ ] Delete `cron_scheduler.rs`, `trigger_scheduler.rs`
+- [ ] Delete `src/cron_scheduler.rs`, `src/trigger_scheduler.rs` (crate root)
 - [ ] Delete `CronSchedulerConfig`, `TriggerSchedulerConfig`
+- [ ] Delete or refactor `src/runner/default_runner/cron_api.rs` → unified schedule API
 - [ ] Remove old table definitions from `schema.rs` (all 3 sections)
 - [ ] Remove old models from `models/cron_schedule.rs`, `models/cron_execution.rs`, `models/trigger_schedule.rs`, `models/trigger_execution.rs`
-- [ ] Remove old DAL accessors from `dal/unified/mod.rs`
+- [ ] Remove old DAL accessors from `dal/unified/mod.rs` (`cron_schedule()`, `cron_execution()`, `trigger_schedule()`, `trigger_execution()`)
 - [ ] No remaining references to old types anywhere in codebase (`grep` clean)
 - [ ] All tests pass
 - [ ] Daemon and server soak tests pass

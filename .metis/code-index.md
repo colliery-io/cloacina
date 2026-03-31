@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-31T10:34:20Z | 380 files | JavaScript, Python, Rust
+> Generated: 2026-03-31T15:30:18Z | 380 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2213,12 +2213,12 @@
 -  `validate_slice` function L177-200 — `( ptr: *const T, count: usize, field_name: &'static str, ) -> Result<&'a [T], Ma...` — Validates and creates a slice from a pointer and count.
 -  `PackageMetadata` struct L289-293 — `{ description: Option<String>, _author: Option<String>, workflow_fingerprint: Op...` — Package metadata extracted from the FFI
 -  `FfiTaskInfo` struct L297-303 — `{ _index: u32, id: String, dependencies: Vec<String>, description: String, _sour...` — Task information extracted from a cdylib via FFI (internal type).
--  `extract_task_info_and_graph_from_library` function L306-475 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
+-  `extract_task_info_and_graph_from_library` function L306-476 — `( so_path: &Path, project_path: &Path, ) -> Result<( Vec<FfiTaskInfo>, Option<cr...` — Extract task information and graph data from a compiled library using FFI metadata functions
 -  `CTaskMetadata` struct L317-324 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...`
--  `CPackageTasks` struct L328-336 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const std::os::ra...`
--  `extract_package_names_from_source` function L478-502 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
--  `get_current_platform` function L504-516 — `() -> String`
--  `get_current_architecture` function L520-522 — `() -> String` — Kept for backward compatibility with external callers.
+-  `CPackageTasks` struct L328-337 — `{ task_count: u32, tasks: *const CTaskMetadata, workflow_name: *const std::os::r...`
+-  `extract_package_names_from_source` function L479-503 — `(project_path: &Path) -> Result<Vec<String>>` — Extract package names from source files by looking for #[packaged_workflow] attributes
+-  `get_current_platform` function L505-517 — `() -> String`
+-  `get_current_architecture` function L521-523 — `() -> String` — Kept for backward compatibility with external callers.
 
 #### crates/cloacina/src/packaging/manifest_schema.rs
 
@@ -2797,43 +2797,43 @@
 - pub `EXECUTE_TASK_SYMBOL` variable L37 — `: &str` — Standard symbol name for task execution in cloacina packages
 - pub `GET_METADATA_SYMBOL` variable L40 — `: &str` — Standard symbol name for metadata extraction
 - pub `get_library_extension` function L43-51 — `() -> &'static str` — Get the platform-specific dynamic library extension
-- pub `PackageMetadata` struct L77-94 — `{ package_name: String, version: String, description: Option<String>, author: Op...` — Metadata extracted from a workflow package
-- pub `TaskMetadata` struct L98-111 — `{ index: u32, local_id: String, namespaced_id_template: String, dependencies: Ve...` — Individual task metadata
-- pub `PackageLoader` struct L114-116 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files
-- pub `new` function L120-126 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations
-- pub `extract_metadata` function L177-203 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a binary package
-- pub `temp_dir` function L558-560 — `(&self) -> &Path` — Get the temporary directory path for manual file operations
-- pub `validate_package_symbols` function L563-606 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols
+- pub `PackageMetadata` struct L83-100 — `{ package_name: String, version: String, description: Option<String>, author: Op...` — Metadata extracted from a workflow package
+- pub `TaskMetadata` struct L104-117 — `{ index: u32, local_id: String, namespaced_id_template: String, dependencies: Ve...` — Individual task metadata
+- pub `PackageLoader` struct L120-122 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files
+- pub `new` function L126-132 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations
+- pub `extract_metadata` function L183-209 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a binary package
+- pub `temp_dir` function L564-566 — `(&self) -> &Path` — Get the temporary directory path for manual file operations
+- pub `validate_package_symbols` function L569-612 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols
 -  `CTaskMetadata` struct L56-63 — `{ index: u32, local_id: *const c_char, namespaced_id_template: *const c_char, de...` — C-compatible structure for task metadata extraction via FFI
--  `CPackageTasks` struct L68-73 — `{ task_count: u32, tasks: *const CTaskMetadata, package_name: *const c_char, gra...` — C-compatible structure for package metadata extraction via FFI
--  `PackageLoader` type L118-607 — `= PackageLoader` — interface patterns.
--  `generate_graph_data_from_tasks` function L129-165 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies
--  `is_cloacina_archive` function L206-212 — `(&self, package_data: &[u8]) -> bool` — Check if package data is a .cloacina archive
--  `extract_library_from_archive` function L224-305 — `( &self, archive_data: &[u8], ) -> Result<std::path::PathBuf, LoaderError>` — Extract the library file from a .cloacina archive.
--  `extract_metadata_from_so` function L308-357 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using established cloacina patterns
--  `convert_c_metadata_to_rust` function L360-471 — `( &self, c_package: &CPackageTasks, fallback_name: &str, ) -> Result<PackageMeta...` — Convert C FFI metadata structures to Rust types
--  `convert_c_task_to_rust` function L474-555 — `(&self, c_task: &CTaskMetadata) -> Result<TaskMetadata, LoaderError>` — Convert a single C task structure to Rust
--  `PackageLoader` type L609-613 — `impl Default for PackageLoader` — interface patterns.
--  `default` function L610-612 — `() -> Self` — interface patterns.
--  `tests` module L616-887 — `-` — interface patterns.
--  `create_mock_elf_data` function L620-645 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
--  `create_invalid_binary_data` function L648-650 — `() -> Vec<u8>` — Helper to create invalid binary data
--  `test_package_loader_creation` function L653-659 — `()` — interface patterns.
--  `test_package_loader_default` function L662-665 — `()` — interface patterns.
--  `test_extract_metadata_with_invalid_elf` function L668-683 — `()` — interface patterns.
--  `test_extract_metadata_with_empty_data` function L686-699 — `()` — interface patterns.
--  `test_extract_metadata_with_large_invalid_data` function L702-715 — `()` — interface patterns.
--  `test_validate_package_symbols_with_invalid_data` function L718-731 — `()` — interface patterns.
--  `test_validate_package_symbols_with_empty_data` function L734-741 — `()` — interface patterns.
--  `test_temp_dir_isolation` function L744-754 — `()` — interface patterns.
--  `test_concurrent_package_loading` function L757-785 — `()` — interface patterns.
--  `test_symbol_constants` function L788-791 — `()` — interface patterns.
--  `test_file_system_operations` function L794-808 — `()` — interface patterns.
--  `test_error_types_and_messages` function L811-831 — `()` — interface patterns.
--  `test_package_loader_memory_safety` function L834-845 — `()` — interface patterns.
--  `test_temp_directory_cleanup` function L848-862 — `()` — interface patterns.
--  `test_package_loader_sync_creation` function L865-872 — `()` — interface patterns.
--  `test_get_library_extension` function L875-886 — `()` — interface patterns.
+-  `CPackageTasks` struct L70-79 — `{ task_count: u32, tasks: *const CTaskMetadata, workflow_name: *const c_char, pa...` — C-compatible structure for package metadata extraction via FFI.
+-  `PackageLoader` type L124-613 — `= PackageLoader` — interface patterns.
+-  `generate_graph_data_from_tasks` function L135-171 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies
+-  `is_cloacina_archive` function L212-218 — `(&self, package_data: &[u8]) -> bool` — Check if package data is a .cloacina archive
+-  `extract_library_from_archive` function L230-311 — `( &self, archive_data: &[u8], ) -> Result<std::path::PathBuf, LoaderError>` — Extract the library file from a .cloacina archive.
+-  `extract_metadata_from_so` function L314-363 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using established cloacina patterns
+-  `convert_c_metadata_to_rust` function L366-477 — `( &self, c_package: &CPackageTasks, fallback_name: &str, ) -> Result<PackageMeta...` — Convert C FFI metadata structures to Rust types
+-  `convert_c_task_to_rust` function L480-561 — `(&self, c_task: &CTaskMetadata) -> Result<TaskMetadata, LoaderError>` — Convert a single C task structure to Rust
+-  `PackageLoader` type L615-619 — `impl Default for PackageLoader` — interface patterns.
+-  `default` function L616-618 — `() -> Self` — interface patterns.
+-  `tests` module L622-893 — `-` — interface patterns.
+-  `create_mock_elf_data` function L626-651 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
+-  `create_invalid_binary_data` function L654-656 — `() -> Vec<u8>` — Helper to create invalid binary data
+-  `test_package_loader_creation` function L659-665 — `()` — interface patterns.
+-  `test_package_loader_default` function L668-671 — `()` — interface patterns.
+-  `test_extract_metadata_with_invalid_elf` function L674-689 — `()` — interface patterns.
+-  `test_extract_metadata_with_empty_data` function L692-705 — `()` — interface patterns.
+-  `test_extract_metadata_with_large_invalid_data` function L708-721 — `()` — interface patterns.
+-  `test_validate_package_symbols_with_invalid_data` function L724-737 — `()` — interface patterns.
+-  `test_validate_package_symbols_with_empty_data` function L740-747 — `()` — interface patterns.
+-  `test_temp_dir_isolation` function L750-760 — `()` — interface patterns.
+-  `test_concurrent_package_loading` function L763-791 — `()` — interface patterns.
+-  `test_symbol_constants` function L794-797 — `()` — interface patterns.
+-  `test_file_system_operations` function L800-814 — `()` — interface patterns.
+-  `test_error_types_and_messages` function L817-837 — `()` — interface patterns.
+-  `test_package_loader_memory_safety` function L840-851 — `()` — interface patterns.
+-  `test_temp_directory_cleanup` function L854-868 — `()` — interface patterns.
+-  `test_package_loader_sync_creation` function L871-878 — `()` — interface patterns.
+-  `test_get_library_extension` function L881-892 — `()` — interface patterns.
 
 #### crates/cloacina/src/registry/loader/python_loader.rs
 
@@ -2870,51 +2870,51 @@
 
 #### crates/cloacina/src/registry/loader/task_registrar/extraction.rs
 
--  `TaskRegistrar` type L28-146 — `= TaskRegistrar` — Task metadata extraction from dynamic libraries.
--  `extract_task_metadata_from_library` function L34-145 — `( &self, package_data: &[u8], ) -> Result<OwnedTaskMetadataCollection, LoaderErr...` — Extract task metadata from library using get_task_metadata() FFI function.
+-  `TaskRegistrar` type L28-140 — `= TaskRegistrar` — Task metadata extraction from dynamic libraries.
+-  `extract_task_metadata_from_library` function L34-139 — `( &self, package_data: &[u8], ) -> Result<OwnedTaskMetadataCollection, LoaderErr...` — Extract task metadata from library using get_task_metadata() FFI function.
 
 #### crates/cloacina/src/registry/loader/task_registrar/mod.rs
 
 - pub `TaskRegistrar` struct L49-56 — `{ temp_dir: TempDir, registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamesp...` — Task registrar for managing dynamically loaded package tasks.
 - pub `new` function L60-70 — `() -> Result<Self, LoaderError>` — Create a new task registrar with a temporary directory for operations.
-- pub `register_package_tasks` function L85-183 — `( &self, package_id: &str, package_data: &[u8], _metadata: &PackageMetadata, ten...` — Register package tasks with the global task registry using new host-managed approach.
-- pub `unregister_package_tasks` function L195-220 — `(&self, package_id: &str) -> Result<(), LoaderError>` — Unregister package tasks from the global registry.
-- pub `get_registered_namespaces` function L223-226 — `(&self, package_id: &str) -> Vec<TaskNamespace>` — Get the list of task namespaces registered for a package.
-- pub `loaded_package_count` function L229-232 — `(&self) -> usize` — Get the number of currently loaded packages.
-- pub `total_registered_tasks` function L235-238 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
-- pub `temp_dir` function L241-243 — `(&self) -> &Path` — Get the temporary directory path for manual operations.
+- pub `register_package_tasks` function L85-190 — `( &self, package_id: &str, package_data: &[u8], _metadata: &PackageMetadata, ten...` — Register package tasks with the global task registry using new host-managed approach.
+- pub `unregister_package_tasks` function L202-227 — `(&self, package_id: &str) -> Result<(), LoaderError>` — Unregister package tasks from the global registry.
+- pub `get_registered_namespaces` function L230-233 — `(&self, package_id: &str) -> Vec<TaskNamespace>` — Get the list of task namespaces registered for a package.
+- pub `loaded_package_count` function L236-239 — `(&self) -> usize` — Get the number of currently loaded packages.
+- pub `total_registered_tasks` function L242-245 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
+- pub `temp_dir` function L248-250 — `(&self) -> &Path` — Get the temporary directory path for manual operations.
 -  `dynamic_task` module L23 — `-` — Task registrar for integrating packaged workflow tasks with the global registry.
 -  `extraction` module L24 — `-` — isolation and task lifecycle management.
 -  `types` module L25 — `-` — isolation and task lifecycle management.
--  `TaskRegistrar` type L58-244 — `= TaskRegistrar` — isolation and task lifecycle management.
--  `TaskRegistrar` type L246-250 — `impl Default for TaskRegistrar` — isolation and task lifecycle management.
--  `default` function L247-249 — `() -> Self` — isolation and task lifecycle management.
--  `tests` module L253-551 — `-` — isolation and task lifecycle management.
--  `create_mock_package_metadata` function L258-286 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata for testing
--  `create_mock_binary_data` function L289-292 — `() -> Vec<u8>` — Helper to create mock binary data (not a real .so file)
--  `test_task_registrar_creation` function L295-302 — `()` — isolation and task lifecycle management.
--  `test_task_registrar_default` function L305-309 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_with_invalid_binary` function L312-329 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_with_missing_symbols` function L332-352 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_empty_metadata` function L355-366 — `()` — isolation and task lifecycle management.
--  `test_unregister_nonexistent_package` function L369-376 — `()` — isolation and task lifecycle management.
--  `test_get_registered_namespaces_empty` function L379-385 — `()` — isolation and task lifecycle management.
--  `test_registrar_metrics` function L388-404 — `()` — isolation and task lifecycle management.
--  `test_concurrent_registrar_operations` function L407-447 — `()` — isolation and task lifecycle management.
--  `test_temp_directory_isolation` function L450-458 — `()` — isolation and task lifecycle management.
--  `test_package_id_tracking` function L461-472 — `()` — isolation and task lifecycle management.
--  `test_tenant_isolation` function L475-491 — `()` — isolation and task lifecycle management.
--  `test_default_tenant` function L494-505 — `()` — isolation and task lifecycle management.
--  `test_large_package_metadata` function L508-521 — `()` — isolation and task lifecycle management.
--  `test_error_message_quality` function L524-540 — `()` — isolation and task lifecycle management.
--  `test_registrar_sync_creation` function L543-550 — `()` — isolation and task lifecycle management.
+-  `TaskRegistrar` type L58-251 — `= TaskRegistrar` — isolation and task lifecycle management.
+-  `TaskRegistrar` type L253-257 — `impl Default for TaskRegistrar` — isolation and task lifecycle management.
+-  `default` function L254-256 — `() -> Self` — isolation and task lifecycle management.
+-  `tests` module L260-558 — `-` — isolation and task lifecycle management.
+-  `create_mock_package_metadata` function L265-293 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata for testing
+-  `create_mock_binary_data` function L296-299 — `() -> Vec<u8>` — Helper to create mock binary data (not a real .so file)
+-  `test_task_registrar_creation` function L302-309 — `()` — isolation and task lifecycle management.
+-  `test_task_registrar_default` function L312-316 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_with_invalid_binary` function L319-336 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_with_missing_symbols` function L339-359 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_empty_metadata` function L362-373 — `()` — isolation and task lifecycle management.
+-  `test_unregister_nonexistent_package` function L376-383 — `()` — isolation and task lifecycle management.
+-  `test_get_registered_namespaces_empty` function L386-392 — `()` — isolation and task lifecycle management.
+-  `test_registrar_metrics` function L395-411 — `()` — isolation and task lifecycle management.
+-  `test_concurrent_registrar_operations` function L414-454 — `()` — isolation and task lifecycle management.
+-  `test_temp_directory_isolation` function L457-465 — `()` — isolation and task lifecycle management.
+-  `test_package_id_tracking` function L468-479 — `()` — isolation and task lifecycle management.
+-  `test_tenant_isolation` function L482-498 — `()` — isolation and task lifecycle management.
+-  `test_default_tenant` function L501-512 — `()` — isolation and task lifecycle management.
+-  `test_large_package_metadata` function L515-528 — `()` — isolation and task lifecycle management.
+-  `test_error_message_quality` function L531-547 — `()` — isolation and task lifecycle management.
+-  `test_registrar_sync_creation` function L550-557 — `()` — isolation and task lifecycle management.
 
 #### crates/cloacina/src/registry/loader/task_registrar/types.rs
 
-- pub `TaskMetadata` struct L22-33 — `{ local_id: *const std::os::raw::c_char, namespaced_id_template: *const std::os:...` — C-compatible task metadata structure for FFI (from packaged_workflow macro)
-- pub `TaskMetadataCollection` struct L38-47 — `{ task_count: u32, tasks: *const TaskMetadata, workflow_name: *const std::os::ra...` — C-compatible collection of task metadata for FFI (from packaged_workflow macro)
-- pub `OwnedTaskMetadata` struct L54-61 — `{ local_id: String, dependencies_json: String, constructor_fn_name: String }` — Owned version of task metadata - safe to use after library is unloaded.
-- pub `OwnedTaskMetadataCollection` struct L68-75 — `{ workflow_name: String, package_name: String, tasks: Vec<OwnedTaskMetadata> }` — Owned version of task metadata collection - safe to use after library is unloaded.
+- pub `TaskMetadata` struct L24-37 — `{ index: u32, local_id: *const std::os::raw::c_char, namespaced_id_template: *co...` — C-compatible task metadata structure for FFI.
+- pub `TaskMetadataCollection` struct L44-61 — `{ task_count: u32, tasks: *const TaskMetadata, workflow_name: *const std::os::ra...` — C-compatible collection of task metadata for FFI.
+- pub `OwnedTaskMetadata` struct L68-73 — `{ local_id: String, dependencies_json: String }` — Owned version of task metadata - safe to use after library is unloaded.
+- pub `OwnedTaskMetadataCollection` struct L80-87 — `{ workflow_name: String, package_name: String, tasks: Vec<OwnedTaskMetadata> }` — Owned version of task metadata collection - safe to use after library is unloaded.
 
 ### crates/cloacina/src/registry/loader/validator
 
@@ -3615,32 +3615,36 @@
 
 - pub `registry` module L51 — `-` — # Trigger System
 - pub `TriggerError` enum L65-89 — `PollError | ContextError | TriggerNotFound | Database | ConnectionPool | Workflo...` — Errors that can occur during trigger operations.
-- pub `TriggerResult` enum L102-111 — `Skip | Fire` — Result of a trigger poll operation.
-- pub `should_fire` function L115-117 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
-- pub `into_context` function L120-125 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
-- pub `context_hash` function L131-144 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
-- pub `TriggerConfig` struct L152-167 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
-- pub `new` function L171-179 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
-- pub `with_allow_concurrent` function L182-185 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
-- pub `with_enabled` function L188-191 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
-- pub `Trigger` interface L253-274 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
+- pub `TriggerResult` enum L115-124 — `Skip | Fire` — Result of a trigger poll operation.
+- pub `should_fire` function L137-139 — `(&self) -> bool` — Returns true if this result indicates the workflow should fire.
+- pub `into_context` function L142-147 — `(self) -> Option<Context<serde_json::Value>>` — Extracts the context if this is a Fire result.
+- pub `context_hash` function L153-166 — `(&self) -> String` — Computes a hash of the context for deduplication purposes.
+- pub `TriggerConfig` struct L174-189 — `{ name: String, workflow_name: String, poll_interval: Duration, allow_concurrent...` — Configuration for a trigger.
+- pub `new` function L193-201 — `(name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger configuration.
+- pub `with_allow_concurrent` function L204-207 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
+- pub `with_enabled` function L210-213 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
+- pub `Trigger` interface L275-296 — `{ fn name(), fn poll_interval(), fn allow_concurrent(), fn poll() }` — Core trait for user-defined triggers.
 -  `TriggerError` type L91-95 — `= TriggerError` — ```
 -  `from` function L92-94 — `(err: deadpool::managed::PoolError<deadpool_diesel::Error>) -> Self` — ```
--  `TriggerResult` type L113-145 — `= TriggerResult` — ```
--  `TriggerConfig` type L169-192 — `= TriggerConfig` — ```
--  `tests` module L283-398 — `-` — ```
--  `TestTrigger` struct L287-290 — `{ name: String, should_fire: bool }` — ```
--  `TestTrigger` type L293-313 — `impl Trigger for TestTrigger` — ```
--  `name` function L294-296 — `(&self) -> &str` — ```
--  `poll_interval` function L298-300 — `(&self) -> Duration` — ```
--  `allow_concurrent` function L302-304 — `(&self) -> bool` — ```
--  `poll` function L306-312 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
--  `test_trigger_result_should_fire` function L316-320 — `()` — ```
--  `test_trigger_result_into_context` function L323-330 — `()` — ```
--  `test_trigger_result_context_hash` function L333-357 — `()` — ```
--  `test_trigger_config` function L360-371 — `()` — ```
--  `test_trigger_trait` function L374-386 — `()` — ```
--  `test_trigger_fires` function L389-397 — `()` — ```
+-  `TriggerError` type L97-108 — `= TriggerError` — ```
+-  `from` function L98-107 — `(err: cloacina_workflow::TriggerError) -> Self` — ```
+-  `TriggerResult` type L126-133 — `= TriggerResult` — ```
+-  `from` function L127-132 — `(r: cloacina_workflow::TriggerResult) -> Self` — ```
+-  `TriggerResult` type L135-167 — `= TriggerResult` — ```
+-  `TriggerConfig` type L191-214 — `= TriggerConfig` — ```
+-  `tests` module L305-420 — `-` — ```
+-  `TestTrigger` struct L309-312 — `{ name: String, should_fire: bool }` — ```
+-  `TestTrigger` type L315-335 — `impl Trigger for TestTrigger` — ```
+-  `name` function L316-318 — `(&self) -> &str` — ```
+-  `poll_interval` function L320-322 — `(&self) -> Duration` — ```
+-  `allow_concurrent` function L324-326 — `(&self) -> bool` — ```
+-  `poll` function L328-334 — `(&self) -> Result<TriggerResult, TriggerError>` — ```
+-  `test_trigger_result_should_fire` function L338-342 — `()` — ```
+-  `test_trigger_result_into_context` function L345-352 — `()` — ```
+-  `test_trigger_result_context_hash` function L355-379 — `()` — ```
+-  `test_trigger_config` function L382-393 — `()` — ```
+-  `test_trigger_trait` function L396-408 — `()` — ```
+-  `test_trigger_fires` function L411-419 — `()` — ```
 
 #### crates/cloacina/src/trigger/registry.rs
 
@@ -4684,11 +4688,11 @@
 - pub `workflow_attr` function L114-133 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
 -  `UnifiedWorkflowAttributes` type L56-111 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
 -  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
--  `generate_workflow_attr` function L141-268 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
--  `validate_dependencies` function L271-325 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L331-567 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L570-613 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L620-857 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_workflow_attr` function L141-271 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L274-328 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L334-570 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L573-616 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L623-862 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 

@@ -47,8 +47,15 @@ Replace `CronScheduler` and `TriggerScheduler` with a single `Scheduler` that ha
 
 ### Files to create/modify
 - `crates/cloacina/src/scheduler.rs` — new unified Scheduler (or `scheduler/mod.rs`)
-- `crates/cloacina/src/runner/default_runner/services.rs` — start one Scheduler
+- `crates/cloacina/src/runner/default_runner/services.rs` — replace `start_cron_services()`, `start_cron_recovery()`, and `start_trigger_services()` with single scheduler start
 - `crates/cloacina/src/runner/default_runner/config.rs` — unified `SchedulerConfig`
+- `crates/cloacina/src/runner/default_runner/cron_api.rs` — update `register_cron_workflow()` to use unified DAL/scheduler
+
+### Note on current code locations
+- `CronScheduler` is at crate root: `crates/cloacina/src/cron_scheduler.rs`
+- `TriggerScheduler` is at crate root: `crates/cloacina/src/trigger_scheduler.rs`
+- Cron recovery is started separately in `services.rs:start_cron_recovery()` — must be folded into unified scheduler
+- `cron_api.rs` has `register_cron_workflow()` — needs updating to unified schedule API
 
 ### Depends on
 - T-0309 (unified DAL must exist)
