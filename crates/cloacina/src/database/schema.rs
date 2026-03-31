@@ -245,6 +245,53 @@ mod unified_schema {
     }
 
     // =========================================================================
+    // Unified Schedule Tables
+    // =========================================================================
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        schedules (id) {
+            id -> DbUuid,
+            schedule_type -> Text,
+            workflow_name -> Text,
+            enabled -> DbBool,
+            cron_expression -> Nullable<Text>,
+            timezone -> Nullable<Text>,
+            catchup_policy -> Nullable<Text>,
+            start_date -> Nullable<DbTimestamp>,
+            end_date -> Nullable<DbTimestamp>,
+            trigger_name -> Nullable<Text>,
+            poll_interval_ms -> Nullable<Integer>,
+            allow_concurrent -> Nullable<DbBool>,
+            next_run_at -> Nullable<DbTimestamp>,
+            last_run_at -> Nullable<DbTimestamp>,
+            last_poll_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    diesel::table! {
+        use diesel::sql_types::*;
+        use crate::database::universal_types::{DbUuid, DbTimestamp, DbBool, DbBinary};
+
+        schedule_executions (id) {
+            id -> DbUuid,
+            schedule_id -> DbUuid,
+            pipeline_execution_id -> Nullable<DbUuid>,
+            scheduled_time -> Nullable<DbTimestamp>,
+            claimed_at -> Nullable<DbTimestamp>,
+            context_hash -> Nullable<Text>,
+            started_at -> DbTimestamp,
+            completed_at -> Nullable<DbTimestamp>,
+            created_at -> DbTimestamp,
+            updated_at -> DbTimestamp,
+        }
+    }
+
+    // =========================================================================
     // Package Signing Tables
     // =========================================================================
 
@@ -318,6 +365,8 @@ mod unified_schema {
     diesel::joinable!(execution_events -> pipeline_executions (pipeline_execution_id));
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
+    diesel::joinable!(schedule_executions -> schedules (schedule_id));
+    diesel::joinable!(schedule_executions -> pipeline_executions (pipeline_execution_id));
 
     diesel::allow_tables_to_appear_in_same_query!(
         contexts,
@@ -328,6 +377,8 @@ mod unified_schema {
         package_signatures,
         pipeline_executions,
         recovery_events,
+        schedule_executions,
+        schedules,
         signing_keys,
         task_executions,
         task_execution_metadata,

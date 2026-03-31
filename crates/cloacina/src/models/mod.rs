@@ -75,6 +75,7 @@ pub mod cron_schedule;
 pub mod execution_event;
 pub mod pipeline_execution;
 pub mod recovery_event;
+pub mod schedule;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
