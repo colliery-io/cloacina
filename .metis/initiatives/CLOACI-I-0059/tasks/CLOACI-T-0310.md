@@ -4,14 +4,14 @@ level: task
 title: "Unified Scheduler — single scheduler replacing CronScheduler + TriggerScheduler"
 short_code: "CLOACI-T-0310"
 created_at: 2026-03-29T22:16:17.089200+00:00
-updated_at: 2026-03-29T22:16:17.089200+00:00
+updated_at: 2026-03-31T18:46:30.620266+00:00
 parent: CLOACI-I-0059
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0059
 ## Objective
 
 Replace `CronScheduler` and `TriggerScheduler` with a single `Scheduler` that handles both schedule types. Single run loop, unified config, same `PipelineExecutor` handoff. Update `DefaultRunner` to start one scheduler instead of two.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

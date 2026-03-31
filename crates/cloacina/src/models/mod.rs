@@ -23,8 +23,7 @@
 //! ## Models
 //!
 //! - [`context`]: Models for execution context storage
-//! - [`cron_execution`]: Models for tracking cron schedule execution handoffs and audit trail
-//! - [`cron_schedule`]: Models for time-based workflow scheduling with cron expressions
+//! - [`schedule`]: Models for unified cron and trigger workflow scheduling
 //! - [`pipeline_execution`]: Models for tracking pipeline execution state and metadata
 //! - [`recovery_event`]: Models for recording system recovery events and state transitions
 //! - [`task_execution`]: Models for managing individual task execution records
@@ -70,8 +69,6 @@
 // #[cfg(feature = "auth")]
 // pub mod auth_tokens;
 pub mod context;
-pub mod cron_execution;
-pub mod cron_schedule;
 pub mod execution_event;
 pub mod pipeline_execution;
 pub mod recovery_event;
@@ -79,8 +76,6 @@ pub mod schedule;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
-pub mod trigger_execution;
-pub mod trigger_schedule;
 pub mod workflow_packages;
 pub mod workflow_registry;
 

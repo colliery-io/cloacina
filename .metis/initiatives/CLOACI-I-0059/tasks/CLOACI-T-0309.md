@@ -4,14 +4,14 @@ level: task
 title: "Unified schedule DAL — single module replacing 4 cron/trigger DAL modules"
 short_code: "CLOACI-T-0309"
 created_at: 2026-03-29T22:16:15.788993+00:00
-updated_at: 2026-03-29T22:16:15.788993+00:00
+updated_at: 2026-03-31T16:49:10.653692+00:00
 parent: CLOACI-I-0059
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0059
 ## Objective
 
 Create a single `ScheduleDAL` module that replaces `CronScheduleDAL`, `CronExecutionDAL`, `TriggerScheduleDAL`, and `TriggerExecutionDAL`. All CRUD operations target the unified `schedules` and `schedule_executions` tables from T-0308.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

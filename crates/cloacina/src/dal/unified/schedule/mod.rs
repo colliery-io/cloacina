@@ -208,4 +208,33 @@ impl<'a> ScheduleDAL<'a> {
             self.find_by_workflow_sqlite(name_owned).await
         )
     }
+
+    /// Updates the cron expression and timezone for a cron schedule.
+    pub async fn update_cron_expression_and_timezone(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<&str>,
+        timezone: Option<&str>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let cron_expression_owned = cron_expression.map(|s| s.to_string());
+        let timezone_owned = timezone.map(|s| s.to_string());
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.update_cron_expression_and_timezone_postgres(
+                id,
+                cron_expression_owned.clone(),
+                timezone_owned.clone(),
+                next_run
+            )
+            .await,
+            self.update_cron_expression_and_timezone_sqlite(
+                id,
+                cron_expression_owned,
+                timezone_owned,
+                next_run
+            )
+            .await
+        )
+    }
 }

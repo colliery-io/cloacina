@@ -17,8 +17,7 @@
 use crate::fixtures::get_or_init_fixture;
 use chrono::Utc;
 use cloacina::cron_evaluator::CronEvaluator;
-use cloacina::database::{UniversalBool, UniversalTimestamp};
-use cloacina::models::cron_schedule::{CatchupPolicy, NewCronSchedule};
+use cloacina::models::schedule::NewSchedule;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use serial_test::serial;
 use std::time::Duration;
@@ -48,18 +47,13 @@ async fn test_cron_schedule_creation() {
     fixture.initialize().await;
     let dal = fixture.get_dal();
 
-    let schedule = NewCronSchedule {
-        workflow_name: "test-workflow".to_string(),
-        cron_expression: "0 0 * * * *".to_string(),
-        timezone: Some("UTC".to_string()),
-        enabled: Some(UniversalBool::from(true)),
-        catchup_policy: Some(CatchupPolicy::Skip.into()),
-        start_date: None,
-        end_date: None,
-        next_run_at: UniversalTimestamp(Utc::now()),
-    };
+    let schedule = NewSchedule::cron(
+        "test-workflow",
+        "0 0 * * *",
+        cloacina::database::UniversalTimestamp(Utc::now()),
+    );
 
-    let created_schedule = dal.cron_schedule().create(schedule).await.unwrap();
+    let created_schedule = dal.schedule().create(schedule).await.unwrap();
     assert!(created_schedule.id.to_string().len() > 0);
 }
 

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -35,8 +35,8 @@ mod filesystem_dal;
 // Export unified DAL as the primary DAL
 pub use unified::DAL;
 
-// Export CronExecutionStats from the unified module
-pub use unified::cron_execution::CronExecutionStats;
+// Export ScheduleExecutionStats from the unified module
+pub use unified::ScheduleExecutionStats;
 
 // Re-export filesystem DAL
 pub use filesystem_dal::FilesystemRegistryStorage;

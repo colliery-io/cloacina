@@ -498,4 +498,134 @@ impl<'a> ScheduleExecutionDAL<'a> {
 
         Ok(result.map(|r| r.into()))
     }
+
+    #[cfg(feature = "postgres")]
+    pub(super) async fn get_execution_stats_postgres(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<super::ScheduleExecutionStats, ValidationError> {
+        use crate::database::schema::unified::pipeline_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let since_ts = UniversalTimestamp::from(since);
+        let lost_cutoff = UniversalTimestamp::from(Utc::now() - Duration::minutes(10));
+
+        let (total_executions, successful_executions, lost_executions) = conn
+            .interact(move |conn| {
+                let total_executions: i64 = schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .count()
+                    .first(conn)?;
+
+                let successful_executions: i64 = schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::pipeline_execution_id.is_not_null())
+                    .count()
+                    .first(conn)?;
+
+                let lost_executions: i64 = schedule_executions::table
+                    .left_join(
+                        pipeline_executions::table.on(schedule_executions::pipeline_execution_id
+                            .eq(pipeline_executions::id.nullable())),
+                    )
+                    .filter(pipeline_executions::id.is_null())
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::started_at.lt(lost_cutoff))
+                    .count()
+                    .first(conn)?;
+
+                Ok::<(i64, i64, i64), diesel::result::Error>((
+                    total_executions,
+                    successful_executions,
+                    lost_executions,
+                ))
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(super::ScheduleExecutionStats {
+            total_executions,
+            successful_executions,
+            lost_executions,
+            success_rate: if total_executions > 0 {
+                (successful_executions as f64 / total_executions as f64) * 100.0
+            } else {
+                0.0
+            },
+        })
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn get_execution_stats_sqlite(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<super::ScheduleExecutionStats, ValidationError> {
+        use crate::database::schema::unified::pipeline_executions;
+
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let since_ts = UniversalTimestamp::from(since);
+
+        let total_executions: i64 = conn
+            .interact(move |conn| {
+                schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .count()
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let since_ts = UniversalTimestamp::from(since);
+        let successful_executions: i64 = conn
+            .interact(move |conn| {
+                schedule_executions::table
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::pipeline_execution_id.is_not_null())
+                    .count()
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        let since_ts = UniversalTimestamp::from(since);
+        let lost_cutoff = UniversalTimestamp::from(Utc::now() - Duration::minutes(10));
+        let lost_executions: i64 = conn
+            .interact(move |conn| {
+                schedule_executions::table
+                    .left_join(
+                        pipeline_executions::table.on(schedule_executions::pipeline_execution_id
+                            .eq(pipeline_executions::id.nullable())),
+                    )
+                    .filter(pipeline_executions::id.is_null())
+                    .filter(schedule_executions::started_at.ge(since_ts))
+                    .filter(schedule_executions::started_at.lt(lost_cutoff))
+                    .count()
+                    .first(conn)
+            })
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(super::ScheduleExecutionStats {
+            total_executions,
+            successful_executions,
+            lost_executions,
+            success_rate: if total_executions > 0 {
+                (successful_executions as f64 / total_executions as f64) * 100.0
+            } else {
+                0.0
+            },
+        })
+    }
 }

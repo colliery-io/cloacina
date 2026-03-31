@@ -432,6 +432,8 @@ fn register_triggers() {
 async fn register_trigger_schedules(
     runner: &DefaultRunner,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use cloacina::database::universal_types::UniversalBool;
+    use cloacina::models::schedule::NewSchedule;
     use cloacina::trigger::get_trigger;
 
     // Get access to the DAL through the runner
@@ -440,8 +442,8 @@ async fn register_trigger_schedules(
     // Register file watcher -> file processing workflow
     if let Some(trigger) = get_trigger("file_watcher") {
         let schedule = dal
-            .trigger_schedule()
-            .upsert(cloacina::models::trigger_schedule::NewTriggerSchedule::new(
+            .schedule()
+            .upsert_trigger(NewSchedule::trigger(
                 trigger.name(),
                 "file_processing_workflow",
                 trigger.poll_interval(),
@@ -457,17 +459,13 @@ async fn register_trigger_schedules(
 
     // Register queue monitor -> queue processing workflow
     if let Some(trigger) = get_trigger("queue_monitor") {
-        let schedule = dal
-            .trigger_schedule()
-            .upsert(
-                cloacina::models::trigger_schedule::NewTriggerSchedule::new(
-                    trigger.name(),
-                    "queue_processing_workflow",
-                    trigger.poll_interval(),
-                )
-                .with_allow_concurrent(true), // Allow concurrent queue processing
-            )
-            .await?;
+        let mut new_schedule = NewSchedule::trigger(
+            trigger.name(),
+            "queue_processing_workflow",
+            trigger.poll_interval(),
+        );
+        new_schedule.allow_concurrent = Some(UniversalBool::new(true)); // Allow concurrent queue processing
+        let schedule = dal.schedule().upsert_trigger(new_schedule).await?;
         info!(
             "Registered schedule: {} -> {} (ID: {})",
             trigger.name(),
@@ -479,8 +477,8 @@ async fn register_trigger_schedules(
     // Register health check -> service recovery workflow
     if let Some(trigger) = get_trigger("service_health") {
         let schedule = dal
-            .trigger_schedule()
-            .upsert(cloacina::models::trigger_schedule::NewTriggerSchedule::new(
+            .schedule()
+            .upsert_trigger(NewSchedule::trigger(
                 trigger.name(),
                 "service_recovery_workflow",
                 trigger.poll_interval(),

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@
 //! # Recovery Policy
 //!
 //! Executions are considered "lost" if:
-//! - They have a cron_executions record (were claimed)
+//! - They have a schedule_executions record (were claimed)
 //! - They have no corresponding pipeline_executions record
 //! - They were claimed more than X minutes ago (configurable)
 //!
@@ -44,7 +44,7 @@
 use crate::context::Context;
 use crate::dal::DAL;
 use crate::executor::{PipelineError, PipelineExecutor};
-use crate::models::cron_execution::CronExecution;
+use crate::models::schedule::ScheduleExecution;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -166,7 +166,7 @@ impl CronRecoveryService {
         // Find lost executions
         let lost_executions = self
             .dal
-            .cron_execution()
+            .schedule_execution()
             .find_lost_executions(self.config.lost_threshold_minutes)
             .await
             .map_err(|e| PipelineError::ExecutionFailed {
@@ -195,8 +195,15 @@ impl CronRecoveryService {
     }
 
     /// Attempts to recover a single lost execution.
-    async fn recover_execution(&self, execution: &CronExecution) -> Result<(), PipelineError> {
-        let execution_age = Utc::now() - execution.scheduled_time();
+    async fn recover_execution(&self, execution: &ScheduleExecution) -> Result<(), PipelineError> {
+        // Use scheduled_time if available; fall back to created_at
+        let scheduled_time = execution
+            .scheduled_time
+            .as_ref()
+            .map(|t| t.0)
+            .unwrap_or(execution.created_at.0);
+
+        let execution_age = Utc::now() - scheduled_time;
 
         // Check if execution is too old to recover
         if execution_age > chrono::Duration::from_std(self.config.max_recovery_age).unwrap() {
@@ -226,12 +233,7 @@ impl CronRecoveryService {
         );
 
         // Get the schedule to check if it's still active
-        let schedule = match self
-            .dal
-            .cron_schedule()
-            .get_by_id(execution.schedule_id)
-            .await
-        {
+        let schedule = match self.dal.schedule().get_by_id(execution.schedule_id).await {
             Ok(sched) => sched,
             Err(e) => {
                 warn!(
@@ -278,7 +280,7 @@ impl CronRecoveryService {
         context
             .insert(
                 "scheduled_time",
-                serde_json::json!(execution.scheduled_time().to_rfc3339()),
+                serde_json::json!(scheduled_time.to_rfc3339()),
             )
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Context error: {}", e),
@@ -289,14 +291,17 @@ impl CronRecoveryService {
                 message: format!("Context error: {}", e),
             })?;
         context
-            .insert("schedule_timezone", serde_json::json!(schedule.timezone))
+            .insert(
+                "schedule_timezone",
+                serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
+            )
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
             .insert(
                 "schedule_expression",
-                serde_json::json!(schedule.cron_expression),
+                serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
             )
             .map_err(|e| PipelineError::ExecutionFailed {
                 message: format!("Context error: {}", e),
@@ -317,7 +322,7 @@ impl CronRecoveryService {
                 // Update the audit record with the new pipeline execution ID
                 if let Err(e) = self
                     .dal
-                    .cron_execution()
+                    .schedule_execution()
                     .update_pipeline_execution_id(
                         execution.id,
                         crate::database::UniversalUuid(pipeline_result.execution_id),

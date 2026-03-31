@@ -44,8 +44,6 @@ use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
 pub mod context;
-pub mod cron_execution;
-pub mod cron_schedule;
 pub mod execution_event;
 pub mod models;
 pub mod pipeline_execution;
@@ -55,26 +53,20 @@ pub mod schedule_execution;
 pub mod task_execution;
 pub mod task_execution_metadata;
 pub mod task_outbox;
-pub mod trigger_execution;
-pub mod trigger_schedule;
 pub mod workflow_packages;
 pub mod workflow_registry;
 pub mod workflow_registry_storage;
 
 // Re-export DAL components
 pub use context::ContextDAL;
-pub use cron_execution::CronExecutionDAL;
-pub use cron_schedule::CronScheduleDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
-pub use schedule_execution::ScheduleExecutionDAL;
+pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
 pub use task_execution::{ClaimResult, RetryStats, TaskExecutionDAL};
 pub use task_execution_metadata::TaskExecutionMetadataDAL;
 pub use task_outbox::TaskOutboxDAL;
-pub use trigger_execution::TriggerExecutionDAL;
-pub use trigger_schedule::TriggerScheduleDAL;
 pub use workflow_packages::WorkflowPackagesDAL;
 pub use workflow_registry::WorkflowRegistryDAL;
 pub use workflow_registry_storage::UnifiedRegistryStorage;
@@ -236,16 +228,6 @@ impl DAL {
         ExecutionEventDAL::new(self)
     }
 
-    /// Returns a cron schedule DAL for schedule operations.
-    pub fn cron_schedule(&self) -> CronScheduleDAL<'_> {
-        CronScheduleDAL::new(self)
-    }
-
-    /// Returns a cron execution DAL for cron execution operations.
-    pub fn cron_execution(&self) -> CronExecutionDAL<'_> {
-        CronExecutionDAL::new(self)
-    }
-
     /// Returns a unified schedule DAL for schedule operations.
     pub fn schedule(&self) -> ScheduleDAL<'_> {
         ScheduleDAL::new(self)
@@ -254,16 +236,6 @@ impl DAL {
     /// Returns a unified schedule execution DAL for schedule execution operations.
     pub fn schedule_execution(&self) -> ScheduleExecutionDAL<'_> {
         ScheduleExecutionDAL::new(self)
-    }
-
-    /// Returns a trigger schedule DAL for trigger schedule operations.
-    pub fn trigger_schedule(&self) -> TriggerScheduleDAL<'_> {
-        TriggerScheduleDAL::new(self)
-    }
-
-    /// Returns a trigger execution DAL for trigger execution operations.
-    pub fn trigger_execution(&self) -> TriggerExecutionDAL<'_> {
-        TriggerExecutionDAL::new(self)
     }
 
     /// Returns a workflow packages DAL for package operations.

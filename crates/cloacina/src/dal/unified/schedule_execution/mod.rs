@@ -29,6 +29,19 @@ use crate::error::ValidationError;
 use crate::models::schedule::{NewScheduleExecution, ScheduleExecution};
 use chrono::{DateTime, Utc};
 
+/// Statistics about schedule execution performance
+#[derive(Debug)]
+pub struct ScheduleExecutionStats {
+    /// Total number of executions attempted
+    pub total_executions: i64,
+    /// Number of executions that successfully handed off to pipeline executor
+    pub successful_executions: i64,
+    /// Number of executions that were lost (started but never completed within expected time)
+    pub lost_executions: i64,
+    /// Success rate as a percentage
+    pub success_rate: f64,
+}
+
 /// Data access layer for unified schedule execution operations with runtime backend selection.
 #[derive(Clone)]
 pub struct ScheduleExecutionDAL<'a> {
@@ -143,6 +156,18 @@ impl<'a> ScheduleExecutionDAL<'a> {
             self.dal.backend(),
             self.get_latest_by_schedule_postgres(schedule_id).await,
             self.get_latest_by_schedule_sqlite(schedule_id).await
+        )
+    }
+
+    /// Gets execution statistics for monitoring and alerting.
+    pub async fn get_execution_stats(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<ScheduleExecutionStats, ValidationError> {
+        crate::dispatch_backend!(
+            self.dal.backend(),
+            self.get_execution_stats_postgres(since).await,
+            self.get_execution_stats_sqlite(since).await
         )
     }
 }

@@ -4,14 +4,14 @@ level: task
 title: "Unified schedule schema — new tables + data migration from cron/trigger tables"
 short_code: "CLOACI-T-0308"
 created_at: 2026-03-29T22:16:14.452096+00:00
-updated_at: 2026-03-29T22:16:14.452096+00:00
+updated_at: 2026-03-31T16:09:41.266585+00:00
 parent: CLOACI-I-0059
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0059
 ## Objective
 
 Create the unified `schedules` and `schedule_executions` tables for both Postgres and SQLite. Write data migration SQL that copies existing rows from `cron_schedules`/`cron_executions`/`trigger_schedules`/`trigger_executions` into the new tables. Add diesel schema definitions and domain models.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -23,6 +23,38 @@ use crate::database::universal_types::{UniversalBool, UniversalTimestamp, Univer
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Enum representing the different catchup policies for missed cron executions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CatchupPolicy {
+    Skip,
+    RunAll,
+}
+
+impl From<CatchupPolicy> for String {
+    fn from(policy: CatchupPolicy) -> Self {
+        match policy {
+            CatchupPolicy::Skip => "skip".to_string(),
+            CatchupPolicy::RunAll => "run_all".to_string(),
+        }
+    }
+}
+
+impl From<String> for CatchupPolicy {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "run_all" => CatchupPolicy::RunAll,
+            "run_once" => CatchupPolicy::Skip,
+            _ => CatchupPolicy::Skip,
+        }
+    }
+}
+
+impl From<&str> for CatchupPolicy {
+    fn from(s: &str) -> Self {
+        Self::from(s.to_string())
+    }
+}
+
 /// The type of schedule — determines which fields are relevant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScheduleType {

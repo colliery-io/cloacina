@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-03-31T15:30:18Z | 380 files | JavaScript, Python, Rust
+> Generated: 2026-03-31T20:04:48Z | 368 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -12,7 +12,6 @@
 │   │   │   ├── context.rs
 │   │   │   ├── cron_evaluator.rs
 │   │   │   ├── cron_recovery.rs
-│   │   │   ├── cron_scheduler.rs
 │   │   │   ├── crypto/
 │   │   │   │   ├── key_encryption.rs
 │   │   │   │   ├── mod.rs
@@ -24,21 +23,17 @@
 │   │   │   │   ├── mod.rs
 │   │   │   │   └── unified/
 │   │   │   │       ├── context.rs
-│   │   │   │       ├── cron_execution/
-│   │   │   │       │   ├── crud.rs
-│   │   │   │       │   ├── mod.rs
-│   │   │   │       │   ├── queries.rs
-│   │   │   │       │   └── tracking.rs
-│   │   │   │       ├── cron_schedule/
-│   │   │   │       │   ├── crud.rs
-│   │   │   │       │   ├── mod.rs
-│   │   │   │       │   ├── queries.rs
-│   │   │   │       │   └── state.rs
 │   │   │   │       ├── execution_event.rs
 │   │   │   │       ├── mod.rs
 │   │   │   │       ├── models.rs
 │   │   │   │       ├── pipeline_execution.rs
 │   │   │   │       ├── recovery_event.rs
+│   │   │   │       ├── schedule/
+│   │   │   │       │   ├── crud.rs
+│   │   │   │       │   └── mod.rs
+│   │   │   │       ├── schedule_execution/
+│   │   │   │       │   ├── crud.rs
+│   │   │   │       │   └── mod.rs
 │   │   │   │       ├── task_execution/
 │   │   │   │       │   ├── claiming.rs
 │   │   │   │       │   ├── crud.rs
@@ -48,12 +43,6 @@
 │   │   │   │       │   └── state.rs
 │   │   │   │       ├── task_execution_metadata.rs
 │   │   │   │       ├── task_outbox.rs
-│   │   │   │       ├── trigger_execution/
-│   │   │   │       │   ├── crud.rs
-│   │   │   │       │   └── mod.rs
-│   │   │   │       ├── trigger_schedule/
-│   │   │   │       │   ├── crud.rs
-│   │   │   │       │   └── mod.rs
 │   │   │   │       ├── workflow_packages.rs
 │   │   │   │       ├── workflow_registry.rs
 │   │   │   │       └── workflow_registry_storage.rs
@@ -86,20 +75,17 @@
 │   │   │   ├── logging.rs
 │   │   │   ├── models/
 │   │   │   │   ├── context.rs
-│   │   │   │   ├── cron_execution.rs
-│   │   │   │   ├── cron_schedule.rs
 │   │   │   │   ├── execution_event.rs
 │   │   │   │   ├── key_trust_acl.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── package_signature.rs
 │   │   │   │   ├── pipeline_execution.rs
 │   │   │   │   ├── recovery_event.rs
+│   │   │   │   ├── schedule.rs
 │   │   │   │   ├── signing_key.rs
 │   │   │   │   ├── task_execution.rs
 │   │   │   │   ├── task_execution_metadata.rs
 │   │   │   │   ├── task_outbox.rs
-│   │   │   │   ├── trigger_execution.rs
-│   │   │   │   ├── trigger_schedule.rs
 │   │   │   │   ├── trusted_key.rs
 │   │   │   │   ├── workflow_packages.rs
 │   │   │   │   └── workflow_registry.rs
@@ -176,6 +162,7 @@
 │   │   │   │   │   ├── pipeline_result.rs
 │   │   │   │   │   └── services.rs
 │   │   │   │   └── mod.rs
+│   │   │   ├── scheduler.rs
 │   │   │   ├── security/
 │   │   │   │   ├── audit.rs
 │   │   │   │   ├── db_key_manager.rs
@@ -197,7 +184,6 @@
 │   │   │   ├── trigger/
 │   │   │   │   ├── mod.rs
 │   │   │   │   └── registry.rs
-│   │   │   ├── trigger_scheduler.rs
 │   │   │   └── workflow/
 │   │   │       ├── builder.rs
 │   │   │       ├── graph.rs
@@ -562,41 +548,16 @@
 - pub `new` function L104-117 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: CronRecoveryConfig...` — Creates a new cron recovery service.
 - pub `with_defaults` function L120-126 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, shutdown: watch::Receiver<...` — Creates a new recovery service with default configuration.
 - pub `run_recovery_loop` function L132-160 — `(&mut self) -> Result<(), PipelineError>` — Runs the recovery service loop.
-- pub `clear_recovery_attempts` function L358-362 — `(&self)` — Clears the recovery attempts cache.
-- pub `get_recovery_attempts` function L365-371 — `( &self, execution_id: crate::database::UniversalUuid, ) -> usize` — Gets the current recovery attempts for an execution.
+- pub `clear_recovery_attempts` function L368-372 — `(&self)` — Clears the recovery attempts cache.
+- pub `get_recovery_attempts` function L375-381 — `( &self, execution_id: crate::database::UniversalUuid, ) -> usize` — Gets the current recovery attempts for an execution.
 -  `CronRecoveryConfig` type L70-80 — `impl Default for CronRecoveryConfig` — - The execution is too old (beyond recovery window)
 -  `default` function L71-79 — `() -> Self` — - The execution is too old (beyond recovery window)
--  `CronRecoveryService` type L96-372 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
+-  `CronRecoveryService` type L96-382 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
 -  `check_and_recover_lost_executions` function L163-195 — `(&self) -> Result<(), PipelineError>` — Checks for lost executions and attempts to recover them.
--  `recover_execution` function L198-352 — `(&self, execution: &CronExecution) -> Result<(), PipelineError>` — Attempts to recover a single lost execution.
--  `tests` module L375-405 — `-` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_default` function L380-387 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_attempts_tracking` function L390-404 — `()` — - The execution is too old (beyond recovery window)
-
-#### crates/cloacina/src/cron_scheduler.rs
-
-- pub `CronSchedulerConfig` struct L81-88 — `{ poll_interval: Duration, max_catchup_executions: usize, max_acceptable_delay: ...` — Configuration for the cron scheduler.
-- pub `CronScheduler` struct L128-133 — `{ dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: CronSchedulerConfi...` — Saga-based cron scheduler for time-based workflow execution.
-- pub `new` function L143-155 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: CronSchedulerConfi...` — Creates a new cron scheduler.
-- pub `with_defaults` function L158-164 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, shutdown: watch::Receiver<...` — Creates a new cron scheduler with default configuration.
-- pub `run_polling_loop` function L177-205 — `(&mut self) -> Result<(), PipelineError>` — Runs the main polling loop for cron schedule processing.
--  `CronSchedulerConfig` type L90-98 — `impl Default for CronSchedulerConfig` — ```
--  `default` function L91-97 — `() -> Self` — ```
--  `CronScheduler` type L135-572 — `= CronScheduler` — ```
--  `check_and_execute_schedules` function L213-243 — `(&self) -> Result<(), PipelineError>` — Checks for due schedules and executes them.
--  `process_schedule` function L254-361 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<(), PipelineEr...` — Processes a single cron schedule using the saga pattern.
--  `is_schedule_active` function L364-380 — `(&self, schedule: &CronSchedule, now: DateTime<Utc>) -> bool` — Checks if a schedule is within its active time window.
--  `calculate_execution_times` function L388-433 — `( &self, schedule: &CronSchedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<U...` — Calculates execution times based on the schedule's catchup policy.
--  `calculate_next_run` function L436-453 — `( &self, schedule: &CronSchedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc...` — Calculates the next run time for a schedule.
--  `execute_workflow` function L460-513 — `( &self, schedule: &CronSchedule, scheduled_time: DateTime<Utc>, ) -> Result<cra...` — Executes a workflow by handing it off to the pipeline executor.
--  `create_execution_audit` function L527-545 — `( &self, schedule_id: crate::database::UniversalUuid, scheduled_time: DateTime<U...` — Creates audit record BEFORE workflow execution for guaranteed reliability.
--  `complete_execution_audit` function L555-571 — `( &self, audit_record_id: crate::database::UniversalUuid, pipeline_execution_id:...` — Updates audit record with pipeline execution ID after successful handoff.
--  `tests` module L575-640 — `-` — ```
--  `create_test_schedule` function L580-596 — `(cron_expr: &str, timezone: &str) -> CronSchedule` — ```
--  `test_cron_scheduler_config_default` function L599-607 — `()` — ```
--  `test_is_schedule_active` function L610-621 — `()` — ```
--  `test_calculate_execution_times_skip_policy` function L624-630 — `()` — ```
--  `test_calculate_execution_times_run_all_policy` function L633-639 — `()` — ```
+-  `recover_execution` function L198-362 — `(&self, execution: &ScheduleExecution) -> Result<(), PipelineError>` — Attempts to recover a single lost execution.
+-  `tests` module L385-415 — `-` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default` function L390-397 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_attempts_tracking` function L400-414 — `()` — - The execution is too old (beyond recovery window)
 
 #### crates/cloacina/src/error.rs
 
@@ -660,29 +621,28 @@
 - pub `context` module L484 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `cron_evaluator` module L485 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `cron_recovery` module L486 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_scheduler` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `crypto` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dal` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `database` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `executor` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `crypto` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dal` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `database` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `executor` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `scheduler` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `security` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `task` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `task_scheduler` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `trigger` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger_scheduler` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L572-611 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L514-516 — `()` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L570-609 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -690,6 +650,42 @@
 - pub `init_test_logging` function L170-175 — `()` — Initializes the logging system for test environments.
 -  `tests` module L178-191 — `-` — - Test logging initialization is idempotent and safe to call multiple times
 -  `test_logging_levels` function L183-190 — `()` — - Test logging initialization is idempotent and safe to call multiple times
+
+#### crates/cloacina/src/scheduler.rs
+
+- pub `SchedulerConfig` struct L64-75 — `{ cron_poll_interval: Duration, max_catchup_executions: usize, max_acceptable_de...` — Configuration for the unified scheduler.
+- pub `Scheduler` struct L114-123 — `{ dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: SchedulerConfig, s...` — Unified scheduler for both cron and trigger-based workflow execution.
+- pub `new` function L133-147 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
+- pub `with_defaults` function L150-156 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
+- pub `run_polling_loop` function L170-212 — `(&mut self) -> Result<(), PipelineError>` — Runs the main polling loop.
+- pub `register_trigger` function L779-792 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
+- pub `disable_trigger` function L795-806 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
+- pub `enable_trigger` function L809-820 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
+-  `SchedulerConfig` type L77-87 — `impl Default for SchedulerConfig` — ```
+-  `default` function L78-86 — `() -> Self` — ```
+-  `Scheduler` type L125-821 — `= Scheduler` — ```
+-  `check_and_execute_cron_schedules` function L219-246 — `(&self) -> Result<(), PipelineError>` — Checks for due cron schedules and executes them.
+-  `process_cron_schedule` function L249-357 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), PipelineError>` — Processes a single cron schedule using the saga pattern.
+-  `is_cron_schedule_active` function L360-372 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
+-  `calculate_execution_times` function L375-420 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
+-  `calculate_next_run` function L423-441 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, P...` — Calculates the next run time for a cron schedule.
+-  `execute_cron_workflow` function L444-496 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the pipeline executor.
+-  `create_cron_execution_audit` function L499-520 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
+-  `check_and_process_triggers` function L527-578 — `(&mut self) -> Result<(), PipelineError>` — Checks all enabled triggers and processes those that are due.
+-  `process_trigger` function L581-703 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
+-  `create_trigger_execution_audit` function L706-732 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
+-  `execute_trigger_workflow` function L735-764 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the pipeline executor.
+-  `tests` module L824-974 — `-` — ```
+-  `create_test_cron_schedule` function L828-849 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
+-  `create_test_trigger_schedule` function L851-872 — `(trigger_name: &str) -> Schedule` — ```
+-  `test_scheduler_config_default` function L875-882 — `()` — ```
+-  `test_is_cron_schedule_active_no_window` function L885-905 — `()` — ```
+-  `test_is_cron_schedule_active_with_start_date_future` function L908-918 — `()` — ```
+-  `test_is_cron_schedule_active_with_end_date_past` function L921-931 — `()` — ```
+-  `test_catchup_policy_from_schedule` function L934-939 — `()` — ```
+-  `test_catchup_policy_run_all` function L942-948 — `()` — ```
+-  `test_trigger_schedule_helpers` function L951-958 — `()` — ```
+-  `test_trigger_schedule_trigger_name_fallback` function L961-973 — `()` — ```
 
 #### crates/cloacina/src/task.rs
 
@@ -731,26 +727,6 @@
 -  `test_topological_sort` function L843-871 — `()` — Tasks track their execution state for monitoring and recovery:
 -  `test_code_fingerprint_none_by_default` function L874-879 — `()` — Tasks track their execution state for monitoring and recovery:
 -  `test_code_fingerprint_when_provided` function L882-887 — `()` — Tasks track their execution state for monitoring and recovery:
-
-#### crates/cloacina/src/trigger_scheduler.rs
-
-- pub `TriggerSchedulerConfig` struct L80-85 — `{ base_poll_interval: Duration, poll_timeout: Duration }` — Configuration for the trigger scheduler.
-- pub `TriggerScheduler` struct L120-127 — `{ dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: TriggerSchedulerCo...` — Event-based trigger scheduler for workflow execution.
-- pub `new` function L137-150 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, config: TriggerSchedulerCo...` — Creates a new trigger scheduler.
-- pub `with_defaults` function L153-159 — `( dal: Arc<DAL>, executor: Arc<dyn PipelineExecutor>, shutdown: watch::Receiver<...` — Creates a new trigger scheduler with default configuration.
-- pub `run_polling_loop` function L172-200 — `(&mut self) -> Result<(), PipelineError>` — Runs the main polling loop for trigger processing.
-- pub `register_trigger` function L457-468 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<TriggerSchedule...` — Registers a trigger with the scheduler.
-- pub `disable_trigger` function L471-482 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
-- pub `enable_trigger` function L485-496 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
--  `TriggerSchedulerConfig` type L87-94 — `impl Default for TriggerSchedulerConfig` — ```
--  `default` function L88-93 — `() -> Self` — ```
--  `TriggerScheduler` type L129-497 — `= TriggerScheduler` — ```
--  `check_and_process_triggers` function L203-252 — `(&mut self) -> Result<(), PipelineError>` — Checks all registered triggers and processes those that are due.
--  `process_trigger` function L262-388 — `(&self, schedule: &TriggerSchedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
--  `create_execution_audit` function L391-411 — `( &self, trigger_name: &str, context_hash: &str, ) -> Result<crate::models::trig...` — Creates an audit record for a trigger execution.
--  `execute_workflow` function L414-446 — `( &self, schedule: &TriggerSchedule, mut context: Context<serde_json::Value>, ) ...` — Executes a workflow by handing it off to the pipeline executor.
--  `tests` module L500-509 — `-` — ```
--  `test_trigger_scheduler_config_default` function L504-508 — `()` — ```
 
 ### crates/cloacina/src/crypto
 
@@ -894,42 +870,38 @@
 #### crates/cloacina/src/dal/unified/mod.rs
 
 - pub `context` module L46 — `-` — ```
-- pub `cron_execution` module L47 — `-` — ```
-- pub `cron_schedule` module L48 — `-` — ```
-- pub `execution_event` module L49 — `-` — ```
-- pub `models` module L50 — `-` — ```
-- pub `pipeline_execution` module L51 — `-` — ```
-- pub `recovery_event` module L52 — `-` — ```
+- pub `execution_event` module L47 — `-` — ```
+- pub `models` module L48 — `-` — ```
+- pub `pipeline_execution` module L49 — `-` — ```
+- pub `recovery_event` module L50 — `-` — ```
+- pub `schedule` module L51 — `-` — ```
+- pub `schedule_execution` module L52 — `-` — ```
 - pub `task_execution` module L53 — `-` — ```
 - pub `task_execution_metadata` module L54 — `-` — ```
 - pub `task_outbox` module L55 — `-` — ```
-- pub `trigger_execution` module L56 — `-` — ```
-- pub `trigger_schedule` module L57 — `-` — ```
-- pub `workflow_packages` module L58 — `-` — ```
-- pub `workflow_registry` module L59 — `-` — ```
-- pub `workflow_registry_storage` module L60 — `-` — ```
-- pub `DAL` struct L166-169 — `{ database: Database }` — The unified Data Access Layer struct.
-- pub `new` function L181-183 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L186-188 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L191-193 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L196-198 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `context` function L201-203 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `pipeline_execution` function L206-208 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
-- pub `task_execution` function L211-213 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L216-218 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L221-223 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L226-228 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L231-233 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `cron_schedule` function L236-238 — `(&self) -> CronScheduleDAL<'_>` — Returns a cron schedule DAL for schedule operations.
-- pub `cron_execution` function L241-243 — `(&self) -> CronExecutionDAL<'_>` — Returns a cron execution DAL for cron execution operations.
-- pub `trigger_schedule` function L246-248 — `(&self) -> TriggerScheduleDAL<'_>` — Returns a trigger schedule DAL for trigger schedule operations.
-- pub `trigger_execution` function L251-253 — `(&self) -> TriggerExecutionDAL<'_>` — Returns a trigger execution DAL for trigger execution operations.
-- pub `workflow_packages` function L256-258 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `workflow_registry` function L270-276 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L289-300 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `backend_dispatch` macro L95-115 — `-` — Helper macro for dispatching operations based on backend type.
--  `connection_match` macro L134-154 — `-` — Helper macro for matching on AnyConnection variants.
--  `DAL` type L171-301 — `= DAL` — ```
+- pub `workflow_packages` module L56 — `-` — ```
+- pub `workflow_registry` module L57 — `-` — ```
+- pub `workflow_registry_storage` module L58 — `-` — ```
+- pub `DAL` struct L162-165 — `{ database: Database }` — The unified Data Access Layer struct.
+- pub `new` function L177-179 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L182-184 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L187-189 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L192-194 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `context` function L197-199 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `pipeline_execution` function L202-204 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
+- pub `task_execution` function L207-209 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L212-214 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L217-219 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `recovery_event` function L222-224 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L227-229 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `schedule` function L232-234 — `(&self) -> ScheduleDAL<'_>` — Returns a unified schedule DAL for schedule operations.
+- pub `schedule_execution` function L237-239 — `(&self) -> ScheduleExecutionDAL<'_>` — Returns a unified schedule execution DAL for schedule execution operations.
+- pub `workflow_packages` function L242-244 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `workflow_registry` function L256-262 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L275-286 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `backend_dispatch` macro L91-111 — `-` — Helper macro for dispatching operations based on backend type.
+-  `connection_match` macro L130-150 — `-` — Helper macro for matching on AnyConnection variants.
+-  `DAL` type L167-287 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
@@ -947,58 +919,50 @@
 - pub `NewUnifiedExecutionEvent` struct L216-224 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
 - pub `UnifiedTaskOutbox` struct L234-238 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
 - pub `NewUnifiedTaskOutbox` struct L242-245 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronSchedule` struct L253-266 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronSchedule` struct L270-282 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedCronExecution` struct L290-298 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedCronExecution` struct L302-310 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerSchedule` struct L318-328 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerSchedule` struct L332-341 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTriggerExecution` struct L349-358 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTriggerExecution` struct L362-370 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L378-382 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L386-390 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L398-409 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L413-424 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L432-441 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L445-453 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L461-469 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L473-480 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L488-494 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L498-503 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L511-517 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L521-527 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L552-561 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L553-560 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L563-582 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L564-581 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L584-609 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L585-608 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L611-623 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L612-622 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L625-638 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L626-637 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L640-653 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L641-652 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronSchedule` type L655-672 — `= CronSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L656-671 — `(u: UnifiedCronSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `CronExecution` type L674-686 — `= CronExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L675-685 — `(u: UnifiedCronExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L688-696 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L689-695 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L698-713 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L699-712 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerSchedule` type L715-729 — `= TriggerSchedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L716-728 — `(u: UnifiedTriggerSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TriggerExecution` type L731-744 — `= TriggerExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L732-743 — `(u: UnifiedTriggerExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L746-759 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L747-758 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L761-773 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L762-772 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L775-785 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L776-784 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L787-797 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L788-796 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSchedule` struct L253-271 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSchedule` struct L275-291 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedScheduleExecution` struct L299-310 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedScheduleExecution` struct L314-324 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L332-336 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L340-344 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L352-363 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L367-378 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L386-395 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L399-407 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L415-423 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L427-434 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L442-448 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L452-457 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L465-471 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L475-481 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L503-512 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L504-511 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L514-533 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L515-532 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L535-560 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L536-559 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L562-574 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L563-573 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L576-589 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L577-588 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L591-604 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L592-603 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L606-614 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L607-613 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L616-631 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L617-630 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L633-646 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L634-645 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L648-660 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L649-659 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L662-672 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L663-671 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L674-684 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L675-683 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L686-708 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L687-707 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L710-725 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L711-724 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
@@ -1158,123 +1122,104 @@
 -  `delete_binary_postgres` function L195-213 — `(&self, id: &str) -> Result<(), StorageError>` — at runtime based on the database connection type.
 -  `delete_binary_sqlite` function L216-237 — `(&self, id: &str) -> Result<(), StorageError>` — at runtime based on the database connection type.
 
-### crates/cloacina/src/dal/unified/cron_execution
+### crates/cloacina/src/dal/unified/schedule
 
 > *Semantic summary to be generated by AI agent.*
 
-#### crates/cloacina/src/dal/unified/cron_execution/crud.rs
+#### crates/cloacina/src/dal/unified/schedule/crud.rs
 
--  `create_postgres` function L31-69 — `( &self, new_execution: NewCronExecution, ) -> Result<CronExecution, ValidationE...` — CRUD operations for cron executions.
--  `create_sqlite` function L72-110 — `( &self, new_execution: NewCronExecution, ) -> Result<CronExecution, ValidationE...` — CRUD operations for cron executions.
--  `update_pipeline_execution_id_postgres` function L113-139 — `( &self, cron_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid,...` — CRUD operations for cron executions.
--  `update_pipeline_execution_id_sqlite` function L142-168 — `( &self, cron_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid,...` — CRUD operations for cron executions.
--  `delete_older_than_postgres` function L171-193 — `( &self, older_than: DateTime<Utc>, ) -> Result<usize, ValidationError>` — CRUD operations for cron executions.
--  `delete_older_than_sqlite` function L196-218 — `( &self, older_than: DateTime<Utc>, ) -> Result<usize, ValidationError>` — CRUD operations for cron executions.
+-  `create_postgres` function L35-83 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `create_sqlite` function L86-134 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_id_postgres` function L137-154 — `( &self, id: UniversalUuid, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_id_sqlite` function L157-174 — `( &self, id: UniversalUuid, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `list_postgres` function L177-215 — `( &self, schedule_type: Option<String>, enabled_only: bool, limit: i64, offset: ...` — CRUD operations for unified schedules.
+-  `list_sqlite` function L218-256 — `( &self, schedule_type: Option<String>, enabled_only: bool, limit: i64, offset: ...` — CRUD operations for unified schedules.
+-  `enable_postgres` function L259-282 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `enable_sqlite` function L285-308 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `disable_postgres` function L311-334 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `disable_sqlite` function L337-360 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `delete_postgres` function L363-376 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `delete_sqlite` function L379-392 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for unified schedules.
+-  `get_due_cron_schedules_postgres` function L395-422 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `get_due_cron_schedules_sqlite` function L425-452 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `claim_and_update_cron_postgres` function L455-496 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — CRUD operations for unified schedules.
+-  `claim_and_update_cron_sqlite` function L499-536 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — CRUD operations for unified schedules.
+-  `update_schedule_times_postgres` function L539-569 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — CRUD operations for unified schedules.
+-  `update_schedule_times_sqlite` function L572-602 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — CRUD operations for unified schedules.
+-  `get_enabled_triggers_postgres` function L605-629 — `( &self, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `get_enabled_triggers_sqlite` function L632-656 — `( &self, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `update_last_poll_postgres` function L659-686 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for unified schedules.
+-  `update_last_poll_sqlite` function L689-716 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for unified schedules.
+-  `upsert_trigger_postgres` function L719-823 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `upsert_trigger_sqlite` function L826-930 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_trigger_name_postgres` function L933-956 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `get_by_trigger_name_sqlite` function L959-982 — `( &self, name: String, ) -> Result<Option<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `find_by_workflow_postgres` function L985-1007 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `find_by_workflow_sqlite` function L1010-1032 — `( &self, workflow_name: String, ) -> Result<Vec<Schedule>, ValidationError>` — CRUD operations for unified schedules.
+-  `update_cron_expression_and_timezone_postgres` function L1035-1066 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
+-  `update_cron_expression_and_timezone_sqlite` function L1069-1100 — `( &self, id: UniversalUuid, cron_expression: Option<String>, timezone: Option<St...` — CRUD operations for unified schedules.
 
-#### crates/cloacina/src/dal/unified/cron_execution/mod.rs
+#### crates/cloacina/src/dal/unified/schedule/mod.rs
 
-- pub `CronExecutionStats` struct L35-44 — `{ total_executions: i64, successful_executions: i64, lost_executions: i64, succe...` — Statistics about cron execution performance
-- pub `CronExecutionDAL` struct L48-50 — `{ dal: &'a DAL }` — Data access layer for cron execution operations with runtime backend selection.
-- pub `new` function L54-56 — `(dal: &'a DAL) -> Self` — Creates a new CronExecutionDAL instance.
-- pub `create` function L59-68 — `( &self, new_execution: NewCronExecution, ) -> Result<CronExecution, ValidationE...` — Creates a new cron execution audit record in the database.
-- pub `update_pipeline_execution_id` function L71-83 — `( &self, cron_execution_id: UniversalUuid, pipeline_execution_id: UniversalUuid,...` — Updates the pipeline execution ID for an existing cron execution record.
-- pub `find_lost_executions` function L86-95 — `( &self, older_than_minutes: i32, ) -> Result<Vec<CronExecution>, ValidationErro...` — Finds "lost" executions that need recovery.
-- pub `get_by_id` function L98-104 — `(&self, id: UniversalUuid) -> Result<CronExecution, ValidationError>` — Retrieves a cron execution record by its ID.
-- pub `get_by_schedule_id` function L107-120 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Cr...` — Retrieves all cron execution records for a specific schedule.
-- pub `get_by_pipeline_execution_id` function L123-134 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<Option<CronExecution>...` — Retrieves the cron execution record for a specific pipeline execution.
-- pub `get_by_time_range` function L137-151 — `( &self, start_time: DateTime<Utc>, end_time: DateTime<Utc>, limit: i64, offset:...` — Retrieves cron execution records within a time range.
-- pub `count_by_schedule` function L154-163 — `( &self, schedule_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Counts the total number of executions for a specific schedule.
-- pub `execution_exists` function L166-178 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Checks if an execution already exists for a specific schedule and time.
-- pub `get_latest_by_schedule` function L181-190 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<CronExecution>, Validati...` — Retrieves the most recent execution for a specific schedule.
-- pub `delete_older_than` function L193-202 — `( &self, older_than: DateTime<Utc>, ) -> Result<usize, ValidationError>` — Deletes old execution records beyond a certain age.
-- pub `get_execution_stats` function L205-214 — `( &self, since: DateTime<Utc>, ) -> Result<CronExecutionStats, ValidationError>` — Gets execution statistics for monitoring and alerting.
--  `crud` module L23 — `-` — Unified Cron Execution DAL with runtime backend selection
--  `queries` module L24 — `-` — at runtime based on the database connection type.
--  `tracking` module L25 — `-` — at runtime based on the database connection type.
+- pub `ScheduleDAL` struct L34-36 — `{ dal: &'a DAL }` — Data access layer for unified schedule operations with runtime backend selection.
+- pub `new` function L40-42 — `(dal: &'a DAL) -> Self` — Creates a new ScheduleDAL instance.
+- pub `create` function L45-51 — `(&self, new_schedule: NewSchedule) -> Result<Schedule, ValidationError>` — Creates a new schedule record in the database.
+- pub `get_by_id` function L54-60 — `(&self, id: UniversalUuid) -> Result<Schedule, ValidationError>` — Retrieves a schedule by its ID.
+- pub `list` function L63-78 — `( &self, schedule_type: Option<&str>, enabled_only: bool, limit: i64, offset: i6...` — Lists schedules with optional filtering by type and enabled status.
+- pub `enable` function L81-87 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Enables a schedule.
+- pub `disable` function L90-96 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Disables a schedule.
+- pub `delete` function L99-105 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Deletes a schedule from the database.
+- pub `get_due_cron_schedules` function L108-117 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<Schedule>, ValidationError>` — Retrieves all enabled cron schedules that are due for execution.
+- pub `claim_and_update_cron` function L120-134 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — Atomically claims and updates a cron schedule's timing.
+- pub `update_schedule_times` function L137-150 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — Updates the last run and next run times for a schedule.
+- pub `get_enabled_triggers` function L153-159 — `(&self) -> Result<Vec<Schedule>, ValidationError>` — Retrieves all enabled trigger schedules.
+- pub `update_last_poll` function L162-172 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — Updates the last poll time for a trigger schedule.
+- pub `upsert_trigger` function L175-184 — `( &self, new_schedule: NewSchedule, ) -> Result<Schedule, ValidationError>` — Upserts a trigger schedule by trigger_name.
+- pub `get_by_trigger_name` function L187-197 — `( &self, name: &str, ) -> Result<Option<Schedule>, ValidationError>` — Retrieves a schedule by its trigger name.
+- pub `find_by_workflow` function L200-210 — `( &self, workflow_name: &str, ) -> Result<Vec<Schedule>, ValidationError>` — Finds schedules by workflow name.
+- pub `update_cron_expression_and_timezone` function L213-239 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — Updates the cron expression and timezone for a cron schedule.
+-  `crud` module L24 — `-` — Unified Schedule DAL with runtime backend selection
 
-#### crates/cloacina/src/dal/unified/cron_execution/queries.rs
-
--  `get_by_id_postgres` function L31-48 — `( &self, id: UniversalUuid, ) -> Result<CronExecution, ValidationError>` — Query operations for cron executions.
--  `get_by_id_sqlite` function L51-68 — `( &self, id: UniversalUuid, ) -> Result<CronExecution, ValidationError>` — Query operations for cron executions.
--  `get_by_schedule_id_postgres` function L71-97 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Cr...` — Query operations for cron executions.
--  `get_by_schedule_id_sqlite` function L100-126 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Cr...` — Query operations for cron executions.
--  `get_by_pipeline_execution_id_postgres` function L129-151 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<Option<CronExecution>...` — Query operations for cron executions.
--  `get_by_pipeline_execution_id_sqlite` function L154-176 — `( &self, pipeline_execution_id: UniversalUuid, ) -> Result<Option<CronExecution>...` — Query operations for cron executions.
--  `get_by_time_range_postgres` function L179-210 — `( &self, start_time: DateTime<Utc>, end_time: DateTime<Utc>, limit: i64, offset:...` — Query operations for cron executions.
--  `get_by_time_range_sqlite` function L213-244 — `( &self, start_time: DateTime<Utc>, end_time: DateTime<Utc>, limit: i64, offset:...` — Query operations for cron executions.
--  `get_latest_by_schedule_postgres` function L247-270 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<CronExecution>, Validati...` — Query operations for cron executions.
--  `get_latest_by_schedule_sqlite` function L273-296 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<CronExecution>, Validati...` — Query operations for cron executions.
-
-#### crates/cloacina/src/dal/unified/cron_execution/tracking.rs
-
--  `find_lost_executions_postgres` function L31-62 — `( &self, older_than_minutes: i32, ) -> Result<Vec<CronExecution>, ValidationErro...` — Tracking and statistics operations for cron executions.
--  `find_lost_executions_sqlite` function L65-96 — `( &self, older_than_minutes: i32, ) -> Result<Vec<CronExecution>, ValidationErro...` — Tracking and statistics operations for cron executions.
--  `count_by_schedule_postgres` function L99-121 — `( &self, schedule_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Tracking and statistics operations for cron executions.
--  `count_by_schedule_sqlite` function L124-146 — `( &self, schedule_id: UniversalUuid, ) -> Result<i64, ValidationError>` — Tracking and statistics operations for cron executions.
--  `execution_exists_postgres` function L149-175 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Tracking and statistics operations for cron executions.
--  `execution_exists_sqlite` function L178-204 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Tracking and statistics operations for cron executions.
--  `get_execution_stats_postgres` function L207-264 — `( &self, since: DateTime<Utc>, ) -> Result<CronExecutionStats, ValidationError>` — Tracking and statistics operations for cron executions.
--  `get_execution_stats_sqlite` function L267-330 — `( &self, since: DateTime<Utc>, ) -> Result<CronExecutionStats, ValidationError>` — Tracking and statistics operations for cron executions.
-
-### crates/cloacina/src/dal/unified/cron_schedule
+### crates/cloacina/src/dal/unified/schedule_execution
 
 > *Semantic summary to be generated by AI agent.*
 
-#### crates/cloacina/src/dal/unified/cron_schedule/crud.rs
+#### crates/cloacina/src/dal/unified/schedule_execution/crud.rs
 
--  `create_postgres` function L30-74 — `( &self, new_schedule: NewCronSchedule, ) -> Result<CronSchedule, ValidationErro...` — CRUD operations for cron schedules.
--  `create_sqlite` function L77-121 — `( &self, new_schedule: NewCronSchedule, ) -> Result<CronSchedule, ValidationErro...` — CRUD operations for cron schedules.
--  `get_by_id_postgres` function L124-141 — `( &self, id: UniversalUuid, ) -> Result<CronSchedule, ValidationError>` — CRUD operations for cron schedules.
--  `get_by_id_sqlite` function L144-161 — `( &self, id: UniversalUuid, ) -> Result<CronSchedule, ValidationError>` — CRUD operations for cron schedules.
--  `delete_postgres` function L164-177 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for cron schedules.
--  `delete_sqlite` function L180-193 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for cron schedules.
+-  `create_postgres` function L35-75 — `( &self, new_execution: NewScheduleExecution, ) -> Result<ScheduleExecution, Val...` — CRUD operations for unified schedule executions.
+-  `create_sqlite` function L78-118 — `( &self, new_execution: NewScheduleExecution, ) -> Result<ScheduleExecution, Val...` — CRUD operations for unified schedule executions.
+-  `get_by_id_postgres` function L121-138 — `( &self, id: UniversalUuid, ) -> Result<ScheduleExecution, ValidationError>` — CRUD operations for unified schedule executions.
+-  `get_by_id_sqlite` function L141-158 — `( &self, id: UniversalUuid, ) -> Result<ScheduleExecution, ValidationError>` — CRUD operations for unified schedule executions.
+-  `list_by_schedule_postgres` function L161-187 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Sc...` — CRUD operations for unified schedule executions.
+-  `list_by_schedule_sqlite` function L190-216 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Sc...` — CRUD operations for unified schedule executions.
+-  `complete_postgres` function L219-246 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for unified schedule executions.
+-  `complete_sqlite` function L249-276 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for unified schedule executions.
+-  `has_active_execution_postgres` function L279-304 — `( &self, schedule_id: UniversalUuid, context_hash: String, ) -> Result<bool, Val...` — CRUD operations for unified schedule executions.
+-  `has_active_execution_sqlite` function L307-332 — `( &self, schedule_id: UniversalUuid, context_hash: String, ) -> Result<bool, Val...` — CRUD operations for unified schedule executions.
+-  `update_pipeline_execution_id_postgres` function L335-361 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — CRUD operations for unified schedule executions.
+-  `update_pipeline_execution_id_sqlite` function L364-390 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — CRUD operations for unified schedule executions.
+-  `find_lost_executions_postgres` function L393-419 — `( &self, older_than_minutes: i32, ) -> Result<Vec<ScheduleExecution>, Validation...` — CRUD operations for unified schedule executions.
+-  `find_lost_executions_sqlite` function L422-448 — `( &self, older_than_minutes: i32, ) -> Result<Vec<ScheduleExecution>, Validation...` — CRUD operations for unified schedule executions.
+-  `get_latest_by_schedule_postgres` function L451-474 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<ScheduleExecution>, Vali...` — CRUD operations for unified schedule executions.
+-  `get_latest_by_schedule_sqlite` function L477-500 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<ScheduleExecution>, Vali...` — CRUD operations for unified schedule executions.
+-  `get_execution_stats_postgres` function L503-562 — `( &self, since: DateTime<Utc>, ) -> Result<super::ScheduleExecutionStats, Valida...` — CRUD operations for unified schedule executions.
+-  `get_execution_stats_sqlite` function L565-630 — `( &self, since: DateTime<Utc>, ) -> Result<super::ScheduleExecutionStats, Valida...` — CRUD operations for unified schedule executions.
 
-#### crates/cloacina/src/dal/unified/cron_schedule/mod.rs
+#### crates/cloacina/src/dal/unified/schedule_execution/mod.rs
 
-- pub `CronScheduleDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for cron schedule operations with runtime backend selection.
-- pub `new` function L41-43 — `(dal: &'a DAL) -> Self` — Creates a new CronScheduleDAL instance.
-- pub `create` function L46-55 — `( &self, new_schedule: NewCronSchedule, ) -> Result<CronSchedule, ValidationErro...` — Creates a new cron schedule record in the database.
-- pub `get_by_id` function L58-64 — `(&self, id: UniversalUuid) -> Result<CronSchedule, ValidationError>` — Retrieves a cron schedule by its ID.
-- pub `get_due_schedules` function L67-76 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<CronSchedule>, ValidationError>` — Retrieves all enabled cron schedules that are due for execution.
-- pub `update_schedule_times` function L79-92 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — Updates the last run and next run times for a cron schedule.
-- pub `enable` function L95-101 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Enables a cron schedule.
-- pub `disable` function L104-110 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Disables a cron schedule.
-- pub `delete` function L113-119 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Deletes a cron schedule from the database.
-- pub `list` function L122-133 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<CronSchedu...` — Lists all cron schedules with optional filtering.
-- pub `find_by_workflow` function L136-145 — `( &self, workflow_name: &str, ) -> Result<Vec<CronSchedule>, ValidationError>` — Finds cron schedules by workflow name.
-- pub `update_next_run` function L148-158 — `( &self, id: UniversalUuid, next_run: DateTime<Utc>, ) -> Result<(), ValidationE...` — Updates the next run time for a cron schedule.
-- pub `claim_and_update` function L161-175 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — Atomically claims and updates a cron schedule's timing.
-- pub `count` function L178-184 — `(&self, enabled_only: bool) -> Result<i64, ValidationError>` — Counts the total number of cron schedules.
-- pub `update_expression_and_timezone` function L187-201 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — Updates the cron expression, timezone, and next run time for a schedule.
--  `crud` module L23 — `-` — Unified Cron Schedule DAL with runtime backend selection
--  `queries` module L24 — `-` — at runtime based on the database connection type.
--  `state` module L25 — `-` — at runtime based on the database connection type.
-
-#### crates/cloacina/src/dal/unified/cron_schedule/queries.rs
-
--  `get_due_schedules_postgres` function L31-70 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<CronSchedule>, ValidationError>` — Query operations for cron schedules.
--  `get_due_schedules_sqlite` function L73-108 — `( &self, now: DateTime<Utc>, ) -> Result<Vec<CronSchedule>, ValidationError>` — Query operations for cron schedules.
--  `list_postgres` function L111-143 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<CronSchedu...` — Query operations for cron schedules.
--  `list_sqlite` function L146-178 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<CronSchedu...` — Query operations for cron schedules.
--  `find_by_workflow_postgres` function L181-204 — `( &self, workflow_name: &str, ) -> Result<Vec<CronSchedule>, ValidationError>` — Query operations for cron schedules.
--  `find_by_workflow_sqlite` function L207-230 — `( &self, workflow_name: &str, ) -> Result<Vec<CronSchedule>, ValidationError>` — Query operations for cron schedules.
--  `count_postgres` function L233-256 — `(&self, enabled_only: bool) -> Result<i64, ValidationError>` — Query operations for cron schedules.
--  `count_sqlite` function L259-282 — `(&self, enabled_only: bool) -> Result<i64, ValidationError>` — Query operations for cron schedules.
-
-#### crates/cloacina/src/dal/unified/cron_schedule/state.rs
-
--  `update_schedule_times_postgres` function L29-59 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — State transition operations for cron schedules.
--  `update_schedule_times_sqlite` function L62-92 — `( &self, id: UniversalUuid, last_run: DateTime<Utc>, next_run: DateTime<Utc>, ) ...` — State transition operations for cron schedules.
--  `enable_postgres` function L95-118 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — State transition operations for cron schedules.
--  `enable_sqlite` function L121-144 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — State transition operations for cron schedules.
--  `disable_postgres` function L147-170 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — State transition operations for cron schedules.
--  `disable_sqlite` function L173-196 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — State transition operations for cron schedules.
--  `update_next_run_postgres` function L199-226 — `( &self, id: UniversalUuid, next_run: DateTime<Utc>, ) -> Result<(), ValidationE...` — State transition operations for cron schedules.
--  `update_next_run_sqlite` function L229-256 — `( &self, id: UniversalUuid, next_run: DateTime<Utc>, ) -> Result<(), ValidationE...` — State transition operations for cron schedules.
--  `claim_and_update_postgres` function L259-299 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — State transition operations for cron schedules.
--  `claim_and_update_sqlite` function L302-338 — `( &self, id: UniversalUuid, current_time: DateTime<Utc>, last_run: DateTime<Utc>...` — State transition operations for cron schedules.
--  `update_expression_and_timezone_postgres` function L341-401 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — State transition operations for cron schedules.
--  `update_expression_and_timezone_sqlite` function L404-464 — `( &self, id: UniversalUuid, cron_expression: Option<&str>, timezone: Option<&str...` — State transition operations for cron schedules.
+- pub `ScheduleExecutionStats` struct L34-43 — `{ total_executions: i64, successful_executions: i64, lost_executions: i64, succe...` — Statistics about schedule execution performance
+- pub `ScheduleExecutionDAL` struct L47-49 — `{ dal: &'a DAL }` — Data access layer for unified schedule execution operations with runtime backend selection.
+- pub `new` function L53-55 — `(dal: &'a DAL) -> Self` — Creates a new ScheduleExecutionDAL instance.
+- pub `create` function L58-67 — `( &self, new_execution: NewScheduleExecution, ) -> Result<ScheduleExecution, Val...` — Creates a new schedule execution record in the database.
+- pub `get_by_id` function L70-76 — `(&self, id: UniversalUuid) -> Result<ScheduleExecution, ValidationError>` — Retrieves a schedule execution by its ID.
+- pub `list_by_schedule` function L79-92 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<Sc...` — Lists schedule executions for a given schedule.
+- pub `complete` function L95-105 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — Marks a schedule execution as completed.
+- pub `has_active_execution` function L108-121 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<bool, Valid...` — Checks if there is an active (uncompleted) execution for a schedule with the given context hash.
+- pub `update_pipeline_execution_id` function L124-136 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — Updates the pipeline execution ID for a schedule execution.
+- pub `find_lost_executions` function L139-148 — `( &self, older_than_minutes: i32, ) -> Result<Vec<ScheduleExecution>, Validation...` — Finds lost executions (started but not completed) older than the specified minutes.
+- pub `get_latest_by_schedule` function L151-160 — `( &self, schedule_id: UniversalUuid, ) -> Result<Option<ScheduleExecution>, Vali...` — Gets the latest execution for a given schedule.
+- pub `get_execution_stats` function L163-172 — `( &self, since: DateTime<Utc>, ) -> Result<ScheduleExecutionStats, ValidationErr...` — Gets execution statistics for monitoring and alerting.
+-  `crud` module L24 — `-` — Unified Schedule Execution DAL with runtime backend selection
 
 ### crates/cloacina/src/dal/unified/task_execution
 
@@ -1388,86 +1333,6 @@
 -  `reset_retry_state_postgres` function L838-893 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
 -  `reset_retry_state_sqlite` function L896-951 — `( &self, task_id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
 
-### crates/cloacina/src/dal/unified/trigger_execution
-
-> *Semantic summary to be generated by AI agent.*
-
-#### crates/cloacina/src/dal/unified/trigger_execution/crud.rs
-
--  `create_postgres` function L31-69 — `( &self, new_execution: NewTriggerExecution, ) -> Result<TriggerExecution, Valid...` — CRUD operations for trigger executions.
--  `create_sqlite` function L72-110 — `( &self, new_execution: NewTriggerExecution, ) -> Result<TriggerExecution, Valid...` — CRUD operations for trigger executions.
--  `get_by_id_postgres` function L113-130 — `( &self, id: UniversalUuid, ) -> Result<TriggerExecution, ValidationError>` — CRUD operations for trigger executions.
--  `get_by_id_sqlite` function L133-150 — `( &self, id: UniversalUuid, ) -> Result<TriggerExecution, ValidationError>` — CRUD operations for trigger executions.
--  `has_active_execution_postgres` function L153-180 — `( &self, trigger_name: &str, context_hash: &str, ) -> Result<bool, ValidationErr...` — CRUD operations for trigger executions.
--  `has_active_execution_sqlite` function L183-210 — `( &self, trigger_name: &str, context_hash: &str, ) -> Result<bool, ValidationErr...` — CRUD operations for trigger executions.
--  `complete_postgres` function L213-235 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for trigger executions.
--  `complete_sqlite` function L238-260 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for trigger executions.
--  `link_pipeline_execution_postgres` function L263-284 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — CRUD operations for trigger executions.
--  `link_pipeline_execution_sqlite` function L287-308 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — CRUD operations for trigger executions.
--  `get_recent_postgres` function L311-336 — `( &self, trigger_name: &str, limit: i64, ) -> Result<Vec<TriggerExecution>, Vali...` — CRUD operations for trigger executions.
--  `get_recent_sqlite` function L339-364 — `( &self, trigger_name: &str, limit: i64, ) -> Result<Vec<TriggerExecution>, Vali...` — CRUD operations for trigger executions.
--  `list_by_trigger_postgres` function L367-394 — `( &self, trigger_name: &str, limit: i64, offset: i64, ) -> Result<Vec<TriggerExe...` — CRUD operations for trigger executions.
--  `list_by_trigger_sqlite` function L397-424 — `( &self, trigger_name: &str, limit: i64, offset: i64, ) -> Result<Vec<TriggerExe...` — CRUD operations for trigger executions.
--  `complete_by_pipeline_postgres` function L427-455 — `( &self, pipeline_execution_id: UniversalUuid, completed_at: DateTime<Utc>, ) ->...` — CRUD operations for trigger executions.
--  `complete_by_pipeline_sqlite` function L458-486 — `( &self, pipeline_execution_id: UniversalUuid, completed_at: DateTime<Utc>, ) ->...` — CRUD operations for trigger executions.
-
-#### crates/cloacina/src/dal/unified/trigger_execution/mod.rs
-
-- pub `TriggerExecutionDAL` struct L32-34 — `{ dal: &'a DAL }` — Data access layer for trigger execution operations with runtime backend selection.
-- pub `new` function L38-40 — `(dal: &'a DAL) -> Self` — Creates a new TriggerExecutionDAL instance.
-- pub `create` function L43-52 — `( &self, new_execution: NewTriggerExecution, ) -> Result<TriggerExecution, Valid...` — Creates a new trigger execution record in the database.
-- pub `get_by_id` function L55-61 — `(&self, id: UniversalUuid) -> Result<TriggerExecution, ValidationError>` — Retrieves a trigger execution by its ID.
-- pub `has_active_execution` function L65-77 — `( &self, trigger_name: &str, context_hash: &str, ) -> Result<bool, ValidationErr...` — Checks if there's an active (incomplete) execution for a trigger with the given context hash.
-- pub `complete` function L80-90 — `( &self, id: UniversalUuid, completed_at: DateTime<Utc>, ) -> Result<(), Validat...` — Marks an execution as completed.
-- pub `link_pipeline_execution` function L93-105 — `( &self, id: UniversalUuid, pipeline_execution_id: UniversalUuid, ) -> Result<()...` — Links a trigger execution to a pipeline execution.
-- pub `get_recent` function L108-118 — `( &self, trigger_name: &str, limit: i64, ) -> Result<Vec<TriggerExecution>, Vali...` — Retrieves recent executions for a trigger.
-- pub `list_by_trigger` function L121-134 — `( &self, trigger_name: &str, limit: i64, offset: i64, ) -> Result<Vec<TriggerExe...` — Lists executions for a trigger with pagination.
-- pub `complete_by_pipeline` function L138-150 — `( &self, pipeline_execution_id: UniversalUuid, completed_at: DateTime<Utc>, ) ->...` — Marks all incomplete executions for a pipeline as completed.
--  `crud` module L22 — `-` — Unified Trigger Execution DAL with runtime backend selection
-
-### crates/cloacina/src/dal/unified/trigger_schedule
-
-> *Semantic summary to be generated by AI agent.*
-
-#### crates/cloacina/src/dal/unified/trigger_schedule/crud.rs
-
--  `create_postgres` function L31-74 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — CRUD operations for trigger schedules.
--  `create_sqlite` function L77-120 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — CRUD operations for trigger schedules.
--  `get_by_id_postgres` function L123-140 — `( &self, id: UniversalUuid, ) -> Result<TriggerSchedule, ValidationError>` — CRUD operations for trigger schedules.
--  `get_by_id_sqlite` function L143-160 — `( &self, id: UniversalUuid, ) -> Result<TriggerSchedule, ValidationError>` — CRUD operations for trigger schedules.
--  `get_by_name_postgres` function L163-186 — `( &self, name: &str, ) -> Result<Option<TriggerSchedule>, ValidationError>` — CRUD operations for trigger schedules.
--  `get_by_name_sqlite` function L189-212 — `( &self, name: &str, ) -> Result<Option<TriggerSchedule>, ValidationError>` — CRUD operations for trigger schedules.
--  `get_enabled_postgres` function L215-235 — `( &self, ) -> Result<Vec<TriggerSchedule>, ValidationError>` — CRUD operations for trigger schedules.
--  `get_enabled_sqlite` function L238-256 — `(&self) -> Result<Vec<TriggerSchedule>, ValidationError>` — CRUD operations for trigger schedules.
--  `list_postgres` function L259-283 — `( &self, limit: i64, offset: i64, ) -> Result<Vec<TriggerSchedule>, ValidationEr...` — CRUD operations for trigger schedules.
--  `list_sqlite` function L286-310 — `( &self, limit: i64, offset: i64, ) -> Result<Vec<TriggerSchedule>, ValidationEr...` — CRUD operations for trigger schedules.
--  `update_last_poll_postgres` function L313-338 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for trigger schedules.
--  `update_last_poll_sqlite` function L341-366 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — CRUD operations for trigger schedules.
--  `enable_postgres` function L369-390 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `enable_sqlite` function L393-414 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `disable_postgres` function L417-438 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `disable_sqlite` function L441-462 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `delete_postgres` function L465-478 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `delete_sqlite` function L481-494 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — CRUD operations for trigger schedules.
--  `upsert_postgres` function L497-544 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — CRUD operations for trigger schedules.
--  `upsert_sqlite` function L547-591 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — CRUD operations for trigger schedules.
-
-#### crates/cloacina/src/dal/unified/trigger_schedule/mod.rs
-
-- pub `TriggerScheduleDAL` struct L32-34 — `{ dal: &'a DAL }` — Data access layer for trigger schedule operations with runtime backend selection.
-- pub `new` function L38-40 — `(dal: &'a DAL) -> Self` — Creates a new TriggerScheduleDAL instance.
-- pub `create` function L43-52 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — Creates a new trigger schedule record in the database.
-- pub `get_by_id` function L55-61 — `(&self, id: UniversalUuid) -> Result<TriggerSchedule, ValidationError>` — Retrieves a trigger schedule by its ID.
-- pub `get_by_name` function L64-73 — `( &self, name: &str, ) -> Result<Option<TriggerSchedule>, ValidationError>` — Retrieves a trigger schedule by its name.
-- pub `get_enabled` function L76-82 — `(&self) -> Result<Vec<TriggerSchedule>, ValidationError>` — Retrieves all enabled trigger schedules.
-- pub `list` function L85-95 — `( &self, limit: i64, offset: i64, ) -> Result<Vec<TriggerSchedule>, ValidationEr...` — Lists trigger schedules with pagination.
-- pub `update_last_poll` function L98-108 — `( &self, id: UniversalUuid, last_poll_at: DateTime<Utc>, ) -> Result<(), Validat...` — Updates the last poll time for a trigger schedule.
-- pub `enable` function L111-117 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Enables a trigger schedule.
-- pub `disable` function L120-126 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Disables a trigger schedule.
-- pub `delete` function L129-135 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Deletes a trigger schedule from the database.
-- pub `upsert` function L138-147 — `( &self, new_schedule: NewTriggerSchedule, ) -> Result<TriggerSchedule, Validati...` — Creates or updates a trigger schedule by name.
--  `crud` module L22 — `-` — Unified Trigger Schedule DAL with runtime backend selection
-
 ### crates/cloacina/src/database
 
 > *Semantic summary to be generated by AI agent.*
@@ -1514,12 +1379,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L929-931 — `-`
-- pub `postgres` module L936-938 — `-`
-- pub `sqlite` module L941-943 — `-`
--  `unified_schema` module L25-341 — `-`
--  `postgres_schema` module L348-666 — `-`
--  `sqlite_schema` module L669-924 — `-`
+- pub `unified` module L853-855 — `-`
+- pub `postgres` module L860-862 — `-`
+- pub `sqlite` module L865-867 — `-`
+-  `unified_schema` module L25-317 — `-`
+-  `postgres_schema` module L324-615 — `-`
+-  `sqlite_schema` module L618-848 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -1968,43 +1833,6 @@
 -  `test_db_context_creation` function L50-62 — `()` — models handle actual database interaction.
 -  `test_new_db_context_creation` function L65-71 — `()` — models handle actual database interaction.
 
-#### crates/cloacina/src/models/cron_execution.rs
-
-- pub `CronExecution` struct L28-36 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — Represents a cron execution audit record (domain type).
-- pub `NewCronExecution` struct L40-48 — `{ id: Option<UniversalUuid>, schedule_id: UniversalUuid, pipeline_execution_id: ...` — Structure for creating new cron execution audit records (domain type).
-- pub `new` function L52-62 — `(schedule_id: UniversalUuid, scheduled_time: UniversalTimestamp) -> Self` — Creates a new cron execution audit record for guaranteed execution.
-- pub `with_pipeline_execution` function L65-79 — `( schedule_id: UniversalUuid, pipeline_execution_id: UniversalUuid, scheduled_ti...` — Creates a new cron execution record with pipeline execution ID.
-- pub `with_claimed_at` function L82-98 — `( schedule_id: UniversalUuid, pipeline_execution_id: Option<UniversalUuid>, sche...` — Creates a new cron execution record with a specific claimed_at time.
-- pub `scheduled_time` function L102-104 — `(&self) -> DateTime<Utc>` — to the pipeline executor.
-- pub `claimed_at` function L106-108 — `(&self) -> DateTime<Utc>` — to the pipeline executor.
-- pub `created_at` function L110-112 — `(&self) -> DateTime<Utc>` — to the pipeline executor.
-- pub `updated_at` function L114-116 — `(&self) -> DateTime<Utc>` — to the pipeline executor.
-- pub `execution_delay` function L118-120 — `(&self) -> chrono::Duration` — to the pipeline executor.
-- pub `is_timely` function L122-125 — `(&self, tolerance: chrono::Duration) -> bool` — to the pipeline executor.
--  `NewCronExecution` type L50-99 — `= NewCronExecution` — to the pipeline executor.
--  `CronExecution` type L101-126 — `= CronExecution` — to the pipeline executor.
--  `tests` module L129-168 — `-` — to the pipeline executor.
--  `test_new_cron_execution` function L135-145 — `()` — to the pipeline executor.
--  `test_cron_execution_delays` function L148-167 — `()` — to the pipeline executor.
-
-#### crates/cloacina/src/models/cron_schedule.rs
-
-- pub `CronSchedule` struct L28-41 — `{ id: UniversalUuid, workflow_name: String, cron_expression: String, timezone: S...` — Represents a cron schedule record (domain type).
-- pub `NewCronSchedule` struct L45-54 — `{ workflow_name: String, cron_expression: String, timezone: Option<String>, enab...` — Structure for creating new cron schedule records (domain type).
-- pub `CatchupPolicy` enum L58-61 — `Skip | RunAll` — Enum representing the different catchup policies for missed executions.
-- pub `ScheduleConfig` struct L90-98 — `{ name: String, cron: String, workflow: String, timezone: String, catchup_policy...` — Configuration structure for creating new cron schedules.
--  `String` type L63-70 — `= String` — These are API-level types; backend-specific models handle database storage.
--  `from` function L64-69 — `(policy: CatchupPolicy) -> Self` — These are API-level types; backend-specific models handle database storage.
--  `CatchupPolicy` type L72-80 — `= CatchupPolicy` — These are API-level types; backend-specific models handle database storage.
--  `from` function L73-79 — `(s: String) -> Self` — These are API-level types; backend-specific models handle database storage.
--  `CatchupPolicy` type L82-86 — `= CatchupPolicy` — These are API-level types; backend-specific models handle database storage.
--  `from` function L83-85 — `(s: &str) -> Self` — These are API-level types; backend-specific models handle database storage.
--  `ScheduleConfig` type L100-112 — `impl Default for ScheduleConfig` — These are API-level types; backend-specific models handle database storage.
--  `default` function L101-111 — `() -> Self` — These are API-level types; backend-specific models handle database storage.
--  `tests` module L115-150 — `-` — These are API-level types; backend-specific models handle database storage.
--  `test_cron_schedule_creation` function L120-140 — `()` — These are API-level types; backend-specific models handle database storage.
--  `test_catchup_policy_conversions` function L143-149 — `()` — These are API-level types; backend-specific models handle database storage.
-
 #### crates/cloacina/src/models/execution_event.rs
 
 - pub `ExecutionEvent` struct L34-51 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Represents an execution event record (domain type).
@@ -2035,23 +1863,20 @@
 
 #### crates/cloacina/src/models/mod.rs
 
-- pub `context` module L72 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `cron_execution` module L73 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `cron_schedule` module L74 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `execution_event` module L75 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `pipeline_execution` module L76 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `recovery_event` module L77 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution` module L78 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_execution_metadata` module L79 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `task_outbox` module L80 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `trigger_execution` module L81 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `trigger_schedule` module L82 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `workflow_packages` module L83 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `workflow_registry` module L84 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `key_trust_acl` module L87 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `package_signature` module L88 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `signing_key` module L89 — `-` — - Keep model definitions in sync with database schema migrations
-- pub `trusted_key` module L90 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `context` module L71 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `execution_event` module L72 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `pipeline_execution` module L73 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `recovery_event` module L74 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `schedule` module L75 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution` module L76 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_execution_metadata` module L77 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `task_outbox` module L78 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_packages` module L79 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `workflow_registry` module L80 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `key_trust_acl` module L83 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `package_signature` module L84 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `signing_key` module L85 — `-` — - Keep model definitions in sync with database schema migrations
+- pub `trusted_key` module L86 — `-` — - Keep model definitions in sync with database schema migrations
 
 #### crates/cloacina/src/models/package_signature.rs
 
@@ -2075,6 +1900,42 @@
 -  `RecoveryType` type L56-65 — `= RecoveryType` — These are API-level types; backend-specific models handle database storage.
 -  `String` type L67-71 — `= String` — These are API-level types; backend-specific models handle database storage.
 -  `from` function L68-70 — `(recovery_type: RecoveryType) -> Self` — These are API-level types; backend-specific models handle database storage.
+
+#### crates/cloacina/src/models/schedule.rs
+
+- pub `CatchupPolicy` enum L28-31 — `Skip | RunAll` — Enum representing the different catchup policies for missed cron executions.
+- pub `ScheduleType` enum L60-63 — `Cron | Trigger` — The type of schedule — determines which fields are relevant.
+- pub `Schedule` struct L94-119 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — Represents a unified schedule record (domain type).
+- pub `get_type` function L123-125 — `(&self) -> ScheduleType` — Returns the schedule type as an enum.
+- pub `is_cron` function L128-130 — `(&self) -> bool` — Returns true if this is a cron schedule.
+- pub `is_trigger` function L133-135 — `(&self) -> bool` — Returns true if this is a trigger schedule.
+- pub `is_enabled` function L138-140 — `(&self) -> bool` — Returns true if the schedule is enabled.
+- pub `poll_interval` function L143-146 — `(&self) -> Option<Duration>` — Returns the poll interval as a Duration (trigger schedules only).
+- pub `allows_concurrent` function L149-154 — `(&self) -> bool` — Returns true if concurrent executions are allowed (trigger schedules only).
+- pub `NewSchedule` struct L159-178 — `{ schedule_type: String, workflow_name: String, enabled: Option<UniversalBool>, ...` — Structure for creating new schedule records.
+- pub `cron` function L182-201 — `( workflow_name: &str, cron_expression: &str, next_run_at: UniversalTimestamp, )...` — Create a new cron schedule.
+- pub `trigger` function L204-219 — `(trigger_name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Create a new trigger schedule.
+- pub `ScheduleExecution` struct L224-240 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — Represents a schedule execution record (domain type).
+- pub `NewScheduleExecution` struct L244-250 — `{ schedule_id: UniversalUuid, pipeline_execution_id: Option<UniversalUuid>, sche...` — Structure for creating new schedule execution records.
+-  `String` type L33-40 — `= String` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `from` function L34-39 — `(policy: CatchupPolicy) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `CatchupPolicy` type L42-50 — `= CatchupPolicy` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `from` function L43-49 — `(s: String) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `CatchupPolicy` type L52-56 — `= CatchupPolicy` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `from` function L53-55 — `(s: &str) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `ScheduleType` type L65-72 — `= ScheduleType` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `from` function L66-71 — `(s: &str) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `ScheduleType` type L74-78 — `= ScheduleType` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `from` function L75-77 — `(s: String) -> Self` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `ScheduleType` type L80-87 — `= ScheduleType` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `fmt` function L81-86 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `Schedule` type L121-155 — `= Schedule` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `NewSchedule` type L180-220 — `= NewSchedule` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `tests` module L253-316 — `-` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `test_schedule_type_conversions` function L258-264 — `()` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `test_new_cron_schedule` function L267-274 — `()` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `test_new_trigger_schedule` function L277-285 — `()` — `schedule_executions` tables, replacing the separate cron and trigger models.
+-  `test_schedule_helpers` function L288-315 — `()` — `schedule_executions` tables, replacing the separate cron and trigger models.
 
 #### crates/cloacina/src/models/signing_key.rs
 
@@ -2103,41 +1964,6 @@
 
 - pub `TaskOutbox` struct L37-44 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Represents a task outbox entry (domain type).
 - pub `NewTaskOutbox` struct L50-53 — `{ task_execution_id: UniversalUuid }` — Structure for creating new task outbox entries (domain type).
-
-#### crates/cloacina/src/models/trigger_execution.rs
-
-- pub `TriggerExecution` struct L29-38 — `{ id: UniversalUuid, trigger_name: String, context_hash: String, pipeline_execut...` — Represents a trigger execution audit record (domain type).
-- pub `is_in_progress` function L42-44 — `(&self) -> bool` — Returns true if this execution is currently in progress (not completed).
-- pub `duration` function L47-50 — `(&self) -> Option<chrono::Duration>` — Returns the duration of this execution if completed.
-- pub `started_at` function L52-54 — `(&self) -> DateTime<Utc>` — These are API-level types; backend-specific models handle database storage.
-- pub `completed_at` function L56-58 — `(&self) -> Option<DateTime<Utc>>` — These are API-level types; backend-specific models handle database storage.
-- pub `NewTriggerExecution` struct L63-70 — `{ id: Option<UniversalUuid>, trigger_name: String, context_hash: String, pipelin...` — Structure for creating new trigger execution audit records (domain type).
-- pub `new` function L74-83 — `(trigger_name: &str, context_hash: &str) -> Self` — Creates a new trigger execution record.
-- pub `with_pipeline_execution` function L86-99 — `( trigger_name: &str, context_hash: &str, pipeline_execution_id: UniversalUuid, ...` — Creates a new trigger execution record with pipeline execution ID.
-- pub `with_started_at` function L102-116 — `( trigger_name: &str, context_hash: &str, pipeline_execution_id: Option<Universa...` — Creates a new trigger execution record with a specific started_at time.
--  `TriggerExecution` type L40-59 — `= TriggerExecution` — These are API-level types; backend-specific models handle database storage.
--  `NewTriggerExecution` type L72-117 — `= NewTriggerExecution` — These are API-level types; backend-specific models handle database storage.
--  `tests` module L120-174 — `-` — These are API-level types; backend-specific models handle database storage.
--  `test_new_trigger_execution` function L126-134 — `()` — These are API-level types; backend-specific models handle database storage.
--  `test_trigger_execution_in_progress` function L137-152 — `()` — These are API-level types; backend-specific models handle database storage.
--  `test_trigger_execution_completed` function L155-173 — `()` — These are API-level types; backend-specific models handle database storage.
-
-#### crates/cloacina/src/models/trigger_schedule.rs
-
-- pub `TriggerSchedule` struct L28-38 — `{ id: UniversalUuid, trigger_name: String, workflow_name: String, poll_interval_...` — Represents a trigger schedule record (domain type).
-- pub `poll_interval` function L42-44 — `(&self) -> Duration` — Returns the poll interval as a Duration.
-- pub `is_enabled` function L47-49 — `(&self) -> bool` — Returns true if the trigger is enabled.
-- pub `allows_concurrent` function L52-54 — `(&self) -> bool` — Returns true if concurrent executions are allowed.
-- pub `NewTriggerSchedule` struct L59-66 — `{ id: Option<UniversalUuid>, trigger_name: String, workflow_name: String, poll_i...` — Structure for creating new trigger schedule records (domain type).
-- pub `new` function L70-79 — `(trigger_name: &str, workflow_name: &str, poll_interval: Duration) -> Self` — Creates a new trigger schedule.
-- pub `with_allow_concurrent` function L82-85 — `(mut self, allow: bool) -> Self` — Sets whether concurrent executions are allowed.
-- pub `with_enabled` function L88-91 — `(mut self, enabled: bool) -> Self` — Sets whether the trigger is enabled.
--  `TriggerSchedule` type L40-55 — `= TriggerSchedule` — These are API-level types; backend-specific models handle database storage.
--  `NewTriggerSchedule` type L68-92 — `= NewTriggerSchedule` — These are API-level types; backend-specific models handle database storage.
--  `tests` module L95-143 — `-` — These are API-level types; backend-specific models handle database storage.
--  `test_trigger_schedule_creation` function L100-119 — `()` — These are API-level types; backend-specific models handle database storage.
--  `test_new_trigger_schedule` function L122-131 — `()` — These are API-level types; backend-specific models handle database storage.
--  `test_new_trigger_schedule_builders` function L134-142 — `()` — These are API-level types; backend-specific models handle database storage.
 
 #### crates/cloacina/src/models/trusted_key.rs
 
@@ -2420,29 +2246,29 @@
 - pub `error_message` function L260-262 — `(&self) -> Option<&str>` — Get error message if execution failed
 - pub `__repr__` function L265-271 — `(&self) -> String` — String representation
 - pub `PyDefaultRunner` struct L276-278 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
-- pub `new` function L284-665 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
-- pub `with_config` function L669-1030 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L1061-1465 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L1468-1514 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
-- pub `start` function L1517-1524 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
-- pub `stop` function L1527-1534 — `(&self) -> PyResult<()>` — Stop the runner
-- pub `shutdown` function L1544-1563 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L1583-1615 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L1626-1685 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L1692-1722 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L1728-1752 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L1761-1801 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L1809-1841 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L1852-1910 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L1919-1958 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L1974-2035 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L2044-2090 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L2097-2125 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L2137-2198 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `__repr__` function L2201-2203 — `(&self) -> String` — String representation
-- pub `__enter__` function L2206-2208 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
-- pub `__exit__` function L2211-2220 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
-- pub `from_result` function L2224-2226 — `(result: crate::executor::PipelineResult) -> Self`
+- pub `new` function L284-682 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
+- pub `with_config` function L686-1064 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
+- pub `with_schema` function L1095-1516 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L1519-1565 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyP...` — Execute a workflow by name with context
+- pub `start` function L1568-1575 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
+- pub `stop` function L1578-1585 — `(&self) -> PyResult<()>` — Stop the runner
+- pub `shutdown` function L1595-1614 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L1634-1666 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L1677-1736 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L1743-1773 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L1779-1803 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L1812-1852 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L1860-1892 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L1903-1961 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1970-2009 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L2025-2086 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L2095-2141 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L2148-2176 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L2188-2249 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `__repr__` function L2252-2254 — `(&self) -> String` — String representation
+- pub `__enter__` function L2257-2259 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
+- pub `__exit__` function L2262-2271 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
+- pub `from_result` function L2275-2277 — `(result: crate::executor::PipelineResult) -> Self`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
 -  `RuntimeMessage` enum L49-146 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
 -  `AsyncRuntimeHandle` struct L149-152 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
@@ -2451,8 +2277,8 @@
 -  `AsyncRuntimeHandle` type L215-222 — `impl Drop for AsyncRuntimeHandle`
 -  `drop` function L216-221 — `(&mut self)`
 -  `PyPipelineResult` type L231-272 — `= PyPipelineResult`
--  `PyDefaultRunner` type L281-2221 — `= PyDefaultRunner`
--  `PyPipelineResult` type L2223-2227 — `= PyPipelineResult`
+-  `PyDefaultRunner` type L281-2272 — `= PyDefaultRunner`
+-  `PyPipelineResult` type L2274-2278 — `= PyPipelineResult`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -3209,8 +3035,8 @@
 - pub `database_url` function L508-511 — `(mut self, url: &str) -> Self` — Sets the database URL
 - pub `schema` function L517-520 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L523-526 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L540-657 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L675-678 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L540-655 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L673-676 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L91-241 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L258-294 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L259-293 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -3219,56 +3045,56 @@
 -  `default` function L454-456 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L491-495 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L492-494 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L497-679 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L497-677 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L529-537 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L682-848 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L686-701 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L704-727 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L730-738 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L741-762 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L765-780 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L783-786 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L789-802 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L805-813 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L816-847 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L680-846 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L684-699 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L702-725 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L728-736 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L739-760 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L763-778 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L781-784 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L787-800 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L803-811 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L814-845 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
-- pub `register_cron_workflow` function L51-113 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — Register a workflow to run on a cron schedule
-- pub `list_cron_schedules` function L124-143 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<crate::mod...` — List all registered cron schedules
-- pub `set_cron_schedule_enabled` function L153-174 — `( &self, schedule_id: UniversalUuid, enabled: bool, ) -> Result<(), PipelineErro...` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L183-200 — `( &self, schedule_id: UniversalUuid, ) -> Result<(), PipelineError>` — Delete a cron schedule
-- pub `get_cron_schedule` function L209-226 — `( &self, schedule_id: UniversalUuid, ) -> Result<crate::models::cron_schedule::C...` — Get a specific cron schedule by ID
-- pub `update_cron_schedule` function L237-301 — `( &self, schedule_id: UniversalUuid, cron_expression: Option<&str>, timezone: Op...` — Update a cron schedule's expression and/or timezone
-- pub `get_cron_execution_history` function L312-331 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<cr...` — Get execution history for a cron schedule
-- pub `get_cron_execution_stats` function L340-357 — `( &self, since: chrono::DateTime<chrono::Utc>, ) -> Result<crate::dal::CronExecu...` — Get cron execution statistics
-- pub `get_workflow_registry` function L364-367 — `(&self) -> Option<Arc<dyn WorkflowRegistry>>` — Get access to the workflow registry (if enabled)
-- pub `get_registry_reconciler_status` function L374-383 — `( &self, ) -> Option<crate::registry::ReconcilerStatus>` — Get the current status of the registry reconciler (if enabled)
-- pub `is_registry_reconciler_enabled` function L386-388 — `(&self) -> bool` — Check if the registry reconciler is enabled in the configuration
--  `DefaultRunner` type L30-389 — `= DefaultRunner` — This module provides methods for managing cron-scheduled workflow executions.
+- pub `register_cron_workflow` function L40-97 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — Register a workflow to run on a cron schedule
+- pub `list_cron_schedules` function L108-127 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<crate::mod...` — List all registered cron schedules
+- pub `set_cron_schedule_enabled` function L137-158 — `( &self, schedule_id: UniversalUuid, enabled: bool, ) -> Result<(), PipelineErro...` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L167-184 — `( &self, schedule_id: UniversalUuid, ) -> Result<(), PipelineError>` — Delete a cron schedule
+- pub `get_cron_schedule` function L193-210 — `( &self, schedule_id: UniversalUuid, ) -> Result<crate::models::schedule::Schedu...` — Get a specific cron schedule by ID
+- pub `update_cron_schedule` function L221-289 — `( &self, schedule_id: UniversalUuid, cron_expression: Option<&str>, timezone: Op...` — Update a cron schedule's expression and/or timezone
+- pub `get_cron_execution_history` function L300-319 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<cr...` — Get execution history for a cron schedule
+- pub `get_cron_execution_stats` function L328-345 — `( &self, since: chrono::DateTime<chrono::Utc>, ) -> Result<crate::dal::ScheduleE...` — Get cron execution statistics
+- pub `get_workflow_registry` function L352-355 — `(&self) -> Option<Arc<dyn WorkflowRegistry>>` — Get access to the workflow registry (if enabled)
+- pub `get_registry_reconciler_status` function L362-371 — `( &self, ) -> Option<crate::registry::ReconcilerStatus>` — Get the current status of the registry reconciler (if enabled)
+- pub `is_registry_reconciler_enabled` function L374-376 — `(&self) -> bool` — Check if the registry reconciler is enabled in the configuration
+-  `DefaultRunner` type L30-377 — `= DefaultRunner` — This module provides methods for managing cron-scheduled workflow executions.
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
-- pub `DefaultRunner` struct L69-88 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
-- pub `new` function L124-126 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
-- pub `builder` function L140-142 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L160-166 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L183-252 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L255-257 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L260-262 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `trigger_scheduler` function L267-269 — `(&self) -> Option<Arc<crate::TriggerScheduler>>` — Returns the trigger scheduler if enabled.
-- pub `shutdown` function L281-323 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `DefaultRunner` struct L68-85 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
+- pub `new` function L119-121 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
+- pub `builder` function L135-137 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
+- pub `with_schema` function L155-161 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L178-245 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L248-250 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L253-255 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `unified_scheduler` function L261-263 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `shutdown` function L275-312 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `RuntimeHandles` struct L94-109 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L111-324 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L326-340 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L327-339 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L343-349 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L344-348 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `RuntimeHandles` struct L91-104 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
+-  `DefaultRunner` type L106-313 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L315-328 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L316-327 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L331-337 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L332-336 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -3291,14 +3117,13 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L38-461 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
--  `create_runner_span` function L40-58 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
--  `start_background_services` function L70-136 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
--  `start_cron_services` function L139-199 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts cron scheduler and recovery services
--  `start_cron_recovery` function L202-259 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L262-356 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_trigger_services` function L359-413 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the trigger scheduler service
--  `start_stale_claim_sweeper` function L416-460 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
+-  `DefaultRunner` type L37-400 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `create_runner_span` function L39-57 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
+-  `start_background_services` function L69-135 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
+-  `start_unified_scheduler` function L138-195 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the unified scheduler that handles both cron and trigger schedules.
+-  `start_cron_recovery` function L198-255 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
+-  `start_registry_reconciler` function L258-352 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_stale_claim_sweeper` function L355-399 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
 
 ### crates/cloacina/src/runner
 
@@ -4353,10 +4178,10 @@
 
 #### crates/cloacina/tests/integration/scheduler/cron_basic.rs
 
--  `test_cron_evaluator_basic` function L29-41 — `()`
--  `test_cron_schedule_creation` function L45-64 — `()`
--  `test_default_runner_cron_integration` function L68-110 — `()`
--  `test_cron_scheduler_startup_shutdown` function L114-134 — `()`
+-  `test_cron_evaluator_basic` function L28-40 — `()`
+-  `test_cron_schedule_creation` function L44-58 — `()`
+-  `test_default_runner_cron_integration` function L62-104 — `()`
+-  `test_cron_scheduler_startup_shutdown` function L108-128 — `()`
 
 #### crates/cloacina/tests/integration/scheduler/dependency_resolution.rs
 
@@ -7273,7 +7098,7 @@
 -  `triggers` module L50 — `-` — ```
 -  `main` function L340-411 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
 -  `register_triggers` function L414-429 — `()` — Register triggers in the global trigger registry.
--  `register_trigger_schedules` function L432-498 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
+-  `register_trigger_schedules` function L432-496 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
 
 #### examples/features/event-triggers/src/triggers.rs
 

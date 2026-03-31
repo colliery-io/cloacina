@@ -1030,4 +1030,72 @@ impl<'a> ScheduleDAL<'a> {
 
         Ok(results.into_iter().map(|r| r.into()).collect())
     }
+
+    #[cfg(feature = "postgres")]
+    pub(super) async fn update_cron_expression_and_timezone_postgres(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<String>,
+        timezone: Option<String>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_postgres_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::cron_expression.eq(cron_expression),
+                    schedules::timezone.eq(timezone),
+                    schedules::next_run_at.eq(Some(next_run_ts)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite")]
+    pub(super) async fn update_cron_expression_and_timezone_sqlite(
+        &self,
+        id: UniversalUuid,
+        cron_expression: Option<String>,
+        timezone: Option<String>,
+        next_run: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
+        let conn = self
+            .dal
+            .database
+            .get_sqlite_connection()
+            .await
+            .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
+
+        let next_run_ts = UniversalTimestamp::from(next_run);
+        let now = UniversalTimestamp::now();
+
+        conn.interact(move |conn| {
+            diesel::update(schedules::table.find(id))
+                .set((
+                    schedules::cron_expression.eq(cron_expression),
+                    schedules::timezone.eq(timezone),
+                    schedules::next_run_at.eq(Some(next_run_ts)),
+                    schedules::updated_at.eq(now),
+                ))
+                .execute(conn)
+        })
+        .await
+        .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
+
+        Ok(())
+    }
 }
