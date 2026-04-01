@@ -25,7 +25,16 @@ use crate::task::{global_task_registry, TaskNamespace};
 use crate::workflow::global_workflow_registry;
 
 impl RegistryReconciler {
-    /// Load a package into the global registries
+    /// Load a package into the global registries.
+    ///
+    /// The `package_data` stored in the registry is a bzip2-compressed tar
+    /// containing Rust source and a `package.toml`.  This method:
+    /// 1. Writes the archive to a temp file.
+    /// 2. Unpacks it via `fidius_core::package::unpack_package`.
+    /// 3. Reads `package.toml` for metadata via `load_manifest::<CloacinaMetadata>`.
+    /// 4. Compiles the source with `cargo build --lib`.
+    /// 5. Reads the compiled cdylib bytes.
+    /// 6. Passes them to `register_package_tasks` / `register_package_workflows`.
     pub(super) async fn load_package(
         &self,
         metadata: WorkflowMetadata,
@@ -35,7 +44,7 @@ impl RegistryReconciler {
             metadata.package_name, metadata.version
         );
 
-        // Get the package binary data from the registry
+        // Get the package archive data from the registry
         let loaded_workflow = self
             .registry
             .get_workflow(&metadata.package_name, &metadata.version)
@@ -45,34 +54,93 @@ impl RegistryReconciler {
                 version: metadata.version.clone(),
             })?;
 
-        // Extract package metadata and register tasks
-        // This would use the package loader to load the .so file and register tasks/workflows
-        // For now, we'll create a placeholder implementation
+        // --- Step 1: write archive to a temp file ---
+        let work_dir = tempfile::TempDir::new().map_err(|e| RegistryError::RegistrationFailed {
+            message: format!("Failed to create temp dir: {}", e),
+        })?;
 
-        // Extract library data from .cloacina archive if needed
-        let is_cloacina = self.is_cloacina_package(&loaded_workflow.package_data);
+        let archive_path = work_dir.path().join(format!(
+            "{}-{}.cloacina",
+            metadata.package_name, metadata.version
+        ));
+
+        tokio::fs::write(&archive_path, &loaded_workflow.package_data)
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to write archive to temp file: {}", e),
+            })?;
+
+        // --- Step 2: unpack archive ---
+        let extract_dir = work_dir.path().join("source");
+        tokio::fs::create_dir_all(&extract_dir).await.map_err(|e| {
+            RegistryError::RegistrationFailed {
+                message: format!("Failed to create extract dir: {}", e),
+            }
+        })?;
+
+        let archive_path_clone = archive_path.clone();
+        let extract_dir_clone = extract_dir.clone();
+        let source_dir = tokio::task::spawn_blocking(move || {
+            fidius_core::package::unpack_package(&archive_path_clone, &extract_dir_clone).map_err(
+                |e| RegistryError::RegistrationFailed {
+                    message: format!("Failed to unpack source archive: {}", e),
+                },
+            )
+        })
+        .await
+        .map_err(|e| RegistryError::RegistrationFailed {
+            message: format!("spawn_blocking failed during unpack: {}", e),
+        })??;
+
+        // --- Step 3: load manifest and validate ---
+        let source_dir_clone = source_dir.clone();
+        let cloacina_manifest = tokio::task::spawn_blocking(move || {
+            fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
+                &source_dir_clone,
+            )
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to load package.toml: {}", e),
+            })
+        })
+        .await
+        .map_err(|e| RegistryError::RegistrationFailed {
+            message: format!("spawn_blocking failed during manifest load: {}", e),
+        })??;
+
         debug!(
-            "Package data format check: is_cloacina={}, data_len={}, first_bytes={:02x?}",
-            is_cloacina,
-            loaded_workflow.package_data.len(),
-            &loaded_workflow.package_data[..std::cmp::min(10, loaded_workflow.package_data.len())]
+            "Package manifest loaded: {} v{} language={}",
+            cloacina_manifest.package.name,
+            cloacina_manifest.package.version,
+            cloacina_manifest.metadata.language
         );
 
-        let library_data = if is_cloacina {
+        // --- Step 4 & 5: compile (Rust) and read cdylib ---
+        let library_data = if cloacina_manifest.metadata.language == "rust" {
             debug!(
-                "Extracting library from .cloacina archive for package: {}",
+                "Compiling Rust source for package: {}",
                 metadata.package_name
             );
-            self.extract_library_from_cloacina(&loaded_workflow.package_data)
-                .await?
+            let lib_path = Self::compile_source_package(&source_dir).await?;
+
+            tokio::fs::read(&lib_path)
+                .await
+                .map_err(|e| RegistryError::RegistrationFailed {
+                    message: format!(
+                        "Failed to read compiled library {}: {}",
+                        lib_path.display(),
+                        e
+                    ),
+                })?
         } else {
-            debug!(
-                "Using raw library data for package: {}",
-                metadata.package_name
-            );
-            loaded_workflow.package_data.clone()
+            return Err(RegistryError::RegistrationFailed {
+                message: format!(
+                    "Unsupported package language '{}' for package {} — only 'rust' is supported by this loader",
+                    cloacina_manifest.metadata.language, metadata.package_name
+                ),
+            });
         };
 
+        // --- Step 6: register tasks and workflows ---
         let task_namespaces = self
             .register_package_tasks(&metadata, &library_data)
             .await?;
@@ -80,9 +148,9 @@ impl RegistryReconciler {
             .register_package_workflows(&metadata, &library_data)
             .await?;
 
-        // Extract and register triggers from Manifest (if present in the archive)
+        // Register triggers from the manifest metadata
         let trigger_names =
-            self.register_package_triggers(&metadata, &loaded_workflow.package_data)?;
+            self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
         // Track the loaded package state
         let package_state = PackageState {
@@ -467,50 +535,28 @@ impl RegistryReconciler {
         Ok(())
     }
 
-    /// Verify and track triggers from a package's Manifest.
+    /// Verify and track triggers declared in a package's `CloacinaMetadata`.
     ///
-    /// The package's trigger implementations are registered by the package itself:
-    /// - Rust triggers: registered via `ctor` when the cdylib is loaded
-    /// - Python triggers: registered via `@cloaca.trigger` decorator (handled by T-0274)
-    ///
-    /// This method reads the manifest to find declared triggers, verifies they
-    /// are present in the global trigger registry, and tracks their names so
-    /// they can be cleaned up when the package is unloaded.
+    /// The package's trigger implementations are registered by the package itself
+    /// via `ctor` when the cdylib is loaded.  This method checks that each
+    /// declared trigger actually appeared in the global trigger registry and
+    /// tracks its name so it can be removed when the package is unloaded.
     pub(super) fn register_package_triggers(
         &self,
         metadata: &WorkflowMetadata,
-        archive_data: &[u8],
+        cloacina_metadata: &cloacina_workflow_plugin::CloacinaMetadata,
     ) -> Result<Vec<String>, RegistryError> {
-        // Only .cloacina archives can contain a Manifest
-        if !self.is_cloacina_package(archive_data) {
-            return Ok(vec![]);
-        }
-
-        // Try to extract Manifest from the archive
-        let manifest = match crate::registry::loader::python_loader::peek_manifest(archive_data) {
-            Ok(m) => m,
-            Err(_) => {
-                // No Manifest found — v1-only package, no triggers
-                debug!(
-                    "No Manifest in package {} — skipping trigger registration",
-                    metadata.package_name
-                );
-                return Ok(vec![]);
-            }
-        };
-
-        if manifest.triggers.is_empty() {
+        if cloacina_metadata.triggers.is_empty() {
             return Ok(vec![]);
         }
 
         let mut tracked_trigger_names = Vec::new();
 
-        for trigger_def in &manifest.triggers {
+        for trigger_def in &cloacina_metadata.triggers {
             if crate::trigger::registry::is_trigger_registered(&trigger_def.name) {
                 info!(
-                    "Trigger '{}' (type: {}, workflow: {}, interval: {}) registered from package {} v{}",
+                    "Trigger '{}' (workflow: {}, interval: {}) registered from package {} v{}",
                     trigger_def.name,
-                    trigger_def.trigger_type,
                     trigger_def.workflow,
                     trigger_def.poll_interval,
                     metadata.package_name,
@@ -519,9 +565,9 @@ impl RegistryReconciler {
                 tracked_trigger_names.push(trigger_def.name.clone());
             } else {
                 warn!(
-                    "Trigger '{}' declared in manifest for package {} v{} but not found in registry \
-                     — the package must provide a Trigger impl (via #[trigger] macro, @cloaca.trigger, \
-                     or manual registration)",
+                    "Trigger '{}' declared in package.toml for package {} v{} but not found in \
+                     registry — the package must provide a Trigger impl (via #[trigger] macro or \
+                     manual registration)",
                     trigger_def.name, metadata.package_name, metadata.version
                 );
             }

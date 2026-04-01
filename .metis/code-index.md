@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T16:10:35Z | 372 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T16:28:10Z | 372 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2096,7 +2096,7 @@
 - pub `platform` module L28 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `types` module L29 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 - pub `validation` module L30 — `-` — by CLI tools, tests, or other applications that need to package workflows.
-- pub `package_workflow` function L56-71 — `( project_path: PathBuf, output_path: PathBuf, options: CompileOptions, ) -> Res...` — High-level function to package a workflow project.
+- pub `package_workflow` function L55-78 — `(project_path: PathBuf, output_path: PathBuf) -> Result<()>` — High-level function to package a workflow project using fidius source packaging.
 -  `tests` module L33 — `-` — by CLI tools, tests, or other applications that need to package workflows.
 
 #### crates/cloacina/src/packaging/platform.rs
@@ -3707,38 +3707,39 @@
 
 #### crates/cloacina/tests/integration/packaging.rs
 
--  `PackagingFixture` struct L32-36 — `{ temp_dir: TempDir, project_path: PathBuf, output_path: PathBuf }` — Test fixture for managing temporary projects and packages
--  `PackagingFixture` type L38-95 — `= PackagingFixture` — manifest generation, and archive creation.
--  `new` function L40-86 — `() -> Result<Self>` — Create a new packaging fixture with a test project
--  `get_project_path` function L88-90 — `(&self) -> &Path` — manifest generation, and archive creation.
--  `get_output_path` function L92-94 — `(&self) -> &Path` — manifest generation, and archive creation.
--  `test_compile_workflow_basic` function L99-144 — `()` — manifest generation, and archive creation.
--  `test_package_workflow_full_pipeline` function L148-183 — `()` — manifest generation, and archive creation.
--  `test_compile_options_default` function L186-193 — `()` — manifest generation, and archive creation.
--  `test_compile_options_custom` function L196-208 — `()` — manifest generation, and archive creation.
--  `test_packaging_with_cross_compilation` function L212-241 — `()` — manifest generation, and archive creation.
--  `test_packaging_invalid_project` function L245-256 — `()` — manifest generation, and archive creation.
--  `test_packaging_missing_cargo_toml` function L260-273 — `()` — manifest generation, and archive creation.
--  `test_packaging_with_cargo_flags` function L277-305 — `()` — manifest generation, and archive creation.
--  `test_package_manifest_schema_serialization` function L308-349 — `()` — manifest generation, and archive creation.
--  `test_package_constants` function L352-357 — `()` — manifest generation, and archive creation.
--  `create_test_cargo_toml` function L360-375 — `() -> cloacina::packaging::types::CargoToml` — Helper function to create a minimal valid Cargo.toml for testing
--  `test_cargo_toml_parsing` function L378-392 — `()` — manifest generation, and archive creation.
+-  `write_package_toml` function L30-46 — `(project_path: &Path)` — Write a minimal `package.toml` into a project directory for testing.
+-  `PackagingFixture` struct L49-53 — `{ temp_dir: TempDir, project_path: PathBuf, output_path: PathBuf }` — Test fixture for managing temporary projects and packages
+-  `PackagingFixture` type L55-112 — `= PackagingFixture` — manifest generation, and archive creation.
+-  `new` function L57-103 — `() -> Result<Self>` — Create a new packaging fixture with a test project
+-  `get_project_path` function L105-107 — `(&self) -> &Path` — manifest generation, and archive creation.
+-  `get_output_path` function L109-111 — `(&self) -> &Path` — manifest generation, and archive creation.
+-  `test_compile_workflow_basic` function L116-161 — `()` — manifest generation, and archive creation.
+-  `test_package_workflow_full_pipeline` function L165-195 — `()` — manifest generation, and archive creation.
+-  `test_compile_options_default` function L198-205 — `()` — manifest generation, and archive creation.
+-  `test_compile_options_custom` function L208-220 — `()` — manifest generation, and archive creation.
+-  `test_packaging_with_package_toml` function L224-247 — `()` — manifest generation, and archive creation.
+-  `test_packaging_invalid_project` function L251-260 — `()` — manifest generation, and archive creation.
+-  `test_packaging_missing_cargo_toml` function L264-275 — `()` — manifest generation, and archive creation.
+-  `test_packaging_missing_package_toml` function L279-295 — `()` — manifest generation, and archive creation.
+-  `test_package_manifest_schema_serialization` function L298-339 — `()` — manifest generation, and archive creation.
+-  `test_package_constants` function L342-347 — `()` — manifest generation, and archive creation.
+-  `create_test_cargo_toml` function L350-365 — `() -> cloacina::packaging::types::CargoToml` — Helper function to create a minimal valid Cargo.toml for testing
+-  `test_cargo_toml_parsing` function L368-382 — `()` — manifest generation, and archive creation.
 
 #### crates/cloacina/tests/integration/packaging_inspection.rs
 
 -  `PackageInspectionFixture` struct L32-36 — `{ temp_dir: TempDir, project_path: PathBuf, package_path: PathBuf }` — Test fixture for packaging and inspecting existing example projects
--  `PackageInspectionFixture` type L38-127 — `= PackageInspectionFixture` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `PackageInspectionFixture` type L38-116 — `= PackageInspectionFixture` — and then inspecting the resulting package to verify task extraction works correctly.
 -  `new` function L40-58 — `() -> Result<Self>` — Create a new fixture using an existing example project
 -  `get_project_path` function L60-62 — `(&self) -> &Path` — and then inspecting the resulting package to verify task extraction works correctly.
 -  `get_package_path` function L64-66 — `(&self) -> &Path` — and then inspecting the resulting package to verify task extraction works correctly.
--  `package_workflow` function L69-82 — `(&self) -> Result<()>` — Package the workflow using the cloacina library
--  `extract_manifest` function L85-104 — `(&self) -> Result<Manifest>` — Extract and parse the manifest from the packaged workflow
--  `verify_library_exists` function L107-126 — `(&self) -> Result<bool>` — Verify the package contains the expected library file
--  `test_package_and_inspect_workflow_complete` function L131-235 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_package_inspection_manifest_structure` function L239-274 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_package_inspection_error_handling` function L278-304 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
--  `test_packaging_constants_integration` function L307-317 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `package_workflow` function L69-71 — `(&self) -> Result<()>` — Package the workflow using the cloacina library
+-  `extract_manifest` function L74-93 — `(&self) -> Result<Manifest>` — Extract and parse the manifest from the packaged workflow
+-  `verify_library_exists` function L96-115 — `(&self) -> Result<bool>` — Verify the package contains the expected library file
+-  `test_package_and_inspect_workflow_complete` function L120-224 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_package_inspection_manifest_structure` function L228-263 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_package_inspection_error_handling` function L267-293 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
+-  `test_packaging_constants_integration` function L296-306 — `()` — and then inspecting the resulting package to verify task extraction works correctly.
 
 #### crates/cloacina/tests/integration/python_package.rs
 
@@ -7255,8 +7256,8 @@
 #### examples/features/registry-execution/src/main.rs
 
 -  `main` function L52-271 — `() -> Result<(), Box<dyn std::error::Error>>`
--  `build_package` function L273-293 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
--  `find_workspace_root` function L295-308 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
+-  `build_package` function L273-285 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
+-  `find_workspace_root` function L287-300 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
 
 ### examples/features/simple-packaged
 

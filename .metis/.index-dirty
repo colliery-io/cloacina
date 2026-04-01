@@ -1,4 +1,7 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/packaging/mod.rs
-/Users/dstorey/Desktop/cloacina/examples/features/registry-execution/src/main.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/packaging.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/packaging_inspection.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/extraction.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/reconciler/loading.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/loader/package_loader.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/package.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/mod.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/registry/workflow_registry/filesystem.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/daemon.rs

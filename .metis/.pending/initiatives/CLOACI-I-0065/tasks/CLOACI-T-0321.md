@@ -1,24 +1,24 @@
 ---
-id: replace-package-creation-fidius
+id: replace-archive-loading-fidius
 level: task
-title: "Replace package creation — fidius pack_package() with package.toml, add to examples"
-short_code: "CLOACI-T-0320"
-created_at: 2026-04-01T12:34:02.043911+00:00
-updated_at: 2026-04-01T16:28:03.333581+00:00
+title: "Replace archive loading — fidius unpack_package() + load_manifest::<CloacinaMetadata>()"
+short_code: "CLOACI-T-0321"
+created_at: 2026-04-01T12:34:07.859889+00:00
+updated_at: 2026-04-01T21:22:55.713377+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/completed"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 initiative_id: CLOACI-I-0065
 ---
 
-# Replace package creation — fidius pack_package() with package.toml, add to examples
+# Replace archive loading — fidius unpack_package() + load_manifest::<CloacinaMetadata>()
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,7 +28,7 @@ initiative_id: CLOACI-I-0065
 
 ## Objective
 
-Replace `package_workflow()` (compile + gzip tar) with fidius source packaging. Add `package.toml` to all packaged examples. The output is a `.cloacina` bzip2 tar containing source + `package.toml` instead of a compiled dylib + `manifest.json`.
+Replace all archive loading code with fidius `unpack_package()` + `load_manifest::<CloacinaMetadata>()`. The `package_loader.rs` stops checking gzip magic bytes and extracting dylibs from tar — it unpacks bzip2 source archives and reads `package.toml` instead.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -68,15 +68,13 @@ Replace `package_workflow()` (compile + gzip tar) with fidius source packaging. 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] `package.toml` added to `packaged-workflows/`, `simple-packaged/`, `packaged-triggers/`, `complex-dag/`
-- [ ] `package_workflow()` replaced: validates source, writes `package.toml`, calls `fidius_core::package::pack_package()`
-- [ ] Output `.cloacina` is bzip2 tar (not gzip) containing source + `package.toml`
-- [ ] `CompileOptions`/`CompileResult` removed or repurposed (no pre-compilation)
-- [ ] `create_package_archive()` in `archive.rs` replaced with `pack_package()` call
-- [ ] `generate_manifest()` replaced — no longer compiles to extract metadata
-- [ ] `registry-execution` demo works with new format
+- [ ] `package_loader.rs`: `is_cloacina_archive()` replaced — detect bzip2 magic or `package.toml` presence
+- [ ] `extract_library_from_archive()` removed — no more dylib extraction
+- [ ] `peek_manifest()` in `python_loader.rs` replaced with `fidius_core::package::load_manifest::<CloacinaMetadata>()`
+- [ ] `detect_package_kind()` reads `language` from `CloacinaMetadata` instead of `PackageLanguage` enum
+- [ ] `is_cloacina_package()` / `extract_so_from_cloacina()` in registry removed
+- [ ] `PackageMetadata` populated from `CloacinaMetadata` instead of manifest.json
+- [ ] Depends on T-0319 (schema) and T-0320 (package creation)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

@@ -45,6 +45,7 @@ diesel = { version = "2.1.0", features = ["chrono", "serde_json"] }
 diesel_migrations = { version = "2.1.0" }
 libsqlite3-sys = { version = ">= 0.35", optional = true }
 dotenvy = { version = "0.15" }
+bzip2 = { version = "0.4" }
 flate2 = { version = "1.0" }
 fidius-host = "0.0.5"
 fidius-core = "0.0.5"

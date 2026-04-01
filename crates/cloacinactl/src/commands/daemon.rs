@@ -29,7 +29,6 @@ use tracing::{debug, error, info, warn};
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use cloacina::registry::loader::python_loader::peek_manifest;
 use cloacina::registry::{
     FilesystemWorkflowRegistry, ReconcileResult, ReconcilerConfig, RegistryReconciler,
 };
@@ -394,7 +393,7 @@ async fn register_triggers_from_reconcile(
             None => continue,
         };
 
-        // Load the package data to peek the manifest for trigger definitions
+        // Load the package data to read the manifest for trigger definitions
         let loaded = match registry
             .get_workflow(&metadata.package_name, &metadata.version)
             .await
@@ -403,13 +402,32 @@ async fn register_triggers_from_reconcile(
             _ => continue,
         };
 
-        // Peek manifest for trigger definitions
-        let manifest = match peek_manifest(&loaded.package_data) {
+        // Unpack the source archive to a temp dir and read package.toml
+        let tmp = match tempfile::TempDir::new() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let archive_path = tmp.path().join("pkg.cloacina");
+        if std::fs::write(&archive_path, &loaded.package_data).is_err() {
+            continue;
+        }
+        let extract_dir = tmp.path().join("source");
+        if std::fs::create_dir_all(&extract_dir).is_err() {
+            continue;
+        }
+        let source_dir = match fidius_core::package::unpack_package(&archive_path, &extract_dir) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let cloacina_manifest = match fidius_core::package::load_manifest::<
+            cloacina_workflow_plugin::CloacinaMetadata,
+        >(&source_dir)
+        {
             Ok(m) => m,
             Err(_) => continue,
         };
 
-        for trigger_def in &manifest.triggers {
+        for trigger_def in &cloacina_manifest.metadata.triggers {
             // Get the trigger from the global registry (it should be registered by the reconciler)
             if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
                 match scheduler

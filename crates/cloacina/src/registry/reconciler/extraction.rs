@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,131 +14,111 @@
  *  limitations under the License.
  */
 
-//! Package format detection and library extraction from .cloacina archives.
+//! Source package compilation — unpacks a bzip2 tar source archive and compiles
+//! it to a cdylib using `cargo build`.
 
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 use super::RegistryReconciler;
 use crate::registry::error::RegistryError;
 
 impl RegistryReconciler {
-    /// Check if package data is a .cloacina archive
-    pub(super) fn is_cloacina_package(&self, package_data: &[u8]) -> bool {
-        // Check for gzip magic number at the start
-        package_data.len() >= 3
-            && package_data[0] == 0x1f
-            && package_data[1] == 0x8b
-            && package_data[2] == 0x08
-    }
-
-    /// Extract library file data from a .cloacina archive
-    pub(super) async fn extract_library_from_cloacina(
-        &self,
-        package_data: &[u8],
-    ) -> Result<Vec<u8>, RegistryError> {
-        use flate2::read::GzDecoder;
-        use std::io::Read;
-        use tar::Archive;
+    /// Compile a Rust source package directory to a cdylib.
+    ///
+    /// Runs `cargo build --lib` in `source_dir` (using `--release` in release
+    /// builds and `--debug` in debug builds so the wire format matches), then
+    /// returns the path to the compiled library.
+    pub(super) async fn compile_source_package(
+        source_dir: &Path,
+    ) -> Result<PathBuf, RegistryError> {
+        // Mirror the host's build profile so the fidius wire format (JSON in
+        // debug, bincode in release) matches between host and dylib.
+        let profile_args: &[&str] = if cfg!(debug_assertions) {
+            &["build", "--lib"]
+        } else {
+            &["build", "--lib", "--release"]
+        };
 
         debug!(
-            "Starting library extraction from .cloacina archive, data length: {}",
-            package_data.len()
+            "Compiling source package at {} with args: {:?}",
+            source_dir.display(),
+            profile_args
         );
 
-        // Get platform-specific library extension
-        let library_extension = if cfg!(target_os = "macos") {
+        let output = tokio::process::Command::new("cargo")
+            .args(profile_args)
+            .current_dir(source_dir)
+            .output()
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to invoke cargo: {}", e),
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(RegistryError::RegistrationFailed {
+                message: format!("Compilation failed:\n{}", stderr),
+            });
+        }
+
+        let target_subdir = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+
+        let target_dir = source_dir.join("target").join(target_subdir);
+        Self::find_compiled_library(&target_dir)
+    }
+
+    /// Search `target_dir` for the cdylib produced by `cargo build --lib`.
+    ///
+    /// Looks for a file whose name starts with `lib`, has the platform extension
+    /// (`.dylib` on macOS, `.so` on Linux), and contains no `-` in the name
+    /// (excluding Cargo hash-suffixed artifacts).
+    fn find_compiled_library(target_dir: &Path) -> Result<PathBuf, RegistryError> {
+        let ext = if cfg!(target_os = "macos") {
             "dylib"
-        } else if cfg!(target_os = "windows") {
-            "dll"
         } else {
             "so"
         };
 
-        debug!("Looking for library with extension: {}", library_extension);
+        let entries =
+            std::fs::read_dir(target_dir).map_err(|e| RegistryError::RegistrationFailed {
+                message: format!(
+                    "Failed to read target directory {}: {}",
+                    target_dir.display(),
+                    e
+                ),
+            })?;
 
-        // Extract library file synchronously to avoid Send issues
-        let library_data = tokio::task::spawn_blocking({
-            let package_data = package_data.to_vec();
-            let library_extension = library_extension.to_string();
-            move || -> Result<Vec<u8>, RegistryError> {
-                debug!("Starting spawn_blocking task for library extraction");
+        for entry in entries {
+            let entry = entry.map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to read directory entry: {}", e),
+            })?;
 
-                // Create a cursor from the archive data
-                let cursor = std::io::Cursor::new(package_data);
-                debug!("Created cursor from package data");
+            let path = entry.path();
 
-                let gz_decoder = GzDecoder::new(cursor);
-                debug!("Created GzDecoder");
-
-                let mut archive = Archive::new(gz_decoder);
-                debug!("Created Archive from GzDecoder");
-
-                // Look for a library file in the archive
-                debug!("Starting to iterate through archive entries");
-                for entry_result in archive.entries().map_err(|e| {
-                    debug!("Error reading archive entries: {}", e);
-                    RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                        path: "archive".to_string(),
-                        error: format!("Failed to read archive entries: {}", e),
-                    })
-                })? {
-                    let mut entry = entry_result.map_err(|e| {
-                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                            path: "archive".to_string(),
-                            error: format!("Failed to read archive entry: {}", e),
-                        })
-                    })?;
-
-                    let path = entry.path().map_err(|e| {
-                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                            path: "archive".to_string(),
-                            error: format!("Failed to get entry path: {}", e),
-                        })
-                    })?;
-
-                    // Check if this is a library file with the correct extension
-                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                        if filename.ends_with(&format!(".{}", library_extension)) {
-                            // Store path info before borrowing entry mutably
-                            let path_string = path.to_string_lossy().to_string();
-
-                            // Read the library file data
-                            let mut file_data = Vec::new();
-                            entry.read_to_end(&mut file_data).map_err(|e| {
-                                RegistryError::Loader(
-                                    crate::registry::error::LoaderError::FileSystem {
-                                        path: path_string,
-                                        error: format!(
-                                            "Failed to read library file from archive: {}",
-                                            e
-                                        ),
-                                    },
-                                )
-                            })?;
-
-                            return Ok(file_data);
-                        }
-                    }
+            if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                // Cargo hash-suffixed dylibs contain a `-` (e.g. `libfoo-abc123.dylib`)
+                if name.starts_with("lib") && !name.contains('-') {
+                    debug!("Found compiled library: {}", path.display());
+                    return Ok(path);
                 }
-
-                Err(RegistryError::Loader(
-                    crate::registry::error::LoaderError::MetadataExtraction {
-                        reason: format!(
-                            "No library file with extension '{}' found in archive",
-                            library_extension
-                        ),
-                    },
-                ))
             }
-        })
-        .await
-        .map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                path: "spawn_blocking".to_string(),
-                error: format!("Failed to spawn blocking task: {}", e),
-            })
-        })??;
+        }
 
-        Ok(library_data)
+        Err(RegistryError::RegistrationFailed {
+            message: format!(
+                "No compiled library (.{}) found in {}",
+                ext,
+                target_dir.display()
+            ),
+        })
     }
 }

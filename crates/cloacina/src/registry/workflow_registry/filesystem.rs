@@ -27,7 +27,6 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::registry::error::RegistryError;
-use crate::registry::loader::python_loader::peek_manifest;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::types::{LoadedWorkflow, WorkflowMetadata, WorkflowPackageId};
 
@@ -99,35 +98,47 @@ impl FilesystemWorkflowRegistry {
                     continue;
                 }
 
-                // Read the archive to peek the manifest
-                let archive_data = match std::fs::read(&path) {
-                    Ok(data) => data,
+                // Unpack archive to a temp dir and read package.toml
+                let tmp = match tempfile::TempDir::new() {
+                    Ok(t) => t,
                     Err(e) => {
-                        warn!("Failed to read package file {}: {}", path.display(), e);
+                        warn!("Failed to create temp dir for {}: {}", path.display(), e);
                         continue;
                     }
                 };
 
-                // Try Manifest first (Python + Rust v2 packages)
-                match peek_manifest(&archive_data) {
+                let source_dir = match fidius_core::package::unpack_package(&path, tmp.path()) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        warn!("Skipping unreadable package {}: {}", path.display(), e);
+                        continue;
+                    }
+                };
+
+                match fidius_core::package::load_manifest::<
+                    cloacina_workflow_plugin::CloacinaMetadata,
+                >(&source_dir)
+                {
                     Ok(manifest) => {
                         let package_name = manifest.package.name.clone();
                         let version = manifest.package.version.clone();
 
-                        // Derive a stable package ID from the fingerprint
-                        let id = uuid_from_fingerprint(&manifest.package.fingerprint);
+                        // Derive a stable package ID from name+version
+                        let fingerprint = format!("{}:{}", package_name, version);
+                        let id = uuid_from_fingerprint(&fingerprint);
 
+                        let now = chrono::Utc::now();
                         let metadata = WorkflowMetadata {
                             id,
                             registry_id: id, // Same as id for filesystem registry
                             package_name: package_name.clone(),
                             version: version.clone(),
-                            description: manifest.package.description.clone(),
-                            author: None,
-                            tasks: manifest.tasks.iter().map(|t| t.id.clone()).collect(),
+                            description: manifest.metadata.description.clone(),
+                            author: manifest.metadata.author.clone(),
+                            tasks: vec![],
                             schedules: Vec::new(),
-                            created_at: manifest.created_at,
-                            updated_at: manifest.created_at,
+                            created_at: now,
+                            updated_at: now,
                         };
 
                         debug!(
@@ -167,8 +178,23 @@ impl WorkflowRegistry for FilesystemWorkflowRegistry {
         &mut self,
         package_data: Vec<u8>,
     ) -> Result<WorkflowPackageId, RegistryError> {
-        // Peek manifest to get package name and version for the filename
-        let manifest = peek_manifest(&package_data).map_err(|e| {
+        // Unpack to temp dir and read package.toml to get package name/version
+        let tmp = tempfile::TempDir::new()
+            .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+        let archive_path = tmp.path().join("pkg.cloacina");
+        std::fs::write(&archive_path, &package_data)
+            .map_err(|e| RegistryError::Internal(format!("Failed to write archive: {}", e)))?;
+        let extract_dir = tmp.path().join("source");
+        std::fs::create_dir_all(&extract_dir)
+            .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
+        let source_dir = fidius_core::package::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| {
+                RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
+            })?;
+        let manifest = fidius_core::package::load_manifest::<
+            cloacina_workflow_plugin::CloacinaMetadata,
+        >(&source_dir)
+        .map_err(|e| {
             RegistryError::Internal(format!("Failed to read manifest from package data: {}", e))
         })?;
 
@@ -211,7 +237,8 @@ impl WorkflowRegistry for FilesystemWorkflowRegistry {
             ))
         })?;
 
-        let id = uuid_from_fingerprint(&manifest.package.fingerprint);
+        let fingerprint = format!("{}:{}", manifest.package.name, manifest.package.version);
+        let id = uuid_from_fingerprint(&fingerprint);
 
         info!(
             "Registered package {} v{} at {}",
@@ -301,60 +328,55 @@ fn uuid_from_fingerprint(fingerprint: &str) -> Uuid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packaging::{
-        Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition, TriggerDefinition,
-    };
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
-    use tar::Builder;
     use tempfile::TempDir;
 
-    /// Build a minimal `.cloacina` archive in memory.
-    fn build_test_archive(manifest: &Manifest) -> Vec<u8> {
-        let buf = Vec::new();
-        let enc = GzEncoder::new(buf, Compression::fast());
-        let mut builder = Builder::new(enc);
+    /// Build a minimal bzip2-tar `.cloacina` source archive in memory.
+    ///
+    /// The archive contains a top-level `{name}-{version}/` directory with a
+    /// `package.toml` and a stub `src/lib.rs`, matching what `pack_package`
+    /// produces.
+    fn build_test_archive(name: &str, version: &str) -> Vec<u8> {
+        use bzip2::write::BzEncoder;
+        use bzip2::Compression;
 
-        let manifest_json = serde_json::to_vec_pretty(manifest).unwrap();
-        let mut header = tar::Header::new_gnu();
-        header.set_size(manifest_json.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
-            .unwrap();
+        let prefix = format!("{}-{}", name, version);
+
+        let toml_content = format!(
+            r#"[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{name}"
+language = "rust"
+description = "Test package"
+"#
+        );
+
+        // Pack into bzip2 tar in memory
+        let buf = Vec::new();
+        let enc = BzEncoder::new(buf, Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+
+        for (rel, content) in &[
+            ("package.toml", toml_content.as_bytes()),
+            ("src/lib.rs", b"// stub" as &[u8]),
+        ] {
+            let archive_path = format!("{}/{}", prefix, rel);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, &archive_path, *content)
+                .unwrap();
+        }
 
         let enc = builder.into_inner().unwrap();
         enc.finish().unwrap()
-    }
-
-    fn test_manifest(name: &str, version: &str) -> Manifest {
-        Manifest {
-            format_version: "2".to_string(),
-            package: PackageInfo {
-                name: name.to_string(),
-                version: version.to_string(),
-                description: Some("Test package".to_string()),
-                fingerprint: format!("sha256:{}:{}", name, version),
-                targets: vec!["linux-x86_64".to_string(), "macos-arm64".to_string()],
-            },
-            language: PackageLanguage::Rust,
-            python: None,
-            rust: Some(RustRuntime {
-                library_path: "lib/libtest.so".to_string(),
-            }),
-            tasks: vec![TaskDefinition {
-                id: "task1".to_string(),
-                function: "execute_task".to_string(),
-                dependencies: vec![],
-                description: None,
-                retries: 0,
-                timeout_seconds: None,
-            }],
-            triggers: vec![],
-            created_at: chrono::Utc::now(),
-            signature: None,
-        }
     }
 
     #[tokio::test]
@@ -369,9 +391,8 @@ mod tests {
     async fn test_list_discovers_packages() {
         let dir = TempDir::new().unwrap();
 
-        // Write two test packages
-        let archive1 = build_test_archive(&test_manifest("pkg-a", "1.0.0"));
-        let archive2 = build_test_archive(&test_manifest("pkg-b", "2.0.0"));
+        let archive1 = build_test_archive("pkg-a", "1.0.0");
+        let archive2 = build_test_archive("pkg-b", "2.0.0");
         std::fs::write(dir.path().join("pkg-a-1.0.0.cloacina"), &archive1).unwrap();
         std::fs::write(dir.path().join("pkg-b-2.0.0.cloacina"), &archive2).unwrap();
 
@@ -391,12 +412,12 @@ mod tests {
 
         std::fs::write(
             dir1.path().join("pkg-a.cloacina"),
-            build_test_archive(&test_manifest("pkg-a", "1.0.0")),
+            build_test_archive("pkg-a", "1.0.0"),
         )
         .unwrap();
         std::fs::write(
             dir2.path().join("pkg-b.cloacina"),
-            build_test_archive(&test_manifest("pkg-b", "1.0.0")),
+            build_test_archive("pkg-b", "1.0.0"),
         )
         .unwrap();
 
@@ -411,8 +432,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_workflow_returns_archive_bytes() {
         let dir = TempDir::new().unwrap();
-        let manifest = test_manifest("my-pkg", "1.0.0");
-        let archive = build_test_archive(&manifest);
+        let archive = build_test_archive("my-pkg", "1.0.0");
         std::fs::write(dir.path().join("my-pkg.cloacina"), &archive).unwrap();
 
         let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
@@ -438,7 +458,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
 
-        let archive = build_test_archive(&test_manifest("new-pkg", "0.1.0"));
+        let archive = build_test_archive("new-pkg", "0.1.0");
         let id = registry.register_workflow(archive.clone()).await.unwrap();
 
         // File should exist
@@ -451,8 +471,8 @@ mod tests {
         assert_eq!(workflows.len(), 1);
         assert_eq!(workflows[0].package_name, "new-pkg");
 
-        // ID should be deterministic
-        let id2 = uuid_from_fingerprint("sha256:new-pkg:0.1.0");
+        // ID should be deterministic from name:version fingerprint
+        let id2 = uuid_from_fingerprint("new-pkg:0.1.0");
         assert_eq!(id, id2);
     }
 
@@ -461,7 +481,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
 
-        let archive = build_test_archive(&test_manifest("dup-pkg", "1.0.0"));
+        let archive = build_test_archive("dup-pkg", "1.0.0");
         registry.register_workflow(archive.clone()).await.unwrap();
 
         let result = registry.register_workflow(archive).await;
@@ -471,25 +491,22 @@ mod tests {
     #[tokio::test]
     async fn test_unregister_removes_file() {
         let dir = TempDir::new().unwrap();
-        let archive = build_test_archive(&test_manifest("rm-pkg", "1.0.0"));
+        let archive = build_test_archive("rm-pkg", "1.0.0");
         std::fs::write(dir.path().join("rm-pkg-1.0.0.cloacina"), &archive).unwrap();
 
         let mut registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
 
-        // Should exist
         assert!(registry
             .get_workflow("rm-pkg", "1.0.0")
             .await
             .unwrap()
             .is_some());
 
-        // Unregister
         registry
             .unregister_workflow("rm-pkg", "1.0.0")
             .await
             .unwrap();
 
-        // Should be gone
         assert!(registry
             .get_workflow("rm-pkg", "1.0.0")
             .await
@@ -514,7 +531,7 @@ mod tests {
         // Write a valid package
         std::fs::write(
             dir.path().join("good.cloacina"),
-            build_test_archive(&test_manifest("good", "1.0.0")),
+            build_test_archive("good", "1.0.0"),
         )
         .unwrap();
 
@@ -545,10 +562,9 @@ mod tests {
     async fn test_register_creates_directory() {
         let dir = TempDir::new().unwrap();
         let subdir = dir.path().join("packages");
-        // subdir doesn't exist yet
 
         let mut registry = FilesystemWorkflowRegistry::new(vec![subdir.clone()]);
-        let archive = build_test_archive(&test_manifest("auto-dir", "1.0.0"));
+        let archive = build_test_archive("auto-dir", "1.0.0");
         registry.register_workflow(archive).await.unwrap();
 
         assert!(subdir.exists());
@@ -557,10 +573,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_deterministic_package_id() {
-        // Same fingerprint should always produce the same UUID
-        let id1 = uuid_from_fingerprint("sha256:abc123");
-        let id2 = uuid_from_fingerprint("sha256:abc123");
-        let id3 = uuid_from_fingerprint("sha256:different");
+        let id1 = uuid_from_fingerprint("abc:1.0.0");
+        let id2 = uuid_from_fingerprint("abc:1.0.0");
+        let id3 = uuid_from_fingerprint("different:1.0.0");
 
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
@@ -568,23 +583,48 @@ mod tests {
 
     #[tokio::test]
     async fn test_package_with_triggers_in_manifest() {
+        use bzip2::write::BzEncoder;
+        use bzip2::Compression;
+
         let dir = TempDir::new().unwrap();
 
-        let mut manifest = test_manifest("trigger-pkg", "1.0.0");
-        manifest.triggers = vec![TriggerDefinition {
-            name: "my_trigger".to_string(),
-            trigger_type: "rust".to_string(),
-            workflow: "trigger-pkg".to_string(),
-            poll_interval: "5s".to_string(),
-            allow_concurrent: false,
-            config: None,
-        }];
+        let toml_content = r#"[package]
+name = "trigger-pkg"
+version = "1.0.0"
+interface = "cloacina-workflow"
+interface_version = 1
+extension = "cloacina"
 
-        std::fs::write(
-            dir.path().join("trigger-pkg.cloacina"),
-            build_test_archive(&manifest),
-        )
-        .unwrap();
+[metadata]
+workflow_name = "trigger-pkg"
+language = "rust"
+
+[[metadata.triggers]]
+name = "my_trigger"
+workflow = "trigger-pkg"
+poll_interval = "5s"
+allow_concurrent = false
+"#;
+
+        let prefix = "trigger-pkg-1.0.0";
+        let buf = Vec::new();
+        let enc = BzEncoder::new(buf, Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+        let mut header = tar::Header::new_gnu();
+        header.set_size(toml_content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                &format!("{}/package.toml", prefix),
+                toml_content.as_bytes(),
+            )
+            .unwrap();
+        let enc = builder.into_inner().unwrap();
+        let archive = enc.finish().unwrap();
+
+        std::fs::write(dir.path().join("trigger-pkg.cloacina"), &archive).unwrap();
 
         let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
         let workflows = registry.list_workflows().await.unwrap();
