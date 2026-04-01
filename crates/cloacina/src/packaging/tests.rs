@@ -295,7 +295,6 @@ pub fn regular_function() -> String {
     #[test]
     fn test_constants() {
         assert_eq!(types::MANIFEST_FILENAME, "manifest.json");
-        assert_eq!(types::EXECUTE_TASK_SYMBOL, "cloacina_execute_task");
         assert!(!types::CLOACINA_VERSION.is_empty());
 
         // Verify version follows semver format

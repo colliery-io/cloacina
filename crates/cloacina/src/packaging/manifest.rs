@@ -21,7 +21,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::manifest_schema::{Manifest, PackageInfo, PackageLanguage, RustRuntime, TaskDefinition};
-use super::types::{CargoToml, EXECUTE_TASK_SYMBOL};
+use super::types::CargoToml;
 
 /// Statically compiled regex for matching workflow attributes.
 /// Matches both `#[workflow(name = "...")]` (new) and `#[packaged_workflow(package = "...")]` (legacy).
@@ -103,7 +103,7 @@ pub fn generate_manifest(
         .iter()
         .map(|t| TaskDefinition {
             id: t.id.clone(),
-            function: EXECUTE_TASK_SYMBOL.to_string(),
+            function: "cloacina_execute_task".to_string(),
             dependencies: t.dependencies.clone(),
             description: if t.description.is_empty() {
                 None

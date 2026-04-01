@@ -305,11 +305,10 @@ async fn test_package_inspection_error_handling() {
 
 #[test]
 fn test_packaging_constants_integration() {
-    use cloacina::packaging::types::{CLOACINA_VERSION, EXECUTE_TASK_SYMBOL, MANIFEST_FILENAME};
+    use cloacina::packaging::types::{CLOACINA_VERSION, MANIFEST_FILENAME};
 
     // Verify constants are what we expect for packaging/inspection
     assert_eq!(MANIFEST_FILENAME, "manifest.json");
-    assert_eq!(EXECUTE_TASK_SYMBOL, "cloacina_execute_task");
     assert!(!CLOACINA_VERSION.is_empty());
 
     // Verify version format

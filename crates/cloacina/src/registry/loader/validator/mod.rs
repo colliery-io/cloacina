@@ -35,9 +35,7 @@ use tempfile::TempDir;
 use tokio::fs;
 
 use crate::registry::error::LoaderError;
-use crate::registry::loader::package_loader::{
-    get_library_extension, PackageMetadata, EXECUTE_TASK_SYMBOL, GET_METADATA_SYMBOL,
-};
+use crate::registry::loader::package_loader::{get_library_extension, PackageMetadata};
 
 /// Comprehensive package validator
 pub struct PackageValidator {

@@ -4,14 +4,14 @@ level: task
 title: "Delete legacy FFI code — manual structs, shims, and inline definitions"
 short_code: "CLOACI-T-0316"
 created_at: 2026-03-31T23:39:34.837408+00:00
-updated_at: 2026-03-31T23:39:34.837408+00:00
+updated_at: 2026-04-01T03:45:29.434662+00:00
 parent: CLOACI-I-0060
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0060
 ## Objective
 
 Clean sweep of all legacy manual FFI code now that fidius handles everything. Delete files, remove dead imports, grep-verify no remaining references.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

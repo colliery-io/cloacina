@@ -29,16 +29,6 @@ use tokio::fs;
 
 use crate::registry::error::LoaderError;
 
-/// Standard symbol name for task execution in cloacina packages.
-///
-/// Kept for backward compatibility with validators that check for this symbol.
-pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
-
-/// Standard symbol name for metadata extraction.
-///
-/// Kept for backward compatibility with validators that check for this symbol.
-pub const GET_METADATA_SYMBOL: &str = "cloacina_get_task_metadata";
-
 /// Get the platform-specific dynamic library extension.
 pub fn get_library_extension() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -353,10 +343,7 @@ impl PackageLoader {
             tasks,
             graph_data,
             architecture,
-            symbols: vec![
-                EXECUTE_TASK_SYMBOL.to_string(),
-                GET_METADATA_SYMBOL.to_string(),
-            ],
+            symbols: vec!["fidius_get_registry".to_string()],
         })
     }
 
@@ -550,12 +537,6 @@ mod tests {
             let task_id = handle.await.expect("Task should complete");
             assert!(task_id < 5);
         }
-    }
-
-    #[tokio::test]
-    async fn test_symbol_constants() {
-        assert_eq!(EXECUTE_TASK_SYMBOL, "cloacina_execute_task");
-        assert_eq!(GET_METADATA_SYMBOL, "cloacina_get_task_metadata");
     }
 
     #[tokio::test]

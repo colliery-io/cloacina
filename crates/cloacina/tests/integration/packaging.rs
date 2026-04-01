@@ -350,10 +350,9 @@ fn test_package_manifest_schema_serialization() {
 
 #[test]
 fn test_package_constants() {
-    use cloacina::packaging::types::{CLOACINA_VERSION, EXECUTE_TASK_SYMBOL, MANIFEST_FILENAME};
+    use cloacina::packaging::types::{CLOACINA_VERSION, MANIFEST_FILENAME};
 
     assert_eq!(MANIFEST_FILENAME, "manifest.json");
-    assert_eq!(EXECUTE_TASK_SYMBOL, "cloacina_execute_task");
     assert!(!CLOACINA_VERSION.is_empty());
 }
 

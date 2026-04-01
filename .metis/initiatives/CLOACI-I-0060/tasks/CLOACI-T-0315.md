@@ -4,14 +4,14 @@ level: task
 title: "Replace host-side loading with fidius-host — package_loader, extraction, manifest"
 short_code: "CLOACI-T-0315"
 created_at: 2026-03-31T23:39:30.535801+00:00
-updated_at: 2026-04-01T02:54:28.776488+00:00
+updated_at: 2026-04-01T03:44:45.111760+00:00
 parent: CLOACI-I-0060
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -61,6 +61,8 @@ Replace the manual dlopen/dlsym/struct-casting code in `package_loader.rs`, `ext
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

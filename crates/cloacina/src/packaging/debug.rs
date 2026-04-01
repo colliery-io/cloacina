@@ -22,7 +22,6 @@
 
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
-use libloading::{Library, Symbol};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -31,7 +30,6 @@ use tar::Archive;
 use super::manifest_schema::Manifest;
 
 const MANIFEST_FILENAME: &str = "manifest.json";
-const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 
 /// Extract the manifest from a package archive.
 pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<Manifest> {
@@ -119,84 +117,30 @@ pub fn extract_library_from_package(
     );
 }
 
-/// Execute a task from a dynamic library.
+/// Execute a task from a dynamic library via the fidius-host plugin API.
 pub fn execute_task_from_library(
     library_path: &PathBuf,
     task_name: &str,
     context_json: &str,
 ) -> Result<String> {
-    // Load the dynamic library
-    let lib = unsafe {
-        Library::new(library_path)
-            .with_context(|| format!("Failed to load library: {:?}", library_path))?
-    };
+    // Load via fidius-host — validates magic, ABI version, wire format, etc.
+    let loaded = fidius_host::loader::load_library(library_path)
+        .with_context(|| format!("Failed to load library: {:?}", library_path))?;
 
-    // Get the cloacina_execute_task symbol
-    let execute_task: Symbol<
-        unsafe extern "C" fn(
-            task_name: *const u8,
-            task_name_len: u32,
-            context_json: *const u8,
-            context_len: u32,
-            result_buffer: *mut u8,
-            result_capacity: u32,
-            result_len: *mut u32,
-        ) -> i32,
-    > = unsafe {
-        lib.get(EXECUTE_TASK_SYMBOL.as_bytes())
-            .context("Symbol 'cloacina_execute_task' not found in library")?
-    };
+    let plugin = loaded
+        .plugins
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Plugin library contains no plugins"))?;
 
-    // Prepare input parameters
-    let task_name_bytes = task_name.as_bytes();
-    let context_bytes = context_json.as_bytes();
-    const RESULT_BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10MB buffer for result
-    let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE];
-    let mut result_len: u32 = 0;
+    let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-    // Call the function
-    let return_code = unsafe {
-        execute_task(
-            task_name_bytes.as_ptr(),
-            task_name_bytes.len() as u32,
-            context_bytes.as_ptr(),
-            context_bytes.len() as u32,
-            result_buffer.as_mut_ptr(),
-            result_buffer.len() as u32,
-            &mut result_len,
-        )
-    };
+    // Method index 1 = execute_task (task_name, context_json)
+    let result: String = handle
+        .call_method(1, &(task_name.to_string(), context_json.to_string()))
+        .with_context(|| format!("Failed to execute task '{}' via plugin API", task_name))?;
 
-    // Handle result
-    if return_code == 0 {
-        // Success
-        if result_len > 0 && result_len <= result_buffer.len() as u32 {
-            let result_json = String::from_utf8_lossy(&result_buffer[..result_len as usize]);
-            Ok(result_json.to_string())
-        } else if result_len > result_buffer.len() as u32 {
-            bail!(
-                "Task execution result too large: {} bytes exceeds maximum buffer size of {} bytes",
-                result_len,
-                result_buffer.len()
-            );
-        } else {
-            Ok(String::new()) // No result data
-        }
-    } else {
-        // Error
-        let error_msg = if result_len > 0 && result_len <= result_buffer.len() as u32 {
-            String::from_utf8_lossy(&result_buffer[..result_len as usize]).to_string()
-        } else if result_len > result_buffer.len() as u32 {
-            format!(
-                "Task execution failed (code: {}) with oversized error message: {} bytes exceeds buffer size of {} bytes",
-                return_code, result_len, result_buffer.len()
-            )
-        } else {
-            format!("Unknown error (code: {})", return_code)
-        };
-
-        bail!("Task execution failed: {}", error_msg);
-    }
+    Ok(result)
 }
 
 /// Resolve a task identifier (index or name) to a task name.
