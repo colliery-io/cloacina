@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T16:28:10Z | 372 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T22:16:06Z | 372 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2606,40 +2606,38 @@
 
 #### crates/cloacina/src/registry/loader/package_loader.rs
 
-- pub `get_library_extension` function L33-41 — `() -> &'static str` — Get the platform-specific dynamic library extension.
-- pub `PackageMetadata` struct L45-62 — `{ package_name: String, version: String, description: Option<String>, author: Op...` — Metadata extracted from a workflow package.
-- pub `TaskMetadata` struct L66-79 — `{ index: u32, local_id: String, namespaced_id_template: String, dependencies: Ve...` — Individual task metadata.
-- pub `PackageLoader` struct L82-84 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files.
-- pub `new` function L88-94 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations.
-- pub `extract_metadata` function L143-166 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a binary package.
-- pub `temp_dir` function L351-353 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
-- pub `validate_package_symbols` function L359-385 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
--  `PackageLoader` type L86-386 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
--  `generate_graph_data_from_tasks` function L97-131 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies.
--  `is_cloacina_archive` function L169-175 — `(&self, package_data: &[u8]) -> bool` — Check if package data is a .cloacina archive.
--  `extract_library_from_archive` function L178-252 — `( &self, archive_data: &[u8], ) -> Result<std::path::PathBuf, LoaderError>` — Extract the library file from a .cloacina archive (tar.gz).
--  `extract_metadata_from_so` function L255-286 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using the fidius-host plugin API.
--  `convert_plugin_metadata_to_rust` function L290-348 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
--  `PackageLoader` type L388-392 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
--  `default` function L389-391 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
--  `tests` module L395-615 — `-` — via the fidius-host plugin API and extract package metadata.
--  `create_invalid_binary_data` function L399-401 — `() -> Vec<u8>` — Helper to create invalid binary data
--  `create_mock_elf_data` function L404-420 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
--  `test_package_loader_creation` function L423-427 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_default` function L430-433 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_invalid_elf` function L436-451 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_empty_data` function L454-465 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_large_invalid_data` function L468-479 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_invalid_data` function L482-493 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_empty_data` function L496-503 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_dir_isolation` function L506-513 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_concurrent_package_loading` function L516-540 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_file_system_operations` function L543-552 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_error_types_and_messages` function L555-573 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_memory_safety` function L576-582 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_directory_cleanup` function L585-592 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_sync_creation` function L595-601 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_get_library_extension` function L604-614 — `()` — via the fidius-host plugin API and extract package metadata.
+- pub `get_library_extension` function L30-38 — `() -> &'static str` — Get the platform-specific dynamic library extension.
+- pub `PackageMetadata` struct L42-59 — `{ package_name: String, version: String, description: Option<String>, author: Op...` — Metadata extracted from a workflow package.
+- pub `TaskMetadata` struct L63-76 — `{ index: u32, local_id: String, namespaced_id_template: String, dependencies: Ve...` — Individual task metadata.
+- pub `PackageLoader` struct L79-81 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files.
+- pub `new` function L85-91 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations.
+- pub `extract_metadata` function L142-159 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from compiled library bytes.
+- pub `temp_dir` function L258-260 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
+- pub `validate_package_symbols` function L266-292 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
+-  `PackageLoader` type L83-293 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
+-  `generate_graph_data_from_tasks` function L94-128 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies.
+-  `extract_metadata_from_so` function L162-193 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using the fidius-host plugin API.
+-  `convert_plugin_metadata_to_rust` function L197-255 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
+-  `PackageLoader` type L295-299 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
+-  `default` function L296-298 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
+-  `tests` module L302-522 — `-` — via the fidius-host plugin API and extract package metadata.
+-  `create_invalid_binary_data` function L306-308 — `() -> Vec<u8>` — Helper to create invalid binary data
+-  `create_mock_elf_data` function L311-327 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
+-  `test_package_loader_creation` function L330-334 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_default` function L337-340 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_invalid_elf` function L343-358 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_empty_data` function L361-372 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_large_invalid_data` function L375-386 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_invalid_data` function L389-400 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_empty_data` function L403-410 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_dir_isolation` function L413-420 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_concurrent_package_loading` function L423-447 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_file_system_operations` function L450-459 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_error_types_and_messages` function L462-480 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_memory_safety` function L483-489 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_directory_cleanup` function L492-499 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_sync_creation` function L502-508 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_get_library_extension` function L511-521 — `()` — via the fidius-host plugin API and extract package metadata.
 
 #### crates/cloacina/src/registry/loader/python_loader.rs
 
@@ -2813,23 +2811,23 @@
 
 #### crates/cloacina/src/registry/reconciler/extraction.rs
 
--  `RegistryReconciler` type L24-144 — `= RegistryReconciler` — Package format detection and library extraction from .cloacina archives.
--  `is_cloacina_package` function L26-32 — `(&self, package_data: &[u8]) -> bool` — Check if package data is a .cloacina archive
--  `extract_library_from_cloacina` function L35-143 — `( &self, package_data: &[u8], ) -> Result<Vec<u8>, RegistryError>` — Extract library file data from a .cloacina archive
+-  `RegistryReconciler` type L26-124 — `= RegistryReconciler` — it to a cdylib using `cargo build`.
+-  `compile_source_package` function L32-73 — `( source_dir: &Path, ) -> Result<PathBuf, RegistryError>` — Compile a Rust source package directory to a cdylib.
+-  `find_compiled_library` function L80-123 — `(target_dir: &Path) -> Result<PathBuf, RegistryError>` — Search `target_dir` for the cdylib produced by `cargo build --lib`.
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-552 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L29-99 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries
--  `unload_package` function L102-139 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L142-183 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L186-327 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L330-378 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L381-428 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L431-454 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L457-468 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L479-540 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's Manifest.
--  `unregister_package_triggers` function L543-551 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `RegistryReconciler` type L27-598 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-167 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L170-207 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L210-251 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L254-395 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L398-446 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L449-496 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L499-522 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L525-536 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L544-586 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L589-597 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -2884,34 +2882,33 @@
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 
-- pub `FilesystemWorkflowRegistry` struct L43-46 — `{ watch_dirs: Vec<PathBuf> }` — A `WorkflowRegistry` implementation backed by directories of `.cloacina` files.
-- pub `new` function L53-63 — `(watch_dirs: Vec<PathBuf>) -> Self` — Create a new filesystem registry watching the given directories.
--  `FilesystemWorkflowRegistry` type L48-162 — `= FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
--  `scan_packages` function L69-153 — `(&self) -> HashMap<(String, String), (PathBuf, WorkflowMetadata)>` — Scan all watch directories for `.cloacina` files.
--  `find_package_path` function L156-161 — `(&self, package_name: &str, version: &str) -> Option<PathBuf>` — Find the file path for a package by name and version.
--  `FilesystemWorkflowRegistry` type L165-290 — `impl WorkflowRegistry for FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
--  `register_workflow` function L166-224 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — handles operational state (schedules, executions) separately.
--  `get_workflow` function L226-250 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — handles operational state (schedules, executions) separately.
--  `list_workflows` function L252-258 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
--  `unregister_workflow` function L260-289 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
--  `uuid_from_fingerprint` function L296-299 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
--  `tests` module L302-595 — `-` — handles operational state (schedules, executions) separately.
--  `build_test_archive` function L313-329 — `(manifest: &Manifest) -> Vec<u8>` — Build a minimal `.cloacina` archive in memory.
--  `test_manifest` function L331-358 — `(name: &str, version: &str) -> Manifest` — handles operational state (schedules, executions) separately.
--  `test_list_empty_directory` function L361-366 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_discovers_packages` function L369-385 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_multiple_directories` function L388-409 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_returns_archive_bytes` function L412-426 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_not_found` function L429-434 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_writes_file` function L437-457 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_duplicate_rejected` function L460-469 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_removes_file` function L472-499 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_not_found` function L502-508 — `()` — handles operational state (schedules, executions) separately.
--  `test_corrupt_file_skipped` function L511-533 — `()` — handles operational state (schedules, executions) separately.
--  `test_nonexistent_directory_handled` function L536-542 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_creates_directory` function L545-556 — `()` — handles operational state (schedules, executions) separately.
--  `test_deterministic_package_id` function L559-567 — `()` — handles operational state (schedules, executions) separately.
--  `test_package_with_triggers_in_manifest` function L570-594 — `()` — handles operational state (schedules, executions) separately.
+- pub `FilesystemWorkflowRegistry` struct L42-45 — `{ watch_dirs: Vec<PathBuf> }` — A `WorkflowRegistry` implementation backed by directories of `.cloacina` files.
+- pub `new` function L52-62 — `(watch_dirs: Vec<PathBuf>) -> Self` — Create a new filesystem registry watching the given directories.
+-  `FilesystemWorkflowRegistry` type L47-173 — `= FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
+-  `scan_packages` function L68-164 — `(&self) -> HashMap<(String, String), (PathBuf, WorkflowMetadata)>` — Scan all watch directories for `.cloacina` files.
+-  `find_package_path` function L167-172 — `(&self, package_name: &str, version: &str) -> Option<PathBuf>` — Find the file path for a package by name and version.
+-  `FilesystemWorkflowRegistry` type L176-317 — `impl WorkflowRegistry for FilesystemWorkflowRegistry` — handles operational state (schedules, executions) separately.
+-  `register_workflow` function L177-251 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — handles operational state (schedules, executions) separately.
+-  `get_workflow` function L253-277 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — handles operational state (schedules, executions) separately.
+-  `list_workflows` function L279-285 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
+-  `unregister_workflow` function L287-316 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
+-  `uuid_from_fingerprint` function L323-326 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
+-  `tests` module L329-635 — `-` — handles operational state (schedules, executions) separately.
+-  `build_test_archive` function L338-380 — `(name: &str, version: &str) -> Vec<u8>` — Build a minimal bzip2-tar `.cloacina` source archive in memory.
+-  `test_list_empty_directory` function L383-388 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_discovers_packages` function L391-406 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_multiple_directories` function L409-430 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_returns_archive_bytes` function L433-446 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_not_found` function L449-454 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_writes_file` function L457-477 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_duplicate_rejected` function L480-489 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_removes_file` function L492-516 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_not_found` function L519-525 — `()` — handles operational state (schedules, executions) separately.
+-  `test_corrupt_file_skipped` function L528-550 — `()` — handles operational state (schedules, executions) separately.
+-  `test_nonexistent_directory_handled` function L553-559 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_creates_directory` function L562-572 — `()` — handles operational state (schedules, executions) separately.
+-  `test_deterministic_package_id` function L575-582 — `()` — handles operational state (schedules, executions) separately.
+-  `test_package_with_triggers_in_manifest` function L585-634 — `()` — handles operational state (schedules, executions) separately.
 
 #### crates/cloacina/src/registry/workflow_registry/mod.rs
 
@@ -2931,18 +2928,17 @@
 - pub `unregister_workflow_package_by_name` function L220-236 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Unregister a workflow package by name and version.
 -  `database` module L23 — `-` — Complete implementation of the workflow registry.
 -  `package` module L25 — `-` — cohesive system for managing packaged workflows.
--  `register_workflow` function L241-322 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
--  `get_workflow` function L324-368 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
--  `list_workflows` function L370-372 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
--  `unregister_workflow` function L374-405 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
--  `tests` module L409-432 — `-` — cohesive system for managing packaged workflows.
--  `test_registry_creation` function L414-421 — `()` — cohesive system for managing packaged workflows.
--  `test_registry_metrics` function L424-431 — `()` — cohesive system for managing packaged workflows.
+-  `register_workflow` function L241-313 — `( &mut self, package_data: Vec<u8>, ) -> Result<WorkflowPackageId, RegistryError...` — cohesive system for managing packaged workflows.
+-  `get_workflow` function L315-359 — `( &self, package_name: &str, version: &str, ) -> Result<Option<LoadedWorkflow>, ...` — cohesive system for managing packaged workflows.
+-  `list_workflows` function L361-363 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — cohesive system for managing packaged workflows.
+-  `unregister_workflow` function L365-396 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — cohesive system for managing packaged workflows.
+-  `tests` module L400-423 — `-` — cohesive system for managing packaged workflows.
+-  `test_registry_creation` function L405-412 — `()` — cohesive system for managing packaged workflows.
+-  `test_registry_metrics` function L415-422 — `()` — cohesive system for managing packaged workflows.
 
 #### crates/cloacina/src/registry/workflow_registry/package.rs
 
--  `is_cloacina_package` function L29-32 — `(data: &[u8]) -> bool` — Check if package data is a .cloacina archive (tar.gz format)
--  `extract_so_from_cloacina` function L35-76 — `( package_data: &[u8], ) -> Result<Vec<u8>, RegistryError>` — Extract .so file from .cloacina package archive
+-  `is_cloacina_package` function L24-27 — `(data: &[u8]) -> bool` — Check if package data is a bzip2-compressed `.cloacina` source archive.
 
 ### crates/cloacina/src/runner/default_runner
 
@@ -4837,8 +4833,8 @@
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L50-358 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
--  `register_triggers_from_reconcile` function L362-435 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+- pub `run` function L49-357 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
+-  `register_triggers_from_reconcile` function L361-453 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
 
 #### crates/cloacinactl/src/commands/mod.rs
 

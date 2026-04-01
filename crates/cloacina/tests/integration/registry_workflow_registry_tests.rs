@@ -19,7 +19,6 @@
 //! These tests verify the end-to-end functionality of the workflow registry,
 //! including storage, metadata extraction, validation, and task registration.
 
-use diesel::prelude::*;
 use serial_test::serial;
 use tempfile::TempDir;
 
@@ -30,22 +29,20 @@ use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use super::fixtures::get_or_init_fixture;
 
-// Import cloacina packaging functions for building packages in tests
-#[cfg(test)]
-use cloacina::packaging::{create_package_archive, generate_manifest, CargoToml, CompileResult};
-
-/// Test fixture for managing package files
+/// Test fixture for managing package files.
+///
+/// Creates a fidius source package (bzip2 tar + package.toml) from the
+/// packaged-workflows example source directory.
 struct PackageFixture {
     temp_dir: tempfile::TempDir,
     package_path: std::path::PathBuf,
 }
 
 impl PackageFixture {
-    /// Create a new package fixture from pre-built .so files.
+    /// Create a new package fixture by packing the example source directory.
     ///
-    /// IMPORTANT: The .so file must be pre-built before running tests.
-    /// Run `angreal cloacina integration` which pre-builds the packages,
-    /// or manually run `cargo build --release -p packaged-workflow-example`.
+    /// Uses `fidius_core::package::pack_package` — no cargo subprocess is spawned.
+    /// Run `angreal cloacina integration` to set up the environment before tests.
     fn new() -> Self {
         // Use a temp directory in the current working directory for CI compatibility
         let temp_dir = tempfile::TempDir::new_in(".")
@@ -68,33 +65,16 @@ impl PackageFixture {
             panic!("Project path does not exist: {}", project_path.display());
         }
 
-        // Find pre-built .so file (no subprocess spawned)
-        let so_path = Self::find_prebuilt_library(&project_path)
-            .expect("Pre-built .so not found. Run `cargo build --release -p packaged-workflow-example` first.");
+        // Verify package.toml exists (required for fidius source packaging)
+        assert!(
+            project_path.join("package.toml").exists(),
+            "package.toml not found in: {}",
+            project_path.display()
+        );
 
-        // Read and parse Cargo.toml
-        let cargo_toml_path = project_path.join("Cargo.toml");
-        let cargo_toml_content =
-            std::fs::read_to_string(&cargo_toml_path).expect("Failed to read Cargo.toml");
-        let cargo_toml: CargoToml =
-            toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
-
-        // Generate manifest by loading the .so (no subprocess spawned)
-        let manifest = generate_manifest(&cargo_toml, &so_path, &None, &project_path)
-            .expect("Failed to generate manifest");
-
-        // Create temp file for .so copy (archive needs the path)
-        let temp_so_path = temp_dir.path().join(so_path.file_name().unwrap());
-        std::fs::copy(&so_path, &temp_so_path).expect("Failed to copy .so file");
-
-        let compile_result = CompileResult {
-            so_path: temp_so_path,
-            manifest,
-        };
-
-        // Create package archive
-        create_package_archive(&compile_result, &package_path)
-            .expect("Failed to create package archive");
+        // Pack the source directory into a bzip2 tar archive
+        fidius_core::package::pack_package(&project_path, Some(&package_path))
+            .expect("Failed to pack source package");
 
         assert!(
             package_path.exists(),
@@ -107,45 +87,6 @@ impl PackageFixture {
         }
     }
 
-    /// Find the pre-built library in the project's target directory.
-    /// Prefers debug builds (matching test binary wire format for fidius).
-    fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
-        for profile in &["debug", "release"] {
-            let target_dir = project_path.join(format!("target/{}", profile));
-            if let Some(path) = Self::find_library_in_dir(&target_dir) {
-                return Some(path);
-            }
-        }
-        None
-    }
-
-    fn find_library_in_dir(target_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-        if !target_dir.exists() {
-            return None;
-        }
-
-        let extensions = if cfg!(target_os = "macos") {
-            vec!["dylib"]
-        } else {
-            vec!["so"]
-        };
-
-        for ext in extensions {
-            for entry in std::fs::read_dir(&target_dir).ok()? {
-                let entry = entry.ok()?;
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some(ext) {
-                    let filename = path.file_name()?.to_str()?;
-                    if !filename.contains("-") || filename.starts_with("lib") {
-                        return Some(path);
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
     /// Get the package data as bytes
     fn get_package_data(&self) -> Vec<u8> {
         std::fs::read(&self.package_path).expect("Failed to read package file")
@@ -155,34 +96,6 @@ impl PackageFixture {
     fn get_package_path(&self) -> &std::path::Path {
         &self.package_path
     }
-}
-
-/// Helper to create mock ELF-like binary data for testing
-fn create_mock_elf_data() -> Vec<u8> {
-    let mut data = Vec::with_capacity(1024);
-
-    // ELF magic number
-    data.extend_from_slice(b"\x7fELF");
-
-    // Basic ELF header fields
-    data.extend_from_slice(&[
-        0x02, // 64-bit
-        0x01, // Little endian
-        0x01, // Current version
-        0x00, // System V ABI
-    ]);
-
-    // Pad to minimum ELF header size
-    while data.len() < 64 {
-        data.push(0x00);
-    }
-
-    // Fill with pseudo-random data
-    for i in 64..1024 {
-        data.push((i % 256) as u8);
-    }
-
-    data
 }
 
 /// Helper to create a test storage backend appropriate for the current database

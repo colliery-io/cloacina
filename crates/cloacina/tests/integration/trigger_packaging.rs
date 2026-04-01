@@ -17,58 +17,21 @@
 //! Integration tests for packaged trigger round-trip.
 //!
 //! Tests that trigger definitions in Manifest are correctly:
-//! - Serialized into `.cloacina` archives
-//! - Extracted via `peek_manifest`
+//! - Validated via `Manifest::validate()`
 //! - Registered/deregistered in the global trigger registry
 //! - Discovered for Python packages via `@cloaca.trigger`
 
 use chrono::Utc;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use serial_test::serial;
-use tar::Builder;
 
 use cloacina::packaging::{
     Manifest, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime, TaskDefinition,
     TriggerDefinition,
 };
-use cloacina::registry::loader::peek_manifest;
 use cloacina::trigger::{
     deregister_trigger, is_trigger_registered, register_trigger_constructor, Trigger, TriggerError,
     TriggerResult,
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Build a `.cloacina` archive in memory.
-fn build_archive(manifest: &Manifest, files: &[(&str, &[u8])]) -> Vec<u8> {
-    let buf = Vec::new();
-    let enc = GzEncoder::new(buf, Compression::fast());
-    let mut builder = Builder::new(enc);
-
-    // manifest.json
-    let manifest_json = serde_json::to_vec_pretty(manifest).unwrap();
-    let mut header = tar::Header::new_gnu();
-    header.set_size(manifest_json.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, "manifest.json", manifest_json.as_slice())
-        .unwrap();
-
-    for (path, content) in files {
-        let mut h = tar::Header::new_gnu();
-        h.set_size(content.len() as u64);
-        h.set_mode(0o644);
-        h.set_cksum();
-        builder.append_data(&mut h, *path, *content).unwrap();
-    }
-
-    let enc = builder.into_inner().unwrap();
-    enc.finish().unwrap()
-}
 
 fn rust_manifest_with_triggers() -> Manifest {
     Manifest {
@@ -202,57 +165,6 @@ impl Trigger for TestTrigger {
     async fn poll(&self) -> Result<TriggerResult, TriggerError> {
         Ok(TriggerResult::Skip)
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tests — manifest trigger round-trip through archives
-// ---------------------------------------------------------------------------
-
-#[test]
-fn peek_manifest_preserves_trigger_definitions() {
-    let manifest = rust_manifest_with_triggers();
-    let archive = build_archive(&manifest, &[]);
-
-    let peeked = peek_manifest(&archive).unwrap();
-    assert_eq!(peeked.triggers.len(), 2);
-
-    assert_eq!(peeked.triggers[0].name, "file_watcher");
-    assert_eq!(peeked.triggers[0].trigger_type, "rust");
-    assert_eq!(peeked.triggers[0].workflow, "trigger-test-pkg");
-    assert_eq!(peeked.triggers[0].poll_interval, "5s");
-    assert!(!peeked.triggers[0].allow_concurrent);
-    assert!(peeked.triggers[0].config.is_some());
-
-    assert_eq!(peeked.triggers[1].name, "api_poller");
-    assert_eq!(peeked.triggers[1].trigger_type, "http_poll");
-    assert!(peeked.triggers[1].allow_concurrent);
-}
-
-#[test]
-fn peek_manifest_no_triggers_returns_empty_vec() {
-    let manifest = rust_manifest_no_triggers();
-    let archive = build_archive(&manifest, &[]);
-
-    let peeked = peek_manifest(&archive).unwrap();
-    assert!(peeked.triggers.is_empty());
-}
-
-#[test]
-fn peek_manifest_python_with_trigger() {
-    let manifest = python_manifest_with_trigger();
-    let files = vec![
-        ("workflow/__init__.py", b"" as &[u8]),
-        (
-            "workflow/tasks.py",
-            b"from cloaca import task\n\n@task(id=\"process\")\ndef process(ctx):\n    return ctx\n",
-        ),
-    ];
-    let archive = build_archive(&manifest, &files);
-
-    let peeked = peek_manifest(&archive).unwrap();
-    assert_eq!(peeked.triggers.len(), 1);
-    assert_eq!(peeked.triggers[0].name, "check_inbox");
-    assert_eq!(peeked.triggers[0].trigger_type, "python");
 }
 
 // ---------------------------------------------------------------------------

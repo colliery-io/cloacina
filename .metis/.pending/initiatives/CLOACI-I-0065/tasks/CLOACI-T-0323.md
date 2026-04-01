@@ -1,10 +1,10 @@
 ---
-id: replace-package-creation-fidius
+id: update-python-loader-for-fidius
 level: task
-title: "Replace package creation — fidius pack_package() with package.toml, add to examples"
-short_code: "CLOACI-T-0320"
-created_at: 2026-04-01T12:34:02.043911+00:00
-updated_at: 2026-04-01T16:28:03.333581+00:00
+title: "Update Python loader for fidius source package format"
+short_code: "CLOACI-T-0323"
+created_at: 2026-04-01T12:34:19.315626+00:00
+updated_at: 2026-04-01T22:32:38.101376+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
@@ -18,7 +18,7 @@ exit_criteria_met: false
 initiative_id: CLOACI-I-0065
 ---
 
-# Replace package creation — fidius pack_package() with package.toml, add to examples
+# Update Python loader for fidius source package format
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,41 +28,7 @@ initiative_id: CLOACI-I-0065
 
 ## Objective
 
-Replace `package_workflow()` (compile + gzip tar) with fidius source packaging. Add `package.toml` to all packaged examples. The output is a `.cloacina` bzip2 tar containing source + `package.toml` instead of a compiled dylib + `manifest.json`.
-
-## Backlog Item Details **[CONDITIONAL: Backlog Item]**
-
-{Delete this section when task is assigned to an initiative}
-
-### Type
-- [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement
-- [ ] Tech Debt - Code improvement or refactoring
-- [ ] Chore - Maintenance or setup work
-
-### Priority
-- [ ] P0 - Critical (blocks users/revenue)
-- [ ] P1 - High (important for user experience)
-- [ ] P2 - Medium (nice to have)
-- [ ] P3 - Low (when time permits)
-
-### Impact Assessment **[CONDITIONAL: Bug]**
-- **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected vs Actual**: {What should happen vs what happens}
-
-### Business Justification **[CONDITIONAL: Feature]**
-- **User Value**: {Why users need this}
-- **Business Value**: {Impact on metrics/revenue}
-- **Effort Estimate**: {Rough size - S/M/L/XL}
-
-### Technical Debt Impact **[CONDITIONAL: Tech Debt]**
-- **Current Problems**: {What's difficult/slow/buggy now}
-- **Benefits of Fixing**: {What improves after refactoring}
-- **Risk Assessment**: {Risks of not addressing this}
+Update `python_loader.rs` to read `package.toml` (fidius format) instead of `manifest.json` (gzip tar). Python packages are source-only (no compilation needed), so the change is simpler: unpack bzip2 tar, read `package.toml` with `CloacinaMetadata`, extract `workflow/` and `vendor/` dirs.
 
 ## Acceptance Criteria
 
@@ -70,13 +36,13 @@ Replace `package_workflow()` (compile + gzip tar) with fidius source packaging. 
 
 ## Acceptance Criteria
 
-- [ ] `package.toml` added to `packaged-workflows/`, `simple-packaged/`, `packaged-triggers/`, `complex-dag/`
-- [ ] `package_workflow()` replaced: validates source, writes `package.toml`, calls `fidius_core::package::pack_package()`
-- [ ] Output `.cloacina` is bzip2 tar (not gzip) containing source + `package.toml`
-- [ ] `CompileOptions`/`CompileResult` removed or repurposed (no pre-compilation)
-- [ ] `create_package_archive()` in `archive.rs` replaced with `pack_package()` call
-- [ ] `generate_manifest()` replaced — no longer compiles to extract metadata
-- [ ] `registry-execution` demo works with new format
+- [ ] `extract_python_package()` uses `fidius_core::package::unpack_package()` instead of gzip tar extraction
+- [ ] Reads `package.toml` via `load_manifest::<CloacinaMetadata>()` instead of `manifest.json`
+- [ ] `requires_python` and `entry_module` read from `CloacinaMetadata` fields
+- [ ] `PackageKind::Python` detection based on `metadata.language == "python"`
+- [ ] Python tutorial examples updated with `package.toml`
+- [ ] `ExtractedPythonPackage` still works with rest of Python execution pipeline
+- [ ] Depends on T-0319 (schema), T-0321 (loading)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

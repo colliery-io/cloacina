@@ -15,21 +15,6 @@
  */
 
 use serde::Deserialize;
-use std::path::PathBuf;
-
-use super::manifest_schema::Manifest;
-
-/// Result of compiling a workflow project.
-///
-/// Contains the path to the compiled cdylib and the unified Manifest
-/// that describes the package, tasks, triggers, and runtime configuration.
-#[derive(Debug, Clone)]
-pub struct CompileResult {
-    /// Path to the compiled dynamic library
-    pub so_path: PathBuf,
-    /// Generated package manifest (v2 unified format)
-    pub manifest: Manifest,
-}
 
 /// Options for compiling a workflow
 #[derive(Debug, Clone)]

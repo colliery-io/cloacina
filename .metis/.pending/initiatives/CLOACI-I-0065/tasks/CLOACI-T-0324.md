@@ -1,10 +1,10 @@
 ---
-id: replace-archive-loading-fidius
+id: delete-old-archive-code-gzip-tar
 level: task
-title: "Replace archive loading — fidius unpack_package() + load_manifest::<CloacinaMetadata>()"
-short_code: "CLOACI-T-0321"
-created_at: 2026-04-01T12:34:07.859889+00:00
-updated_at: 2026-04-01T21:22:55.713377+00:00
+title: "Delete old archive code — gzip tar, manifest.json, ManifestV2, dylib extraction, flate2"
+short_code: "CLOACI-T-0324"
+created_at: 2026-04-01T12:34:25.740130+00:00
+updated_at: 2026-04-01T22:32:44.384822+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
@@ -18,7 +18,7 @@ exit_criteria_met: false
 initiative_id: CLOACI-I-0065
 ---
 
-# Replace archive loading — fidius unpack_package() + load_manifest::<CloacinaMetadata>()
+# Delete old archive code — gzip tar, manifest.json, ManifestV2, dylib extraction, flate2
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,53 +28,22 @@ initiative_id: CLOACI-I-0065
 
 ## Objective
 
-Replace all archive loading code with fidius `unpack_package()` + `load_manifest::<CloacinaMetadata>()`. The `package_loader.rs` stops checking gzip magic bytes and extracting dylibs from tar — it unpacks bzip2 source archives and reads `package.toml` instead.
-
-## Backlog Item Details **[CONDITIONAL: Backlog Item]**
-
-{Delete this section when task is assigned to an initiative}
-
-### Type
-- [ ] Bug - Production issue that needs fixing
-- [ ] Feature - New functionality or enhancement
-- [ ] Tech Debt - Code improvement or refactoring
-- [ ] Chore - Maintenance or setup work
-
-### Priority
-- [ ] P0 - Critical (blocks users/revenue)
-- [ ] P1 - High (important for user experience)
-- [ ] P2 - Medium (nice to have)
-- [ ] P3 - Low (when time permits)
-
-### Impact Assessment **[CONDITIONAL: Bug]**
-- **Affected Users**: {Number/percentage of users affected}
-- **Reproduction Steps**:
-  1. {Step 1}
-  2. {Step 2}
-  3. {Step 3}
-- **Expected vs Actual**: {What should happen vs what happens}
-
-### Business Justification **[CONDITIONAL: Feature]**
-- **User Value**: {Why users need this}
-- **Business Value**: {Impact on metrics/revenue}
-- **Effort Estimate**: {Rough size - S/M/L/XL}
-
-### Technical Debt Impact **[CONDITIONAL: Tech Debt]**
-- **Current Problems**: {What's difficult/slow/buggy now}
-- **Benefits of Fixing**: {What improves after refactoring}
-- **Risk Assessment**: {Risks of not addressing this}
+Delete all code related to the old gzip tar + manifest.json + compiled dylib archive format. This is the cleanup task after T-0320 through T-0323 have replaced all callers.
 
 ## Acceptance Criteria
 
 ## Acceptance Criteria
 
-- [ ] `package_loader.rs`: `is_cloacina_archive()` replaced — detect bzip2 magic or `package.toml` presence
-- [ ] `extract_library_from_archive()` removed — no more dylib extraction
-- [ ] `peek_manifest()` in `python_loader.rs` replaced with `fidius_core::package::load_manifest::<CloacinaMetadata>()`
-- [ ] `detect_package_kind()` reads `language` from `CloacinaMetadata` instead of `PackageLanguage` enum
-- [ ] `is_cloacina_package()` / `extract_so_from_cloacina()` in registry removed
-- [ ] `PackageMetadata` populated from `CloacinaMetadata` instead of manifest.json
-- [ ] Depends on T-0319 (schema) and T-0320 (package creation)
+- [ ] Delete `archive.rs` (gzip tar creation via flate2)
+- [ ] Delete `compile.rs` or gut it (pre-compilation moved to reconciler)
+- [ ] Delete `manifest_schema.rs` types: `Manifest`, `ManifestV2`, `PackageInfo`, `RustRuntime`, `PythonRuntime`, `PackageLanguage`
+- [ ] Delete `manifest_v2.rs` if it exists
+- [ ] Remove `flate2` from Cargo.toml dependencies
+- [ ] Remove `tar` from cloacina Cargo.toml if no longer used (fidius-core handles tar)
+- [ ] `grep -r "manifest.json" crates/` returns zero results (except docs/comments)
+- [ ] `grep -r "GzDecoder\|flate2" crates/` returns zero results
+- [ ] All tests pass
+- [ ] Depends on T-0320, T-0321, T-0322, T-0323 (all callers migrated first)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

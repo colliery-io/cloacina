@@ -15,7 +15,6 @@
  */
 
 use crate::fixtures::get_or_init_fixture;
-use cloacina::packaging::{create_package_archive, generate_manifest, CargoToml, CompileResult};
 use cloacina::registry::error::RegistryError;
 use serial_test::serial;
 use std::sync::OnceLock;
@@ -23,28 +22,25 @@ use uuid::Uuid;
 
 /// Cached mock package data.
 ///
-/// This is created from pre-built .so files (built by angreal before tests).
-/// No subprocess is spawned - only the .so is loaded to extract metadata.
+/// This is a fidius source package (bzip2 tar + package.toml) packed from
+/// the pre-built packaged-workflows example source directory.
+/// The example must exist in examples/features/packaged-workflows.
 static MOCK_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
 
-/// Get the cached mock package, creating it from pre-built .so if necessary.
+/// Get the cached mock package, packing it from the example source directory.
 ///
-/// IMPORTANT: The .so file must be pre-built before running tests.
-/// Run `angreal cloacina integration` which pre-builds the packages,
-/// or manually run `cargo build --release -p packaged-workflow-example`.
+/// IMPORTANT: Uses `fidius_core::package::pack_package` directly on the
+/// example source directory — no cargo subprocess is spawned.
+/// Run `angreal cloacina integration` to set up the environment before tests.
 fn get_mock_package() -> Vec<u8> {
-    MOCK_PACKAGE
-        .get_or_init(|| create_package_from_prebuilt_so())
-        .clone()
+    MOCK_PACKAGE.get_or_init(|| create_source_package()).clone()
 }
 
-/// Create a package from pre-built .so file without spawning cargo.
+/// Create a fidius source package from the packaged-workflows example directory.
 ///
-/// This function:
-/// 1. Finds the pre-built .so file in the example's target/release directory
-/// 2. Generates the manifest by loading the .so (no subprocess)
-/// 3. Creates the .cloacina archive
-fn create_package_from_prebuilt_so() -> Vec<u8> {
+/// Calls `fidius_core::package::pack_package` on the source directory, which
+/// produces a bzip2 tar archive containing the source files and `package.toml`.
+fn create_source_package() -> Vec<u8> {
     // Find workspace root (crates/cloacina -> crates -> project root)
     let cargo_manifest_dir =
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -60,84 +56,25 @@ fn create_package_from_prebuilt_so() -> Vec<u8> {
         panic!("Project path does not exist: {}", project_path.display());
     }
 
-    // Find pre-built .so file
-    let so_path = find_prebuilt_library(&project_path).expect(
-        "Pre-built .so not found. Run `cargo build --release -p packaged-workflow-example` first.",
+    // Verify package.toml exists (required for fidius source packaging)
+    assert!(
+        project_path.join("package.toml").exists(),
+        "package.toml not found in: {}",
+        project_path.display()
     );
 
-    // Read and parse Cargo.toml
-    let cargo_toml_path = project_path.join("Cargo.toml");
-    let cargo_toml_content =
-        std::fs::read_to_string(&cargo_toml_path).expect("Failed to read Cargo.toml");
-    let cargo_toml: CargoToml =
-        toml::from_str(&cargo_toml_content).expect("Failed to parse Cargo.toml");
-
-    // Generate manifest by loading the .so (no subprocess spawned)
-    let manifest = generate_manifest(&cargo_toml, &so_path, &None, &project_path)
-        .expect("Failed to generate manifest");
-
-    // Create temp file for .so copy (archive needs the path)
+    // Pack the source directory into a bzip2 tar archive
     let temp_dir = tempfile::TempDir::new().expect("Failed to create temp directory");
-    let temp_so_path = temp_dir.path().join(so_path.file_name().unwrap());
-    std::fs::copy(&so_path, &temp_so_path).expect("Failed to copy .so file");
-
-    let compile_result = CompileResult {
-        so_path: temp_so_path,
-        manifest,
-    };
-
-    // Create package archive
     let unique_id = Uuid::new_v4().to_string();
     let package_path = temp_dir
         .path()
         .join(format!("test_package_{}.cloacina", unique_id));
-    create_package_archive(&compile_result, &package_path)
-        .expect("Failed to create package archive");
+
+    fidius_core::package::pack_package(&project_path, Some(&package_path))
+        .expect("Failed to pack source package");
 
     // Read and return the package data
     std::fs::read(&package_path).expect("Failed to read package file")
-}
-
-/// Find the pre-built library in the project's target directory.
-/// Prefers debug builds (matching test binary wire format) over release.
-fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
-    // Try debug first (matches test binary wire format for fidius)
-    for profile in &["debug", "release"] {
-        let target_dir = project_path.join(format!("target/{}", profile));
-        if let Some(path) = find_library_in_dir(&target_dir) {
-            return Some(path);
-        }
-    }
-    None
-}
-
-fn find_library_in_dir(target_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    if !target_dir.exists() {
-        return None;
-    }
-
-    // Look for .so (Linux) or .dylib (macOS)
-    let extensions = if cfg!(target_os = "macos") {
-        vec!["dylib"]
-    } else {
-        vec!["so"]
-    };
-
-    for ext in extensions {
-        for entry in std::fs::read_dir(&target_dir).ok()? {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some(ext) {
-                // Skip files that look like dependency artifacts
-                let filename = path.file_name()?.to_str()?;
-                if !filename.contains("-") || filename.starts_with("lib") {
-                    return Some(path);
-                }
-            }
-        }
-    }
-
-    None
 }
 
 #[tokio::test]

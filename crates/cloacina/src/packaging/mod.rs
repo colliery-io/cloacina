@@ -16,12 +16,10 @@
 
 //! Workflow packaging functionality for creating distributable workflow packages.
 //!
-//! This module provides the core library functions for compiling and packaging
-//! workflow projects into distributable archives. These functions can be used
-//! by CLI tools, tests, or other applications that need to package workflows.
+//! This module provides the core library functions for packaging workflow projects
+//! into distributable fidius source archives. These functions can be used by CLI
+//! tools, tests, or other applications that need to package workflows.
 
-pub mod archive;
-pub mod compile;
 pub mod debug;
 pub mod manifest;
 pub mod manifest_schema;
@@ -32,8 +30,6 @@ pub mod validation;
 #[cfg(test)]
 mod tests;
 
-pub use archive::create_package_archive;
-pub use compile::compile_workflow;
 pub use debug::{debug_package, extract_manifest_from_package, DebugResult, TaskDebugInfo};
 pub use manifest::generate_manifest;
 pub use manifest_schema::{
@@ -41,7 +37,7 @@ pub use manifest_schema::{
     TaskDefinition, TriggerDefinition,
 };
 pub use platform::{detect_current_platform, SUPPORTED_TARGETS};
-pub use types::{CargoToml, CompileOptions, CompileResult};
+pub use types::{CargoToml, CompileOptions};
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;

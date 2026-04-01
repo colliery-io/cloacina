@@ -24,7 +24,7 @@ use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-use cloacina::packaging::{compile_workflow, package_workflow, CompileOptions, Manifest};
+use cloacina::packaging::{package_workflow, CompileOptions, Manifest};
 
 /// Write a minimal `package.toml` into a project directory for testing.
 fn write_package_toml(project_path: &Path) {
@@ -108,55 +108,6 @@ pub mod test_package {
 
     fn get_output_path(&self) -> &Path {
         &self.output_path
-    }
-}
-
-#[tokio::test]
-#[serial]
-async fn test_compile_workflow_basic() {
-    let fixture = PackagingFixture::new().expect("Failed to create fixture");
-
-    let temp_so = tempfile::NamedTempFile::new().expect("Failed to create temp file");
-    let so_path = temp_so.path().to_path_buf();
-
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
-    };
-
-    let result = compile_workflow(
-        fixture.get_project_path().to_path_buf(),
-        so_path.clone(),
-        options,
-    );
-
-    // Note: This test might fail in CI due to compilation dependencies,
-    // but it should work in a local development environment
-    match result {
-        Ok(compile_result) => {
-            assert!(so_path.exists(), "Compiled library should exist");
-            assert!(
-                !compile_result.manifest.tasks.is_empty(),
-                "Should have extracted tasks"
-            );
-
-            // Verify manifest content (Manifest)
-            assert_eq!(compile_result.manifest.package.name, "test-workflow");
-            assert_eq!(compile_result.manifest.package.version, "1.0.0");
-            assert_eq!(compile_result.manifest.format_version, "2");
-            let lib_path = &compile_result.manifest.rust.as_ref().unwrap().library_path;
-            assert!(
-                lib_path.ends_with(".so")
-                    || lib_path.ends_with(".dylib")
-                    || lib_path.ends_with(".dll")
-            );
-        }
-        Err(e) => {
-            // Log the error for debugging but don't fail the test if it's a compilation issue
-            println!("Compilation failed (may be expected in CI): {}", e);
-        }
     }
 }
 
