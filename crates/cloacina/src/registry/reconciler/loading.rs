@@ -261,22 +261,12 @@ impl RegistryReconciler {
                 workflow_name
             );
 
-            // Get the package name from the first task's metadata (this is the correct package name for task lookup)
-            let task_package_name = if let Some(first_task) = package_metadata.tasks.first() {
-                // Extract package name from namespaced template: {tenant}::package_name::workflow_id::task_id
-                let template = &first_task.namespaced_id_template;
-                let parts: Vec<&str> = template.split("::").collect();
-                if parts.len() >= 2 {
-                    parts[1].to_string() // Get the package_name part
-                } else {
-                    metadata.package_name.clone() // Fallback to metadata package name
-                }
-            } else {
-                metadata.package_name.clone() // Fallback to metadata package name
-            };
+            // Use the actual package name from metadata — the namespaced_id_template
+            // contains unresolved placeholders like {pkg} that don't match registered tasks
+            let task_package_name = metadata.package_name.clone();
 
             debug!(
-                "Using task_package_name '{}' for task lookup (extracted from task metadata)",
+                "Using task_package_name '{}' for task lookup",
                 task_package_name
             );
 

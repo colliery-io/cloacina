@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -35,9 +35,7 @@ use tempfile::TempDir;
 use tokio::fs;
 
 use crate::registry::error::LoaderError;
-use crate::registry::loader::package_loader::{
-    get_library_extension, PackageMetadata, EXECUTE_TASK_SYMBOL, GET_METADATA_SYMBOL,
-};
+use crate::registry::loader::package_loader::{get_library_extension, PackageMetadata};
 
 /// Comprehensive package validator
 pub struct PackageValidator {
@@ -59,8 +57,7 @@ impl PackageValidator {
         })?;
 
         let mut required_symbols = HashSet::new();
-        required_symbols.insert(EXECUTE_TASK_SYMBOL.to_string());
-        required_symbols.insert(GET_METADATA_SYMBOL.to_string());
+        required_symbols.insert("fidius_get_registry".to_string());
 
         Ok(Self {
             temp_dir,
@@ -261,10 +258,7 @@ mod tests {
             tasks,
             graph_data: None,
             architecture: "x86_64".to_string(),
-            symbols: vec![
-                "cloacina_execute_task".to_string(),
-                "cloacina_get_task_metadata".to_string(),
-            ],
+            symbols: vec!["fidius_get_registry".to_string()],
         }
     }
 

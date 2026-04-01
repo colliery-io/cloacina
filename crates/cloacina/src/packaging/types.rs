@@ -84,5 +84,4 @@ pub struct CargoLib {
 
 /// Constants
 pub const MANIFEST_FILENAME: &str = "manifest.json";
-pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
 pub const CLOACINA_VERSION: &str = env!("CARGO_PKG_VERSION");

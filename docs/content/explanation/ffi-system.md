@@ -6,471 +6,101 @@ reviewer: "dstorey"
 review_date: "2025-01-17"
 ---
 
-This article provides a comprehensive technical overview of Cloacina's FFI (Foreign Function Interface) system, which enables dynamic loading and execution of workflow packages. The FFI system creates a standardized C-compatible interface that allows Cloacina to load and execute workflow packages at runtime.
+This article describes the plugin system Cloacina uses to dynamically load and execute workflow packages. Cloacina uses [fidius](https://github.com/fidius-io/fidius), a framework that transforms a Rust trait into a stable C ABI plugin, eliminating the need for hand-written `extern "C"` functions and `#[repr(C)]` structs.
 
 ## Overview
 
-The FFI system serves as the bridge between dynamically loaded workflow packages and the Cloacina runtime. It provides:
+Workflow packages are compiled as `cdylib` shared libraries. At runtime, Cloacina's host loader opens each library and dispatches calls through a single well-known entry point. The fidius framework sits between the host and the plugin, handling:
 
-- **C-compatible interface** for cross-platform dynamic loading
-- **Standardized symbol exports** for metadata extraction and task execution
-- **Safe memory management** with static data structures
-- **JSON-based data exchange** for context and results
-- **Simple error handling** with integer return codes
+- **Serialization and deserialization** of method arguments and return values
+- **Panic catching** so a panicking plugin cannot crash the host process
+- **Buffer management** with automatic allocation on both sides of the boundary
+- **ABI validation** to detect version drift before any calls are made
 
-## Required FFI Symbols
+## Plugin Interface
 
-Every workflow package must export exactly two C-compatible symbols:
-
-### 1. `cloacina_execute_task`
-
-**Purpose**: Execute a specific task with JSON context data
-
-**C Signature**:
-```c
-extern "C" int cloacina_execute_task(
-    const char* task_name,      // Task name as UTF-8 bytes
-    uint32_t task_name_len,     // Length of task name
-    const char* context_json,   // Input context as JSON bytes
-    uint32_t context_len,       // Length of context JSON
-    uint8_t* result_buffer,     // Buffer for result JSON
-    uint32_t result_capacity,   // Size of result buffer
-    uint32_t* result_len        // Actual length of result written
-);
-```
-
-**Return Values**:
-- `0`: Success
-- `-1`: General error (task failed, invalid input, etc.)
-- `-2`: Critical system error (JSON serialization failure)
-
-### 2. `cloacina_get_task_metadata`
-
-**Purpose**: Extract package and task metadata
-
-**C Signature**:
-```c
-extern "C" const cloacina_ctl_package_tasks* cloacina_get_task_metadata();
-```
-
-**Returns**: Pointer to static metadata structure
-
-## C Data Structures
-
-The FFI interface uses `#[repr(C)]` structures with defined memory layout for C compatibility:
-
-### Task Metadata Structure
+The interface contract is defined in `cloacina-workflow-plugin`, a small crate shared by both the plugin author and the host. It declares the `CloacinaPlugin` trait using the `#[plugin_interface]` attribute from fidius:
 
 ```rust
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct cloacina_ctl_task_metadata {
-    pub index: u32,                           // Task index in package
-    pub local_id: *const c_char,             // Task ID (null-terminated)
-    pub namespaced_id_template: *const c_char, // Template for namespaced IDs
-    pub dependencies_json: *const c_char,     // Dependencies as JSON array
-    pub description: *const c_char,           // Task description
-    pub source_location: *const c_char,       // Source file location
+#[plugin_interface]
+pub trait CloacinaPlugin {
+    fn get_task_metadata(&self) -> PackageTasksMetadata;
+    fn execute_task(&self, request: TaskExecutionRequest) -> TaskExecutionResult;
 }
 ```
 
-### Package Metadata Structure
+This crate is the single source of truth for the interface. Both the plugin and the host depend on exactly this crate, which ensures they agree on method signatures, type layouts, and the ABI hash fidius derives from the trait definition.
+
+### Shared Types
+
+The types that cross the FFI boundary are plain Rust structs that derive `serde::Serialize` and `serde::Deserialize`:
+
+- **`PackageTasksMetadata`** — package name, task list, dependency graph; returned by `get_task_metadata`
+- **`TaskExecutionRequest`** — task name and serialized context; passed to `execute_task`
+- **`TaskExecutionResult`** — success/error status and updated context; returned from `execute_task`
+
+Because fidius serializes these types rather than passing raw pointers, there are no `*const c_char` fields or manual `CStr` conversions.
+
+## How Plugins Are Built
+
+The `#[workflow]` macro, when building for a `cdylib` target, generates two things:
+
+1. An `impl CloacinaPlugin` block that dispatches `get_task_metadata` and `execute_task` to the workflow's actual task functions.
+2. The fidius registration boilerplate — `#[plugin_impl(CloacinaPlugin)]` on the impl and a `fidius_plugin_registry!()` call that exports the `fidius_get_registry` symbol.
+
+Plugin authors do not write any of this by hand. The macro output is equivalent to:
 
 ```rust
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct cloacina_ctl_package_tasks {
-    pub task_count: u32,                     // Number of tasks in package
-    pub tasks: *const cloacina_ctl_task_metadata, // Array of task metadata
-    pub package_name: *const c_char,         // Package name (null-terminated)
-    pub graph_data_json: *const c_char,      // Workflow graph as JSON
-}
-```
-
-{{< hint type=warning title="Memory Safety" >}}
-All string pointers in FFI structures point to static data within the library. The caller must not free these pointers, and they remain valid for the lifetime of the loaded library.
-{{< /hint >}}
-
-## Generated FFI Implementation
-
-The `#[workflow]` macro (with `features = ["packaged"]`) automatically generates the complete FFI implementation. Here's what it generates for cdylib builds:
-
-### Static Data Generation
-
-For a workflow like:
-
-```rust
-#[workflow(
-    name = "data_processing",
-    package = "example",
-    description = "Example data processing workflow"
-)]
-pub mod data_processing {
-    #[task(id = "collect_data", dependencies = [])]
-    pub async fn collect_data(context: &mut Context<Value>) -> Result<(), TaskError> {
-        // Task implementation
+#[plugin_impl(CloacinaPlugin)]
+impl CloacinaPlugin for DataProcessingPlugin {
+    fn get_task_metadata(&self) -> PackageTasksMetadata {
+        // returns statically-known metadata for the workflow
     }
 
-    #[task(id = "process_data", dependencies = ["collect_data"])]
-    pub async fn process_data(context: &mut Context<Value>) -> Result<(), TaskError> {
-        // Task implementation
+    fn execute_task(&self, request: TaskExecutionRequest) -> TaskExecutionResult {
+        // dispatches to the requested task function
     }
 }
+
+fidius_plugin_registry!(DataProcessingPlugin);
 ```
 
-The macro generates:
+The `fidius_plugin_registry!()` macro exports the single C symbol `fidius_get_registry`, which is the only symbol the host needs to locate.
+
+## Host Loading
+
+The host (cloacina-ctl and the runtime) loads plugins using `fidius_host::load_library()`:
 
 ```rust
-/// Static array of task metadata
-static TASK_METADATA_ARRAY: [cloacina_ctl_task_metadata; 2] = [
-    cloacina_ctl_task_metadata {
-        index: 0,
-        local_id: "collect_data\0".as_ptr() as *const c_char,
-        namespaced_id_template: "{}::{}::data_processing::collect_data\0".as_ptr() as *const c_char,
-        dependencies_json: "[]\0".as_ptr() as *const c_char,
-        description: "Collect input data\0".as_ptr() as *const c_char,
-        source_location: "src/lib.rs:45:1\0".as_ptr() as *const c_char,
-    },
-    cloacina_ctl_task_metadata {
-        index: 1,
-        local_id: "process_data\0".as_ptr() as *const c_char,
-        namespaced_id_template: "{}::{}::data_processing::process_data\0".as_ptr() as *const c_char,
-        dependencies_json: "[\"collect_data\"]\0".as_ptr() as *const c_char,
-        description: "Process collected data\0".as_ptr() as *const c_char,
-        source_location: "src/lib.rs:67:1\0".as_ptr() as *const c_char,
-    }
-];
-
-/// Static package metadata
-static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
-    task_count: 2,
-    tasks: TASK_METADATA_ARRAY.as_ptr(),
-    package_name: "example\0".as_ptr() as *const c_char,
-    graph_data_json: "{\"tasks\":{...}}\0".as_ptr() as *const c_char,
-};
+let handle = fidius_host::load_library::<dyn CloacinaPlugin>(path)?;
 ```
 
-### FFI Function Generation
+Before returning the handle, fidius performs a sequence of validations:
 
-#### Metadata Function
+1. **Magic bytes** — confirms the library was built with fidius
+2. **ABI version** — checks the fidius framework version matches
+3. **Interface hash** — a hash derived from the `CloacinaPlugin` trait definition; if the plugin was compiled against a different version of `cloacina-workflow-plugin`, this check fails immediately
+4. **Wire format** — confirms both sides agree on the serialization format
 
-```rust
-#[no_mangle]
-pub extern "C" fn cloacina_get_task_metadata() -> *const cloacina_ctl_package_tasks {
-    &PACKAGE_TASKS_METADATA
-}
-```
+Once loaded, method calls go through `PluginHandle::call_method()`, which serializes arguments, calls across the boundary, deserializes the result, and surfaces any plugin panic as a `Result::Err` rather than unwinding into the host.
 
-#### Task Execution Function
+## Wire Format
 
-```rust
-#[no_mangle]
-pub extern "C" fn cloacina_execute_task(
-    task_name: *const c_char,
-    task_name_len: u32,
-    context_json: *const c_char,
-    context_len: u32,
-    result_buffer: *mut u8,
-    result_capacity: u32,
-    result_len: *mut u32,
-) -> i32 {
-    // 1. Convert raw pointers to safe Rust types
-    let task_name_bytes = unsafe {
-        std::slice::from_raw_parts(task_name as *const u8, task_name_len as usize)
-    };
+fidius uses different serialization formats depending on the build profile:
 
-    let task_name_str = match std::str::from_utf8(task_name_bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            return write_error_result("Invalid UTF-8 in task name", result_buffer, result_capacity, result_len);
-        }
-    };
+- **Debug builds**: JSON — human-readable, easy to inspect in logs
+- **Release builds**: bincode — compact and fast
 
-    // 2. Parse context from JSON
-    let context_bytes = unsafe {
-        std::slice::from_raw_parts(context_json as *const u8, context_len as usize)
-    };
+This is automatic and requires no configuration. Both the plugin and host switch format together because they share the same `cloacina-workflow-plugin` crate.
 
-    let context_str = match std::str::from_utf8(context_bytes) {
-        Ok(s) => s,
-        Err(_) => {
-            return write_error_result("Invalid UTF-8 in context", result_buffer, result_capacity, result_len);
-        }
-    };
+## Safety Guarantees
 
-    let mut context = match cloacina::Context::from_json(context_str.to_string()) {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            return write_error_result(&format!("Failed to create context from JSON: {}", e), result_buffer, result_capacity, result_len);
-        }
-    };
+The fidius approach provides several safety properties that the previous hand-written FFI did not:
 
-    // 3. Execute task in async runtime
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            return write_error_result(&format!("Failed to create async runtime: {}", e), result_buffer, result_capacity, result_len);
-        }
-    };
-
-    let task_result = runtime.block_on(async {
-        match task_name_str {
-            "collect_data" => data_processing::collect_data(&mut context).await,
-            "process_data" => data_processing::process_data(&mut context).await,
-            _ => Err(format!("Unknown task: {}", task_name_str))
-        }
-    });
-
-    // 4. Handle result and write to buffer
-    match task_result {
-        Ok(()) => {
-            match context.to_json() {
-                Ok(context_json) => {
-                    match serde_json::from_str::<serde_json::Value>(&context_json) {
-                        Ok(context_value) => write_success_result(&context_value, result_buffer, result_capacity, result_len),
-                        Err(e) => write_error_result(&format!("Failed to parse context JSON: {}", e), result_buffer, result_capacity, result_len)
-                    }
-                }
-                Err(e) => write_error_result(&format!("Failed to serialize context: {}", e), result_buffer, result_capacity, result_len)
-            }
-        }
-        Err(e) => {
-            write_error_result(&format!("Task '{}' failed: {}", task_name_str, e), result_buffer, result_capacity, result_len)
-        }
-    }
-}
-```
-
-## Buffer Management and Error Handling
-
-### Actual Buffer Management Implementation
-
-The FFI system uses a simple buffer approach. From the actual implementation:
-
-```rust
-fn write_success_result(result: &serde_json::Value, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
-    let json_str = match serde_json::to_string(result) {
-        Ok(s) => s,
-        Err(_) => return -1,  // JSON serialization failed
-    };
-
-    let bytes = json_str.as_bytes();
-    let len = bytes.len().min(capacity as usize);  // Truncate if too large
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
-        *result_len = len as u32;
-    }
-
-    0 // Success
-}
-
-fn write_error_result(error: &str, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
-    let error_json = serde_json::json!({
-        "error": error,
-        "status": "error"
-    });
-
-    let json_str = match serde_json::to_string(&error_json) {
-        Ok(s) => s,
-        Err(_) => return -2,  // Critical: can't even serialize error
-    };
-
-    let bytes = json_str.as_bytes();
-    let len = bytes.len().min(capacity as usize);  // Truncate if too large
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
-        *result_len = len as u32;
-    }
-
-    -1 // Error
-}
-```
-
-### Client-Side Buffer Usage
-
-From `cloacina-ctl/src/library/execution.rs`, the client uses a fixed 4KB buffer:
-
-```rust
-const RESULT_BUFFER_SIZE: usize = 4096;  // 4KB buffer for result
-let mut result_buffer = vec![0u8; RESULT_BUFFER_SIZE];
-let mut result_len: u32 = 0;
-
-let return_code = unsafe {
-    execute_task(
-        task_name_bytes.as_ptr(),
-        task_name_bytes.len() as u32,
-        context_bytes.as_ptr(),
-        context_bytes.len() as u32,
-        result_buffer.as_mut_ptr(),
-        result_buffer.len() as u32,
-        &mut result_len,
-    )
-};
-
-// Handle result
-if return_code == 0 {
-    // Success
-    if result_len > 0 && result_len <= result_buffer.len() as u32 {
-        let result_json = String::from_utf8_lossy(&result_buffer[..result_len as usize]);
-        println!("Task execution successful!");
-        println!("Result: {}", result_json);
-    }
-} else {
-    // Error - result_buffer contains error JSON
-    let error_msg = if result_len > 0 && result_len <= result_buffer.len() as u32 {
-        String::from_utf8_lossy(&result_buffer[..result_len as usize]).to_string()
-    } else {
-        format!("Unknown error (code: {})", return_code)
-    };
-
-    bail!("Task execution failed: {}", error_msg);
-}
-```
-
-{{< hint type=note title="Buffer Truncation" >}}
-If the result JSON is larger than the buffer capacity, it will be silently truncated. The current implementation does not handle buffer overflow gracefully - results are simply cut off at the buffer boundary.
-{{< /hint >}}
-
-## Symbol Discovery and Dynamic Loading
-
-### Symbol Discovery Process
-
-The package loader attempts symbol discovery with fallback:
-
-```rust
-// From cloacina/src/registry/loader/package_loader.rs
-let get_metadata = unsafe {
-    match lib.get::<unsafe extern "C" fn() -> *const CPackageTasks>(
-        "cloacina_get_task_metadata".as_bytes(),
-    ) {
-        Ok(func) => func,
-        Err(_) => {
-            // Try package-specific function name as fallback
-            let func_name = format!("cloacina_get_task_metadata_{}\0", package_name);
-            lib.get::<unsafe extern "C" fn() -> *const CPackageTasks>(func_name.as_bytes())
-                .map_err(|e| LoaderError::SymbolNotFound {
-                    symbol: "cloacina_get_task_metadata".to_string(),
-                    error: e.to_string(),
-                })?
-        }
-    }
-};
-```
-
-### Metadata Extraction
-
-```rust
-// Call the metadata function
-let c_package_tasks = unsafe { get_metadata() };
-if c_package_tasks.is_null() {
-    return Err(LoaderError::MetadataExtraction {
-        reason: "Metadata function returned null pointer".to_string(),
-    });
-}
-
-// Convert C structures to Rust structures
-let package_tasks = unsafe { &*c_package_tasks };
-```
-
-## Memory Management and Safety
-
-### Static Data Approach
-
-The FFI system relies entirely on static data:
-
-- **String literals**: All strings are stored as static `&'static str` with null terminators
-- **Metadata arrays**: Task metadata is stored in static arrays
-- **Pointer safety**: All pointers reference static data, eliminating use-after-free risks
-- **Thread safety**: Static data is inherently thread-safe for read access
-
-### Memory Layout Guarantees
-
-```rust
-// Safety: These pointers point to static string literals which are safe to share
-unsafe impl Sync for cloacina_ctl_task_metadata {}
-
-// Safety: These pointers point to static data which is safe to share
-unsafe impl Sync for cloacina_ctl_package_tasks {}
-```
-
-### Cross-Platform Compatibility
-
-The FFI system handles platform differences through:
-
-- **`#[no_mangle]`**: Prevents Rust name mangling
-- **`extern "C"`**: Uses C calling convention across platforms
-- **`#[repr(C)]`**: Ensures consistent memory layout
-- **Standard types**: Uses `std::os::raw::c_char` for portability
-
-## Empty Package Handling
-
-For packages with no tasks, the macro generates a special implementation:
-
-```rust
-pub extern "C" fn cloacina_execute_task(...) -> i32 {
-    let error_json = serde_json::json!({
-        "error": "No tasks defined in this package",
-        "status": "error"
-    });
-
-    let json_str = match serde_json::to_string(&error_json) {
-        Ok(s) => s,
-        Err(_) => return -2,  // JSON serialization failed
-    };
-
-    // Write error to buffer and return -1
-    let bytes = json_str.as_bytes();
-    let len = bytes.len().min(result_capacity as usize);
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), result_buffer, len);
-        *result_len = len as u32;
-    }
-
-    -1
-}
-```
-
-## Limitations and Considerations
-
-### Current Limitations
-
-1. **Fixed Buffer Size**: Client uses 4KB buffer with no dynamic resizing
-2. **Silent Truncation**: Large results are truncated without error indication
-3. **No Buffer Overflow Detection**: No mechanism to detect when results are too large
-4. **Single Threaded Execution**: Each task execution creates its own tokio runtime
-
-### Performance Considerations
-
-- **Static Metadata Access**: Zero-cost metadata access through static arrays
-- **Runtime Creation Overhead**: New tokio runtime created for each task execution
-- **JSON Serialization**: Context serialized/deserialized for each task call
-- **Memory Copying**: Results copied through buffer interface
-
-## Best Practices
-
-### For FFI Implementation
-
-1. **Use `#[repr(C)]` and `#[no_mangle]`** for all exported structures and functions
-2. **Include null terminators** for all C strings in static data
-3. **Handle UTF-8 validation** explicitly at FFI boundary
-4. **Use static data** for all exported metadata and strings
-
-### For Buffer Management
-
-1. **Check result_len** against buffer capacity after FFI calls
-2. **Handle truncation gracefully** in client code
-3. **Consider larger buffers** for complex workflows with large context data
-4. **Validate JSON completeness** after reading from buffer
-
-### For Error Handling
-
-1. **Always check return codes** - only 0 indicates success
-2. **Parse error JSON** from result buffer for detailed error information
-3. **Handle both general (-1) and critical (-2) error cases**
-4. **Provide meaningful error context** in client applications
+- **No raw pointer fields**: all data crosses the boundary as serialized bytes; there are no `*const c_char` pointers for the caller to misuse or fail to free
+- **ABI hash drift detection**: a plugin compiled against an older interface crate is rejected at load time rather than silently calling the wrong method
+- **Panic isolation**: plugin panics are caught at the boundary and returned as errors; the host process is never unwound by a plugin
+- **Automatic buffer sizing**: fidius allocates exactly the right buffer for each call; there is no fixed-size buffer that could truncate large results
 
 ## Related Resources
 

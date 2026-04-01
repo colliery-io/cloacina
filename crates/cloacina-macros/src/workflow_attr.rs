@@ -433,6 +433,7 @@ fn generate_embedded_registration(
                                 fn retry_policy(&self) -> cloacina::retry::RetryPolicy { self.inner.retry_policy() }
                                 fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                                 fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
+                                fn requires_handle(&self) -> bool { self.inner.requires_handle() }
                             }
 
                             std::sync::Arc::new(TaskWithNamespacedTriggers {
@@ -506,6 +507,7 @@ fn generate_embedded_registration(
                         fn retry_policy(&self) -> cloacina::retry::RetryPolicy { self.inner.retry_policy() }
                         fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                         fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
+                        fn requires_handle(&self) -> bool { self.inner.requires_handle() }
                     }
 
                     workflow.add_task(std::sync::Arc::new(TaskWithNamespacedTriggers {
@@ -641,36 +643,10 @@ fn generate_packaged_registration(
         author.to_string()
     };
 
-    // Generate task metadata entries and execution cases
-    let mut task_metadata_entries = Vec::new();
+    // Generate task execution match arms
     let mut task_execution_cases = Vec::new();
 
-    for (task_index, (task_id, fn_name)) in detected_tasks.iter().enumerate() {
-        let task_index = task_index as u32;
-        let deps = task_dependencies.get(task_id).cloned().unwrap_or_default();
-
-        // Namespace: {tenant}::CARGO_PKG_NAME::workflow_name::task_id
-        let namespaced_id = format!("{{tenant}}::{{pkg}}::{}::{}", workflow_name, task_id);
-
-        let dependencies_json = if deps.is_empty() {
-            "[]".to_string()
-        } else {
-            format!("[\"{}\"]", deps.join("\",\""))
-        };
-
-        let source_location = format!("src/{}.rs", mod_name);
-
-        task_metadata_entries.push(quote! {
-            cloacina_ctl_task_metadata {
-                index: #task_index,
-                local_id: concat!(#task_id, "\0").as_ptr() as *const std::os::raw::c_char,
-                namespaced_id_template: concat!(#namespaced_id, "\0").as_ptr() as *const std::os::raw::c_char,
-                dependencies_json: concat!(#dependencies_json, "\0").as_ptr() as *const std::os::raw::c_char,
-                description: concat!("Task: ", #task_id, "\0").as_ptr() as *const std::os::raw::c_char,
-                source_location: concat!(#source_location, "\0").as_ptr() as *const std::os::raw::c_char,
-            }
-        });
-
+    for (task_id, fn_name) in detected_tasks.iter() {
         task_execution_cases.push(quote! {
             #task_id => {
                 match #fn_name(&mut context).await {
@@ -681,182 +657,101 @@ fn generate_packaged_registration(
         });
     }
 
-    let task_count = detected_tasks.len();
+    // Build task metadata entries for get_task_metadata() response
+    let metadata_entries: Vec<_> = detected_tasks
+        .iter()
+        .enumerate()
+        .map(|(i, (task_id, _))| {
+            let deps = task_dependencies.get(task_id).cloned().unwrap_or_default();
+            let namespaced_id = format!("{{tenant}}::{{pkg}}::{}::{}", workflow_name, task_id);
+            let source_location = format!("src/{}.rs", mod_name);
+            let dep_strs: Vec<_> = deps.iter().map(|d| quote! { #d.to_string() }).collect();
+            let idx = i as u32;
+
+            quote! {
+                cloacina_workflow_plugin::TaskMetadataEntry {
+                    index: #idx,
+                    id: #task_id.to_string(),
+                    namespaced_id_template: #namespaced_id.to_string(),
+                    dependencies: vec![#(#dep_strs),*],
+                    description: format!("Task: {}", #task_id),
+                    source_location: #source_location.to_string(),
+                }
+            }
+        })
+        .collect();
 
     quote! {
-        /// C-compatible task metadata structure for FFI
-        #[repr(C)]
-        #[derive(Debug, Clone, Copy)]
-        pub struct cloacina_ctl_task_metadata {
-            pub index: u32,
-            pub local_id: *const std::os::raw::c_char,
-            pub namespaced_id_template: *const std::os::raw::c_char,
-            pub dependencies_json: *const std::os::raw::c_char,
-            pub description: *const std::os::raw::c_char,
-            pub source_location: *const std::os::raw::c_char,
-        }
+        use cloacina_workflow_plugin::__fidius_CloacinaPlugin;
+        use cloacina_workflow_plugin::CloacinaPlugin as _;
 
-        unsafe impl Sync for cloacina_ctl_task_metadata {}
+        /// Workflow plugin implementation for fidius.
+        pub struct _WorkflowPlugin;
 
-        /// Package task metadata for FFI export
-        #[repr(C)]
-        #[derive(Debug, Clone, Copy)]
-        pub struct cloacina_ctl_package_tasks {
-            pub task_count: u32,
-            pub tasks: *const cloacina_ctl_task_metadata,
-            pub workflow_name: *const std::os::raw::c_char,
-            pub package_name: *const std::os::raw::c_char,
-            pub package_description: *const std::os::raw::c_char,
-            pub package_author: *const std::os::raw::c_char,
-            pub workflow_fingerprint: *const std::os::raw::c_char,
-            pub graph_data_json: *const std::os::raw::c_char,
-        }
-
-        unsafe impl Sync for cloacina_ctl_package_tasks {}
-
-        static TASK_METADATA_ARRAY: [cloacina_ctl_task_metadata; #task_count] = [
-            #(#task_metadata_entries),*
-        ];
-
-        static GRAPH_DATA_JSON: &str = concat!(#graph_data_json, "\0");
-
-        static PACKAGE_TASKS_METADATA: cloacina_ctl_package_tasks = cloacina_ctl_package_tasks {
-            task_count: #task_count as u32,
-            tasks: TASK_METADATA_ARRAY.as_ptr(),
-            workflow_name: concat!(#workflow_name, "\0").as_ptr() as *const std::os::raw::c_char,
-            package_name: concat!(env!("CARGO_PKG_NAME"), "\0").as_ptr() as *const std::os::raw::c_char,
-            package_description: concat!(#package_description, "\0").as_ptr() as *const std::os::raw::c_char,
-            package_author: concat!(#package_author, "\0").as_ptr() as *const std::os::raw::c_char,
-            workflow_fingerprint: concat!(#fingerprint, "\0").as_ptr() as *const std::os::raw::c_char,
-            graph_data_json: GRAPH_DATA_JSON.as_ptr() as *const std::os::raw::c_char,
-        };
-
-        #[no_mangle]
-        pub extern "C" fn cloacina_get_task_metadata() -> *const cloacina_ctl_package_tasks {
-            &PACKAGE_TASKS_METADATA
-        }
-
-        /// Dedicated tokio runtime for this cdylib package.
-        static CDYLIB_RUNTIME: std::sync::OnceLock<cloacina_workflow::__private::tokio::runtime::Runtime> = std::sync::OnceLock::new();
-
-        #[no_mangle]
-        pub extern "C" fn cloacina_execute_task(
-            task_name: *const std::os::raw::c_char,
-            task_name_len: u32,
-            context_json: *const std::os::raw::c_char,
-            context_len: u32,
-            result_buffer: *mut u8,
-            result_capacity: u32,
-            result_len: *mut u32,
-        ) -> i32 {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                _cloacina_execute_task_inner(task_name, task_name_len, context_json, context_len, result_buffer, result_capacity, result_len)
-            }));
-            match result {
-                Ok(code) => code,
-                Err(panic_info) => {
-                    let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
-                        s.clone()
-                    } else if let Some(s) = panic_info.downcast_ref::<&str>() {
-                        s.to_string()
-                    } else {
-                        "unknown panic in FFI task execution".to_string()
-                    };
-                    eprintln!("CDYLIB PANIC: {}", msg);
-                    _write_error_result(&format!("Task panicked: {}", msg), result_buffer, result_capacity, result_len)
-                }
+        #[cloacina_workflow_plugin::plugin_impl(CloacinaPlugin, crate = "cloacina_workflow_plugin")]
+        impl cloacina_workflow_plugin::CloacinaPlugin for _WorkflowPlugin {
+            fn get_task_metadata(&self) -> Result<cloacina_workflow_plugin::PackageTasksMetadata, cloacina_workflow_plugin::PluginError> {
+                Ok(cloacina_workflow_plugin::PackageTasksMetadata {
+                    workflow_name: #workflow_name.to_string(),
+                    package_name: env!("CARGO_PKG_NAME").to_string(),
+                    package_description: Some(#package_description.to_string()),
+                    package_author: Some(#package_author.to_string()),
+                    workflow_fingerprint: Some(#fingerprint.to_string()),
+                    graph_data_json: Some(#graph_data_json.to_string()),
+                    tasks: vec![
+                        #(#metadata_entries),*
+                    ],
+                })
             }
-        }
 
-        fn _cloacina_execute_task_inner(
-            task_name: *const std::os::raw::c_char,
-            task_name_len: u32,
-            context_json: *const std::os::raw::c_char,
-            context_len: u32,
-            result_buffer: *mut u8,
-            result_capacity: u32,
-            result_len: *mut u32,
-        ) -> i32 {
-            let task_name_bytes = unsafe {
-                std::slice::from_raw_parts(task_name as *const u8, task_name_len as usize)
-            };
-            let task_name_str = match std::str::from_utf8(task_name_bytes) {
-                Ok(s) => s,
-                Err(_) => return _write_error_result("Invalid UTF-8 in task name", result_buffer, result_capacity, result_len),
-            };
+            fn execute_task(&self, request: cloacina_workflow_plugin::TaskExecutionRequest) -> Result<cloacina_workflow_plugin::TaskExecutionResult, cloacina_workflow_plugin::PluginError> {
+                static CDYLIB_RUNTIME: std::sync::OnceLock<cloacina_workflow::__private::tokio::runtime::Runtime> = std::sync::OnceLock::new();
 
-            let context_bytes = unsafe {
-                std::slice::from_raw_parts(context_json as *const u8, context_len as usize)
-            };
-            let context_str = match std::str::from_utf8(context_bytes) {
-                Ok(s) => s,
-                Err(_) => return _write_error_result("Invalid UTF-8 in context", result_buffer, result_capacity, result_len),
-            };
+                let rt = CDYLIB_RUNTIME.get_or_init(|| {
+                    cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .worker_threads(2)
+                        .thread_name("cdylib-worker")
+                        .build()
+                        .expect("Failed to create cdylib tokio runtime")
+                });
 
-            let mut context = match cloacina_workflow::Context::from_json(context_str.to_string()) {
-                Ok(ctx) => ctx,
-                Err(e) => return _write_error_result(&format!("Failed to create context: {}", e), result_buffer, result_capacity, result_len),
-            };
+                let mut context = cloacina_workflow::Context::from_json(request.context_json)
+                    .map_err(|e| cloacina_workflow_plugin::PluginError {
+                        code: "CONTEXT_ERROR".to_string(),
+                        message: format!("Failed to create context: {}", e),
+                        details: None,
+                    })?;
 
-            let rt = CDYLIB_RUNTIME.get_or_init(|| {
-                cloacina_workflow::__private::tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .worker_threads(2)
-                    .thread_name("cdylib-worker")
-                    .build()
-                    .expect("Failed to create cdylib tokio runtime")
-            });
-
-            let task_result = rt.block_on(async {
-                match task_name_str {
-                    #(#task_execution_cases)*
-                    _ => Err(format!("Unknown task: {}", task_name_str))
-                }
-            });
-
-            match task_result {
-                Ok(()) => {
-                    match context.to_json() {
-                        Ok(ctx_json) => {
-                            match serde_json::from_str::<serde_json::Value>(&ctx_json) {
-                                Ok(val) => _write_success_result(&val, result_buffer, result_capacity, result_len),
-                                Err(e) => _write_error_result(&format!("Failed to parse context: {}", e), result_buffer, result_capacity, result_len),
-                            }
-                        }
-                        Err(e) => _write_error_result(&format!("Failed to serialize context: {}", e), result_buffer, result_capacity, result_len),
+                let task_result = rt.block_on(async {
+                    match request.task_name.as_str() {
+                        #(#task_execution_cases)*
+                        _ => Err(format!("Unknown task: {}", request.task_name))
                     }
+                });
+
+                match task_result {
+                    Ok(()) => {
+                        let ctx_json = context.to_json().map_err(|e| cloacina_workflow_plugin::PluginError {
+                            code: "SERIALIZATION_ERROR".to_string(),
+                            message: format!("Failed to serialize context: {}", e),
+                            details: None,
+                        })?;
+                        Ok(cloacina_workflow_plugin::TaskExecutionResult {
+                            success: true,
+                            context_json: Some(ctx_json),
+                            error: None,
+                        })
+                    }
+                    Err(e) => Ok(cloacina_workflow_plugin::TaskExecutionResult {
+                        success: false,
+                        context_json: None,
+                        error: Some(e),
+                    }),
                 }
-                Err(e) => _write_error_result(&format!("Task failed: {}", e), result_buffer, result_capacity, result_len),
             }
         }
 
-        fn _write_success_result(result: &serde_json::Value, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
-            let json_str = match serde_json::to_string(result) {
-                Ok(s) => s,
-                Err(_) => return -1,
-            };
-            let bytes = json_str.as_bytes();
-            let len = bytes.len().min(capacity as usize);
-            unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
-                *result_len = len as u32;
-            }
-            0
-        }
-
-        fn _write_error_result(error: &str, buffer: *mut u8, capacity: u32, result_len: *mut u32) -> i32 {
-            let error_json = serde_json::json!({"error": error, "status": "error"});
-            let json_str = match serde_json::to_string(&error_json) {
-                Ok(s) => s,
-                Err(_) => return -2,
-            };
-            let bytes = json_str.as_bytes();
-            let len = bytes.len().min(capacity as usize);
-            unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer, len);
-                *result_len = len as u32;
-            }
-            -1
-        }
+        cloacina_workflow_plugin::fidius_plugin_registry!();
     }
 }

@@ -57,8 +57,7 @@ The `manifest.json` file contains all metadata required for package validation, 
   "library": {
     "filename": "libdata_processing_workflow.so",
     "symbols": [
-      "cloacina_execute_task",
-      "cloacina_get_task_metadata"
+      "fidius_get_registry"
     ],
     "architecture": "x86_64-unknown-linux-gnu"
   },
@@ -295,7 +294,7 @@ Package Information:
 Library:
   File: libdata_processing_workflow.so
   Architecture: x86_64-unknown-linux-gnu
-  Symbols: ["cloacina_execute_task", "cloacina_get_task_metadata"]
+  Symbols: ["fidius_get_registry"]
 
 Tasks (3):
   0: fetch_data
@@ -365,9 +364,8 @@ else if &data[0..2] == b"MZ" {
 
 ### Required Symbols
 
-Every valid package must export these FFI symbols:
-- `cloacina_execute_task` - Main task execution entry point
-- `cloacina_get_task_metadata` - Metadata extraction function
+Every valid package must export the fidius registry symbol:
+- `fidius_get_registry` - Entry point exported by `fidius_plugin_registry!()`, used by the host to locate the `CloacinaPlugin` implementation and validate ABI compatibility before any method calls are made
 
 ## Best Practices
 
@@ -409,7 +407,7 @@ Key constants defined in the codebase:
 // From cloacina-ctl/src/manifest/types.rs
 pub const CLOACINA_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MANIFEST_FILENAME: &str = "manifest.json";
-pub const EXECUTE_TASK_SYMBOL: &str = "cloacina_execute_task";
+pub const REGISTRY_SYMBOL: &str = "fidius_get_registry";
 ```
 
 ## Related Resources

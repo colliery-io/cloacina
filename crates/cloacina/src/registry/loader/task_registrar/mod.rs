@@ -24,11 +24,8 @@ mod dynamic_task;
 mod extraction;
 mod types;
 
-pub use types::{
-    OwnedTaskMetadata, OwnedTaskMetadataCollection, TaskMetadata, TaskMetadataCollection,
-};
+pub use types::{OwnedTaskMetadata, OwnedTaskMetadataCollection};
 
-use libloading::Library;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
@@ -51,8 +48,8 @@ pub struct TaskRegistrar {
     pub(super) temp_dir: TempDir,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamespace>>>>,
-    /// Map of package IDs to loaded libraries (kept alive)
-    loaded_libraries: Arc<RwLock<HashMap<String, Library>>>,
+    /// Tracks which package IDs have been registered (for cleanup bookkeeping)
+    loaded_packages: Arc<RwLock<HashMap<String, ()>>>,
 }
 
 impl TaskRegistrar {
@@ -65,7 +62,7 @@ impl TaskRegistrar {
         Ok(Self {
             temp_dir,
             registered_tasks: Arc::new(RwLock::new(HashMap::new())),
-            loaded_libraries: Arc::new(RwLock::new(HashMap::new())),
+            loaded_packages: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -217,10 +214,10 @@ impl TaskRegistrar {
             );
         }
 
-        // Remove library reference
+        // Remove package tracking entry
         {
-            let mut libraries = self.loaded_libraries.write();
-            libraries.remove(package_id);
+            let mut packages = self.loaded_packages.write();
+            packages.remove(package_id);
         }
 
         Ok(())
@@ -234,8 +231,8 @@ impl TaskRegistrar {
 
     /// Get the number of currently loaded packages.
     pub fn loaded_package_count(&self) -> usize {
-        let libraries = self.loaded_libraries.read();
-        libraries.len()
+        let packages = self.loaded_packages.read();
+        packages.len()
     }
 
     /// Get the total number of registered tasks across all packages.
@@ -267,10 +264,7 @@ mod tests {
             .map(|i| LoaderTaskMetadata {
                 index: i as u32,
                 local_id: format!("task_{}", i),
-                namespaced_id_template: format!(
-                    "{{tenant_id}}/{{package_name}}/{}",
-                    format!("task_{}", i)
-                ),
+                namespaced_id_template: format!("{{tenant_id}}/{{package_name}}/task_{}", i),
                 dependencies: Vec::new(),
                 description: format!("Test task {}", i),
                 source_location: "test.rs:1".to_string(),
@@ -285,10 +279,7 @@ mod tests {
             tasks,
             graph_data: None,
             architecture: "x86_64".to_string(),
-            symbols: vec![
-                "cloacina_execute_task".to_string(),
-                "cloacina_get_task_metadata".to_string(),
-            ],
+            symbols: vec!["fidius_get_registry".to_string()],
         }
     }
 

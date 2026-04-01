@@ -27,18 +27,18 @@ def build_test_packages(backend=None):
     # Create output directory
     os.makedirs("target/test-packages", exist_ok=True)
 
-    # Build packaged-workflow-example (no backend features needed - it's backend-agnostic)
+    # Build packaged-workflow-example (debug mode to match test binary wire format)
     print("Building packaged-workflow-example...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "packaged-workflow-example"],
+        ["cargo", "build", "-p", "packaged-workflow-example"],
         check=True,
         cwd="examples/features/packaged-workflows"
     )
 
-    # Build simple-packaged-demo (no backend features needed - it's backend-agnostic)
+    # Build simple-packaged-demo (debug mode to match test binary wire format)
     print("Building simple-packaged-demo...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "simple-packaged-demo"],
+        ["cargo", "build", "-p", "simple-packaged-demo"],
         check=True,
         cwd="examples/features/simple-packaged"
     )
