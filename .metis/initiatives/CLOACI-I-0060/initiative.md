@@ -4,14 +4,14 @@ level: initiative
 title: "Adopt fidius for packaged workflow FFI — eliminate manual ABI structs"
 short_code: "CLOACI-I-0060"
 created_at: 2026-03-31T13:51:45.446782+00:00
-updated_at: 2026-03-31T23:49:58.455409+00:00
+updated_at: 2026-04-01T04:12:31.537334+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

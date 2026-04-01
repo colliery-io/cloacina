@@ -4,14 +4,14 @@ level: task
 title: "Validation — ABI drift detection, wire format mismatch, and end-to-end packaging round-trip"
 short_code: "CLOACI-T-0318"
 created_at: 2026-03-31T23:46:01.820880+00:00
-updated_at: 2026-04-01T04:03:50.599469+00:00
+updated_at: 2026-04-01T04:12:30.319687+00:00
 parent: CLOACI-I-0060
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0060
 ## Objective
 
 Prove the fidius integration is correct and robust with dedicated validation tests. These tests verify that the safety guarantees fidius provides (ABI drift detection, wire format checking, buffer strategy validation) actually work end-to-end in the cloacina context — not just in fidius's own test suite.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
