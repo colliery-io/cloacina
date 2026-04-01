@@ -135,7 +135,7 @@ impl Task for DynamicLibraryTask {
         // Method index 1 = execute_task
         let result: TaskExecutionResult =
             handle
-                .call_method(1, &request)
+                .call_method(1, &(request,))
                 .map_err(|e| TaskError::ExecutionFailed {
                     task_id: self.task_name.clone(),
                     message: format!("Plugin call failed for task '{}': {}", self.task_name, e),

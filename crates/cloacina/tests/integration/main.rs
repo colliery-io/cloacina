@@ -22,6 +22,7 @@ pub mod dal;
 pub mod database;
 pub mod error;
 pub mod executor;
+pub mod fidius_validation;
 pub mod logging;
 pub mod models;
 pub mod packaging;

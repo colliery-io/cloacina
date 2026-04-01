@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T03:53:35Z | 371 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T04:09:55Z | 372 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -215,6 +215,7 @@
 │   │           │   ├── multi_tenant.rs
 │   │           │   ├── pause_resume.rs
 │   │           │   └── task_execution.rs
+│   │           ├── fidius_validation.rs
 │   │           ├── logging.rs
 │   │           ├── main.rs
 │   │           ├── models/
@@ -2023,11 +2024,11 @@
 
 - pub `extract_manifest_from_package` function L35-60 — `(package_path: &PathBuf) -> Result<Manifest>` — Extract the manifest from a package archive.
 - pub `extract_library_from_package` function L63-118 — `( package_path: &PathBuf, manifest: &Manifest, temp_dir: &tempfile::TempDir, ) -...` — Extract the dynamic library from a package archive to a temporary location.
-- pub `execute_task_from_library` function L121-144 — `( library_path: &PathBuf, task_name: &str, context_json: &str, ) -> Result<Strin...` — Execute a task from a dynamic library via the fidius-host plugin API.
-- pub `resolve_task_name` function L147-174 — `(manifest: &Manifest, task_identifier: &str) -> Result<String>` — Resolve a task identifier (index or name) to a task name.
-- pub `debug_package` function L177-229 — `( package_path: &PathBuf, task_identifier: Option<&str>, context_json: Option<&s...` — High-level debug function that handles both listing and executing tasks.
-- pub `DebugResult` enum L233-236 — `TaskList | TaskExecution` — Result of a debug operation.
-- pub `TaskDebugInfo` struct L240-245 — `{ index: usize, id: String, description: String, dependencies: Vec<String> }` — Information about a task for debugging purposes.
+- pub `execute_task_from_library` function L121-148 — `( library_path: &PathBuf, task_name: &str, context_json: &str, ) -> Result<Strin...` — Execute a task from a dynamic library via the fidius-host plugin API.
+- pub `resolve_task_name` function L151-178 — `(manifest: &Manifest, task_identifier: &str) -> Result<String>` — Resolve a task identifier (index or name) to a task name.
+- pub `debug_package` function L181-233 — `( package_path: &PathBuf, task_identifier: Option<&str>, context_json: Option<&s...` — High-level debug function that handles both listing and executing tasks.
+- pub `DebugResult` enum L237-240 — `TaskList | TaskExecution` — Result of a debug operation.
+- pub `TaskDebugInfo` struct L244-249 — `{ index: usize, id: String, description: String, dependencies: Vec<String> }` — Information about a task for debugging purposes.
 -  `MANIFEST_FILENAME` variable L32 — `: &str` — for testing and development purposes.
 
 #### crates/cloacina/src/packaging/manifest.rs
@@ -3662,6 +3663,16 @@
 -  `test_error_source_chains` function L121-132 — `()`
 -  `test_error_debug_formatting` function L135-146 — `()`
 
+#### crates/cloacina/tests/integration/fidius_validation.rs
+
+-  `find_packaged_workflow_dylib` function L26-54 — `() -> Option<std::path::PathBuf>` — Find the pre-built debug dylib for the packaged-workflows example.
+-  `create_non_fidius_dylib` function L57-72 — `() -> tempfile::NamedTempFile` — Create a temporary file that is NOT a fidius plugin.
+-  `test_non_fidius_dylib_rejected_gracefully` function L75-88 — `()` — correctly in the cloacina context.
+-  `test_metadata_fidelity` function L91-148 — `()` — correctly in the cloacina context.
+-  `test_task_execution_fidelity` function L151-191 — `()` — correctly in the cloacina context.
+-  `test_unknown_task_returns_error` function L194-228 — `()` — correctly in the cloacina context.
+-  `test_plugin_info_populated` function L231-262 — `()` — correctly in the cloacina context.
+
 #### crates/cloacina/tests/integration/logging.rs
 
 -  `test_structured_logging` function L20-32 — `()`
@@ -3676,22 +3687,23 @@
 - pub `database` module L22 — `-`
 - pub `error` module L23 — `-`
 - pub `executor` module L24 — `-`
-- pub `logging` module L25 — `-`
-- pub `models` module L26 — `-`
-- pub `packaging` module L27 — `-`
-- pub `packaging_inspection` module L28 — `-`
-- pub `python_package` module L29 — `-`
-- pub `registry_simple_functional_test` module L30 — `-`
-- pub `registry_storage_tests` module L31 — `-`
-- pub `registry_workflow_registry_tests` module L32 — `-`
-- pub `runner_configurable_registry_tests` module L33 — `-`
-- pub `scheduler` module L34 — `-`
-- pub `signing` module L35 — `-`
-- pub `task` module L36 — `-`
-- pub `trigger_packaging` module L37 — `-`
-- pub `unified_workflow` module L38 — `-`
-- pub `workflow` module L39 — `-`
--  `fixtures` module L42 — `-`
+- pub `fidius_validation` module L25 — `-`
+- pub `logging` module L26 — `-`
+- pub `models` module L27 — `-`
+- pub `packaging` module L28 — `-`
+- pub `packaging_inspection` module L29 — `-`
+- pub `python_package` module L30 — `-`
+- pub `registry_simple_functional_test` module L31 — `-`
+- pub `registry_storage_tests` module L32 — `-`
+- pub `registry_workflow_registry_tests` module L33 — `-`
+- pub `runner_configurable_registry_tests` module L34 — `-`
+- pub `scheduler` module L35 — `-`
+- pub `signing` module L36 — `-`
+- pub `task` module L37 — `-`
+- pub `trigger_packaging` module L38 — `-`
+- pub `unified_workflow` module L39 — `-`
+- pub `workflow` module L40 — `-`
+-  `fixtures` module L43 — `-`
 
 #### crates/cloacina/tests/integration/packaging.rs
 

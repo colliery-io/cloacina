@@ -4,14 +4,14 @@ level: task
 title: "Migrate packaged examples and integration tests to fidius plugin system"
 short_code: "CLOACI-T-0317"
 created_at: 2026-03-31T23:39:39.038701+00:00
-updated_at: 2026-03-31T23:39:39.038701+00:00
+updated_at: 2026-04-01T04:03:20.320270+00:00
 parent: CLOACI-I-0060
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0060
 ## Objective
 
 Rebuild all packaged workflow examples with the new fidius-based plugin output, update integration tests, verify `fidius inspect` works on generated dylibs, and add an ABI drift detection test.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

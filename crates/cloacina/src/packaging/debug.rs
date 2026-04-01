@@ -135,12 +135,16 @@ pub fn execute_task_from_library(
 
     let handle = fidius_host::PluginHandle::from_loaded(plugin);
 
-    // Method index 1 = execute_task (task_name, context_json)
-    let result: String = handle
-        .call_method(1, &(task_name.to_string(), context_json.to_string()))
+    // Method index 1 = execute_task (fidius tuple encoding: (TaskExecutionRequest,))
+    let request = cloacina_workflow_plugin::TaskExecutionRequest {
+        task_name: task_name.to_string(),
+        context_json: context_json.to_string(),
+    };
+    let result: cloacina_workflow_plugin::TaskExecutionResult = handle
+        .call_method(1, &(request,))
         .with_context(|| format!("Failed to execute task '{}' via plugin API", task_name))?;
 
-    Ok(result)
+    Ok(result.context_json.unwrap_or_default())
 }
 
 /// Resolve a task identifier (index or name) to a task name.
