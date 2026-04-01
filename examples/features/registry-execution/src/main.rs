@@ -278,16 +278,8 @@ async fn build_package() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let temp_dir = TempDir::new()?;
     let output_path = temp_dir.path().join("package.cloacina");
 
-    // Create compile options
-    let options = cloacina::packaging::CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
-    };
-
     // Build the package using the library function directly
-    cloacina::packaging::package_workflow(project_path, output_path.clone(), options)?;
+    cloacina::packaging::package_workflow(project_path, output_path.clone())?;
 
     Ok(tokio::fs::read(output_path).await?)
 }

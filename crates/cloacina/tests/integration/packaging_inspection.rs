@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 use tempfile::TempDir;
 
-use cloacina::packaging::{package_workflow, CompileOptions, Manifest};
+use cloacina::packaging::{package_workflow, Manifest};
 
 /// Test fixture for packaging and inspecting existing example projects
 struct PackageInspectionFixture {
@@ -67,18 +67,7 @@ impl PackageInspectionFixture {
 
     /// Package the workflow using the cloacina library
     fn package_workflow(&self) -> Result<()> {
-        let options = CompileOptions {
-            target: None,
-            profile: "debug".to_string(),
-            cargo_flags: vec![],
-            jobs: Some(1), // Use single job to avoid overwhelming the system
-        };
-
-        package_workflow(
-            self.project_path.clone(),
-            self.package_path.clone(),
-            options,
-        )
+        package_workflow(self.project_path.clone(), self.package_path.clone())
     }
 
     /// Extract and parse the manifest from the packaged workflow

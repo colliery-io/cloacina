@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T11:19:09Z | 372 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T16:10:35Z | 372 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4769,16 +4769,18 @@
 - pub `PackageTasksMetadata` struct L47-62 — `{ workflow_name: String, package_name: String, package_description: Option<Strin...` — Complete metadata for a workflow package, returned by `get_task_metadata()`.
 - pub `TaskExecutionRequest` struct L66-71 — `{ task_name: String, context_json: String }` — Request to execute a task within a workflow package.
 - pub `TaskExecutionResult` struct L75-82 — `{ success: bool, context_json: Option<String>, error: Option<String> }` — Result of a task execution.
-- pub `CloacinaMetadata` struct L94-106 — `{ workflow_name: String, description: Option<String>, author: Option<String>, tr...` — Host-defined metadata schema for cloacina workflow packages.
-- pub `TriggerDefinition` struct L110-120 — `{ name: String, workflow: String, poll_interval: String, allow_concurrent: bool ...` — A trigger definition within a workflow package manifest.
--  `tests` module L123-245 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_metadata_serde_round_trip` function L127-141 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_package_tasks_metadata_serde_round_trip` function L144-166 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_request_round_trip` function L169-178 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_success` function L181-193 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_failure` function L196-207 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_from_toml` function L210-232 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_minimal` function L235-244 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+- pub `CloacinaMetadata` struct L94-114 — `{ workflow_name: String, language: String, description: Option<String>, author: ...` — Host-defined metadata schema for cloacina workflow packages.
+- pub `TriggerDefinition` struct L118-128 — `{ name: String, workflow: String, poll_interval: String, allow_concurrent: bool ...` — A trigger definition within a workflow package manifest.
+-  `tests` module L131-287 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_metadata_serde_round_trip` function L135-149 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_package_tasks_metadata_serde_round_trip` function L152-174 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_request_round_trip` function L177-186 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_success` function L189-201 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_failure` function L204-215 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_rust_from_toml` function L218-244 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_python_from_toml` function L247-262 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_minimal_rust` function L265-276 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_missing_language_fails` function L279-286 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
 
 ### crates/cloacinactl
 

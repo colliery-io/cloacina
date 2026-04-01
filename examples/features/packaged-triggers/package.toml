@@ -1,0 +1,12 @@
+[package]
+name = "packaged-triggers-example"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "file_processing"
+language = "rust"
+description = "Process incoming files detected by trigger"
+author = "Platform Team"

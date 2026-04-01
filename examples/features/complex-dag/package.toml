@@ -1,0 +1,12 @@
+[package]
+name = "complex-dag-example"
+version = "0.2.0-alpha.5"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "complex_dag_workflow"
+language = "rust"
+description = "Complex DAG structure for testing visualization capabilities"
+author = "Cloacina Team"

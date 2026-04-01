@@ -1,0 +1,12 @@
+[package]
+name = "packaged-workflow-example"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "analytics_workflow"
+language = "rust"
+description = "Analytics and data processing pipeline"
+author = "Analytics Team"

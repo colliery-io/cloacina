@@ -1,24 +1,24 @@
 ---
-id: add-build-on-host-compilation-to
+id: replace-package-creation-fidius
 level: task
-title: "Add build-on-host compilation to reconciler for Rust source packages"
-short_code: "CLOACI-T-0322"
-created_at: 2026-04-01T12:34:13.219305+00:00
-updated_at: 2026-04-01T12:34:13.219305+00:00
+title: "Replace package creation — fidius pack_package() with package.toml, add to examples"
+short_code: "CLOACI-T-0320"
+created_at: 2026-04-01T12:34:02.043911+00:00
+updated_at: 2026-04-01T16:17:57.010909+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 initiative_id: CLOACI-I-0065
 ---
 
-# Add build-on-host compilation to reconciler for Rust source packages
+# Replace package creation — fidius pack_package() with package.toml, add to examples
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,7 +28,7 @@ initiative_id: CLOACI-I-0065
 
 ## Objective
 
-Add `cargo build --lib` compilation step to the reconciler's package loading flow. When a Rust source package is loaded, the reconciler unpacks source, compiles to cdylib, then loads via fidius-host. This is the core of the build-on-host model.
+Replace `package_workflow()` (compile + gzip tar) with fidius source packaging. Add `package.toml` to all packaged examples. The output is a `.cloacina` bzip2 tar containing source + `package.toml` instead of a compiled dylib + `manifest.json`.
 
 ## Backlog Item Details **[CONDITIONAL: Backlog Item]**
 
@@ -66,18 +66,15 @@ Add `cargo build --lib` compilation step to the reconciler's package loading flo
 
 ## Acceptance Criteria
 
-- [ ] Reconciler `load_package()` flow: unpack source -> `cargo build --lib` -> find cdylib -> `fidius_host::load_library()`
-- [ ] Compilation blocks per-package (returns success/failure) but runs concurrently across packages via `spawn_blocking` or similar
-- [ ] Concurrency limit on simultaneous compilations (configurable, default 2-4) — prevent cargo lock contention and CPU saturation
-- [ ] Compilation happens in a managed build dir (not temp — needs to persist for the loaded dylib lifetime)
-- [ ] Build artifact cleanup: compiled artifacts removed when package is unloaded or reconciler shuts down
-- [ ] Compilation errors produce clear `LoaderError` with full cargo stderr output
-- [ ] Compiled cdylib is used for metadata extraction + task execution (same as current post-load flow)
-- [ ] Build profile configurable (debug for dev, release for production)
-- [ ] `DynamicLibraryTask` still works — loads from compiled output path
-- [ ] End-to-end: drop `.cloacina` source package in daemon watch dir -> compiles -> tasks register -> workflow executes
-- [ ] Failed compilations don't block or crash the reconciler — logged and retried on next cycle
-- [ ] Depends on T-0319, T-0320, T-0321
+## Acceptance Criteria
+
+- [ ] `package.toml` added to `packaged-workflows/`, `simple-packaged/`, `packaged-triggers/`, `complex-dag/`
+- [ ] `package_workflow()` replaced: validates source, writes `package.toml`, calls `fidius_core::package::pack_package()`
+- [ ] Output `.cloacina` is bzip2 tar (not gzip) containing source + `package.toml`
+- [ ] `CompileOptions`/`CompileResult` removed or repurposed (no pre-compilation)
+- [ ] `create_package_archive()` in `archive.rs` replaced with `pack_package()` call
+- [ ] `generate_manifest()` replaced — no longer compiles to extract metadata
+- [ ] `registry-execution` demo works with new format
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

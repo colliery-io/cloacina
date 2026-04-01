@@ -14,7 +14,7 @@
     "crates/cloacina-testing/src/result.rs": "010e962642a540338d78b6ede50632d477fc39f7d4306e9cab35cf8e0d361d5d",
     "crates/cloacina-testing/src/runner.rs": "d90c07923ea33426206d50645bfbe9dbf0207885efe5ebef942bbbd5027b537f",
     "crates/cloacina-workflow-plugin/src/lib.rs": "7c0bf2b2c6092d4c9b592627d4ff3183b528a1c79618e9036e676c139bb9ba66",
-    "crates/cloacina-workflow-plugin/src/types.rs": "f6f3f46be0c866e10b7258bb85f60de2ff4d2500133dbef29b449a5f46252465",
+    "crates/cloacina-workflow-plugin/src/types.rs": "a529b78fee5d6af10d7653cd7e6d6e0bc8d4c7c9a91845cb71db1a55086986bc",
     "crates/cloacina-workflow/src/context.rs": "2a811c3e56f4892084f82142b85140e4ca4d2de5b5aea24a58f659b7504c9d16",
     "crates/cloacina-workflow/src/error.rs": "c990adef758538ca8bc2b70277af2001bc59a492b68b402f64e789518a13e281",
     "crates/cloacina-workflow/src/lib.rs": "a46499321aec8cc1f447be70433af7bc769c82c38c7e3108b8f826c927d2ce37",
