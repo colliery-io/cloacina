@@ -4,14 +4,14 @@ level: task
 title: "Delete old archive code — gzip tar, manifest.json, ManifestV2, dylib extraction, flate2"
 short_code: "CLOACI-T-0324"
 created_at: 2026-04-01T12:34:25.740130+00:00
-updated_at: 2026-04-01T22:32:44.384822+00:00
+updated_at: 2026-04-01T22:46:12.686460+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0065
 ## Objective
 
 Delete all code related to the old gzip tar + manifest.json + compiled dylib archive format. This is the cleanup task after T-0320 through T-0323 have replaced all callers.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -330,22 +330,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// Build a minimal bzip2-tar `.cloacina` source archive in memory.
-    ///
-    /// The archive contains a top-level `{name}-{version}/` directory with a
-    /// `package.toml` and a stub `src/lib.rs`, matching what `pack_package`
-    /// produces.
+    /// Build a minimal `.cloacina` source archive via fidius pack_package.
     fn build_test_archive(name: &str, version: &str) -> Vec<u8> {
-        use bzip2::write::BzEncoder;
-        use bzip2::Compression;
-
-        let prefix = format!("{}-{}", name, version);
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join(format!("{}-src", name));
+        std::fs::create_dir_all(pkg_dir.join("src")).unwrap();
 
         let toml_content = format!(
             r#"[package]
 name = "{name}"
 version = "{version}"
-interface = "cloacina-workflow"
+interface = "cloacina-workflow-plugin"
 interface_version = 1
 extension = "cloacina"
 
@@ -356,27 +351,12 @@ description = "Test package"
 "#
         );
 
-        // Pack into bzip2 tar in memory
-        let buf = Vec::new();
-        let enc = BzEncoder::new(buf, Compression::fast());
-        let mut builder = tar::Builder::new(enc);
+        std::fs::write(pkg_dir.join("package.toml"), toml_content).unwrap();
+        std::fs::write(pkg_dir.join("src/lib.rs"), "// stub").unwrap();
 
-        for (rel, content) in &[
-            ("package.toml", toml_content.as_bytes()),
-            ("src/lib.rs", b"// stub" as &[u8]),
-        ] {
-            let archive_path = format!("{}/{}", prefix, rel);
-            let mut header = tar::Header::new_gnu();
-            header.set_size(content.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, &archive_path, *content)
-                .unwrap();
-        }
-
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap()
+        let out_path = tmp.path().join(format!("{}-{}.cloacina", name, version));
+        fidius_core::package::pack_package(&pkg_dir, Some(&out_path)).unwrap();
+        std::fs::read(&out_path).unwrap()
     }
 
     #[tokio::test]
@@ -583,15 +563,14 @@ description = "Test package"
 
     #[tokio::test]
     async fn test_package_with_triggers_in_manifest() {
-        use bzip2::write::BzEncoder;
-        use bzip2::Compression;
-
         let dir = TempDir::new().unwrap();
+        let pkg_dir = dir.path().join("trigger-pkg-src");
+        std::fs::create_dir_all(pkg_dir.join("src")).unwrap();
 
         let toml_content = r#"[package]
 name = "trigger-pkg"
 version = "1.0.0"
-interface = "cloacina-workflow"
+interface = "cloacina-workflow-plugin"
 interface_version = 1
 extension = "cloacina"
 
@@ -606,25 +585,11 @@ poll_interval = "5s"
 allow_concurrent = false
 "#;
 
-        let prefix = "trigger-pkg-1.0.0";
-        let buf = Vec::new();
-        let enc = BzEncoder::new(buf, Compression::fast());
-        let mut builder = tar::Builder::new(enc);
-        let mut header = tar::Header::new_gnu();
-        header.set_size(toml_content.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        builder
-            .append_data(
-                &mut header,
-                &format!("{}/package.toml", prefix),
-                toml_content.as_bytes(),
-            )
-            .unwrap();
-        let enc = builder.into_inner().unwrap();
-        let archive = enc.finish().unwrap();
+        std::fs::write(pkg_dir.join("package.toml"), toml_content).unwrap();
+        std::fs::write(pkg_dir.join("src/lib.rs"), "// stub").unwrap();
 
-        std::fs::write(dir.path().join("trigger-pkg.cloacina"), &archive).unwrap();
+        let archive_path = dir.path().join("trigger-pkg.cloacina");
+        fidius_core::package::pack_package(&pkg_dir, Some(&archive_path)).unwrap();
 
         let registry = FilesystemWorkflowRegistry::new(vec![dir.path().to_path_buf()]);
         let workflows = registry.list_workflows().await.unwrap();
