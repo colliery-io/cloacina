@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T04:09:55Z | 372 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T11:19:09Z | 372 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2819,17 +2819,17 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-562 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-552 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
 -  `load_package` function L29-99 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries
 -  `unload_package` function L102-139 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
 -  `register_package_tasks` function L142-183 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L186-337 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L340-388 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L391-438 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L441-464 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L467-478 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L489-550 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's Manifest.
--  `unregister_package_triggers` function L553-561 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `register_package_workflows` function L186-327 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L330-378 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L381-428 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L431-454 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L457-468 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L479-540 — `( &self, metadata: &WorkflowMetadata, archive_data: &[u8], ) -> Result<Vec<Strin...` — Verify and track triggers from a package's Manifest.
+-  `unregister_package_triggers` function L543-551 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -3668,10 +3668,10 @@
 -  `find_packaged_workflow_dylib` function L26-54 — `() -> Option<std::path::PathBuf>` — Find the pre-built debug dylib for the packaged-workflows example.
 -  `create_non_fidius_dylib` function L57-72 — `() -> tempfile::NamedTempFile` — Create a temporary file that is NOT a fidius plugin.
 -  `test_non_fidius_dylib_rejected_gracefully` function L75-88 — `()` — correctly in the cloacina context.
--  `test_metadata_fidelity` function L91-148 — `()` — correctly in the cloacina context.
--  `test_task_execution_fidelity` function L151-191 — `()` — correctly in the cloacina context.
--  `test_unknown_task_returns_error` function L194-228 — `()` — correctly in the cloacina context.
--  `test_plugin_info_populated` function L231-262 — `()` — correctly in the cloacina context.
+-  `test_metadata_fidelity` function L91-145 — `()` — correctly in the cloacina context.
+-  `test_task_execution_fidelity` function L148-188 — `()` — correctly in the cloacina context.
+-  `test_unknown_task_returns_error` function L191-225 — `()` — correctly in the cloacina context.
+-  `test_plugin_info_populated` function L228-259 — `()` — correctly in the cloacina context.
 
 #### crates/cloacina/tests/integration/logging.rs
 
@@ -4098,11 +4098,11 @@
 -  `test_invalid_schema_names` function L239-260 — `()` — Test that invalid schema names are rejected
 -  `test_sqlite_schema_rejection` function L264-272 — `()` — Test that schema isolation is only supported for PostgreSQL
 -  `test_builder_pattern` function L276-289 — `() -> Result<(), Box<dyn std::error::Error>>` — Test builder pattern for multi-tenant setup
--  `sqlite_multi_tenant_tests` module L292-447 — `-` — Integration tests for multi-tenant functionality
+-  `sqlite_multi_tenant_tests` module L292-435 — `-` — Integration tests for multi-tenant functionality
 -  `sqlite_tenant_task` function L305-308 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task for SQLite tests
 -  `setup_sqlite_workflow` function L311-337 — `(db_name: &str) -> Workflow` — Helper to create and register a workflow for SQLite tests
--  `test_sqlite_file_isolation` function L341-424 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
--  `test_sqlite_separate_files` function L428-446 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
+-  `test_sqlite_file_isolation` function L341-417 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
+-  `test_sqlite_separate_files` function L421-434 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
 
 #### crates/cloacina/tests/integration/executor/pause_resume.rs
 
@@ -4494,9 +4494,9 @@
 -  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
 -  `generate_workflow_attr` function L141-271 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
 -  `validate_dependencies` function L274-328 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L334-570 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L573-616 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L623-755 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_embedded_registration` function L334-572 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L575-618 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L625-757 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 
@@ -7114,9 +7114,9 @@
 - pub `verify_recovery` function L284-306 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Verifies service health after restart.
 - pub `notify_incident` function L310-336 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — Sends notification about the incident.
 -  `triggers` module L50 — `-` — ```
--  `main` function L340-411 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
--  `register_triggers` function L414-429 — `()` — Register triggers in the global trigger registry.
--  `register_trigger_schedules` function L432-496 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
+-  `main` function L340-412 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
+-  `register_triggers` function L415-430 — `()` — Register triggers in the global trigger registry.
+-  `register_trigger_schedules` function L433-497 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
 
 #### examples/features/event-triggers/src/triggers.rs
 
