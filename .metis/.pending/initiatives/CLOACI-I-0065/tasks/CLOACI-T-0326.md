@@ -1,10 +1,10 @@
 ---
-id: delete-old-archive-code-gzip-tar
+id: update-integration-tests-soak-test
 level: task
-title: "Delete old archive code — gzip tar, manifest.json, ManifestV2, dylib extraction, flate2"
-short_code: "CLOACI-T-0324"
-created_at: 2026-04-01T12:34:25.740130+00:00
-updated_at: 2026-04-01T22:46:12.686460+00:00
+title: "Update integration tests, soak test, and demos for fidius source packages"
+short_code: "CLOACI-T-0326"
+created_at: 2026-04-01T12:34:39.527654+00:00
+updated_at: 2026-04-01T22:54:30.864770+00:00
 parent: CLOACI-I-0065
 blocked_by: []
 archived: false
@@ -18,7 +18,7 @@ exit_criteria_met: false
 initiative_id: CLOACI-I-0065
 ---
 
-# Delete old archive code — gzip tar, manifest.json, ManifestV2, dylib extraction, flate2
+# Update integration tests, soak test, and demos for fidius source packages
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
@@ -28,7 +28,7 @@ initiative_id: CLOACI-I-0065
 
 ## Objective
 
-Delete all code related to the old gzip tar + manifest.json + compiled dylib archive format. This is the cleanup task after T-0320 through T-0323 have replaced all callers.
+Update all integration tests, the daemon soak test, and demo programs to work with fidius source packages. The soak test should use real compilable Rust source packages instead of dummy archives that always fail to load.
 
 ## Acceptance Criteria
 
@@ -36,16 +36,18 @@ Delete all code related to the old gzip tar + manifest.json + compiled dylib arc
 
 ## Acceptance Criteria
 
-- [ ] Delete `archive.rs` (gzip tar creation via flate2)
-- [ ] Delete `compile.rs` or gut it (pre-compilation moved to reconciler)
-- [ ] Delete `manifest_schema.rs` types: `Manifest`, `ManifestV2`, `PackageInfo`, `RustRuntime`, `PythonRuntime`, `PackageLanguage`
-- [ ] Delete `manifest_v2.rs` if it exists
-- [ ] Remove `flate2` from Cargo.toml dependencies
-- [ ] Remove `tar` from cloacina Cargo.toml if no longer used (fidius-core handles tar)
-- [ ] `grep -r "manifest.json" crates/` returns zero results (except docs/comments)
-- [ ] `grep -r "GzDecoder\|flate2" crates/` returns zero results
-- [ ] All tests pass
-- [ ] Depends on T-0320, T-0321, T-0322, T-0323 (all callers migrated first)
+- [ ] `dal/workflow_registry.rs` — `create_package_from_prebuilt_so()` replaced with source package creation
+- [ ] `dal/workflow_registry_reconciler_integration.rs` — same
+- [ ] `registry_workflow_registry_tests.rs` — same
+- [ ] `packaging.rs` — tests use `pack_package()` not gzip tar
+- [ ] `packaging_inspection.rs` — tests validate `package.toml` not `manifest.json`
+- [ ] Soak test (`soak.py`) creates real compilable `.cloacina` source packages (Rust source + `package.toml`)
+- [ ] Soak test verifies packages actually compile and load (not just "didn't crash")
+- [ ] `angreal cloacina integration` builds source packages instead of pre-compiled dylibs
+- [ ] `registry-execution` demo uses source packages
+- [ ] All demos pass (`./run_demos.sh`)
+- [ ] All CI checks pass
+- [ ] Depends on T-0320 through T-0325 (all format changes complete)
 
 ## Test Cases **[CONDITIONAL: Testing Task]**
 

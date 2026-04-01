@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T22:46:17Z | 370 files | JavaScript, Python, Rust
+> Generated: 2026-04-01T22:59:02Z | 370 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2871,22 +2871,22 @@
 -  `list_workflows` function L279-285 — `(&self) -> Result<Vec<WorkflowMetadata>, RegistryError>` — handles operational state (schedules, executions) separately.
 -  `unregister_workflow` function L287-316 — `( &mut self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — handles operational state (schedules, executions) separately.
 -  `uuid_from_fingerprint` function L323-326 — `(fingerprint: &str) -> Uuid` — Derive a deterministic UUID from a string fingerprint.
--  `tests` module L329-635 — `-` — handles operational state (schedules, executions) separately.
--  `build_test_archive` function L338-380 — `(name: &str, version: &str) -> Vec<u8>` — Build a minimal bzip2-tar `.cloacina` source archive in memory.
--  `test_list_empty_directory` function L383-388 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_discovers_packages` function L391-406 — `()` — handles operational state (schedules, executions) separately.
--  `test_list_multiple_directories` function L409-430 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_returns_archive_bytes` function L433-446 — `()` — handles operational state (schedules, executions) separately.
--  `test_get_workflow_not_found` function L449-454 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_writes_file` function L457-477 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_duplicate_rejected` function L480-489 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_removes_file` function L492-516 — `()` — handles operational state (schedules, executions) separately.
--  `test_unregister_not_found` function L519-525 — `()` — handles operational state (schedules, executions) separately.
--  `test_corrupt_file_skipped` function L528-550 — `()` — handles operational state (schedules, executions) separately.
--  `test_nonexistent_directory_handled` function L553-559 — `()` — handles operational state (schedules, executions) separately.
--  `test_register_creates_directory` function L562-572 — `()` — handles operational state (schedules, executions) separately.
--  `test_deterministic_package_id` function L575-582 — `()` — handles operational state (schedules, executions) separately.
--  `test_package_with_triggers_in_manifest` function L585-634 — `()` — handles operational state (schedules, executions) separately.
+-  `tests` module L329-600 — `-` — handles operational state (schedules, executions) separately.
+-  `build_test_archive` function L334-360 — `(name: &str, version: &str) -> Vec<u8>` — Build a minimal `.cloacina` source archive via fidius pack_package.
+-  `test_list_empty_directory` function L363-368 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_discovers_packages` function L371-386 — `()` — handles operational state (schedules, executions) separately.
+-  `test_list_multiple_directories` function L389-410 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_returns_archive_bytes` function L413-426 — `()` — handles operational state (schedules, executions) separately.
+-  `test_get_workflow_not_found` function L429-434 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_writes_file` function L437-457 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_duplicate_rejected` function L460-469 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_removes_file` function L472-496 — `()` — handles operational state (schedules, executions) separately.
+-  `test_unregister_not_found` function L499-505 — `()` — handles operational state (schedules, executions) separately.
+-  `test_corrupt_file_skipped` function L508-530 — `()` — handles operational state (schedules, executions) separately.
+-  `test_nonexistent_directory_handled` function L533-539 — `()` — handles operational state (schedules, executions) separately.
+-  `test_register_creates_directory` function L542-552 — `()` — handles operational state (schedules, executions) separately.
+-  `test_deterministic_package_id` function L555-562 — `()` — handles operational state (schedules, executions) separately.
+-  `test_package_with_triggers_in_manifest` function L565-599 — `()` — handles operational state (schedules, executions) separately.
 
 #### crates/cloacina/src/registry/workflow_registry/mod.rs
 
