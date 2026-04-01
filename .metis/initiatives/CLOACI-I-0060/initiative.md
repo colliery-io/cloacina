@@ -4,14 +4,14 @@ level: initiative
 title: "Adopt fidius for packaged workflow FFI — eliminate manual ABI structs"
 short_code: "CLOACI-I-0060"
 created_at: 2026-03-31T13:51:45.446782+00:00
-updated_at: 2026-03-31T13:51:45.446782+00:00
+updated_at: 2026-03-31T23:49:58.455409+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -51,11 +51,13 @@ This caused the SIGSEGV bug fixed in `d07b878` — the `#[workflow]` macro chang
 - Replace manual dlopen/dlsym/validation with `fidius-host` loading pipeline
 - Get automatic ABI drift detection so struct mismatches are caught at load time, not as SIGSEGVs
 - Eliminate the "4 copies of the same struct" maintenance burden
+- Adopt fidius source package model — `.cloacina` archives contain source + `package.toml`, host builds cdylib locally for cross-architecture support
+- Replace cloacina's binary packaging pipeline (`create_package_archive`, `CompileResult`, manifest generation) with fidius `pack_package`/`unpack_package`/`build_package`
+- Host-defined metadata schema via `PackageManifest<CloacinaMetadata>` for workflow-specific fields
 
 **Non-Goals:**
-- Changing the workflow/task execution model — fidius replaces the FFI plumbing, not the workflow engine
-- Adopting fidius's source package model — cloacina has `.cloacina` archives with its own manifest format
-- Replacing the `#[workflow]`/`#[trigger]` macros — these stay; only the FFI export layer changes
+- Changing the workflow/task execution model — fidius replaces the FFI plumbing and packaging, not the workflow engine
+- Replacing the `#[workflow]`/`#[trigger]` macros — these stay; only the FFI export layer and packaging format change
 - Using fidius-cli for scaffolding — cloacina has its own tooling
 
 ## Detailed Design

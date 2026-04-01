@@ -40,6 +40,17 @@ pub use types::{
     TaskMetadataEntry, TriggerDefinition,
 };
 
+// Re-export fidius crates so generated code can reference them
+pub use fidius;
+pub use fidius_core;
+
+// Re-export fidius modules needed by generated code when crate = "cloacina_workflow_plugin"
+pub use fidius_core::descriptor;
+pub use fidius_core::inventory;
+pub use fidius_core::registry;
+pub use fidius_core::status;
+pub use fidius_core::wire;
+
 // Re-export fidius types that plugin authors need
 pub use fidius::plugin_impl;
 pub use fidius_core::error::PluginError;
