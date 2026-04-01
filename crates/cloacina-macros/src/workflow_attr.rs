@@ -433,6 +433,7 @@ fn generate_embedded_registration(
                                 fn retry_policy(&self) -> cloacina::retry::RetryPolicy { self.inner.retry_policy() }
                                 fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                                 fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
+                                fn requires_handle(&self) -> bool { self.inner.requires_handle() }
                             }
 
                             std::sync::Arc::new(TaskWithNamespacedTriggers {
@@ -506,6 +507,7 @@ fn generate_embedded_registration(
                         fn retry_policy(&self) -> cloacina::retry::RetryPolicy { self.inner.retry_policy() }
                         fn trigger_rules(&self) -> serde_json::Value { self.rewritten_trigger_rules.clone() }
                         fn code_fingerprint(&self) -> Option<String> { self.inner.code_fingerprint() }
+                        fn requires_handle(&self) -> bool { self.inner.requires_handle() }
                     }
 
                     workflow.add_task(std::sync::Arc::new(TaskWithNamespacedTriggers {

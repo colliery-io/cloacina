@@ -347,10 +347,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("================================");
 
     // Create DefaultRunner with trigger scheduling enabled
-    let mut config = DefaultRunnerConfig::default();
-    config.enable_trigger_scheduling = true;
-    config.trigger_base_poll_interval = Duration::from_secs(1); // Base poll every 1 second
-    config.trigger_poll_timeout = Duration::from_secs(10); // 10 second timeout per trigger
+    let config = DefaultRunnerConfig::builder()
+        .enable_trigger_scheduling(true)
+        .trigger_base_poll_interval(Duration::from_secs(1))
+        .trigger_poll_timeout(Duration::from_secs(10))
+        .build();
 
     let runner = DefaultRunner::with_config(
         "sqlite://event_triggers.db?mode=rwc&_journal_mode=WAL",

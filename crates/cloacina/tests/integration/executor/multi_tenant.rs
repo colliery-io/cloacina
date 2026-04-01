@@ -339,16 +339,13 @@ mod sqlite_multi_tenant_tests {
     /// Test that SQLite multi-tenancy works with separate database files
     #[tokio::test]
     async fn test_sqlite_file_isolation() -> Result<(), Box<dyn std::error::Error>> {
-        let db_a = "sqlite_tenant_a_iso_test.db";
-        let db_b = "sqlite_tenant_b_iso_test.db";
-
-        // Clean up any existing files
-        let _ = std::fs::remove_file(db_a);
-        let _ = std::fs::remove_file(db_b);
+        let tmp = tempfile::TempDir::new()?;
+        let db_a = tmp.path().join("tenant_a.db");
+        let db_b = tmp.path().join("tenant_b.db");
 
         // Create two executors with different database files
-        let runner_a = DefaultRunner::new(&format!("sqlite://{}", db_a)).await?;
-        let runner_b = DefaultRunner::new(&format!("sqlite://{}", db_b)).await?;
+        let runner_a = DefaultRunner::new(&format!("sqlite://{}", db_a.display())).await?;
+        let runner_b = DefaultRunner::new(&format!("sqlite://{}", db_b.display())).await?;
 
         // Setup workflows
         let workflow_a = setup_sqlite_workflow("a");
@@ -416,32 +413,23 @@ mod sqlite_multi_tenant_tests {
         runner_a.shutdown().await?;
         runner_b.shutdown().await?;
 
-        // Clean up test files
-        let _ = std::fs::remove_file(db_a);
-        let _ = std::fs::remove_file(db_b);
-
         Ok(())
     }
 
     /// Test that SQLite creates separate database files
     #[tokio::test]
     async fn test_sqlite_separate_files() -> Result<(), Box<dyn std::error::Error>> {
-        let db_file = "multi_tenant_test_sep.db";
-        let _ = std::fs::remove_file(db_file);
+        let tmp = tempfile::TempDir::new()?;
+        let db_file = tmp.path().join("test_sep.db");
 
-        let executor = DefaultRunner::new(&format!("sqlite://{}", db_file)).await?;
+        let executor = DefaultRunner::new(&format!("sqlite://{}", db_file.display())).await?;
 
         // Verify the file was created
-        assert!(
-            std::path::Path::new(db_file).exists(),
-            "Database file should be created"
-        );
+        assert!(db_file.exists(), "Database file should be created");
 
         executor.shutdown().await?;
 
-        // Clean up
-        let _ = std::fs::remove_file(db_file);
-
+        // TempDir cleanup is automatic
         Ok(())
     }
 }
