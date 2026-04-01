@@ -1,0 +1,20 @@
+[package]
+name = "cloacina-workflow-plugin"
+description = "Fidius plugin interface and shared types for Cloacina workflow packages"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+edition = "2021"
+
+[dependencies]
+fidius = { path = "../../../fides/fidius", version = "0.0.4" }
+fidius-core = { path = "../../../fides/fidius-core", version = "0.0.4" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+toml = "0.8"
