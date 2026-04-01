@@ -4,14 +4,14 @@ level: task
 title: "axum server + health endpoints — cloacinactl serve, Postgres init, /health /ready /metrics"
 short_code: "CLOACI-T-0293"
 created_at: 2026-03-29T14:03:25.518171+00:00
-updated_at: 2026-03-29T14:39:19.520291+00:00
+updated_at: 2026-04-01T11:36:24.497142+00:00
 parent: CLOACI-I-0049
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0049
 ## Objective
 
 Add `cloacinactl serve` subcommand that starts an axum HTTP server backed by Postgres. Serves health/ready/metrics endpoints. This is the foundation all other API tasks build on.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

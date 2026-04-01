@@ -201,21 +201,73 @@ def soak(duration=None):
             print(f"  Packages remaining: {len(remaining)}")
             assert len(remaining) == 0, f"Expected 0 packages, found {len(remaining)}"
 
-            # Step 5: Verify daemon is still running
+            # Step 5: Verify daemon is still running and parse logs
             print_section_header("Step 5: Verify daemon health")
             assert daemon_proc.poll() is None, "Daemon crashed during soak test!"
             print("  Daemon is still running — no crashes.")
 
-            # Check log files exist
+            # Parse JSON log files for reconciliation results
             logs_dir = Path(daemon_home) / "logs"
-            log_files = list(logs_dir.glob("cloacina.log.*"))
-            print(f"  Log files: {len(log_files)}")
+            log_files = sorted(logs_dir.glob("cloacina.log.*"))
             assert len(log_files) > 0, "Expected at least one log file"
 
-            # Check log file has content
             total_log_bytes = sum(f.stat().st_size for f in log_files)
-            print(f"  Total log size: {total_log_bytes} bytes")
-            assert total_log_bytes > 0, "Log files are empty"
+            print(f"  Log files: {len(log_files)} ({total_log_bytes} bytes)")
+
+            # Parse structured JSON logs for verification
+            reconcile_events = []
+            errors = []
+            warnings = []
+            for log_file in log_files:
+                for line in log_file.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        level = entry.get("level", "")
+                        msg = entry.get("fields", {}).get("message", "")
+
+                        if "econcil" in msg.lower():
+                            reconcile_events.append(msg)
+                        if level == "ERROR":
+                            errors.append(msg)
+                        elif level == "WARN":
+                            warnings.append(msg)
+                    except json.JSONDecodeError:
+                        continue
+
+            print(f"  Reconciliation events: {len(reconcile_events)}")
+            print(f"  Errors: {len(errors)}")
+            print(f"  Warnings: {len(warnings)}")
+
+            # Print reconciliation summary
+            if reconcile_events:
+                print("  Reconciliation log:")
+                for evt in reconcile_events[:10]:
+                    print(f"    - {evt[:120]}")
+                if len(reconcile_events) > 10:
+                    print(f"    ... and {len(reconcile_events) - 10} more")
+
+            # Print errors if any
+            if errors:
+                print("  Error log:")
+                for err in errors[:5]:
+                    print(f"    - {err[:120]}")
+
+            # Verify reconciler actually saw the packages
+            assert len(reconcile_events) > 0, \
+                "No reconciliation events found — daemon may not have detected packages"
+
+            # Also dump stderr for human inspection
+            daemon_stderr_file.flush()
+            stderr_content = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+            stderr_lines = [line for line in stderr_content.splitlines() if line.strip()]
+            if stderr_lines:
+                print(f"  Stderr summary ({len(stderr_lines)} lines):")
+                # Show last few lines
+                for line in stderr_lines[-5:]:
+                    print(f"    {line[:150]}")
 
             # Step 6: Graceful shutdown
             print_section_header("Step 6: Graceful shutdown")
