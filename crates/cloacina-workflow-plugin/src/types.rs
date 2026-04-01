@@ -94,12 +94,20 @@ pub struct TaskExecutionResult {
 pub struct CloacinaMetadata {
     /// Name of the workflow (must match `#[workflow(name = "...")]`)
     pub workflow_name: String,
+    /// Package language: "rust" or "python"
+    pub language: String,
     /// Human-readable description
     #[serde(default)]
     pub description: Option<String>,
     /// Author information
     #[serde(default)]
     pub author: Option<String>,
+    /// Minimum Python version (Python packages only, e.g., ">=3.11")
+    #[serde(default)]
+    pub requires_python: Option<String>,
+    /// Python entry module (Python packages only, e.g., "workflow.tasks")
+    #[serde(default)]
+    pub entry_module: Option<String>,
     /// Trigger definitions for this package
     #[serde(default)]
     pub triggers: Vec<TriggerDefinition>,
@@ -207,9 +215,10 @@ mod tests {
     }
 
     #[test]
-    fn test_cloacina_metadata_from_toml() {
+    fn test_cloacina_metadata_rust_from_toml() {
         let toml_str = r#"
             workflow_name = "analytics_pipeline"
+            language = "rust"
             description = "Data analytics workflow"
             author = "Analytics Team"
 
@@ -222,24 +231,57 @@ mod tests {
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
         assert_eq!(metadata.workflow_name, "analytics_pipeline");
+        assert_eq!(metadata.language, "rust");
         assert_eq!(
             metadata.description.as_deref(),
             Some("Data analytics workflow")
         );
+        assert!(metadata.requires_python.is_none());
+        assert!(metadata.entry_module.is_none());
         assert_eq!(metadata.triggers.len(), 1);
         assert_eq!(metadata.triggers[0].name, "file_watcher");
         assert!(!metadata.triggers[0].allow_concurrent);
     }
 
     #[test]
-    fn test_cloacina_metadata_minimal() {
+    fn test_cloacina_metadata_python_from_toml() {
+        let toml_str = r#"
+            workflow_name = "etl_pipeline"
+            language = "python"
+            description = "Python ETL workflow"
+            requires_python = ">=3.11"
+            entry_module = "workflow.tasks"
+        "#;
+
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        assert_eq!(metadata.workflow_name, "etl_pipeline");
+        assert_eq!(metadata.language, "python");
+        assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
+        assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
+        assert!(metadata.triggers.is_empty());
+    }
+
+    #[test]
+    fn test_cloacina_metadata_minimal_rust() {
         let toml_str = r#"
             workflow_name = "simple_workflow"
+            language = "rust"
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
         assert_eq!(metadata.workflow_name, "simple_workflow");
+        assert_eq!(metadata.language, "rust");
         assert!(metadata.description.is_none());
         assert!(metadata.triggers.is_empty());
+    }
+
+    #[test]
+    fn test_cloacina_metadata_missing_language_fails() {
+        let toml_str = r#"
+            workflow_name = "no_language"
+        "#;
+
+        let result = toml::from_str::<CloacinaMetadata>(toml_str);
+        assert!(result.is_err(), "Missing language field should fail");
     }
 }
