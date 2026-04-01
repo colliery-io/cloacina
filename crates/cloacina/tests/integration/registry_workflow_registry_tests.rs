@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -108,14 +108,22 @@ impl PackageFixture {
     }
 
     /// Find the pre-built library in the project's target directory.
+    /// Prefers debug builds (matching test binary wire format for fidius).
     fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
-        let target_dir = project_path.join("target/release");
+        for profile in &["debug", "release"] {
+            let target_dir = project_path.join(format!("target/{}", profile));
+            if let Some(path) = Self::find_library_in_dir(&target_dir) {
+                return Some(path);
+            }
+        }
+        None
+    }
 
+    fn find_library_in_dir(target_dir: &std::path::Path) -> Option<std::path::PathBuf> {
         if !target_dir.exists() {
             return None;
         }
 
-        // Look for .so (Linux) or .dylib (macOS)
         let extensions = if cfg!(target_os = "macos") {
             vec!["dylib"]
         } else {
@@ -127,7 +135,6 @@ impl PackageFixture {
                 let entry = entry.ok()?;
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some(ext) {
-                    // Skip files that look like dependency artifacts
                     let filename = path.file_name()?.to_str()?;
                     if !filename.contains("-") || filename.starts_with("lib") {
                         return Some(path);

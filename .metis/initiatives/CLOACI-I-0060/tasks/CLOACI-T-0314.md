@@ -4,14 +4,14 @@ level: task
 title: "Update #[workflow] packaged mode to generate #[plugin_impl] instead of raw FFI"
 short_code: "CLOACI-T-0314"
 created_at: 2026-03-31T23:39:09.820521+00:00
-updated_at: 2026-04-01T01:18:06.244771+00:00
+updated_at: 2026-04-01T02:53:45.278493+00:00
 parent: CLOACI-I-0060
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,8 @@ initiative_id: CLOACI-I-0060
 ## Objective
 
 Rewrite the `generate_packaged_registration()` function in `workflow_attr.rs` to emit `#[plugin_impl(CloacinaPlugin)]` code instead of hand-written `extern "C"` FFI functions and `#[repr(C)]` structs. The `#[workflow]` macro's packaged mode should produce a fidius-compatible plugin that the host can load via `fidius-host`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

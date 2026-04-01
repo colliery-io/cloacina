@@ -99,9 +99,19 @@ fn create_package_from_prebuilt_so() -> Vec<u8> {
 }
 
 /// Find the pre-built library in the project's target directory.
+/// Prefers debug builds (matching test binary wire format) over release.
 fn find_prebuilt_library(project_path: &std::path::Path) -> Option<std::path::PathBuf> {
-    let target_dir = project_path.join("target/release");
+    // Try debug first (matches test binary wire format for fidius)
+    for profile in &["debug", "release"] {
+        let target_dir = project_path.join(format!("target/{}", profile));
+        if let Some(path) = find_library_in_dir(&target_dir) {
+            return Some(path);
+        }
+    }
+    None
+}
 
+fn find_library_in_dir(target_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     if !target_dir.exists() {
         return None;
     }
