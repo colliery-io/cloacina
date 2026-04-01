@@ -27,7 +27,7 @@ pub mod validator;
 
 pub use package_loader::PackageLoader;
 pub use python_loader::{
-    detect_package_kind, extract_python_package, peek_manifest, ExtractedPythonPackage, PackageKind,
+    detect_package_kind, extract_python_package, ExtractedPythonPackage, PackageKind,
 };
 pub use task_registrar::TaskRegistrar;
 pub use validator::PackageValidator;

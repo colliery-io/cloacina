@@ -16,23 +16,18 @@
 
 //! Server-side Python package loader.
 //!
-//! Extracts `.cloacina` archives containing Python workflow packages,
-//! validates manifest v2 format, and prepares the package for task
-//! execution via PyO3.
+//! Extracts `.cloacina` source archives containing Python workflow packages,
+//! validates `package.toml` with `CloacinaMetadata`, and prepares the package
+//! for task execution via PyO3.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use flate2::read::GzDecoder;
-use tar::Archive;
-
-use crate::packaging::manifest_schema::{Manifest, PackageLanguage};
 use crate::registry::error::LoaderError;
 
 /// An extracted Python package ready for task execution.
 #[derive(Debug, Clone)]
 pub struct ExtractedPythonPackage {
-    /// Root directory containing the extracted archive.
+    /// Root directory containing the extracted source.
     pub root_dir: PathBuf,
     /// Path to the `vendor/` directory (added to `sys.path`).
     pub vendor_dir: PathBuf,
@@ -40,298 +35,282 @@ pub struct ExtractedPythonPackage {
     pub workflow_dir: PathBuf,
     /// Entry module to import tasks from (e.g., `"workflow.tasks"`).
     pub entry_module: String,
-    /// Parsed manifest.
-    pub manifest: Manifest,
+    /// Package name from `package.toml`.
+    pub package_name: String,
+    /// Package version from `package.toml`.
+    pub version: String,
+    /// Workflow name from metadata.
+    pub workflow_name: String,
 }
 
-/// Result of peeking at a manifest inside an archive.
+/// Result of detecting the package language from a source archive.
 pub enum PackageKind {
     /// Python workflow package.
-    Python(Manifest),
+    Python {
+        workflow_name: String,
+        package_name: String,
+        version: String,
+    },
     /// Rust dynamic-library package.
-    Rust(Manifest),
+    Rust {
+        workflow_name: String,
+        package_name: String,
+        version: String,
+    },
 }
 
-/// Peek at the manifest inside a `.cloacina` archive without full extraction.
-pub fn peek_manifest(archive_data: &[u8]) -> Result<Manifest, LoaderError> {
-    let cursor = std::io::Cursor::new(archive_data);
-    let decoder = GzDecoder::new(cursor);
-    let mut archive = Archive::new(decoder);
-
-    for entry_result in archive.entries().map_err(|e| LoaderError::FileSystem {
-        path: "archive".to_string(),
-        error: format!("Failed to read archive entries: {e}"),
-    })? {
-        let mut entry = entry_result.map_err(|e| LoaderError::FileSystem {
-            path: "archive".to_string(),
-            error: format!("Failed to read archive entry: {e}"),
-        })?;
-
-        let path = entry.path().map_err(|e| LoaderError::FileSystem {
-            path: "archive".to_string(),
-            error: format!("Failed to get entry path: {e}"),
-        })?;
-
-        if path.file_name() == Some("manifest.json".as_ref()) {
-            let mut data = Vec::new();
-            entry
-                .read_to_end(&mut data)
-                .map_err(|e| LoaderError::FileSystem {
-                    path: "manifest.json".to_string(),
-                    error: format!("Failed to read manifest: {e}"),
-                })?;
-            let manifest: Manifest =
-                serde_json::from_slice(&data).map_err(|e| LoaderError::ManifestParse {
-                    reason: e.to_string(),
-                })?;
-            return Ok(manifest);
-        }
-    }
-
-    Err(LoaderError::MissingManifest)
-}
-
-/// Determine the package kind (Python or Rust) from archive data.
-pub fn detect_package_kind(archive_data: &[u8]) -> Result<PackageKind, LoaderError> {
-    let manifest = peek_manifest(archive_data)?;
-    match manifest.language {
-        PackageLanguage::Python => Ok(PackageKind::Python(manifest)),
-        PackageLanguage::Rust => Ok(PackageKind::Rust(manifest)),
-    }
-}
-
-/// Extract a Python workflow package from a `.cloacina` archive.
+/// Detect the package kind (Python or Rust) from a `.cloacina` source archive.
 ///
-/// The archive is extracted into a sub-directory of *staging_dir*.
+/// Unpacks the archive to a temp dir, reads `package.toml`, and checks
+/// the `language` field in `CloacinaMetadata`.
+pub fn detect_package_kind(archive_data: &[u8]) -> Result<PackageKind, LoaderError> {
+    let tmp = tempfile::TempDir::new().map_err(|e| LoaderError::FileSystem {
+        path: "tempdir".to_string(),
+        error: e.to_string(),
+    })?;
+
+    let archive_path = tmp.path().join("pkg.cloacina");
+    std::fs::write(&archive_path, archive_data).map_err(|e| LoaderError::FileSystem {
+        path: archive_path.display().to_string(),
+        error: e.to_string(),
+    })?;
+
+    let extract_dir = tmp.path().join("extract");
+    std::fs::create_dir_all(&extract_dir).map_err(|e| LoaderError::FileSystem {
+        path: extract_dir.display().to_string(),
+        error: e.to_string(),
+    })?;
+
+    let source_dir =
+        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
+            LoaderError::MetadataExtraction {
+                reason: format!("Failed to unpack source archive: {e}"),
+            }
+        })?;
+
+    let manifest =
+        fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
+            &source_dir,
+        )
+        .map_err(|e| LoaderError::ManifestParse {
+            reason: format!("Failed to parse package.toml: {e}"),
+        })?;
+
+    let pkg = &manifest.package;
+    let meta = &manifest.metadata;
+
+    match meta.language.as_str() {
+        "python" => Ok(PackageKind::Python {
+            workflow_name: meta.workflow_name.clone(),
+            package_name: pkg.name.clone(),
+            version: pkg.version.clone(),
+        }),
+        _ => Ok(PackageKind::Rust {
+            workflow_name: meta.workflow_name.clone(),
+            package_name: pkg.name.clone(),
+            version: pkg.version.clone(),
+        }),
+    }
+}
+
+/// Extract a Python workflow package from a `.cloacina` source archive.
+///
+/// The archive is unpacked via fidius into a sub-directory of *staging_dir*.
 /// The returned [`ExtractedPythonPackage`] contains paths to the
 /// workflow source and vendored dependencies.
 pub fn extract_python_package(
     archive_data: &[u8],
     staging_dir: &Path,
 ) -> Result<ExtractedPythonPackage, LoaderError> {
-    // Create a unique staging sub-directory
-    let package_dir = staging_dir.join(uuid::Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&package_dir).map_err(|e| LoaderError::FileSystem {
-        path: package_dir.display().to_string(),
+    // Write archive to staging dir
+    let archive_path = staging_dir.join(format!("{}.cloacina", uuid::Uuid::new_v4()));
+    std::fs::write(&archive_path, archive_data).map_err(|e| LoaderError::FileSystem {
+        path: archive_path.display().to_string(),
         error: e.to_string(),
     })?;
 
-    // Extract tar.gz
-    let cursor = std::io::Cursor::new(archive_data);
-    let decoder = GzDecoder::new(cursor);
-    let mut archive = Archive::new(decoder);
-    archive
-        .unpack(&package_dir)
-        .map_err(|e| LoaderError::FileSystem {
-            path: package_dir.display().to_string(),
-            error: format!("Failed to extract archive: {e}"),
+    // Unpack via fidius
+    let extract_dir = staging_dir.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&extract_dir).map_err(|e| LoaderError::FileSystem {
+        path: extract_dir.display().to_string(),
+        error: e.to_string(),
+    })?;
+
+    let source_dir =
+        fidius_core::package::unpack_package(&archive_path, &extract_dir).map_err(|e| {
+            LoaderError::FileSystem {
+                path: archive_path.display().to_string(),
+                error: format!("Failed to unpack source archive: {e}"),
+            }
         })?;
 
-    // Read manifest
-    let manifest_path = package_dir.join("manifest.json");
-    let manifest_data = std::fs::read(&manifest_path).map_err(|e| LoaderError::FileSystem {
-        path: manifest_path.display().to_string(),
-        error: e.to_string(),
-    })?;
-    let manifest: Manifest =
-        serde_json::from_slice(&manifest_data).map_err(|e| LoaderError::ManifestParse {
-            reason: e.to_string(),
+    // Read package.toml
+    let manifest =
+        fidius_core::package::load_manifest::<cloacina_workflow_plugin::CloacinaMetadata>(
+            &source_dir,
+        )
+        .map_err(|e| LoaderError::ManifestParse {
+            reason: format!("Failed to parse package.toml: {e}"),
         })?;
 
     // Validate language
-    if manifest.language != PackageLanguage::Python {
+    if manifest.metadata.language != "python" {
         return Err(LoaderError::WrongLanguage {
             expected: "python".to_string(),
-            actual: "rust".to_string(),
+            actual: manifest.metadata.language.clone(),
         });
     }
 
-    let python_config = manifest
-        .python
+    let entry_module = manifest
+        .metadata
+        .entry_module
         .as_ref()
-        .ok_or(LoaderError::MissingPythonConfig)?;
+        .ok_or(LoaderError::MissingPythonConfig)?
+        .clone();
 
-    let vendor_dir = package_dir.join("vendor");
-    let workflow_dir = package_dir.join("workflow");
+    let vendor_dir = source_dir.join("vendor");
+    let workflow_dir = source_dir.join("workflow");
 
     // Workflow directory is required
     if !workflow_dir.exists() {
         return Err(LoaderError::MissingSourceDir);
     }
 
+    // Clean up archive file
+    let _ = std::fs::remove_file(&archive_path);
+
     Ok(ExtractedPythonPackage {
-        root_dir: package_dir,
+        root_dir: source_dir,
         vendor_dir,
         workflow_dir,
-        entry_module: python_config.entry_module.clone(),
-        manifest,
+        entry_module,
+        package_name: manifest.package.name,
+        version: manifest.package.version,
+        workflow_name: manifest.metadata.workflow_name,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packaging::manifest_schema::{PackageInfo, PythonRuntime, TaskDefinition};
-    use chrono::Utc;
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
-    use std::io::Write;
-    use tar::Builder;
     use tempfile::TempDir;
 
-    /// Build a minimal Python `.cloacina` archive in memory.
-    fn build_test_archive(manifest: &Manifest, include_workflow: bool) -> Vec<u8> {
-        let buf = Vec::new();
-        let enc = GzEncoder::new(buf, Compression::fast());
-        let mut builder = Builder::new(enc);
+    /// Create a fidius source package directory for a Python workflow.
+    fn create_python_source_package(
+        dir: &Path,
+        name: &str,
+        include_workflow: bool,
+    ) -> std::path::PathBuf {
+        // package.toml
+        let package_toml = format!(
+            r#"[package]
+name = "{name}"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 
-        // manifest.json
-        let manifest_json = serde_json::to_vec_pretty(manifest).unwrap();
-        let mut header = tar::Header::new_gnu();
-        header.set_size(manifest_json.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, "manifest.json", manifest_json.as_slice())
-            .unwrap();
+[metadata]
+workflow_name = "test_workflow"
+language = "python"
+description = "Test Python workflow"
+requires_python = ">=3.10"
+entry_module = "workflow.tasks"
+"#
+        );
+        std::fs::write(dir.join("package.toml"), package_toml).unwrap();
 
-        // workflow/ directory with a dummy __init__.py
+        // workflow/ directory
         if include_workflow {
-            let init_py = b"# workflow init\n";
-            let mut h = tar::Header::new_gnu();
-            h.set_size(init_py.len() as u64);
-            h.set_mode(0o644);
-            h.set_cksum();
-            builder
-                .append_data(&mut h, "workflow/__init__.py", init_py.as_slice())
-                .unwrap();
-        }
-
-        // vendor/ directory (empty marker)
-        let mut dh = tar::Header::new_gnu();
-        dh.set_size(0);
-        dh.set_entry_type(tar::EntryType::Directory);
-        dh.set_mode(0o755);
-        dh.set_cksum();
-        builder
-            .append_data(&mut dh, "vendor/", &[] as &[u8])
+            std::fs::create_dir_all(dir.join("workflow")).unwrap();
+            std::fs::write(dir.join("workflow/__init__.py"), "# workflow init\n").unwrap();
+            std::fs::write(
+                dir.join("workflow/tasks.py"),
+                "def hello(ctx): return ctx\n",
+            )
             .unwrap();
-
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap()
-    }
-
-    fn make_test_manifest() -> Manifest {
-        Manifest {
-            format_version: "2".to_string(),
-            package: PackageInfo {
-                name: "test-workflow".to_string(),
-                version: "0.1.0".to_string(),
-                description: None,
-                fingerprint: "sha256:test".to_string(),
-                targets: vec!["linux-x86_64".to_string()],
-            },
-            language: PackageLanguage::Python,
-            python: Some(PythonRuntime {
-                requires_python: ">=3.10".to_string(),
-                entry_module: "workflow.tasks".to_string(),
-            }),
-            rust: None,
-            tasks: vec![TaskDefinition {
-                id: "hello".to_string(),
-                function: "workflow.tasks:hello".to_string(),
-                dependencies: vec![],
-                description: Some("Say hello".to_string()),
-                retries: 0,
-                timeout_seconds: None,
-            }],
-            triggers: vec![],
-            created_at: Utc::now(),
-            signature: None,
         }
-    }
 
-    #[test]
-    fn test_peek_manifest() {
-        let manifest = make_test_manifest();
-        let archive = build_test_archive(&manifest, true);
+        // vendor/ directory
+        std::fs::create_dir_all(dir.join("vendor")).unwrap();
 
-        let peeked = peek_manifest(&archive).unwrap();
-        assert_eq!(peeked.package.name, "test-workflow");
-        assert_eq!(peeked.language, PackageLanguage::Python);
+        // Pack it
+        let output = dir.parent().unwrap().join(format!("{name}-0.1.0.cloacina"));
+        fidius_core::package::pack_package(dir, Some(&output)).unwrap();
+        output
     }
 
     #[test]
     fn test_detect_package_kind_python() {
-        let manifest = make_test_manifest();
-        let archive = build_test_archive(&manifest, true);
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        let archive_path = create_python_source_package(&pkg_dir, "test-py", true);
+        let archive_data = std::fs::read(&archive_path).unwrap();
 
-        let kind = detect_package_kind(&archive).unwrap();
-        assert!(matches!(kind, PackageKind::Python(_)));
+        let kind = detect_package_kind(&archive_data).unwrap();
+        assert!(matches!(kind, PackageKind::Python { .. }));
     }
 
     #[test]
     fn test_extract_python_package() {
-        let manifest = make_test_manifest();
-        let archive = build_test_archive(&manifest, true);
-        let staging = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        let archive_path = create_python_source_package(&pkg_dir, "test-py", true);
+        let archive_data = std::fs::read(&archive_path).unwrap();
 
-        let extracted = extract_python_package(&archive, staging.path()).unwrap();
+        let staging = TempDir::new().unwrap();
+        let extracted = extract_python_package(&archive_data, staging.path()).unwrap();
 
         assert!(extracted.root_dir.exists());
         assert!(extracted.workflow_dir.exists());
         assert_eq!(extracted.entry_module, "workflow.tasks");
-        assert_eq!(extracted.manifest.package.name, "test-workflow");
+        assert_eq!(extracted.package_name, "test-py");
+        assert_eq!(extracted.workflow_name, "test_workflow");
     }
 
     #[test]
     fn test_extract_missing_workflow_dir() {
-        let manifest = make_test_manifest();
-        let archive = build_test_archive(&manifest, false);
-        let staging = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        let archive_path = create_python_source_package(&pkg_dir, "no-workflow", false);
+        let archive_data = std::fs::read(&archive_path).unwrap();
 
-        let err = extract_python_package(&archive, staging.path()).unwrap_err();
+        let staging = TempDir::new().unwrap();
+        let err = extract_python_package(&archive_data, staging.path()).unwrap_err();
         assert!(matches!(err, LoaderError::MissingSourceDir));
     }
 
     #[test]
-    fn test_peek_manifest_missing() {
-        // Build an archive with no manifest.json
-        let buf = Vec::new();
-        let enc = GzEncoder::new(buf, Compression::fast());
-        let mut builder = Builder::new(enc);
-        let data = b"some file";
-        let mut h = tar::Header::new_gnu();
-        h.set_size(data.len() as u64);
-        h.set_mode(0o644);
-        h.set_cksum();
-        builder
-            .append_data(&mut h, "other.txt", data.as_slice())
-            .unwrap();
-        let enc = builder.into_inner().unwrap();
-        let archive_data = enc.finish().unwrap();
+    fn test_wrong_language_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
 
-        let err = peek_manifest(&archive_data).unwrap_err();
-        assert!(matches!(err, LoaderError::MissingManifest));
-    }
+        // Create a Rust package.toml but try to extract as Python
+        let package_toml = r#"[package]
+name = "rust-pkg"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 
-    #[test]
-    fn test_wrong_language() {
-        use crate::packaging::manifest_schema::RustRuntime;
+[metadata]
+workflow_name = "rust_workflow"
+language = "rust"
+"#;
+        std::fs::write(pkg_dir.join("package.toml"), package_toml).unwrap();
+        std::fs::create_dir_all(pkg_dir.join("src")).unwrap();
+        std::fs::write(pkg_dir.join("src/lib.rs"), "// placeholder").unwrap();
 
-        let mut manifest = make_test_manifest();
-        manifest.language = PackageLanguage::Rust;
-        manifest.python = None;
-        manifest.rust = Some(RustRuntime {
-            library_path: "lib/libworkflow.so".to_string(),
-        });
-        // Rust function path doesn't need colon
-        manifest.tasks[0].function = "cloacina_execute_task".to_string();
+        let output = tmp.path().join("rust-pkg-0.1.0.cloacina");
+        fidius_core::package::pack_package(&pkg_dir, Some(&output)).unwrap();
+        let archive_data = std::fs::read(&output).unwrap();
 
-        let archive = build_test_archive(&manifest, true);
         let staging = TempDir::new().unwrap();
-
-        let err = extract_python_package(&archive, staging.path()).unwrap_err();
+        let err = extract_python_package(&archive_data, staging.path()).unwrap_err();
         assert!(matches!(err, LoaderError::WrongLanguage { .. }));
     }
 }
