@@ -50,8 +50,8 @@ enum Commands {
         #[arg(long = "watch-dir")]
         watch_dirs: Vec<PathBuf>,
 
-        /// Reconciler poll interval in milliseconds
-        #[arg(long, default_value = "50")]
+        /// Reconciler poll interval in milliseconds (file watcher handles immediate detection)
+        #[arg(long, default_value = "5000")]
         poll_interval: u64,
     },
 
