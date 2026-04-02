@@ -12,9 +12,7 @@ import tarfile
 import tempfile
 import time
 import io
-import gzip
 from pathlib import Path
-from datetime import datetime, timezone
 
 import angreal  # type: ignore
 
@@ -43,44 +41,90 @@ def find_daemon_binary():
 
 
 def create_test_package(name, version="1.0.0"):
-    """Create a minimal .cloacina archive with a ManifestV2 manifest.
+    """Create a fidius source package (.cloacina bzip2 tar) with a real compilable Rust project.
 
-    This creates a valid archive that the daemon's FilesystemWorkflowRegistry
-    can peek for metadata. The package won't actually execute (no real cdylib),
-    but it tests the reconciler's load/unload lifecycle.
+    The package contains package.toml + Cargo.toml + src/lib.rs with a minimal
+    #[workflow] that the daemon's reconciler can compile and load via fidius.
     """
-    manifest = {
-        "format_version": "2",
-        "package": {
-            "name": name,
-            "version": version,
-            "description": f"Soak test package {name}",
-            "fingerprint": f"sha256:soak-{name}-{version}",
-            "targets": ["linux-x86_64", "macos-arm64"],
-        },
-        "language": "rust",
-        "rust": {"library_path": f"lib/lib{name}.so"},
-        "tasks": [
-            {
-                "id": "task1",
-                "function": "execute_task",
-                "dependencies": [],
-                "retries": 0,
-            }
-        ],
-        "triggers": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    safe_name = name.replace("-", "_")
+    prefix = f"{name}-{version}"
 
-    # Build tar.gz archive in memory
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{safe_name}"
+language = "rust"
+description = "Soak test package {name}"
+author = "soak-test"
+"""
+
+    cargo_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-macros = {{ path = "../../../crates/cloacina-macros" }}
+cloacina-workflow = {{ path = "../../../crates/cloacina-workflow", features = ["packaged"] }}
+cloacina-workflow-plugin = {{ path = "../../../crates/cloacina-workflow-plugin" }}
+serde_json = "1.0"
+async-trait = "0.1"
+
+[build-dependencies]
+cloacina-build = {{ path = "../../../crates/cloacina-build" }}
+"""
+
+    lib_rs = f"""use cloacina_macros::workflow;
+use cloacina_workflow::{{Context, TaskError, task}};
+
+#[workflow(name = "{safe_name}")]
+pub mod {safe_name} {{
+    use super::*;
+
+    #[task(id = "task1", dependencies = [])]
+    pub async fn task1(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {{
+        context.set("soak_test", serde_json::json!(true));
+        Ok(())
+    }}
+}}
+"""
+
+    build_rs = """fn main() {
+    cloacina_build::configure();
+}
+"""
+
+    # Build bzip2 tar archive matching fidius pack_package format
     buf = io.BytesIO()
-    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
-        with tarfile.open(fileobj=gz, mode="w") as tar:
-            manifest_json = json.dumps(manifest, indent=2).encode()
-            info = tarfile.TarInfo(name="manifest.json")
-            info.size = len(manifest_json)
-            info.mode = 0o644
-            tar.addfile(info, io.BytesIO(manifest_json))
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            ("Cargo.toml", cargo_toml),
+            ("src/lib.rs", lib_rs),
+            ("build.rs", build_rs),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
 
     return buf.getvalue()
 
