@@ -569,12 +569,25 @@ mod postgres_schema {
     diesel::joinable!(execution_events -> task_executions (task_execution_id));
     diesel::joinable!(task_outbox -> task_executions (task_execution_id));
 
+    // API Keys table (server mode only — Postgres)
+    diesel::table! {
+        api_keys (id) {
+            id -> Uuid,
+            key_hash -> Text,
+            name -> Text,
+            permissions -> Text,
+            created_at -> Timestamptz,
+            revoked_at -> Nullable<Timestamptz>,
+        }
+    }
+
     // Auth table relationships - using allow_tables_to_appear_in_same_query instead
     // of joinable! to avoid conflicts with multiple foreign keys to same table.
     // Manual join syntax should be used in queries when joining auth tables.
 
     #[cfg(not(feature = "auth"))]
     diesel::allow_tables_to_appear_in_same_query!(
+        api_keys,
         contexts,
         execution_events,
         key_trust_acls,

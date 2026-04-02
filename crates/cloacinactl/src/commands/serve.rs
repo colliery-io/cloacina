@@ -36,6 +36,7 @@ use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 pub struct AppState {
     pub database: Database,
     pub runner: Arc<DefaultRunner>,
+    pub key_cache: Arc<crate::server::auth::KeyCache>,
 }
 
 /// Run the API server.
@@ -44,6 +45,7 @@ pub async fn run(
     bind: SocketAddr,
     database_url: String,
     verbose: bool,
+    bootstrap_key: Option<String>,
 ) -> Result<()> {
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
@@ -73,8 +75,10 @@ pub async fn run(
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
 
-    // Connect to Postgres
-    let runner_config = DefaultRunnerConfig::builder().build();
+    // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
+    let runner_config = DefaultRunnerConfig::builder()
+        .registry_storage_backend("database")
+        .build();
 
     let runner = DefaultRunner::with_config(&database_url, runner_config)
         .await
@@ -85,7 +89,11 @@ pub async fn run(
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
+        key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
     };
+
+    // Bootstrap: create initial admin key if none exist
+    bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
     // Build router
     let app = build_router(state);
@@ -97,9 +105,12 @@ pub async fn run(
 
     info!("");
     info!("API server is running on http://{}", bind);
-    info!("  GET /health  — liveness check");
-    info!("  GET /ready   — readiness check");
-    info!("  GET /metrics — Prometheus metrics");
+    info!("  GET  /health     — liveness check");
+    info!("  GET  /ready      — readiness check");
+    info!("  GET  /metrics    — Prometheus metrics");
+    info!("  POST /auth/keys  — create API key (auth required)");
+    info!("  GET  /auth/keys  — list API keys (auth required)");
+    info!("  DEL  /auth/keys/:id — revoke key (auth required)");
     info!("");
 
     axum::serve(listener, app)
@@ -112,11 +123,82 @@ pub async fn run(
 }
 
 /// Build the axum router with all routes.
+///
+/// Public routes (health/ready/metrics) have no auth.
+/// Authenticated routes use `route_layer` (not `layer`) so unmatched paths still 404.
 fn build_router(state: AppState) -> Router {
+    use axum::{middleware, routing::delete, routing::post};
+
+    // Authenticated routes — behind auth middleware
+    let auth_routes = Router::new()
+        // Key management
+        .route("/auth/keys", post(crate::server::keys::create_key))
+        .route("/auth/keys", get(crate::server::keys::list_keys))
+        .route(
+            "/auth/keys/{key_id}",
+            delete(crate::server::keys::revoke_key),
+        )
+        // Tenant management
+        .route("/tenants", post(crate::server::tenants::create_tenant))
+        .route("/tenants", get(crate::server::tenants::list_tenants))
+        .route(
+            "/tenants/{schema_name}",
+            delete(crate::server::tenants::remove_tenant),
+        )
+        // Workflow packages (tenant-scoped)
+        .route(
+            "/tenants/{tenant_id}/workflows",
+            post(crate::server::workflows::upload_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows",
+            get(crate::server::workflows::list_workflows),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}",
+            get(crate::server::workflows::get_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/{version}",
+            delete(crate::server::workflows::delete_workflow),
+        )
+        // Trigger schedules (tenant-scoped, read-only)
+        .route(
+            "/tenants/{tenant_id}/triggers",
+            get(crate::server::triggers::list_triggers),
+        )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}",
+            get(crate::server::triggers::get_trigger),
+        )
+        // Executions (tenant-scoped)
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/execute",
+            post(crate::server::executions::execute_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions",
+            get(crate::server::executions::list_executions),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}",
+            get(crate::server::executions::get_execution),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}/events",
+            get(crate::server::executions::get_execution_events),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::server::auth::require_auth,
+        ));
+
+    // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
+        .merge(auth_routes)
         .fallback(fallback_404)
         .with_state(state)
 }
@@ -185,6 +267,60 @@ async fn shutdown_signal() {
         _ = ctrl_c => info!("Received SIGINT — shutting down"),
         _ = terminate => info!("Received SIGTERM — shutting down"),
     }
+}
+
+/// Bootstrap: create an admin API key on first startup if none exist.
+///
+/// Writes the plaintext key to `~/.cloacina/bootstrap-key` with mode 0600.
+/// The key is never logged.
+async fn bootstrap_admin_key(
+    state: &AppState,
+    home: &std::path::Path,
+    provided_key: Option<&str>,
+) -> Result<()> {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let has_keys = dal.api_keys().has_any_keys().await.unwrap_or(false);
+
+    if has_keys {
+        info!("API keys exist — skipping bootstrap");
+        return Ok(());
+    }
+
+    info!("No API keys found — creating bootstrap admin key");
+
+    let (plaintext, hash) = if let Some(key) = provided_key {
+        // Use provided key
+        let hash = cloacina::security::api_keys::hash_api_key(key);
+        (key.to_string(), hash)
+    } else {
+        // Auto-generate
+        cloacina::security::api_keys::generate_api_key()
+    };
+
+    dal.api_keys()
+        .create_key(&hash, "bootstrap-admin")
+        .await
+        .context("Failed to create bootstrap admin key")?;
+
+    // Write plaintext to file (never log it)
+    let key_path = home.join("bootstrap-key");
+    std::fs::write(&key_path, &plaintext)
+        .with_context(|| format!("Failed to write bootstrap key to {}", key_path.display()))?;
+
+    // Set file permissions to owner-only (Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("Failed to set permissions on {}", key_path.display()))?;
+    }
+
+    info!(
+        "Bootstrap admin key written to {} (mode 0600)",
+        key_path.display()
+    );
+
+    Ok(())
 }
 
 /// Mask password in database URL for logging

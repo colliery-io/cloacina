@@ -43,6 +43,8 @@
 use crate::database::{AnyPool, BackendType, Database};
 
 // Sub-modules for each entity type
+#[cfg(feature = "postgres")]
+pub mod api_keys;
 pub mod context;
 pub mod execution_event;
 pub mod models;
@@ -58,6 +60,8 @@ pub mod workflow_registry;
 pub mod workflow_registry_storage;
 
 // Re-export DAL components
+#[cfg(feature = "postgres")]
+pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use context::ContextDAL;
 pub use execution_event::ExecutionEventDAL;
 pub use pipeline_execution::PipelineExecutionDAL;
@@ -191,6 +195,12 @@ impl DAL {
     /// Returns the connection pool.
     pub fn pool(&self) -> AnyPool {
         self.database.pool()
+    }
+
+    /// Returns an API key DAL (Postgres only).
+    #[cfg(feature = "postgres")]
+    pub fn api_keys(&self) -> ApiKeyDAL<'_> {
+        ApiKeyDAL::new(self)
     }
 
     /// Returns a context DAL for context operations.

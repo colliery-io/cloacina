@@ -22,6 +22,7 @@
 //! - Key generation, encryption, and PEM export/import
 //! - Security audit logging for SIEM integration
 
+pub mod api_keys;
 pub mod audit;
 mod db_key_manager;
 mod key_manager;

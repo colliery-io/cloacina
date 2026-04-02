@@ -138,6 +138,12 @@ REST API for executing workflows and querying execution status. Trigger a workfl
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Cherry-pick from `feat/api-server-i0049`
+
+- `crates/cloacinactl/src/server/executions.rs` (294 lines) — execute/list/get/events endpoints
+
+**Adaptation:** Uses `PipelineExecutor` and `Context` which exist on main. Should be fairly clean. May need unified schedule types instead of old cron types for event log queries.
+
+## Status Updates
 
 *To be added during implementation*

@@ -14,11 +14,11 @@
  *  limitations under the License.
  */
 
-pub mod api_keys;
-pub mod context;
-pub mod execution_events;
-pub mod sub_status;
-pub mod task_claiming;
-pub mod workflow_packages;
-pub mod workflow_registry;
-pub mod workflow_registry_reconciler_integration;
+//! API server route handlers and middleware.
+
+pub mod auth;
+pub mod executions;
+pub mod keys;
+pub mod tenants;
+pub mod triggers;
+pub mod workflows;
