@@ -298,7 +298,7 @@ def soak(duration=None):
             if errors:
                 print("  Error log:")
                 for err in errors[:5]:
-                    print(f"    - {err[:120]}")
+                    print(f"    - {err}")
 
             # Verify reconciler actually saw the packages
             assert len(reconcile_events) > 0, \
@@ -310,8 +310,8 @@ def soak(duration=None):
             stderr_lines = [line for line in stderr_content.splitlines() if line.strip()]
             if stderr_lines:
                 print(f"  Stderr summary ({len(stderr_lines)} lines):")
-                # Show last few lines
-                for line in stderr_lines[-5:]:
+                # Show last 20 lines for debugging
+                for line in stderr_lines[-20:]:
                     print(f"    {line[:150]}")
 
             # Step 6: Graceful shutdown
