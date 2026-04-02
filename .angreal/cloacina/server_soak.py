@@ -293,44 +293,131 @@ def server_soak():
         assert new_key.startswith("clk_"), "New key should start with clk_"
         print(f"  Created key: {new_key[:10]}...{new_key[-4:]}")
 
-        # Step 7: Upload workflow
+        # Step 7: Upload workflow package
         print_section_header("Step 7: Upload workflow package")
         package_data = create_test_source_package()
         status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
                                    token=token, files=package_data)
         print(f"  Upload status: {status}")
-        print(f"  Response: {json.dumps(body, indent=2)[:200]}")
-        # Upload may fail if reconciler can't compile yet — that's OK for now
         if status == 201:
             print("  Upload successful ✓")
         else:
-            print(f"  Upload returned {status} (compilation may be needed)")
+            print(f"  Upload returned {status}: {json.dumps(body)[:200]}")
 
-        # Step 8: List workflows
-        print_section_header("Step 8: List workflows")
-        status, body = api_request("GET", f"{base_url}/tenants/public/workflows", token=token)
-        assert status == 200, f"Expected 200, got {status}"
-        workflows = body.get("workflows", [])
-        print(f"  {len(workflows)} workflows registered")
+        # Step 8: Sustained soak — hammer the API for duration
+        soak_duration = 60  # seconds
+        print_section_header(f"Step 8: Sustained soak ({soak_duration}s)")
+        print("  Continuously hitting all endpoints...")
 
-        # Step 9: List triggers
-        print_section_header("Step 9: List triggers")
-        status, body = api_request("GET", f"{base_url}/tenants/public/triggers", token=token)
-        assert status == 200, f"Expected 200, got {status}"
-        schedules = body.get("schedules", [])
-        print(f"  {len(schedules)} schedules")
+        stats = {
+            "health": 0,
+            "ready": 0,
+            "list_keys": 0,
+            "list_workflows": 0,
+            "list_triggers": 0,
+            "list_executions": 0,
+            "create_key": 0,
+            "errors": 0,
+            "server_crashes": 0,
+        }
 
-        # Step 10: Health check still passing
-        print_section_header("Step 10: Final health check")
-        status, body = api_request("GET", f"{base_url}/health")
+        soak_start = time.time()
+        iteration = 0
+        while time.time() - soak_start < soak_duration:
+            iteration += 1
+            assert server_proc.poll() is None, \
+                f"Server crashed at iteration {iteration}!"
+
+            try:
+                # Health check (no auth)
+                s, _ = api_request("GET", f"{base_url}/health")
+                if s == 200:
+                    stats["health"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # Ready check (no auth)
+                s, _ = api_request("GET", f"{base_url}/ready")
+                if s == 200:
+                    stats["ready"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # List keys (auth)
+                s, _ = api_request("GET", f"{base_url}/auth/keys", token=token)
+                if s == 200:
+                    stats["list_keys"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # List workflows (auth)
+                s, _ = api_request("GET", f"{base_url}/tenants/public/workflows",
+                                   token=token)
+                if s == 200:
+                    stats["list_workflows"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # List triggers (auth)
+                s, _ = api_request("GET", f"{base_url}/tenants/public/triggers",
+                                   token=token)
+                if s == 200:
+                    stats["list_triggers"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # List executions (auth)
+                s, _ = api_request("GET", f"{base_url}/tenants/public/executions",
+                                   token=token)
+                if s == 200:
+                    stats["list_executions"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # Create a key every 10 iterations
+                if iteration % 10 == 0:
+                    s, b = api_request("POST", f"{base_url}/auth/keys",
+                                       token=token,
+                                       data={"name": f"soak-key-{iteration}"})
+                    if s == 201:
+                        stats["create_key"] += 1
+                    else:
+                        stats["errors"] += 1
+
+            except Exception as e:
+                stats["errors"] += 1
+                if "Connection refused" in str(e):
+                    stats["server_crashes"] += 1
+
+            # Print progress every 10s
+            elapsed = int(time.time() - soak_start)
+            if elapsed > 0 and elapsed % 10 == 0 and iteration % 5 == 0:
+                total_ok = sum(v for k, v in stats.items() if k != "errors" and k != "server_crashes")
+                print(f"  [{elapsed}s] {total_ok} OK, {stats['errors']} errors, iter {iteration}")
+
+            time.sleep(0.1)  # ~10 req/s burst
+
+        total_ok = sum(v for k, v in stats.items() if k != "errors" and k != "server_crashes")
+        print(f"\n  Soak complete: {iteration} iterations, {total_ok} OK, {stats['errors']} errors")
+        for key, val in stats.items():
+            if val > 0:
+                print(f"    {key}: {val}")
+
+        assert stats["server_crashes"] == 0, "Server crashed during soak!"
+        assert stats["errors"] < iteration * 0.1, \
+            f"Too many errors: {stats['errors']}/{iteration} ({stats['errors']*100//iteration}%)"
+        assert total_ok > 0, "No successful requests during soak!"
+
+        # Step 9: Final health check
+        print_section_header("Step 9: Final health check")
+        status, _ = api_request("GET", f"{base_url}/health")
         assert status == 200, "Health check failed"
+        assert server_proc.poll() is None, "Server crashed!"
         print("  Health: OK ✓")
-
-        assert server_proc.poll() is None, "Server crashed during soak!"
         print("  Server still running ✓")
 
         # Shutdown
-        print_section_header("Step 11: Graceful shutdown")
+        print_section_header("Step 10: Graceful shutdown")
         server_proc.send_signal(signal.SIGINT)
         exit_code = server_proc.wait(timeout=15)
         print(f"  Server exited with code: {exit_code}")
