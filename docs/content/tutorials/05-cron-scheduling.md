@@ -3,7 +3,7 @@ title: "05 - Cron Scheduling"
 description: "Creating complex, fault-tolerant workflows with Cloacina"
 weight: 15
 reviewer: "dstorey"
-review_date: "2024-04-2"
+review_date: "2024-04-02"
 ---
 
 ## Overview
@@ -331,8 +331,9 @@ Build and run your project:
 cargo run
 ```
 
-You should see output like:
+You should see output similar to the following (note: exact values such as IDs, timestamps, and metric readings will vary on each run):
 
+```
 Starting Cron Scheduling Tutorial
 DefaultRunner initialized with cron scheduling enabled
 Backup schedule created (ID: 01942234-...) - runs every 2 minutes

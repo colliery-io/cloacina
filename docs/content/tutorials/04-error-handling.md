@@ -54,6 +54,7 @@ tracing-subscriber = "0.3"
 async-trait = "0.1"
 ctor = "0.2"
 chrono = "0.4"
+rand = "0.8"
 ```
 
 {{< hint type=warning title=Important >}}

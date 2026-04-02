@@ -2,8 +2,8 @@
 title: "06 - Multi-Tenancy"
 description: "Deploy isolated workflows for multiple tenants using PostgreSQL schemas"
 weight: 16
-reviewer: "automation"
-review_date: "2025-06-08"
+reviewer: "dstorey"
+review_date: "2026-04-02"
 ---
 
 # Multi-Tenancy
@@ -74,50 +74,69 @@ Let's start with a basic multi-tenant application:
 
 ```rust
 // src/main.rs
-use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
-use cloacina::{task, workflow, Context, PipelineError};
+use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
+use cloacina::executor::PipelineExecutor;
+use cloacina::runner::DefaultRunner;
+use cloacina::{task, workflow, Context, PipelineStatus, TaskError};
+use serde_json::json;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
-#[task(id = "process_customer_data")]
-async fn process_customer_data(mut context: Context) -> Result<Context, PipelineError> {
-    let tenant_id = context.get::<String>("tenant_id").unwrap_or_default();
-    let customer_name = context.get::<String>("customer_name").unwrap_or_default();
+#[workflow(
+    name = "customer_processing",
+    description = "Process customer data in isolated tenant environment"
+)]
+pub mod customer_processing {
+    use super::*;
 
-    info!("Processing data for customer: {} (tenant: {})", customer_name, tenant_id);
+    #[task(
+        id = "process_customer_data",
+        dependencies = []
+    )]
+    pub async fn process_customer_data(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let tenant_id = context
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let customer_name = context
+            .get("customer_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-    // Simulate customer-specific processing
-    let processed_records = match tenant_id.as_str() {
-        "acme_corp" => 1250,
-        "globex_inc" => 890,
-        "initech" => 430,
-        _ => 100,
-    };
+        info!(
+            "Processing data for customer: {} (tenant: {})",
+            customer_name, tenant_id
+        );
 
-    info!("Processed {} records for {}", processed_records, customer_name);
+        // Simulate tenant-specific processing
+        let processed_records = match tenant_id.as_str() {
+            "acme_corp" => 1250,
+            "globex_inc" => 890,
+            "initech" => 430,
+            _ => 100,
+        };
 
-    context.set("processed_records", processed_records);
-    context.set("processing_completed", true);
+        info!(
+            "Processed {} records for {}",
+            processed_records, customer_name
+        );
 
-    Ok(context)
+        context.insert("processed_records", json!(processed_records))?;
+        context.insert("processing_completed", json!(true))?;
+
+        Ok(())
+    }
 }
 
-#[workflow]
-fn customer_processing_workflow() -> cloacina::Workflow {
-    cloacina::Workflow::builder("customer_processing")
-        .description("Process customer data in isolated tenant environment")
-        .task(process_customer_data)
-        .build()
-}
-
-async fn basic_multi_tenant_demo() -> Result<(), Box<dyn std::error::Error>> {
+async fn basic_multi_tenant_demo(database_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     info!("=== Basic Multi-Tenant Demo ===");
 
-    let database_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina";
-
-    // Create tenant-specific runners
+    // Create tenant-specific runners using schema isolation
     let mut tenant_runners = HashMap::new();
-
     let tenants = vec!["acme_corp", "globex_inc", "initech"];
 
     for tenant_id in &tenants {
@@ -127,24 +146,33 @@ async fn basic_multi_tenant_demo() -> Result<(), Box<dyn std::error::Error>> {
         let runner = DefaultRunner::with_schema(database_url, tenant_id).await?;
         tenant_runners.insert(tenant_id.to_string(), runner);
 
-        info!("✓ Tenant {} runner created with schema isolation", tenant_id);
+        info!("Tenant {} runner created with schema isolation", tenant_id);
     }
 
     // Execute workflows for each tenant
+    // Workflows are auto-registered by the #[workflow] macro
+
     for (tenant_id, runner) in &tenant_runners {
         info!("Executing workflow for tenant: {}", tenant_id);
 
-        let context = Context::new()
-            .with("tenant_id", tenant_id.clone())
-            .with("customer_name", format!("{} Customer", tenant_id));
+        let mut context = Context::new();
+        context.insert("tenant_id", json!(tenant_id.clone()))?;
+        context.insert("customer_name", json!(format!("{} Customer", tenant_id)))?;
 
         let result = runner.execute("customer_processing", context).await?;
 
-        if result.status.is_success() {
-            let records = result.final_context.get::<i32>("processed_records").unwrap_or(0);
-            info!("✓ Tenant {} completed: {} records processed", tenant_id, records);
+        if matches!(result.status, PipelineStatus::Completed) {
+            let records = result
+                .final_context
+                .get("processed_records")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            info!(
+                "Tenant {} completed: {} records processed",
+                tenant_id, records
+            );
         } else {
-            warn!("✗ Tenant {} failed: {:?}", tenant_id, result.status);
+            warn!("Tenant {} failed: {:?}", tenant_id, result.status);
         }
     }
 
@@ -154,7 +182,7 @@ async fn basic_multi_tenant_demo() -> Result<(), Box<dyn std::error::Error>> {
         runner.shutdown().await?;
     }
 
-    info!("Basic multi-tenant demo completed successfully");
+    info!("Basic multi-tenant demo completed");
     Ok(())
 }
 
@@ -162,11 +190,20 @@ async fn basic_multi_tenant_demo() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("multi_tenant_tutorial=info,cloacina=info")
+        .with_env_filter("tutorial_06=info,cloacina=info")
         .init();
 
-    basic_multi_tenant_demo().await?;
+    info!("Starting Tutorial 06: Multi-Tenancy");
 
+    // Get database URL from environment or use default
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        warn!("DATABASE_URL not set, using default PostgreSQL connection");
+        "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
+    });
+
+    basic_multi_tenant_demo(&database_url).await?;
+
+    info!("\nTutorial 06 completed successfully!");
     Ok(())
 }
 ```
@@ -177,334 +214,217 @@ Now let's explore advanced patterns using the Database Admin API:
 
 ```rust
 // src/advanced.rs
-use cloacina::database::{Database, DatabaseAdmin, TenantConfig, TenantCredentials};
+use cloacina::database::{Database, DatabaseAdmin, TenantConfig};
+use cloacina::executor::PipelineExecutor;
 use cloacina::runner::DefaultRunner;
-use cloacina::{task, workflow, Context, PipelineError};
+use cloacina::{task, workflow, Context, PipelineStatus, TaskError};
+use serde_json::json;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
-#[task(id = "tenant_onboarding")]
-async fn tenant_onboarding(mut context: Context) -> Result<Context, PipelineError> {
-    let tenant_name = context.get::<String>("tenant_name").unwrap_or_default();
-    let tenant_type = context.get::<String>("tenant_type").unwrap_or_default();
+#[workflow(
+    name = "tenant_onboarding",
+    description = "Complete tenant onboarding process"
+)]
+pub mod tenant_onboarding_workflow {
+    use super::*;
 
-    info!("Onboarding new tenant: {} (type: {})", tenant_name, tenant_type);
+    #[task(
+        id = "tenant_onboarding",
+        dependencies = []
+    )]
+    pub async fn tenant_onboarding(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let tenant_name = context
+            .get("tenant_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let tenant_type = context
+            .get("tenant_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("starter")
+            .to_string();
 
-    // Simulate tenant-specific setup
-    let setup_tasks = match tenant_type.as_str() {
-        "enterprise" => vec!["provision_resources", "setup_integrations", "configure_billing", "setup_support"],
-        "professional" => vec!["provision_resources", "setup_integrations", "configure_billing"],
-        "starter" => vec!["provision_resources", "configure_billing"],
-        _ => vec!["provision_resources"],
-    };
+        info!(
+            "Onboarding new tenant: {} (type: {})",
+            tenant_name, tenant_type
+        );
 
-    info!("Executing {} setup tasks for {}", setup_tasks.len(), tenant_name);
-
-    for task in &setup_tasks {
-        info!("  ✓ Completed: {}", task);
-    }
-
-    context.set("onboarding_completed", true);
-    context.set("setup_tasks_count", setup_tasks.len());
-    context.set("tenant_status", "active");
-
-    Ok(context)
-}
-
-#[task(id = "process_tenant_data")]
-async fn process_tenant_data(mut context: Context) -> Result<Context, PipelineError> {
-    let tenant_id = context.get::<String>("tenant_id").unwrap_or_default();
-    let data_volume = context.get::<String>("data_volume").unwrap_or_default();
-
-    info!("Processing {} data for tenant: {}", data_volume, tenant_id);
-
-    // Simulate data processing based on volume
-    let (processing_time, records_processed) = match data_volume.as_str() {
-        "large" => (5000, 50000),
-        "medium" => (2000, 15000),
-        "small" => (500, 2000),
-        _ => (100, 100),
-    };
-
-    // Simulate processing delay
-    tokio::time::sleep(tokio::time::Duration::from_millis(processing_time / 10)).await;
-
-    info!("Processed {} records in {}ms for {}", records_processed, processing_time, tenant_id);
-
-    context.set("records_processed", records_processed);
-    context.set("processing_time_ms", processing_time);
-    context.set("processing_status", "completed");
-
-    Ok(context)
-}
-
-#[workflow]
-fn tenant_onboarding_workflow() -> cloacina::Workflow {
-    cloacina::Workflow::builder("tenant_onboarding")
-        .description("Complete tenant onboarding process")
-        .task(tenant_onboarding)
-        .build()
-}
-
-#[workflow]
-fn tenant_data_processing_workflow() -> cloacina::Workflow {
-    cloacina::Workflow::builder("tenant_data_processing")
-        .description("Process tenant-specific data with isolation")
-        .task(process_tenant_data)
-        .build()
-}
-
-pub struct TenantManager {
-    admin: DatabaseAdmin,
-    tenant_runners: HashMap<String, DefaultRunner>,
-    tenant_credentials: HashMap<String, TenantCredentials>,
-}
-
-impl TenantManager {
-    pub fn new(admin_database_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let admin_db = Database::new(admin_database_url, "cloacina", 10);
-        let admin = DatabaseAdmin::new(admin_db);
-
-        Ok(Self {
-            admin,
-            tenant_runners: HashMap::new(),
-            tenant_credentials: HashMap::new(),
-        })
-    }
-
-    pub async fn provision_tenant(
-        &mut self,
-        tenant_id: &str,
-        tenant_name: &str,
-    ) -> Result<&TenantCredentials, Box<dyn std::error::Error>> {
-        info!("Provisioning tenant: {} ({})", tenant_name, tenant_id);
-
-        // Create tenant configuration
-        let tenant_config = TenantConfig {
-            schema_name: format!("tenant_{}", tenant_id),
-            username: format!("{}_user", tenant_id),
-            password: String::new(), // Auto-generate secure password
+        // Simulate tenant-specific setup
+        let setup_tasks = match tenant_type.as_str() {
+            "enterprise" => vec![
+                "provision_resources",
+                "setup_integrations",
+                "configure_billing",
+                "setup_support",
+            ],
+            "professional" => vec![
+                "provision_resources",
+                "setup_integrations",
+                "configure_billing",
+            ],
+            "starter" => vec!["provision_resources", "configure_billing"],
+            _ => vec!["provision_resources"],
         };
 
-        // Create tenant using admin API
-        let credentials = self.admin.create_tenant(tenant_config).await?;
+        info!(
+            "Executing {} setup tasks for {}",
+            setup_tasks.len(),
+            tenant_name
+        );
 
-        info!("✓ Tenant {} provisioned successfully", tenant_id);
-        info!("  Schema: {}", credentials.schema_name);
-        info!("  Username: {}", credentials.username);
-        info!("  Connection ready");
-
-        self.tenant_credentials.insert(tenant_id.to_string(), credentials);
-
-        Ok(self.tenant_credentials.get(tenant_id).unwrap())
-    }
-
-    pub async fn create_tenant_runner(
-        &mut self,
-        tenant_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let credentials = self.tenant_credentials.get(tenant_id)
-            .ok_or_else(|| format!("Tenant {} not provisioned", tenant_id))?;
-
-        info!("Creating runner for tenant: {}", tenant_id);
-
-        // Create runner with tenant-specific credentials
-        let runner = DefaultRunner::new(&credentials.connection_string).await?;
-        self.tenant_runners.insert(tenant_id.to_string(), runner);
-
-        info!("✓ Runner created for tenant {} with isolated credentials", tenant_id);
-
-        Ok(())
-    }
-
-    pub async fn onboard_customer(
-        &mut self,
-        tenant_id: &str,
-        tenant_name: &str,
-        tenant_type: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting complete onboarding for: {} ({})", tenant_name, tenant_id);
-
-        // Step 1: Provision tenant infrastructure
-        self.provision_tenant(tenant_id, tenant_name).await?;
-
-        // Step 2: Create tenant runner
-        self.create_tenant_runner(tenant_id).await?;
-
-        // Step 3: Execute onboarding workflow
-        let runner = self.tenant_runners.get(tenant_id).unwrap();
-
-        let context = Context::new()
-            .with("tenant_id", tenant_id.to_string())
-            .with("tenant_name", tenant_name.to_string())
-            .with("tenant_type", tenant_type.to_string());
-
-        let result = runner.execute("tenant_onboarding", context).await?;
-
-        if result.status.is_success() {
-            let task_count = result.final_context.get::<usize>("setup_tasks_count").unwrap_or(0);
-            info!("✓ Tenant {} onboarded successfully with {} setup tasks", tenant_id, task_count);
-        } else {
-            error!("✗ Tenant {} onboarding failed: {:?}", tenant_id, result.status);
+        for task in &setup_tasks {
+            info!("  Completed: {}", task);
         }
 
-        Ok(())
-    }
+        context.insert("onboarding_completed", json!(true))?;
+        context.insert("setup_tasks_count", json!(setup_tasks.len()))?;
+        context.insert("tenant_status", json!("active"))?;
 
-    pub async fn process_tenant_workload(
-        &self,
-        tenant_id: &str,
-        data_volume: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let runner = self.tenant_runners.get(tenant_id)
-            .ok_or_else(|| format!("No runner for tenant {}", tenant_id))?;
-
-        info!("Processing {} workload for tenant: {}", data_volume, tenant_id);
-
-        let context = Context::new()
-            .with("tenant_id", tenant_id.to_string())
-            .with("data_volume", data_volume.to_string());
-
-        let result = runner.execute("tenant_data_processing", context).await?;
-
-        if result.status.is_success() {
-            let records = result.final_context.get::<i32>("records_processed").unwrap_or(0);
-            let time_ms = result.final_context.get::<i32>("processing_time_ms").unwrap_or(0);
-            info!("✓ Processed {} records in {}ms for tenant {}", records, time_ms, tenant_id);
-        } else {
-            error!("✗ Processing failed for tenant {}: {:?}", tenant_id, result.status);
-        }
-
-        Ok(())
-    }
-
-    pub async fn shutdown_all(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Shutting down all tenant runners...");
-
-        for (tenant_id, runner) in self.tenant_runners.drain() {
-            info!("Shutting down runner for tenant: {}", tenant_id);
-            runner.shutdown().await?;
-        }
-
-        info!("All tenant runners shut down successfully");
         Ok(())
     }
 }
 
-pub async fn advanced_multi_tenant_demo() -> Result<(), Box<dyn std::error::Error>> {
+#[workflow(
+    name = "tenant_data_processing",
+    description = "Process tenant-specific data with isolation"
+)]
+pub mod tenant_data_processing_workflow {
+    use super::*;
+
+    #[task(
+        id = "process_tenant_data",
+        dependencies = []
+    )]
+    pub async fn process_tenant_data(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {
+        let tenant_id = context
+            .get("tenant_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string();
+        let data_volume = context
+            .get("data_volume")
+            .and_then(|v| v.as_str())
+            .unwrap_or("small")
+            .to_string();
+
+        info!("Processing {} data for tenant: {}", data_volume, tenant_id);
+
+        // Simulate data processing based on volume
+        let (processing_time, records_processed) = match data_volume.as_str() {
+            "large" => (5000, 50000),
+            "medium" => (2000, 15000),
+            "small" => (500, 2000),
+            _ => (100, 100),
+        };
+
+        // Simulate processing delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(processing_time / 10)).await;
+
+        info!("Processed {} records in {}ms for {}", records_processed, processing_time, tenant_id);
+
+        context.insert("records_processed", json!(records_processed))?;
+        context.insert("processing_time_ms", json!(processing_time))?;
+        context.insert("processing_status", json!("completed"))?;
+
+        Ok(())
+    }
+}
+
+async fn advanced_admin_demo(admin_database_url: &str) -> Result<(), Box<dyn std::error::Error>> {
     info!("=== Advanced Multi-Tenant Demo with Admin API ===");
 
-    let admin_database_url = "postgresql://cloacina:cloacina@localhost:5432/cloacina";
-    let mut tenant_manager = TenantManager::new(admin_database_url)?;
+    // Create database admin
+    let admin_db = Database::new(admin_database_url, "cloacina", 10);
+    let admin = DatabaseAdmin::new(admin_db);
 
-    // Define tenant configurations
-    let tenants = vec![
-        ("acme_corp", "Acme Corporation", "enterprise"),
-        ("globex_inc", "Globex Industries", "professional"),
-        ("initech", "Initech Solutions", "starter"),
-    ];
+    // Provision new tenant using admin API
+    let tenant_config = TenantConfig {
+        schema_name: "tenant_demo".to_string(),
+        username: "demo_user".to_string(),
+        password: String::new(), // Auto-generate secure password
+    };
 
-    // Phase 1: Tenant Onboarding
-    info!("Phase 1: Complete Tenant Onboarding");
-    info!("-" .repeat(40));
+    info!("Provisioning tenant with admin API...");
 
-    for (tenant_id, tenant_name, tenant_type) in &tenants {
-        match tenant_manager.onboard_customer(tenant_id, tenant_name, tenant_type).await {
-            Ok(()) => info!("✅ {} onboarded successfully", tenant_name),
-            Err(e) => error!("❌ Failed to onboard {}: {}", tenant_name, e),
-        }
-    }
+    match admin.create_tenant(tenant_config).await {
+        Ok(credentials) => {
+            info!("Tenant provisioned successfully!");
+            info!("  Schema: {}", credentials.schema_name);
+            info!("  Username: {}", credentials.username);
+            info!("  Connection ready");
 
-    // Phase 2: Workload Processing
-    info!("\nPhase 2: Tenant Workload Processing");
-    info!("-" .repeat(40));
+            // Create runner with tenant-specific credentials
+            info!("Creating runner with dedicated credentials...");
+            let tenant_runner = DefaultRunner::new(&credentials.connection_string).await?;
 
-    let workloads = vec![
-        ("acme_corp", "large"),
-        ("globex_inc", "medium"),
-        ("initech", "small"),
-        ("acme_corp", "medium"), // Multiple workloads for same tenant
-    ];
+            // Workflow is auto-registered by the #[workflow] macro
 
-    for (tenant_id, volume) in &workloads {
-        match tenant_manager.process_tenant_workload(tenant_id, volume).await {
-            Ok(()) => info!("✅ {} workload completed for {}", volume, tenant_id),
-            Err(e) => error!("❌ Failed {} workload for {}: {}", volume, tenant_id, e),
-        }
-    }
+            // Execute onboarding workflow
+            let mut context = Context::new();
+            context.insert("tenant_id", json!("demo"))?;
+            context.insert("tenant_name", json!("Demo Tenant"))?;
+            context.insert("tenant_type", json!("professional"))?;
 
-    // Phase 3: Demonstrate Isolation
-    info!("\nPhase 3: Demonstrating Tenant Isolation");
-    info!("-" .repeat(40));
+            let result = tenant_runner.execute("tenant_onboarding", context).await?;
 
-    // Simulate concurrent processing to show isolation
-    let mut handles = vec![];
-
-    for (tenant_id, _, _) in &tenants {
-        let tenant_id = tenant_id.to_string();
-        let runner = tenant_manager.tenant_runners.get(&tenant_id).unwrap();
-
-        // Clone the runner (Arc<> internally)
-        let runner_clone = runner.clone();
-
-        let handle = tokio::spawn(async move {
-            let context = Context::new()
-                .with("tenant_id", tenant_id.clone())
-                .with("data_volume", "medium");
-
-            let result = runner_clone.execute("tenant_data_processing", context).await;
-
-            match result {
-                Ok(r) if r.status.is_success() => {
-                    let records = r.final_context.get::<i32>("records_processed").unwrap_or(0);
-                    info!("🔄 Concurrent processing for {}: {} records", tenant_id, records);
-                }
-                Ok(r) => warn!("⚠️  Concurrent processing failed for {}: {:?}", tenant_id, r.status),
-                Err(e) => error!("❌ Concurrent processing error for {}: {}", tenant_id, e),
+            if matches!(result.status, PipelineStatus::Completed) {
+                let task_count = result
+                    .final_context
+                    .get("setup_tasks_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                info!(
+                    "Tenant onboarded successfully with {} setup tasks",
+                    task_count
+                );
+            } else {
+                error!("Tenant onboarding failed: {:?}", result.status);
             }
-        });
 
-        handles.push(handle);
+            tenant_runner.shutdown().await?;
+            info!("Advanced admin demo completed");
+        }
+        Err(e) => {
+            return Err(format!("Failed to provision tenant: {}", e).into());
+        }
     }
-
-    // Wait for all concurrent executions
-    for handle in handles {
-        handle.await?;
-    }
-
-    info!("✅ All concurrent executions completed with full isolation");
-
-    // Cleanup
-    tenant_manager.shutdown_all().await?;
-
-    info!("🎉 Advanced multi-tenant demo completed successfully!");
 
     Ok(())
 }
 ```
 
-Add this to your `src/main.rs` to include the advanced demo:
+To run the advanced demo, update your `main` function to call it when PostgreSQL is available:
 
 ```rust
-// Add to src/main.rs after the existing code
-
-mod advanced;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
     tracing_subscriber::fmt()
-        .with_env_filter("multi_tenant_tutorial=info,cloacina=info")
+        .with_env_filter("tutorial_06=info,cloacina=info")
         .init();
 
-    // Run basic demo
-    basic_multi_tenant_demo().await?;
+    info!("Starting Tutorial 06: Multi-Tenancy");
 
-    println!("\n" + &"=".repeat(60) + "\n");
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        warn!("DATABASE_URL not set, using default PostgreSQL connection");
+        "postgresql://cloacina:cloacina@localhost:5432/cloacina".to_string()
+    });
 
-    // Run advanced demo
-    advanced::advanced_multi_tenant_demo().await?;
+    basic_multi_tenant_demo(&database_url).await?;
 
+    // Advanced demo with admin API (if PostgreSQL is available)
+    if database_url.starts_with("postgresql://") {
+        info!("\n{}", "=".repeat(60));
+        advanced_admin_demo(&database_url).await.unwrap_or_else(|e| {
+            warn!("Advanced admin demo skipped: {}", e);
+        });
+    }
+
+    info!("\nTutorial 06 completed successfully!");
     Ok(())
 }
 ```
@@ -576,7 +496,7 @@ const MAX_TENANT_RUNNERS: usize = 50;
 let runner = DefaultRunner::with_config(
     &credentials.connection_string,
     DefaultRunnerConfig::builder()
-        .max_connections(5)  // Limit per tenant
+        .db_pool_size(5)  // Limit per tenant
         .build()
 ).await?;
 ```
