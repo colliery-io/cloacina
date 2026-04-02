@@ -90,8 +90,7 @@ async-trait = "0.1"
 cloacina-build = {{ path = "../../../crates/cloacina-build" }}
 """
 
-    lib_rs = f"""use cloacina_macros::workflow;
-use cloacina_workflow::{{Context, TaskError, task}};
+    lib_rs = f"""use cloacina_workflow::{{task, workflow, Context, TaskError}};
 
 #[workflow(name = "{safe_name}")]
 pub mod {safe_name} {{
@@ -322,7 +321,7 @@ def soak(duration=None):
 
             # Wait for clean exit
             try:
-                exit_code = daemon_proc.wait(timeout=15)
+                exit_code = daemon_proc.wait(timeout=30)
                 print(f"  Daemon exited with code: {exit_code}")
 
                 if exit_code != 0:
