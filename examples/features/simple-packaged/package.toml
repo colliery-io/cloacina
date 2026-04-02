@@ -10,3 +10,9 @@ workflow_name = "data_processing"
 language = "rust"
 description = "Simple data processing workflow for demonstration"
 author = "Cloacina Demo Team"
+
+[[metadata.triggers]]
+name = "demo_cron"
+workflow = "data_processing"
+poll_interval = "10s"
+allow_concurrent = false
