@@ -19,3 +19,4 @@
 pub mod auth;
 pub mod keys;
 pub mod tenants;
+pub mod workflows;

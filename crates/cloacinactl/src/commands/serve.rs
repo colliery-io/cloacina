@@ -142,6 +142,23 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{schema_name}",
             delete(crate::server::tenants::remove_tenant),
         )
+        // Workflow packages (tenant-scoped)
+        .route(
+            "/tenants/{tenant_id}/workflows",
+            post(crate::server::workflows::upload_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows",
+            get(crate::server::workflows::list_workflows),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}",
+            get(crate::server::workflows::get_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/{version}",
+            delete(crate::server::workflows::delete_workflow),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::server::auth::require_auth,
