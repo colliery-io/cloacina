@@ -24,9 +24,11 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 def build_daemon():
     """Build the daemon binary."""
-    print("Building cloacinactl daemon...")
+    # Build debug mode so cfg!(debug_assertions) enables host dep injection.
+    # Source packages use path deps that the host rewrites to absolute paths.
+    print("Building cloacinactl daemon (debug)...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "cloacinactl"],
+        ["cargo", "build", "-p", "cloacinactl"],
         check=True,
     )
     print("Daemon binary built.")
@@ -34,7 +36,7 @@ def build_daemon():
 
 def find_daemon_binary():
     """Find the daemon binary path."""
-    binary = Path("target/release/cloacinactl")
+    binary = Path("target/debug/cloacinactl")
     if not binary.exists():
         raise FileNotFoundError(f"Daemon binary not found at {binary}. Run build first.")
     return str(binary)
