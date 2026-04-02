@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+pub mod api_keys;
 pub mod context;
 pub mod execution_events;
 pub mod sub_status;
