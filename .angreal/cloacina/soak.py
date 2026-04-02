@@ -347,8 +347,19 @@ def soak(duration=None):
             print_final_success("Daemon soak test passed!")
 
         except Exception:
+            # Print daemon stderr before killing for debugging
+            daemon_stderr_file.flush()
+            if daemon_stderr_path.exists():
+                stderr = daemon_stderr_path.read_text()
+                if stderr.strip():
+                    print("\n  === Daemon stderr (last 30 lines) ===")
+                    for line in stderr.splitlines()[-30:]:
+                        print(f"    {line}")
+            exit_code = daemon_proc.poll()
+            if exit_code is not None:
+                print(f"  Daemon exit code: {exit_code}")
             # Kill daemon if test fails
-            if daemon_proc.poll() is None:
+            if exit_code is None:
                 daemon_proc.kill()
                 daemon_proc.wait(timeout=5)
             raise
