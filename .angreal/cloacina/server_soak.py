@@ -250,9 +250,20 @@ def server_soak():
         else:
             raise RuntimeError("Server failed to become healthy within 30s")
 
-        # Step 4: Read bootstrap key
+        # Step 4: Read bootstrap key (may take a moment after server starts)
         print_section_header("Step 4: Read bootstrap key")
         key_path = soak_home / "bootstrap-key"
+        for wait in range(15):
+            if key_path.exists():
+                break
+            time.sleep(1)
+        if not key_path.exists():
+            # Print server stderr for debugging
+            stderr_file.flush()
+            stderr = stderr_path.read_text() if stderr_path.exists() else ""
+            print(f"  Server stderr ({len(stderr.splitlines())} lines):")
+            for line in stderr.splitlines()[-15:]:
+                print(f"    {line}")
         assert key_path.exists(), f"Bootstrap key not found at {key_path}"
         token = key_path.read_text().strip()
         assert token.startswith("clk_"), f"Invalid key format: {token[:10]}..."
