@@ -136,6 +136,12 @@ Read-only REST API for listing trigger schedules and their recent execution hist
 ### Risk Considerations
 {Technical risks and mitigation strategies}
 
-## Status Updates **[REQUIRED]**
+## Cherry-pick from `feat/api-server-i0049`
+
+- `crates/cloacinactl/src/server/triggers.rs` (239 lines) — trigger list/detail endpoints
+
+**Adaptation:** References old `CronSchedule`/`TriggerSchedule` types — needs updating to unified `Schedule` type from I-0059. The DAL methods changed (`dal.schedule().list()` instead of `dal.cron_schedule().list()`). Moderate adaptation needed.
+
+## Status Updates
 
 *To be added during implementation*

@@ -56,6 +56,10 @@ Add axum auth middleware that extracts `Authorization: Bearer <key>` tokens, val
 - T-0293 (axum server)
 - T-0294 (api_keys DAL + bootstrap)
 
+## Cherry-pick notes
+
+**Merged into T-0294** — this task's scope (auth middleware) is fully covered by T-0294 which includes DAL + middleware + bootstrap. The cherry-pick source is `crates/cloacinactl/src/server/auth.rs` (174 lines) from `feat/api-server-i0049`.
+
 ## Status Updates
 
-*To be added during implementation*
+*Merged into T-0294*

@@ -54,6 +54,10 @@ REST API endpoints for managing API keys. All endpoints are behind auth middlewa
 - T-0294 (api_keys DAL)
 - T-0300 (auth middleware)
 
+## Cherry-pick notes
+
+**Merged into T-0294** — key management endpoints are part of the overall auth task. Cherry-pick source: `crates/cloacinactl/src/server/keys.rs` (146 lines) from `feat/api-server-i0049`.
+
 ## Status Updates
 
-*To be added during implementation*
+*Merged into T-0294*

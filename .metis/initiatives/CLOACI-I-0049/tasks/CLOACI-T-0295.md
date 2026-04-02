@@ -57,6 +57,13 @@ Expose existing tenant DAL operations (`database/admin.rs` — `create_tenant`, 
 - T-0293 (axum server)
 - T-0294 (PAK auth — extend with ABAC)
 
+## Cherry-pick from `feat/api-server-i0049`
+
+- `crates/cloacinactl/src/server/tenants.rs` (149 lines) — tenant CRUD endpoints, uses `DatabaseAdmin`/`TenantConfig` which exist on main
+- `crates/cloacinactl/src/server/tenant_scope.rs` (163 lines) — tenant-scoping middleware
+
+**Adaptation:** Imports look clean — `DatabaseAdmin`/`TenantConfig` are on main. May need minor type adjustments.
+
 ## Status Updates
 
 *To be added during implementation*

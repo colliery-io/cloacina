@@ -59,6 +59,12 @@ curl -X POST http://localhost:8080/tenants/acme/workflows \
 - T-0294 (auth)
 - T-0295 (tenant scoping)
 
+## Cherry-pick from `feat/api-server-i0049`
+
+- `crates/cloacinactl/src/server/workflows.rs` (345 lines) — upload/list/get/delete endpoints
+
+**Adaptation:** Uses `UnifiedRegistryStorage` and `WorkflowRegistryImpl` which exist on main. Package format changed to fidius source packages — upload handler needs to validate bzip2 tar + package.toml instead of gzip tar + manifest.json. The reconciler compilation step happens automatically on load.
+
 ## Status Updates
 
 *To be added during implementation*

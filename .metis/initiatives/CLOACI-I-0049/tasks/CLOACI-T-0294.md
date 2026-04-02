@@ -56,6 +56,16 @@ Add the `api_keys` table, DAL operations in cloacina core, key generation utilit
 ### Depends on
 - T-0293 (axum server)
 
+## Cherry-pick from `feat/api-server-i0049`
+
+- `crates/cloacina/src/dal/unified/api_keys/` (342 lines) — API key DAL, needs adaptation for current DAL patterns
+- `crates/cloacina/src/security/api_keys.rs` (72 lines) — key hashing/generation, likely clean
+- `crates/cloacina/src/database/migrations/postgres/014_create_api_keys/` — migration SQL, renumber to 016
+- `crates/cloacinactl/src/server/auth.rs` (174 lines) — LRU cache middleware, needs `lru` dep
+- `crates/cloacinactl/src/server/keys.rs` (146 lines) — key CRUD endpoints
+
+**Adaptation:** DAL uses old dispatch_backend patterns. Migration numbering needs update (015 is taken). Auth references AppState from serve.rs.
+
 ## Status Updates
 
 *To be added during implementation*
