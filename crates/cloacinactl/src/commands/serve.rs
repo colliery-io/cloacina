@@ -75,8 +75,10 @@ pub async fn run(
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
 
-    // Connect to Postgres
-    let runner_config = DefaultRunnerConfig::builder().build();
+    // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
+    let runner_config = DefaultRunnerConfig::builder()
+        .registry_storage_backend("database")
+        .build();
 
     let runner = DefaultRunner::with_config(&database_url, runner_config)
         .await
