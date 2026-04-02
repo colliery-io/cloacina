@@ -63,6 +63,12 @@ workflow_name = "{safe_name}"
 language = "rust"
 description = "Soak test package {name}"
 author = "soak-test"
+
+[[metadata.triggers]]
+name = "{safe_name}_cron"
+workflow = "{safe_name}"
+poll_interval = "30s"
+cron_expression = "*/30 * * * * *"
 """
 
     cargo_toml = f"""[package]
@@ -170,7 +176,7 @@ def soak(duration=None):
     into the watch directory, verifies reconciliation, removes packages,
     and verifies clean shutdown.
     """
-    duration = int(duration) if duration else 30
+    duration = int(duration) if duration else 120
 
     print_section_header("Daemon Soak Test")
     print(f"Duration: {duration}s")
@@ -193,7 +199,7 @@ def soak(duration=None):
         daemon_stderr_path = Path(daemon_home) / "daemon_stderr.log"
         daemon_stderr_file = open(daemon_stderr_path, "w")
         daemon_proc = subprocess.Popen(
-            [daemon_binary, "daemon", "--home", daemon_home],
+            [daemon_binary, "daemon", "--home", daemon_home, "--poll-interval", "1000"],
             stdout=subprocess.PIPE,
             stderr=daemon_stderr_file,
         )
@@ -213,8 +219,10 @@ def soak(duration=None):
             print_section_header("Step 3: Drop test packages")
 
             packages_dropped = []
-            packages_to_drop = 5
-            drop_interval = max(1, duration // (packages_to_drop * 2))  # Drop + remove cycles
+            packages_to_drop = 2
+            # First compilation downloads deps (~60s), subsequent are faster (~15s).
+            # Wait long enough for compilation to finish before dropping next.
+            drop_interval = max(30, duration // (packages_to_drop * 3))
 
             for i in range(packages_to_drop):
                 pkg_name = f"soak-test-pkg-{i}"
