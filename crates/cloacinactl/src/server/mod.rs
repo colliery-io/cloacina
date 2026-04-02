@@ -17,3 +17,4 @@
 //! API server route handlers and middleware.
 
 pub mod auth;
+pub mod keys;
