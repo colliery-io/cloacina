@@ -214,7 +214,7 @@ def server_soak():
     print_section_header("Step 2: Start Postgres")
     start_postgres()
 
-    base_url = "http://127.0.0.1:8080"
+    base_url = "http://127.0.0.1:18080"
     db_url = "postgres://cloacina:cloacina@localhost:5432/cloacina"
     soak_home = Path("target/server-soak-test")
     if soak_home.exists():
@@ -234,7 +234,7 @@ def server_soak():
 
         server_proc = subprocess.Popen(
             [server_binary, "serve", "--home", str(soak_home),
-             "--database-url", db_url, "--bind", "127.0.0.1:8080",
+             "--database-url", db_url, "--bind", "127.0.0.1:18080",
              "--bootstrap-key", bootstrap_key],
             stdout=subprocess.PIPE,
             stderr=stderr_file,
