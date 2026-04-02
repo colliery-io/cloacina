@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod commands;
+mod server;
 
 /// cloacinactl — Cloacina task orchestration engine
 #[derive(Parser)]

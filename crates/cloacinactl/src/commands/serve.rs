@@ -36,6 +36,7 @@ use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 pub struct AppState {
     pub database: Database,
     pub runner: Arc<DefaultRunner>,
+    pub key_cache: Arc<crate::server::auth::KeyCache>,
 }
 
 /// Run the API server.
@@ -85,6 +86,7 @@ pub async fn run(
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
+        key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
     };
 
     // Build router
