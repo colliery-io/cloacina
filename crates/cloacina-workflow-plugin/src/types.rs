@@ -120,8 +120,11 @@ pub struct TriggerDefinition {
     pub name: String,
     /// Workflow to fire when trigger activates
     pub workflow: String,
-    /// Poll interval (e.g., "5s", "1m")
+    /// Poll interval for custom poll triggers (e.g., "5s", "1m")
     pub poll_interval: String,
+    /// Cron expression (e.g., "*/10 * * * *"). If present, this is a cron trigger.
+    #[serde(default)]
+    pub cron_expression: Option<String>,
     /// Whether concurrent executions are allowed
     #[serde(default)]
     pub allow_concurrent: bool,

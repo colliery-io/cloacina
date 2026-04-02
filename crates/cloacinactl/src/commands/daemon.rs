@@ -428,24 +428,50 @@ async fn register_triggers_from_reconcile(
         };
 
         for trigger_def in &cloacina_manifest.metadata.triggers {
-            // Get the trigger from the global registry (it should be registered by the reconciler)
-            if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
-                match scheduler
-                    .register_trigger(trigger.as_ref(), &trigger_def.workflow)
+            if let Some(cron_expr) = &trigger_def.cron_expression {
+                // Cron trigger — register via the unified schedule API
+                match runner
+                    .register_cron_workflow(&trigger_def.workflow, cron_expr, "UTC")
                     .await
                 {
-                    Ok(_schedule) => {
+                    Ok(schedule_id) => {
                         info!(
-                            "Registered trigger schedule: '{}' -> workflow '{}' (poll: {})",
-                            trigger_def.name, trigger_def.workflow, trigger_def.poll_interval
+                            "Registered cron schedule: '{}' -> workflow '{}' (cron: {}, id: {})",
+                            trigger_def.name, trigger_def.workflow, cron_expr, schedule_id
                         );
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to register trigger schedule for '{}': {}",
+                            "Failed to create cron schedule for '{}': {}",
                             trigger_def.name, e
                         );
                     }
+                }
+            } else {
+                // Custom poll trigger — look for registered Trigger impl
+                if let Some(trigger) = cloacina::trigger::get_trigger(&trigger_def.name) {
+                    match scheduler
+                        .register_trigger(trigger.as_ref(), &trigger_def.workflow)
+                        .await
+                    {
+                        Ok(_schedule) => {
+                            info!(
+                                "Registered trigger schedule: '{}' -> workflow '{}' (poll: {})",
+                                trigger_def.name, trigger_def.workflow, trigger_def.poll_interval
+                            );
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to register trigger schedule for '{}': {}",
+                                trigger_def.name, e
+                            );
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Trigger '{}' declared in package.toml but no Trigger impl found in registry",
+                        trigger_def.name
+                    );
                 }
             }
         }

@@ -15,4 +15,5 @@ author = "Cloacina Demo Team"
 name = "demo_cron"
 workflow = "data_processing"
 poll_interval = "10s"
+cron_expression = "*/10 * * * * *"
 allow_concurrent = false
