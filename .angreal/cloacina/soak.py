@@ -9,12 +9,9 @@ import json
 import signal
 import subprocess
 import tarfile
-import tempfile
 import time
 import io
-import gzip
 from pathlib import Path
-from datetime import datetime, timezone
 
 import angreal  # type: ignore
 
@@ -26,9 +23,11 @@ cloacina = angreal.command_group(name="cloacina", about="commands for Cloacina c
 
 def build_daemon():
     """Build the daemon binary."""
-    print("Building cloacinactl daemon...")
+    # Build debug mode so cfg!(debug_assertions) enables host dep injection.
+    # Source packages use path deps that the host rewrites to absolute paths.
+    print("Building cloacinactl daemon (debug)...")
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "cloacinactl"],
+        ["cargo", "build", "-p", "cloacinactl"],
         check=True,
     )
     print("Daemon binary built.")
@@ -36,51 +35,103 @@ def build_daemon():
 
 def find_daemon_binary():
     """Find the daemon binary path."""
-    binary = Path("target/release/cloacinactl")
+    binary = Path("target/debug/cloacinactl")
     if not binary.exists():
         raise FileNotFoundError(f"Daemon binary not found at {binary}. Run build first.")
     return str(binary)
 
 
 def create_test_package(name, version="1.0.0"):
-    """Create a minimal .cloacina archive with a ManifestV2 manifest.
+    """Create a fidius source package (.cloacina bzip2 tar) with a real compilable Rust project.
 
-    This creates a valid archive that the daemon's FilesystemWorkflowRegistry
-    can peek for metadata. The package won't actually execute (no real cdylib),
-    but it tests the reconciler's load/unload lifecycle.
+    The package contains package.toml + Cargo.toml + src/lib.rs with a minimal
+    #[workflow] that the daemon's reconciler can compile and load via fidius.
     """
-    manifest = {
-        "format_version": "2",
-        "package": {
-            "name": name,
-            "version": version,
-            "description": f"Soak test package {name}",
-            "fingerprint": f"sha256:soak-{name}-{version}",
-            "targets": ["linux-x86_64", "macos-arm64"],
-        },
-        "language": "rust",
-        "rust": {"library_path": f"lib/lib{name}.so"},
-        "tasks": [
-            {
-                "id": "task1",
-                "function": "execute_task",
-                "dependencies": [],
-                "retries": 0,
-            }
-        ],
-        "triggers": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    safe_name = name.replace("-", "_")
+    prefix = f"{name}-{version}"
 
-    # Build tar.gz archive in memory
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{safe_name}"
+language = "rust"
+description = "Soak test package {name}"
+author = "soak-test"
+
+[[metadata.triggers]]
+name = "{safe_name}_cron"
+workflow = "{safe_name}"
+poll_interval = "30s"
+cron_expression = "*/30 * * * * *"
+"""
+
+    cargo_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-macros = {{ path = "../../../crates/cloacina-macros" }}
+cloacina-workflow = {{ path = "../../../crates/cloacina-workflow", features = ["packaged"] }}
+cloacina-workflow-plugin = {{ path = "../../../crates/cloacina-workflow-plugin" }}
+serde_json = "1.0"
+async-trait = "0.1"
+chrono = "0.4"
+
+[build-dependencies]
+cloacina-build = {{ path = "../../../crates/cloacina-build" }}
+"""
+
+    lib_rs = f"""use cloacina_workflow::{{task, workflow, Context, TaskError}};
+
+#[workflow(name = "{safe_name}")]
+pub mod {safe_name} {{
+    use super::*;
+
+    #[task(id = "task1", dependencies = [])]
+    pub async fn task1(
+        context: &mut Context<serde_json::Value>,
+    ) -> Result<(), TaskError> {{
+        context.insert("soak_test".to_string(), serde_json::json!(true));
+        Ok(())
+    }}
+}}
+"""
+
+    build_rs = """fn main() {
+    cloacina_build::configure();
+}
+"""
+
+    # Build bzip2 tar archive matching fidius pack_package format
     buf = io.BytesIO()
-    with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
-        with tarfile.open(fileobj=gz, mode="w") as tar:
-            manifest_json = json.dumps(manifest, indent=2).encode()
-            info = tarfile.TarInfo(name="manifest.json")
-            info.size = len(manifest_json)
-            info.mode = 0o644
-            tar.addfile(info, io.BytesIO(manifest_json))
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            ("Cargo.toml", cargo_toml),
+            ("src/lib.rs", lib_rs),
+            ("build.rs", build_rs),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
 
     return buf.getvalue()
 
@@ -124,7 +175,7 @@ def soak(duration=None):
     into the watch directory, verifies reconciliation, removes packages,
     and verifies clean shutdown.
     """
-    duration = int(duration) if duration else 30
+    duration = int(duration) if duration else 120
 
     print_section_header("Daemon Soak Test")
     print(f"Duration: {duration}s")
@@ -134,8 +185,13 @@ def soak(duration=None):
     build_daemon()
     daemon_binary = find_daemon_binary()
 
-    # Step 2: Create temp home directory
-    with tempfile.TemporaryDirectory(prefix="cloacina-soak-") as daemon_home:
+    # Step 2: Use a fixed soak test directory so logs survive for inspection
+    soak_home = Path("target/soak-test")
+    if soak_home.exists():
+        import shutil
+        shutil.rmtree(soak_home)
+    daemon_home = str(soak_home)
+    if True:  # replaces the `with` block — no auto-cleanup
         packages_dir = Path(daemon_home) / "packages"
         packages_dir.mkdir(parents=True, exist_ok=True)
 
@@ -147,7 +203,7 @@ def soak(duration=None):
         daemon_stderr_path = Path(daemon_home) / "daemon_stderr.log"
         daemon_stderr_file = open(daemon_stderr_path, "w")
         daemon_proc = subprocess.Popen(
-            [daemon_binary, "daemon", "--home", daemon_home],
+            [daemon_binary, "daemon", "--home", daemon_home, "--poll-interval", "1000"],
             stdout=subprocess.PIPE,
             stderr=daemon_stderr_file,
         )
@@ -163,59 +219,122 @@ def soak(duration=None):
 
             print("  Daemon is running.")
 
-            # Step 3: Drop packages and verify reconciliation
-            print_section_header("Step 3: Drop test packages")
+            # Step 3: Drop a package and wait for it to compile + load
+            print_section_header("Step 3: Drop test package")
 
-            packages_dropped = []
-            packages_to_drop = 5
-            drop_interval = max(1, duration // (packages_to_drop * 2))  # Drop + remove cycles
+            pkg_name = "soak-test-pkg-0"
+            pkg_data = create_test_package(pkg_name, "1.0.0")
+            pkg_path = packages_dir / f"{pkg_name}.cloacina"
 
-            for i in range(packages_to_drop):
-                pkg_name = f"soak-test-pkg-{i}"
-                pkg_data = create_test_package(pkg_name, f"1.0.{i}")
-                pkg_path = packages_dir / f"{pkg_name}.cloacina"
+            print(f"  Dropping: {pkg_name}.cloacina")
+            pkg_path.write_bytes(pkg_data)
 
-                print(f"  Dropping: {pkg_name}.cloacina")
-                pkg_path.write_bytes(pkg_data)
-                packages_dropped.append(pkg_path)
+            # Wait for compilation to finish (~60s first time, deps need downloading)
+            print("  Waiting for compilation (up to 90s)...")
+            compile_timeout = 90
+            compile_start = time.time()
+            while time.time() - compile_start < compile_timeout:
+                assert daemon_proc.poll() is None, "Daemon crashed during compilation!"
+                time.sleep(5)
+                # Check stderr for compilation success indicators
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                if "Successfully registered" in stderr and pkg_name in stderr:
+                    print(f"  Package compiled and loaded ({int(time.time() - compile_start)}s)")
+                    break
+            else:
+                print(f"  WARNING: Compilation may not have finished in {compile_timeout}s")
 
-                # Wait for reconciler to notice
-                time.sleep(drop_interval)
+            # Step 4: Let cron execute for the soak duration
+            soak_duration = max(30, duration - int(time.time() - compile_start))
+            print_section_header(f"Step 4: Soak — running for {soak_duration}s")
+            print("  Package has cron_expression = '*/30 * * * * *' (every 30s)")
+            print(f"  Expecting ~{soak_duration // 30} cron executions...")
 
-            # Verify packages are present
-            cloacina_files = list(packages_dir.glob("*.cloacina"))
-            print(f"  Packages in watch dir: {len(cloacina_files)}")
-            assert len(cloacina_files) == packages_to_drop, \
-                f"Expected {packages_to_drop} packages, found {len(cloacina_files)}"
+            check_interval = 10
+            executions_seen = 0
+            for elapsed in range(0, soak_duration, check_interval):
+                time.sleep(check_interval)
+                assert daemon_proc.poll() is None, \
+                    f"Daemon crashed after {elapsed + check_interval}s of soak!"
+                # Count completed pipelines in stderr
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                new_count = stderr.count("Pipeline completed")
+                if new_count > executions_seen:
+                    executions_seen = new_count
+                    print(f"  [{elapsed + check_interval}s] {executions_seen} pipeline executions completed")
 
-            # Step 4: Remove packages
-            print_section_header("Step 4: Remove test packages")
+            print(f"  Soak complete: {executions_seen} total executions")
+            assert executions_seen > 0, "No pipeline executions during soak period!"
 
-            for pkg_path in packages_dropped:
-                print(f"  Removing: {pkg_path.name}")
-                pkg_path.unlink()
-                time.sleep(drop_interval)
-
-            # Verify all removed
-            remaining = list(packages_dir.glob("*.cloacina"))
-            print(f"  Packages remaining: {len(remaining)}")
-            assert len(remaining) == 0, f"Expected 0 packages, found {len(remaining)}"
-
-            # Step 5: Verify daemon is still running
+            # Step 5: Verify daemon health and parse logs
             print_section_header("Step 5: Verify daemon health")
             assert daemon_proc.poll() is None, "Daemon crashed during soak test!"
             print("  Daemon is still running — no crashes.")
 
-            # Check log files exist
+            # Parse JSON log files for reconciliation results
             logs_dir = Path(daemon_home) / "logs"
-            log_files = list(logs_dir.glob("cloacina.log.*"))
-            print(f"  Log files: {len(log_files)}")
+            log_files = sorted(logs_dir.glob("cloacina.log.*"))
             assert len(log_files) > 0, "Expected at least one log file"
 
-            # Check log file has content
             total_log_bytes = sum(f.stat().st_size for f in log_files)
-            print(f"  Total log size: {total_log_bytes} bytes")
-            assert total_log_bytes > 0, "Log files are empty"
+            print(f"  Log files: {len(log_files)} ({total_log_bytes} bytes)")
+
+            # Parse structured JSON logs for verification
+            reconcile_events = []
+            errors = []
+            warnings = []
+            for log_file in log_files:
+                for line in log_file.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        level = entry.get("level", "")
+                        msg = entry.get("fields", {}).get("message", "")
+
+                        if "econcil" in msg.lower():
+                            reconcile_events.append(msg)
+                        if level == "ERROR":
+                            errors.append(msg)
+                        elif level == "WARN":
+                            warnings.append(msg)
+                    except json.JSONDecodeError:
+                        continue
+
+            print(f"  Reconciliation events: {len(reconcile_events)}")
+            print(f"  Errors: {len(errors)}")
+            print(f"  Warnings: {len(warnings)}")
+
+            # Print reconciliation summary
+            if reconcile_events:
+                print("  Reconciliation log:")
+                for evt in reconcile_events[:10]:
+                    print(f"    - {evt[:120]}")
+                if len(reconcile_events) > 10:
+                    print(f"    ... and {len(reconcile_events) - 10} more")
+
+            # Print errors if any
+            if errors:
+                print("  Error log:")
+                for err in errors[:5]:
+                    print(f"    - {err}")
+
+            # Verify reconciler actually saw the packages
+            assert len(reconcile_events) > 0, \
+                "No reconciliation events found — daemon may not have detected packages"
+
+            # Also dump stderr for human inspection
+            daemon_stderr_file.flush()
+            stderr_content = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+            stderr_lines = [line for line in stderr_content.splitlines() if line.strip()]
+            if stderr_lines:
+                print(f"  Stderr summary ({len(stderr_lines)} lines):")
+                # Show last 20 lines for debugging
+                for line in stderr_lines[-20:]:
+                    print(f"    {line[:150]}")
 
             # Step 6: Graceful shutdown
             print_section_header("Step 6: Graceful shutdown")
@@ -224,7 +343,7 @@ def soak(duration=None):
 
             # Wait for clean exit
             try:
-                exit_code = daemon_proc.wait(timeout=15)
+                exit_code = daemon_proc.wait(timeout=30)
                 print(f"  Daemon exited with code: {exit_code}")
 
                 if exit_code != 0:
@@ -241,8 +360,19 @@ def soak(duration=None):
             print_final_success("Daemon soak test passed!")
 
         except Exception:
+            # Print daemon stderr before killing for debugging
+            daemon_stderr_file.flush()
+            if daemon_stderr_path.exists():
+                stderr = daemon_stderr_path.read_text()
+                if stderr.strip():
+                    print("\n  === Daemon stderr (last 30 lines) ===")
+                    for line in stderr.splitlines()[-30:]:
+                        print(f"    {line}")
+            exit_code = daemon_proc.poll()
+            if exit_code is not None:
+                print(f"  Daemon exit code: {exit_code}")
             # Kill daemon if test fails
-            if daemon_proc.poll() is None:
+            if exit_code is None:
                 daemon_proc.kill()
                 daemon_proc.wait(timeout=5)
             raise

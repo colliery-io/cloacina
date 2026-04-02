@@ -66,7 +66,7 @@ pub struct DaemonSection {
 impl Default for DaemonSection {
     fn default() -> Self {
         Self {
-            poll_interval_ms: 50,
+            poll_interval_ms: 500,
             log_level: "info".to_string(),
             shutdown_timeout_s: 30,
             watcher_debounce_ms: 500,

@@ -1,7 +1,7 @@
 ---
 id: server-daemon-deployment
 level: initiative
-title: "Server & Daemon — Deployment Infrastructure"
+title: "API Server — HTTP Service with Postgres"
 short_code: "CLOACI-I-0049"
 created_at: 2026-03-26T05:34:56.254874+00:00
 updated_at: 2026-03-29T14:03:16.743695+00:00
