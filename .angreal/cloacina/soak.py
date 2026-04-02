@@ -223,10 +223,10 @@ def soak(duration=None):
             print_section_header("Step 3: Drop test packages")
 
             packages_dropped = []
-            packages_to_drop = 2
-            # First compilation downloads deps (~60s), subsequent are faster (~15s).
-            # Wait long enough for compilation to finish before dropping next.
-            drop_interval = max(30, duration // (packages_to_drop * 3))
+            packages_to_drop = 1
+            # Compilation is memory-heavy — only one package at a time.
+            # First compilation downloads deps (~60s), just wait for it.
+            drop_interval = 60
 
             for i in range(packages_to_drop):
                 pkg_name = f"soak-test-pkg-{i}"
