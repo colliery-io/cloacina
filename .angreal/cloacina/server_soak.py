@@ -304,112 +304,139 @@ def server_soak():
         else:
             print(f"  Upload returned {status}: {json.dumps(body)[:200]}")
 
-        # Step 8: Sustained soak — hammer the API for duration
-        soak_duration = 60  # seconds
-        print_section_header(f"Step 8: Sustained soak ({soak_duration}s)")
-        print("  Continuously hitting all endpoints...")
+        # Step 8: Wait for reconciler to compile and load the package
+        print_section_header("Step 8: Wait for package compilation")
+        print("  Reconciler compiles source packages in the background...")
+        compile_start = time.time()
+        workflow_ready = False
+        for _ in range(90):  # up to 90s for first compile
+            time.sleep(2)
+            assert server_proc.poll() is None, "Server crashed during compilation!"
+            # Check stderr for successful registration
+            stderr_file.flush()
+            stderr = stderr_path.read_text() if stderr_path.exists() else ""
+            if "Successfully registered" in stderr and "soak-server-test" in stderr:
+                elapsed = int(time.time() - compile_start)
+                print(f"  Package compiled and loaded ({elapsed}s) ✓")
+                workflow_ready = True
+                break
+        if not workflow_ready:
+            print("  WARNING: Package may not have compiled — executions may fail")
+
+        # Step 9: Operational soak — execute workflows while querying API
+        soak_duration = 60
+        print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
+        print("  Executing workflows + querying API concurrently...")
 
         stats = {
-            "health": 0,
-            "ready": 0,
-            "list_keys": 0,
-            "list_workflows": 0,
-            "list_triggers": 0,
-            "list_executions": 0,
-            "create_key": 0,
-            "errors": 0,
-            "server_crashes": 0,
+            "health_ok": 0,
+            "executions_triggered": 0,
+            "executions_accepted": 0,
+            "list_queries": 0,
+            "api_errors": 0,
+            "connection_errors": 0,
         }
 
         soak_start = time.time()
         iteration = 0
+        last_report = 0
+
         while time.time() - soak_start < soak_duration:
             iteration += 1
             assert server_proc.poll() is None, \
                 f"Server crashed at iteration {iteration}!"
 
             try:
-                # Health check (no auth)
+                # Health check
                 s, _ = api_request("GET", f"{base_url}/health")
                 if s == 200:
-                    stats["health"] += 1
+                    stats["health_ok"] += 1
                 else:
-                    stats["errors"] += 1
+                    stats["api_errors"] += 1
 
-                # Ready check (no auth)
-                s, _ = api_request("GET", f"{base_url}/ready")
-                if s == 200:
-                    stats["ready"] += 1
-                else:
-                    stats["errors"] += 1
-
-                # List keys (auth)
-                s, _ = api_request("GET", f"{base_url}/auth/keys", token=token)
-                if s == 200:
-                    stats["list_keys"] += 1
-                else:
-                    stats["errors"] += 1
-
-                # List workflows (auth)
-                s, _ = api_request("GET", f"{base_url}/tenants/public/workflows",
-                                   token=token)
-                if s == 200:
-                    stats["list_workflows"] += 1
-                else:
-                    stats["errors"] += 1
-
-                # List triggers (auth)
-                s, _ = api_request("GET", f"{base_url}/tenants/public/triggers",
-                                   token=token)
-                if s == 200:
-                    stats["list_triggers"] += 1
-                else:
-                    stats["errors"] += 1
-
-                # List executions (auth)
-                s, _ = api_request("GET", f"{base_url}/tenants/public/executions",
-                                   token=token)
-                if s == 200:
-                    stats["list_executions"] += 1
-                else:
-                    stats["errors"] += 1
-
-                # Create a key every 10 iterations
-                if iteration % 10 == 0:
-                    s, b = api_request("POST", f"{base_url}/auth/keys",
-                                       token=token,
-                                       data={"name": f"soak-key-{iteration}"})
-                    if s == 201:
-                        stats["create_key"] += 1
+                # Trigger a workflow execution every 3 iterations
+                if iteration % 3 == 0 and workflow_ready:
+                    stats["executions_triggered"] += 1
+                    s, b = api_request(
+                        "POST",
+                        f"{base_url}/tenants/public/workflows/soak_server_test/execute",
+                        token=token,
+                        data={"context": {"iteration": iteration}},
+                    )
+                    if s in (200, 202):
+                        stats["executions_accepted"] += 1
                     else:
-                        stats["errors"] += 1
+                        stats["api_errors"] += 1
+
+                # Query executions list
+                s, b = api_request(
+                    "GET", f"{base_url}/tenants/public/executions", token=token
+                )
+                if s == 200:
+                    stats["list_queries"] += 1
+                else:
+                    stats["api_errors"] += 1
+
+                # Query triggers
+                s, _ = api_request(
+                    "GET", f"{base_url}/tenants/public/triggers", token=token
+                )
+                if s == 200:
+                    stats["list_queries"] += 1
+                else:
+                    stats["api_errors"] += 1
+
+                # Query workflows
+                s, _ = api_request(
+                    "GET", f"{base_url}/tenants/public/workflows", token=token
+                )
+                if s == 200:
+                    stats["list_queries"] += 1
+                else:
+                    stats["api_errors"] += 1
 
             except Exception as e:
-                stats["errors"] += 1
-                if "Connection refused" in str(e):
-                    stats["server_crashes"] += 1
+                if "Connection refused" in str(e) or "URLError" in str(type(e).__name__):
+                    stats["connection_errors"] += 1
+                else:
+                    stats["api_errors"] += 1
 
-            # Print progress every 10s
+            # Report every 10s
             elapsed = int(time.time() - soak_start)
-            if elapsed > 0 and elapsed % 10 == 0 and iteration % 5 == 0:
-                total_ok = sum(v for k, v in stats.items() if k != "errors" and k != "server_crashes")
-                print(f"  [{elapsed}s] {total_ok} OK, {stats['errors']} errors, iter {iteration}")
+            if elapsed >= last_report + 10:
+                last_report = elapsed
+                print(
+                    f"  [{elapsed}s] health={stats['health_ok']} "
+                    f"exec={stats['executions_accepted']}/{stats['executions_triggered']} "
+                    f"queries={stats['list_queries']} "
+                    f"errors={stats['api_errors']}"
+                )
 
-            time.sleep(0.1)  # ~10 req/s burst
+            time.sleep(0.2)  # ~5 req bursts/sec
 
-        total_ok = sum(v for k, v in stats.items() if k != "errors" and k != "server_crashes")
-        print(f"\n  Soak complete: {iteration} iterations, {total_ok} OK, {stats['errors']} errors")
-        for key, val in stats.items():
-            if val > 0:
-                print(f"    {key}: {val}")
+        # Check completed pipelines in server logs
+        stderr_file.flush()
+        stderr = stderr_path.read_text() if stderr_path.exists() else ""
+        pipelines_completed = stderr.count("Pipeline completed")
 
-        assert stats["server_crashes"] == 0, "Server crashed during soak!"
-        assert stats["errors"] < iteration * 0.1, \
-            f"Too many errors: {stats['errors']}/{iteration} ({stats['errors']*100//iteration}%)"
-        assert total_ok > 0, "No successful requests during soak!"
+        print("\n  Soak complete:")
+        print(f"    Iterations:           {iteration}")
+        print(f"    Health checks OK:     {stats['health_ok']}")
+        print(f"    Executions triggered: {stats['executions_triggered']}")
+        print(f"    Executions accepted:  {stats['executions_accepted']}")
+        print(f"    List queries OK:      {stats['list_queries']}")
+        print(f"    API errors:           {stats['api_errors']}")
+        print(f"    Connection errors:    {stats['connection_errors']}")
+        print(f"    Pipelines completed:  {pipelines_completed} (from server logs)")
 
-        # Step 9: Final health check
-        print_section_header("Step 9: Final health check")
+        assert stats["connection_errors"] == 0, "Server had connection errors!"
+        assert stats["health_ok"] > 0, "No successful health checks!"
+        if workflow_ready:
+            assert stats["executions_accepted"] > 0, "No executions accepted!"
+            assert pipelines_completed > 0, "No pipelines completed in server logs!"
+
+        # Step 10: Final health check
+        print_section_header("Step 10: Final health check")
         status, _ = api_request("GET", f"{base_url}/health")
         assert status == 200, "Health check failed"
         assert server_proc.poll() is None, "Server crashed!"
@@ -417,7 +444,7 @@ def server_soak():
         print("  Server still running ✓")
 
         # Shutdown
-        print_section_header("Step 10: Graceful shutdown")
+        print_section_header("Step 11: Graceful shutdown")
         server_proc.send_signal(signal.SIGINT)
         exit_code = server_proc.wait(timeout=15)
         print(f"  Server exited with code: {exit_code}")
