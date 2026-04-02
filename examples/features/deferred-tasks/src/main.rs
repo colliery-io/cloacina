@@ -136,11 +136,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("=== Deferred Tasks Example ===");
     info!("Demonstrates TaskHandle::defer_until for concurrency slot management");
 
-    let runner = DefaultRunner::with_config(
-        "sqlite://deferred-tasks.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
-        DefaultRunnerConfig::default(),
-    )
-    .await?;
+    let runner =
+        DefaultRunner::with_config("sqlite://deferred-tasks.db", DefaultRunnerConfig::default())
+            .await?;
 
     // Workflow is auto-registered by #[workflow] attribute macro
 

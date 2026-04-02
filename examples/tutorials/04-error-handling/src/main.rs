@@ -364,11 +364,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize runner with SQLite database using WAL mode for better concurrency
 
     let config = DefaultRunnerConfig::default();
-    let runner = DefaultRunner::with_config(
-        "sqlite://tutorial-04.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
-        config,
-    )
-    .await?;
+    let runner = DefaultRunner::with_config("sqlite://tutorial-04.db", config).await?;
 
     // Create input context
     let input_context = Context::new();
