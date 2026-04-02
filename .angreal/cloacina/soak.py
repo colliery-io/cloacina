@@ -9,7 +9,6 @@ import json
 import signal
 import subprocess
 import tarfile
-import tempfile
 import time
 import io
 from pathlib import Path
@@ -186,8 +185,13 @@ def soak(duration=None):
     build_daemon()
     daemon_binary = find_daemon_binary()
 
-    # Step 2: Create temp home directory
-    with tempfile.TemporaryDirectory(prefix="cloacina-soak-") as daemon_home:
+    # Step 2: Use a fixed soak test directory so logs survive for inspection
+    soak_home = Path("target/soak-test")
+    if soak_home.exists():
+        import shutil
+        shutil.rmtree(soak_home)
+    daemon_home = str(soak_home)
+    if True:  # replaces the `with` block — no auto-cleanup
         packages_dir = Path(daemon_home) / "packages"
         packages_dir.mkdir(parents=True, exist_ok=True)
 
