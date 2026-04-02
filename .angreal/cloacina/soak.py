@@ -85,6 +85,7 @@ cloacina-workflow = {{ path = "../../../crates/cloacina-workflow", features = ["
 cloacina-workflow-plugin = {{ path = "../../../crates/cloacina-workflow-plugin" }}
 serde_json = "1.0"
 async-trait = "0.1"
+chrono = "0.4"
 
 [build-dependencies]
 cloacina-build = {{ path = "../../../crates/cloacina-build" }}
@@ -100,7 +101,7 @@ pub mod {safe_name} {{
     pub async fn task1(
         context: &mut Context<serde_json::Value>,
     ) -> Result<(), TaskError> {{
-        context.set("soak_test", serde_json::json!(true));
+        context.insert("soak_test".to_string(), serde_json::json!(true));
         Ok(())
     }}
 }}
