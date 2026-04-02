@@ -128,11 +128,19 @@ fn build_router(state: AppState) -> Router {
 
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
+        // Key management
         .route("/auth/keys", post(crate::server::keys::create_key))
         .route("/auth/keys", get(crate::server::keys::list_keys))
         .route(
             "/auth/keys/{key_id}",
             delete(crate::server::keys::revoke_key),
+        )
+        // Tenant management
+        .route("/tenants", post(crate::server::tenants::create_tenant))
+        .route("/tenants", get(crate::server::tenants::list_tenants))
+        .route(
+            "/tenants/{schema_name}",
+            delete(crate::server::tenants::remove_tenant),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

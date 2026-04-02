@@ -314,6 +314,44 @@ mod postgres_impl {
                 username, password
             )
         }
+
+        /// List all non-system schemas (tenant schemas).
+        pub async fn list_tenant_schemas(&self) -> Result<Vec<String>, AdminError> {
+            let conn = self
+                .database
+                .get_postgres_connection()
+                .await
+                .map_err(|e| AdminError::Pool(e.to_string()))?;
+
+            let schemas: Vec<String> = conn
+                .interact(|conn| {
+                    use diesel::prelude::*;
+
+                    #[derive(diesel::QueryableByName)]
+                    struct SchemaRow {
+                        #[diesel(sql_type = diesel::sql_types::Text)]
+                        nspname: String,
+                    }
+
+                    diesel::sql_query(
+                        "SELECT nspname::text FROM pg_catalog.pg_namespace \
+                         WHERE nspname NOT LIKE 'pg_%' \
+                         AND nspname NOT IN ('information_schema', 'public') \
+                         ORDER BY nspname",
+                    )
+                    .load::<SchemaRow>(conn)
+                    .map(|rows| rows.into_iter().map(|r| r.nspname).collect())
+                })
+                .await
+                .map_err(|e| AdminError::SqlExecution {
+                    message: format!("Failed to list schemas: {}", e),
+                })?
+                .map_err(|e: diesel::result::Error| AdminError::SqlExecution {
+                    message: format!("Failed to query schemas: {}", e),
+                })?;
+
+            Ok(schemas)
+        }
     }
 
     #[allow(dead_code)]
