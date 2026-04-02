@@ -17,104 +17,76 @@
 //! Debug functionality for workflow packages.
 //!
 //! This module provides functions for debugging packaged workflows, including
-//! extracting package contents, listing tasks, and executing individual tasks
+//! extracting package metadata, listing tasks, and executing individual tasks
 //! for testing and development purposes.
+//!
+//! Packages are fidius source archives (bzip2 tar + `package.toml`). Rust
+//! packages must be compiled before tasks can be executed; this module handles
+//! that compilation step transparently via the reconciler's compile pipeline.
 
 use anyhow::{bail, Context, Result};
-use flate2::read::GzDecoder;
-use std::fs::File;
-use std::io::Read;
 use std::path::PathBuf;
-use tar::Archive;
 
 use super::manifest_schema::Manifest;
 
-const MANIFEST_FILENAME: &str = "manifest.json";
-
-/// Extract the manifest from a package archive.
+/// Extract metadata from a fidius source package and synthesize a [`Manifest`].
+///
+/// The package is unpacked to a temporary directory, `package.toml` is read via
+/// `fidius_core::package::load_manifest`, and the result is converted to the
+/// internal `Manifest` representation.
+///
+/// For Rust packages the library is not compiled by this function; the returned
+/// manifest reflects metadata from `package.toml` only (no task FFI data).
 pub fn extract_manifest_from_package(package_path: &PathBuf) -> Result<Manifest> {
-    let file = File::open(package_path)
-        .with_context(|| format!("Failed to open package file: {:?}", package_path))?;
+    let tmp = tempfile::TempDir::new().context("Failed to create temporary directory")?;
 
-    let gz_decoder = GzDecoder::new(file);
-    let mut archive = Archive::new(gz_decoder);
+    let extract_dir = tmp.path().join("extract");
+    std::fs::create_dir_all(&extract_dir).context("Failed to create extract directory")?;
 
-    for entry in archive.entries()? {
-        let mut entry = entry.context("Failed to read archive entry")?;
-        let path = entry.path().context("Failed to get entry path")?;
+    let source_dir = fidius_core::package::unpack_package(package_path, &extract_dir)
+        .with_context(|| format!("Failed to unpack source archive: {:?}", package_path))?;
 
-        if path == std::path::Path::new(MANIFEST_FILENAME) {
-            let mut manifest_content = String::new();
-            entry
-                .read_to_string(&mut manifest_content)
-                .context("Failed to read manifest.json content")?;
+    let fidius_manifest = fidius_core::package::load_manifest::<
+        cloacina_workflow_plugin::CloacinaMetadata,
+    >(&source_dir)
+    .with_context(|| format!("Failed to parse package.toml in: {:?}", source_dir))?;
 
-            let manifest: Manifest =
-                serde_json::from_str(&manifest_content).context("Failed to parse manifest.json")?;
+    let pkg = &fidius_manifest.package;
+    let meta = &fidius_manifest.metadata;
 
-            return Ok(manifest);
-        }
-    }
+    let language = match meta.language.as_str() {
+        "python" => super::manifest_schema::PackageLanguage::Python,
+        _ => super::manifest_schema::PackageLanguage::Rust,
+    };
 
-    bail!("manifest.json not found in package archive")
-}
+    let python_runtime = if meta.language == "python" {
+        Some(super::manifest_schema::PythonRuntime {
+            requires_python: meta.requires_python.clone().unwrap_or_default(),
+            entry_module: meta.entry_module.clone().unwrap_or_default(),
+        })
+    } else {
+        None
+    };
 
-/// Extract the dynamic library from a package archive to a temporary location.
-pub fn extract_library_from_package(
-    package_path: &PathBuf,
-    manifest: &Manifest,
-    temp_dir: &tempfile::TempDir,
-) -> Result<PathBuf> {
-    let file = File::open(package_path)
-        .with_context(|| format!("Failed to open package file: {:?}", package_path))?;
+    let manifest = Manifest {
+        format_version: "2".to_string(),
+        package: super::manifest_schema::PackageInfo {
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
+            description: meta.description.clone(),
+            fingerprint: format!("sha256:{}:{}", pkg.name, pkg.version),
+            targets: vec![super::manifest::get_current_platform()],
+        },
+        language,
+        python: python_runtime,
+        rust: None,
+        tasks: vec![],
+        triggers: vec![],
+        created_at: chrono::Utc::now(),
+        signature: None,
+    };
 
-    let gz_decoder = GzDecoder::new(file);
-    let mut archive = Archive::new(gz_decoder);
-
-    for entry in archive.entries()? {
-        let mut entry = entry.context("Failed to read archive entry")?;
-        let path = entry.path().context("Failed to get entry path")?;
-
-        let filename = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-
-        let library_path = manifest
-            .rust
-            .as_ref()
-            .map(|r| r.library_path.as_str())
-            .unwrap_or("");
-
-        let manifest_filename = std::path::Path::new(library_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-
-        if filename == manifest_filename || path.to_str() == Some(library_path) {
-            let extract_path = temp_dir.path().join(filename);
-            let mut output_file = File::create(&extract_path).with_context(|| {
-                format!(
-                    "Failed to create extracted library file: {:?}",
-                    extract_path
-                )
-            })?;
-
-            std::io::copy(&mut entry, &mut output_file)
-                .context("Failed to extract library file")?;
-
-            return Ok(extract_path);
-        }
-    }
-
-    bail!(
-        "Library file '{}' not found in package archive",
-        manifest
-            .rust
-            .as_ref()
-            .map(|r| r.library_path.as_str())
-            .unwrap_or("<none>")
-    );
+    Ok(manifest)
 }
 
 /// Execute a task from a dynamic library via the fidius-host plugin API.
@@ -215,19 +187,16 @@ pub fn debug_package(
         Some(task_id) => {
             // Execute task
             let task_name = resolve_task_name(&manifest, task_id)?;
-            let context = context_json.unwrap_or("{}");
+            let _context = context_json.unwrap_or("{}");
 
-            // Create temporary directory for library extraction
-            let temp_dir =
-                tempfile::TempDir::new().context("Failed to create temporary directory")?;
-
-            // Extract library from package
-            let library_path = extract_library_from_package(package_path, &manifest, &temp_dir)?;
-
-            // Execute task
-            let output = execute_task_from_library(&library_path, &task_name, context)?;
-
-            Ok(DebugResult::TaskExecution { output })
+            // Rust packages in source format need to be compiled first
+            bail!(
+                "Cannot directly execute task '{}' from source package {:?}. \
+                The package must be registered with the workflow registry and compiled \
+                by the reconciler before tasks can be executed.",
+                task_name,
+                package_path
+            );
         }
     }
 }

@@ -353,11 +353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .trigger_poll_timeout(Duration::from_secs(10))
         .build();
 
-    let runner = DefaultRunner::with_config(
-        "sqlite://event_triggers.db?mode=rwc&_journal_mode=WAL",
-        config,
-    )
-    .await?;
+    let runner = DefaultRunner::with_config("sqlite://event_triggers.db", config).await?;
 
     info!("DefaultRunner initialized with trigger scheduling enabled");
 

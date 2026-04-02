@@ -71,11 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_concurrent_tasks(args.concurrency)
         .build();
 
-    let runner = DefaultRunner::with_config(
-        "sqlite://performance-simple.db?mode=rwc&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000",
-        config,
-    )
-    .await?;
+    let runner = DefaultRunner::with_config("sqlite://performance-simple.db", config).await?;
 
     // Workflow is auto-registered by #[workflow] attribute macro
 

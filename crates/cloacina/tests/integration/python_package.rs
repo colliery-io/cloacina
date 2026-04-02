@@ -16,242 +16,212 @@
 
 //! Integration tests for Python workflow package loading.
 //!
-//! These tests build `.cloacina` archives in memory using the v2 manifest
-//! schema, then exercise the server-side python loader to verify the full
-//! round-trip: archive → peek → detect → extract → validate.
+//! These tests build fidius source packages (bzip2 tar + package.toml) in a
+//! temp directory, then exercise the server-side python loader to verify the
+//! full round-trip: pack → detect → extract → validate.
 
-use chrono::Utc;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use tar::Builder;
 use tempfile::TempDir;
 
 use cloacina::packaging::{
     Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
     TaskDefinition,
 };
-use cloacina::registry::loader::{
-    detect_package_kind, extract_python_package, peek_manifest, PackageKind,
-};
+use cloacina::registry::loader::{detect_package_kind, extract_python_package, PackageKind};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Build a `.cloacina` archive in memory with realistic structure.
-fn build_archive(manifest: &Manifest, workflow_files: &[(&str, &[u8])]) -> Vec<u8> {
-    let buf = Vec::new();
-    let enc = GzEncoder::new(buf, Compression::fast());
-    let mut builder = Builder::new(enc);
+/// Create a fidius source package directory for a Python workflow.
+fn create_python_source_dir(
+    dir: &std::path::Path,
+    name: &str,
+    version: &str,
+    entry_module: &str,
+    include_workflow: bool,
+) {
+    // package.toml
+    let package_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
 
-    // manifest.json
-    let manifest_json = serde_json::to_vec_pretty(manifest).unwrap();
-    let mut header = tar::Header::new_gnu();
-    header.set_size(manifest_json.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, "manifest.json", manifest_json.as_slice())
+[metadata]
+workflow_name = "{name}"
+language = "python"
+description = "Test Python workflow"
+requires_python = ">=3.10"
+entry_module = "{entry_module}"
+"#
+    );
+    std::fs::write(dir.join("package.toml"), package_toml).unwrap();
+
+    if include_workflow {
+        std::fs::create_dir_all(dir.join("workflow")).unwrap();
+        std::fs::write(dir.join("workflow/__init__.py"), "# workflow init\n").unwrap();
+        std::fs::write(
+            dir.join("workflow/tasks.py"),
+            "def process(ctx): return ctx\n",
+        )
         .unwrap();
-
-    // workflow files
-    for (path, content) in workflow_files {
-        let mut h = tar::Header::new_gnu();
-        h.set_size(content.len() as u64);
-        h.set_mode(0o644);
-        h.set_cksum();
-        builder.append_data(&mut h, *path, *content).unwrap();
     }
 
-    // vendor/ directory marker
-    let mut dh = tar::Header::new_gnu();
-    dh.set_size(0);
-    dh.set_entry_type(tar::EntryType::Directory);
-    dh.set_mode(0o755);
-    dh.set_cksum();
-    builder
-        .append_data(&mut dh, "vendor/", &[] as &[u8])
-        .unwrap();
-
-    let enc = builder.into_inner().unwrap();
-    enc.finish().unwrap()
+    std::fs::create_dir_all(dir.join("vendor")).unwrap();
 }
 
-/// Create a manifest matching the example data-pipeline project.
-fn data_pipeline_manifest() -> Manifest {
-    Manifest {
-        format_version: "2".to_string(),
-        package: PackageInfo {
-            name: "data-pipeline-example".to_string(),
-            version: "1.0.0".to_string(),
-            description: Some("Example Python workflow for Cloacina".to_string()),
-            fingerprint: "sha256:abc123".to_string(),
-            targets: vec!["linux-x86_64".to_string(), "macos-arm64".to_string()],
-        },
-        language: PackageLanguage::Python,
-        python: Some(PythonRuntime {
-            requires_python: ">=3.11".to_string(),
-            entry_module: "data_pipeline.tasks".to_string(),
-        }),
-        rust: None,
-        tasks: vec![
-            TaskDefinition {
-                id: "fetch-data".to_string(),
-                function: "data_pipeline.tasks:fetch_data".to_string(),
-                dependencies: vec![],
-                description: Some("Fetch data from external source".to_string()),
-                retries: 0,
-                timeout_seconds: None,
-            },
-            TaskDefinition {
-                id: "validate-data".to_string(),
-                function: "data_pipeline.tasks:validate_data".to_string(),
-                dependencies: vec!["fetch-data".to_string()],
-                description: Some("Validate raw data".to_string()),
-                retries: 0,
-                timeout_seconds: None,
-            },
-            TaskDefinition {
-                id: "aggregate-data".to_string(),
-                function: "data_pipeline.tasks:aggregate_data".to_string(),
-                dependencies: vec!["validate-data".to_string()],
-                description: Some("Compute summary statistics".to_string()),
-                retries: 0,
-                timeout_seconds: None,
-            },
-            TaskDefinition {
-                id: "generate-report".to_string(),
-                function: "data_pipeline.tasks:generate_report".to_string(),
-                dependencies: vec!["aggregate-data".to_string()],
-                description: Some("Produce summary report".to_string()),
-                retries: 0,
-                timeout_seconds: None,
-            },
-        ],
-        triggers: vec![],
-        created_at: Utc::now(),
-        signature: None,
-    }
+/// Create a fidius source package directory for a Rust workflow.
+fn create_rust_source_dir(dir: &std::path::Path, name: &str, version: &str) {
+    let package_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{name}"
+language = "rust"
+"#
+    );
+    std::fs::write(dir.join("package.toml"), package_toml).unwrap();
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "// placeholder\n").unwrap();
 }
 
-/// Workflow source files for the data-pipeline example.
-fn data_pipeline_files() -> Vec<(&'static str, &'static [u8])> {
-    vec![
-        (
-            "workflow/data_pipeline/__init__.py",
-            b"# Data Pipeline Example\n",
-        ),
-        (
-            "workflow/data_pipeline/tasks.py",
-            b"from cloaca import task\n\n@task(id=\"fetch-data\", dependencies=[])\ndef fetch_data(context):\n    return context\n",
-        ),
-    ]
+/// Pack a source directory into a `.cloacina` archive and return the bytes.
+fn pack_to_bytes(source_dir: &std::path::Path, output_dir: &std::path::Path) -> Vec<u8> {
+    let output = output_dir.join(format!(
+        "{}.cloacina",
+        source_dir.file_name().unwrap().to_str().unwrap()
+    ));
+    fidius_core::package::pack_package(source_dir, Some(&output)).unwrap();
+    std::fs::read(&output).unwrap()
 }
 
 // ---------------------------------------------------------------------------
-// Tests — archive round-trip
+// Tests — detect_package_kind
 // ---------------------------------------------------------------------------
-
-#[test]
-fn peek_manifest_returns_correct_metadata() {
-    let manifest = data_pipeline_manifest();
-    let archive = build_archive(&manifest, &data_pipeline_files());
-
-    let peeked = peek_manifest(&archive).unwrap();
-    assert_eq!(peeked.package.name, "data-pipeline-example");
-    assert_eq!(peeked.package.version, "1.0.0");
-    assert_eq!(peeked.language, PackageLanguage::Python);
-    assert_eq!(peeked.tasks.len(), 4);
-}
 
 #[test]
 fn detect_package_kind_identifies_python() {
-    let manifest = data_pipeline_manifest();
-    let archive = build_archive(&manifest, &data_pipeline_files());
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("data-pipeline");
+    std::fs::create_dir_all(&src).unwrap();
+    create_python_source_dir(&src, "data-pipeline", "1.0.0", "workflow.tasks", true);
+    let archive = pack_to_bytes(&src, tmp.path());
 
     let kind = detect_package_kind(&archive).unwrap();
-    assert!(matches!(kind, PackageKind::Python(_)));
+    assert!(matches!(kind, PackageKind::Python { .. }));
 }
 
 #[test]
 fn detect_package_kind_identifies_rust() {
-    let mut manifest = data_pipeline_manifest();
-    manifest.language = PackageLanguage::Rust;
-    manifest.python = None;
-    manifest.rust = Some(RustRuntime {
-        library_path: "lib/libworkflow.so".to_string(),
-    });
-    manifest.tasks[0].function = "execute_task".to_string();
-    manifest.tasks[1].function = "execute_task".to_string();
-    manifest.tasks[2].function = "execute_task".to_string();
-    manifest.tasks[3].function = "execute_task".to_string();
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("rust-workflow");
+    std::fs::create_dir_all(&src).unwrap();
+    create_rust_source_dir(&src, "rust-workflow", "0.1.0");
+    let archive = pack_to_bytes(&src, tmp.path());
 
-    let archive = build_archive(&manifest, &data_pipeline_files());
     let kind = detect_package_kind(&archive).unwrap();
-    assert!(matches!(kind, PackageKind::Rust(_)));
+    assert!(matches!(kind, PackageKind::Rust { .. }));
 }
+
+// ---------------------------------------------------------------------------
+// Tests — extract_python_package
+// ---------------------------------------------------------------------------
 
 #[test]
 fn extract_python_package_full_roundtrip() {
-    let manifest = data_pipeline_manifest();
-    let archive = build_archive(&manifest, &data_pipeline_files());
-    let staging = TempDir::new().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("data-pipeline");
+    std::fs::create_dir_all(&src).unwrap();
+    create_python_source_dir(&src, "data-pipeline", "1.0.0", "workflow.tasks", true);
+    let archive = pack_to_bytes(&src, tmp.path());
 
+    let staging = TempDir::new().unwrap();
     let extracted = extract_python_package(&archive, staging.path()).unwrap();
 
     // Verify directory structure
     assert!(extracted.root_dir.exists());
     assert!(extracted.workflow_dir.exists());
-    assert!(extracted.vendor_dir.parent().is_some());
 
-    // Verify manifest was parsed correctly
-    assert_eq!(extracted.manifest.package.name, "data-pipeline-example");
-    assert_eq!(extracted.manifest.tasks.len(), 4);
-    assert_eq!(extracted.entry_module, "data_pipeline.tasks");
+    // Verify metadata was parsed correctly
+    assert_eq!(extracted.package_name, "data-pipeline");
+    assert_eq!(extracted.version, "1.0.0");
+    assert_eq!(extracted.entry_module, "workflow.tasks");
+    assert_eq!(extracted.workflow_name, "data-pipeline");
 
     // Verify files were extracted
-    assert!(extracted
-        .workflow_dir
-        .join("data_pipeline/__init__.py")
-        .exists());
-    assert!(extracted
-        .workflow_dir
-        .join("data_pipeline/tasks.py")
-        .exists());
+    assert!(extracted.workflow_dir.join("tasks.py").exists());
 }
 
 #[test]
 fn extract_rejects_rust_archive() {
-    let mut manifest = data_pipeline_manifest();
-    manifest.language = PackageLanguage::Rust;
-    manifest.python = None;
-    manifest.rust = Some(RustRuntime {
-        library_path: "lib/libworkflow.so".to_string(),
-    });
-    manifest
-        .tasks
-        .iter_mut()
-        .for_each(|t| t.function = "ffi_entry".to_string());
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("rust-pkg");
+    std::fs::create_dir_all(&src).unwrap();
+    create_rust_source_dir(&src, "rust-pkg", "0.1.0");
+    let archive = pack_to_bytes(&src, tmp.path());
 
-    let archive = build_archive(&manifest, &data_pipeline_files());
     let staging = TempDir::new().unwrap();
-
     let err = extract_python_package(&archive, staging.path()).unwrap_err();
     assert!(
-        err.to_string().contains("Wrong language")
-            || err.to_string().contains("wrong language")
-            || format!("{:?}", err).contains("WrongLanguage"),
+        format!("{:?}", err).contains("WrongLanguage"),
         "Expected WrongLanguage error, got: {err:?}"
     );
 }
 
 // ---------------------------------------------------------------------------
-// Tests — manifest validation
+// Tests — manifest_schema validation (schema logic, not archive format)
 // ---------------------------------------------------------------------------
+
+fn make_python_manifest() -> Manifest {
+    Manifest {
+        format_version: "2".to_string(),
+        package: PackageInfo {
+            name: "data-pipeline-example".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Example Python workflow".to_string()),
+            fingerprint: "sha256:abc123".to_string(),
+            targets: vec!["linux-x86_64".to_string()],
+        },
+        language: PackageLanguage::Python,
+        python: Some(PythonRuntime {
+            requires_python: ">=3.10".to_string(),
+            entry_module: "workflow.tasks".to_string(),
+        }),
+        rust: None,
+        tasks: vec![
+            TaskDefinition {
+                id: "fetch-data".to_string(),
+                function: "workflow.tasks:fetch_data".to_string(),
+                dependencies: vec![],
+                description: None,
+                retries: 0,
+                timeout_seconds: None,
+            },
+            TaskDefinition {
+                id: "validate-data".to_string(),
+                function: "workflow.tasks:validate_data".to_string(),
+                dependencies: vec!["fetch-data".to_string()],
+                description: None,
+                retries: 0,
+                timeout_seconds: None,
+            },
+        ],
+        triggers: vec![],
+        created_at: chrono::Utc::now(),
+        signature: None,
+    }
+}
 
 #[test]
 fn manifest_validates_task_dependency_references() {
-    let mut manifest = data_pipeline_manifest();
+    let mut manifest = make_python_manifest();
     manifest.tasks[1].dependencies = vec!["nonexistent-task".to_string()];
 
     let err = manifest.validate().unwrap_err();
@@ -263,7 +233,7 @@ fn manifest_validates_task_dependency_references() {
 
 #[test]
 fn manifest_validates_duplicate_task_ids() {
-    let mut manifest = data_pipeline_manifest();
+    let mut manifest = make_python_manifest();
     manifest.tasks[1].id = "fetch-data".to_string();
 
     let err = manifest.validate().unwrap_err();
@@ -275,7 +245,7 @@ fn manifest_validates_duplicate_task_ids() {
 
 #[test]
 fn manifest_validates_python_function_path_format() {
-    let mut manifest = data_pipeline_manifest();
+    let mut manifest = make_python_manifest();
     manifest.tasks[0].function = "missing_colon_separator".to_string();
 
     let err = manifest.validate().unwrap_err();

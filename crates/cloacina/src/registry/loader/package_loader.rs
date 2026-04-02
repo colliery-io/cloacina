@@ -19,11 +19,8 @@
 //! This module provides functionality to safely load dynamic library files (.so/.dylib/.dll)
 //! via the fidius-host plugin API and extract package metadata.
 
-use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
-use std::io::Read;
 use std::path::Path;
-use tar::Archive;
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -130,11 +127,13 @@ impl PackageLoader {
         }))
     }
 
-    /// Extract metadata from a binary package.
+    /// Extract metadata from compiled library bytes.
     ///
     /// # Arguments
     ///
-    /// * `package_data` - Binary data of the workflow package (.cloacina archive or raw library)
+    /// * `package_data` - Raw bytes of the compiled cdylib (.so / .dylib).
+    ///   The reconciler is responsible for unpacking and compiling any source
+    ///   archives before calling this method.
     ///
     /// # Returns
     ///
@@ -144,111 +143,19 @@ impl PackageLoader {
         &self,
         package_data: &[u8],
     ) -> Result<PackageMetadata, LoaderError> {
-        // Check if this is a .cloacina archive or raw library data
-        let library_path = if self.is_cloacina_archive(package_data) {
-            self.extract_library_from_archive(package_data).await?
-        } else {
-            let library_extension = get_library_extension();
-            let temp_path = self
-                .temp_dir
-                .path()
-                .join(format!("workflow_package.{}", library_extension));
-            fs::write(&temp_path, package_data)
-                .await
-                .map_err(|e| LoaderError::FileSystem {
-                    path: temp_path.to_string_lossy().to_string(),
-                    error: e.to_string(),
-                })?;
-            temp_path
-        };
-
-        self.extract_metadata_from_so(&library_path).await
-    }
-
-    /// Check if package data is a .cloacina archive.
-    fn is_cloacina_archive(&self, package_data: &[u8]) -> bool {
-        // Check for gzip magic number at the start
-        package_data.len() >= 3
-            && package_data[0] == 0x1f
-            && package_data[1] == 0x8b
-            && package_data[2] == 0x08
-    }
-
-    /// Extract the library file from a .cloacina archive (tar.gz).
-    async fn extract_library_from_archive(
-        &self,
-        archive_data: &[u8],
-    ) -> Result<std::path::PathBuf, LoaderError> {
-        let (file_data, _filename) = tokio::task::spawn_blocking({
-            let archive_data = archive_data.to_vec();
-            move || -> Result<(Vec<u8>, String), LoaderError> {
-                let library_extension = get_library_extension();
-                let cursor = std::io::Cursor::new(archive_data);
-                let gz_decoder = GzDecoder::new(cursor);
-                let mut archive = Archive::new(gz_decoder);
-
-                for entry_result in archive.entries().map_err(|e| LoaderError::FileSystem {
-                    path: "archive".to_string(),
-                    error: format!("Failed to read archive entries: {}", e),
-                })? {
-                    let mut entry = entry_result.map_err(|e| LoaderError::FileSystem {
-                        path: "archive".to_string(),
-                        error: format!("Failed to read archive entry: {}", e),
-                    })?;
-
-                    let path = entry.path().map_err(|e| LoaderError::FileSystem {
-                        path: "archive".to_string(),
-                        error: format!("Failed to get entry path: {}", e),
-                    })?;
-
-                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                        if filename.ends_with(&format!(".{}", library_extension)) {
-                            let path_string = path.to_string_lossy().to_string();
-                            let filename_string = filename.to_string();
-
-                            let mut file_data = Vec::new();
-                            entry.read_to_end(&mut file_data).map_err(|e| {
-                                LoaderError::FileSystem {
-                                    path: path_string,
-                                    error: format!(
-                                        "Failed to read library file from archive: {}",
-                                        e
-                                    ),
-                                }
-                            })?;
-
-                            return Ok((file_data, filename_string));
-                        }
-                    }
-                }
-
-                Err(LoaderError::MetadataExtraction {
-                    reason: format!(
-                        "No library file with extension '{}' found in archive",
-                        library_extension
-                    ),
-                })
-            }
-        })
-        .await
-        .map_err(|e| LoaderError::FileSystem {
-            path: "spawn_blocking".to_string(),
-            error: format!("Failed to spawn blocking task: {}", e),
-        })??;
-
         let library_extension = get_library_extension();
-        let extract_path = self
+        let temp_path = self
             .temp_dir
             .path()
             .join(format!("workflow_package.{}", library_extension));
-        fs::write(&extract_path, &file_data)
+        fs::write(&temp_path, package_data)
             .await
             .map_err(|e| LoaderError::FileSystem {
-                path: extract_path.to_string_lossy().to_string(),
-                error: format!("Failed to write extracted library file: {}", e),
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
             })?;
 
-        Ok(extract_path)
+        self.extract_metadata_from_so(&temp_path).await
     }
 
     /// Extract metadata from a library file using the fidius-host plugin API.

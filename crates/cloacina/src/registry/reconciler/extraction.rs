@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -14,131 +14,236 @@
  *  limitations under the License.
  */
 
-//! Package format detection and library extraction from .cloacina archives.
+//! Source package compilation — unpacks a bzip2 tar source archive and compiles
+//! it to a cdylib using `cargo build`.
 
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 use super::RegistryReconciler;
 use crate::registry::error::RegistryError;
 
-impl RegistryReconciler {
-    /// Check if package data is a .cloacina archive
-    pub(super) fn is_cloacina_package(&self, package_data: &[u8]) -> bool {
-        // Check for gzip magic number at the start
-        package_data.len() >= 3
-            && package_data[0] == 0x1f
-            && package_data[1] == 0x8b
-            && package_data[2] == 0x08
+/// Cloacina crates whose path dependencies should be rewritten to host paths
+/// in debug builds. Maps crate name → subpath from workspace root.
+#[cfg(debug_assertions)]
+const HOST_CRATES: &[(&str, &str)] = &[
+    ("cloacina", "crates/cloacina"),
+    ("cloacina-macros", "crates/cloacina-macros"),
+    ("cloacina-workflow", "crates/cloacina-workflow"),
+    (
+        "cloacina-workflow-plugin",
+        "crates/cloacina-workflow-plugin",
+    ),
+    ("cloacina-build", "crates/cloacina-build"),
+];
+
+/// Returns the host workspace root, derived from `CARGO_MANIFEST_DIR` at compile time.
+/// `CARGO_MANIFEST_DIR` for the cloacina crate is `<root>/crates/cloacina`.
+#[cfg(debug_assertions)]
+fn host_workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR should have parent (crates/)")
+        .parent()
+        .expect("crates/ should have parent (workspace root)")
+        .to_path_buf()
+}
+
+/// Rewrite path dependencies in an extracted source package's Cargo.toml
+/// to point to the host's workspace crates. Debug builds only.
+///
+/// This solves the chicken-and-egg problem: source packages need cloacina
+/// crates to compile, but we can't publish them to crates.io before testing.
+/// In debug mode, we inject the host's local workspace paths so everything
+/// resolves without requiring published crates.
+#[cfg(debug_assertions)]
+fn rewrite_host_dependencies(source_dir: &Path) -> Result<(), RegistryError> {
+    let cargo_toml_path = source_dir.join("Cargo.toml");
+    let content = std::fs::read_to_string(&cargo_toml_path).map_err(|e| {
+        RegistryError::RegistrationFailed {
+            message: format!(
+                "Failed to read Cargo.toml at {}: {}",
+                cargo_toml_path.display(),
+                e
+            ),
+        }
+    })?;
+
+    let mut doc: toml::Value =
+        content
+            .parse::<toml::Value>()
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to parse Cargo.toml: {}", e),
+            })?;
+
+    let workspace_root = host_workspace_root();
+    let dep_tables = ["dependencies", "dev-dependencies", "build-dependencies"];
+    let mut modified = false;
+
+    for table_name in &dep_tables {
+        if let Some(table) = doc.get_mut(table_name).and_then(|v| v.as_table_mut()) {
+            for &(crate_name, crate_subpath) in HOST_CRATES {
+                if let Some(dep_value) = table.get_mut(crate_name) {
+                    let abs_path = workspace_root.join(crate_subpath);
+                    let abs_path_str = abs_path.to_string_lossy().to_string();
+
+                    match dep_value {
+                        toml::Value::Table(dep_table) => {
+                            dep_table.insert("path".to_string(), toml::Value::String(abs_path_str));
+                            modified = true;
+                        }
+                        toml::Value::String(_version) => {
+                            let mut dep_table = toml::map::Map::new();
+                            dep_table.insert("version".to_string(), dep_value.clone());
+                            dep_table.insert("path".to_string(), toml::Value::String(abs_path_str));
+                            *dep_value = toml::Value::Table(dep_table);
+                            modified = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
-    /// Extract library file data from a .cloacina archive
-    pub(super) async fn extract_library_from_cloacina(
-        &self,
-        package_data: &[u8],
-    ) -> Result<Vec<u8>, RegistryError> {
-        use flate2::read::GzDecoder;
-        use std::io::Read;
-        use tar::Archive;
+    // Ensure bare [workspace] exists to prevent parent workspace lookup
+    if doc.get("workspace").is_none() {
+        if let Some(table) = doc.as_table_mut() {
+            table.insert(
+                "workspace".to_string(),
+                toml::Value::Table(toml::map::Map::new()),
+            );
+            modified = true;
+        }
+    }
+
+    if modified {
+        let new_content =
+            toml::to_string_pretty(&doc).map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to serialize modified Cargo.toml: {}", e),
+            })?;
+
+        std::fs::write(&cargo_toml_path, new_content).map_err(|e| {
+            RegistryError::RegistrationFailed {
+                message: format!("Failed to write modified Cargo.toml: {}", e),
+            }
+        })?;
 
         debug!(
-            "Starting library extraction from .cloacina archive, data length: {}",
-            package_data.len()
+            "Rewrote host dependencies in {} (workspace root: {})",
+            cargo_toml_path.display(),
+            workspace_root.display()
+        );
+    }
+
+    Ok(())
+}
+
+impl RegistryReconciler {
+    /// Compile a Rust source package directory to a cdylib.
+    ///
+    /// Runs `cargo build --lib` in `source_dir` (using `--release` in release
+    /// builds and `--debug` in debug builds so the wire format matches), then
+    /// returns the path to the compiled library.
+    ///
+    /// In debug builds, path dependencies on cloacina crates are rewritten to
+    /// point to the host's workspace. This enables testing source packages
+    /// before crates are published to crates.io.
+    pub(super) async fn compile_source_package(
+        source_dir: &Path,
+    ) -> Result<PathBuf, RegistryError> {
+        // In debug builds, inject host workspace paths so path deps resolve.
+        // Compiled out entirely in release builds.
+        #[cfg(debug_assertions)]
+        rewrite_host_dependencies(source_dir)?;
+
+        // Mirror the host's build profile so the fidius wire format (JSON in
+        // debug, bincode in release) matches between host and dylib.
+        let profile_args: &[&str] = if cfg!(debug_assertions) {
+            &["build", "--lib"]
+        } else {
+            &["build", "--lib", "--release"]
+        };
+
+        debug!(
+            "Compiling source package at {} with args: {:?}",
+            source_dir.display(),
+            profile_args
         );
 
-        // Get platform-specific library extension
-        let library_extension = if cfg!(target_os = "macos") {
+        let output = tokio::process::Command::new("cargo")
+            .args(profile_args)
+            .current_dir(source_dir)
+            .output()
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to invoke cargo: {}", e),
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(RegistryError::RegistrationFailed {
+                message: format!("Compilation failed:\n{}", stderr),
+            });
+        }
+
+        let target_subdir = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+
+        let target_dir = source_dir.join("target").join(target_subdir);
+        Self::find_compiled_library(&target_dir)
+    }
+
+    /// Search `target_dir` for the cdylib produced by `cargo build --lib`.
+    ///
+    /// Looks for a file whose name starts with `lib`, has the platform extension
+    /// (`.dylib` on macOS, `.so` on Linux), and contains no `-` in the name
+    /// (excluding Cargo hash-suffixed artifacts).
+    fn find_compiled_library(target_dir: &Path) -> Result<PathBuf, RegistryError> {
+        let ext = if cfg!(target_os = "macos") {
             "dylib"
-        } else if cfg!(target_os = "windows") {
-            "dll"
         } else {
             "so"
         };
 
-        debug!("Looking for library with extension: {}", library_extension);
+        let entries =
+            std::fs::read_dir(target_dir).map_err(|e| RegistryError::RegistrationFailed {
+                message: format!(
+                    "Failed to read target directory {}: {}",
+                    target_dir.display(),
+                    e
+                ),
+            })?;
 
-        // Extract library file synchronously to avoid Send issues
-        let library_data = tokio::task::spawn_blocking({
-            let package_data = package_data.to_vec();
-            let library_extension = library_extension.to_string();
-            move || -> Result<Vec<u8>, RegistryError> {
-                debug!("Starting spawn_blocking task for library extraction");
+        for entry in entries {
+            let entry = entry.map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("Failed to read directory entry: {}", e),
+            })?;
 
-                // Create a cursor from the archive data
-                let cursor = std::io::Cursor::new(package_data);
-                debug!("Created cursor from package data");
+            let path = entry.path();
 
-                let gz_decoder = GzDecoder::new(cursor);
-                debug!("Created GzDecoder");
-
-                let mut archive = Archive::new(gz_decoder);
-                debug!("Created Archive from GzDecoder");
-
-                // Look for a library file in the archive
-                debug!("Starting to iterate through archive entries");
-                for entry_result in archive.entries().map_err(|e| {
-                    debug!("Error reading archive entries: {}", e);
-                    RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                        path: "archive".to_string(),
-                        error: format!("Failed to read archive entries: {}", e),
-                    })
-                })? {
-                    let mut entry = entry_result.map_err(|e| {
-                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                            path: "archive".to_string(),
-                            error: format!("Failed to read archive entry: {}", e),
-                        })
-                    })?;
-
-                    let path = entry.path().map_err(|e| {
-                        RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                            path: "archive".to_string(),
-                            error: format!("Failed to get entry path: {}", e),
-                        })
-                    })?;
-
-                    // Check if this is a library file with the correct extension
-                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                        if filename.ends_with(&format!(".{}", library_extension)) {
-                            // Store path info before borrowing entry mutably
-                            let path_string = path.to_string_lossy().to_string();
-
-                            // Read the library file data
-                            let mut file_data = Vec::new();
-                            entry.read_to_end(&mut file_data).map_err(|e| {
-                                RegistryError::Loader(
-                                    crate::registry::error::LoaderError::FileSystem {
-                                        path: path_string,
-                                        error: format!(
-                                            "Failed to read library file from archive: {}",
-                                            e
-                                        ),
-                                    },
-                                )
-                            })?;
-
-                            return Ok(file_data);
-                        }
-                    }
+            if path.extension().and_then(|e| e.to_str()) == Some(ext) {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                // Cargo hash-suffixed dylibs contain a `-` (e.g. `libfoo-abc123.dylib`)
+                if name.starts_with("lib") && !name.contains('-') {
+                    debug!("Found compiled library: {}", path.display());
+                    return Ok(path);
                 }
-
-                Err(RegistryError::Loader(
-                    crate::registry::error::LoaderError::MetadataExtraction {
-                        reason: format!(
-                            "No library file with extension '{}' found in archive",
-                            library_extension
-                        ),
-                    },
-                ))
             }
-        })
-        .await
-        .map_err(|e| {
-            RegistryError::Loader(crate::registry::error::LoaderError::FileSystem {
-                path: "spawn_blocking".to_string(),
-                error: format!("Failed to spawn blocking task: {}", e),
-            })
-        })??;
+        }
 
-        Ok(library_data)
+        Err(RegistryError::RegistrationFailed {
+            message: format!(
+                "No compiled library (.{}) found in {}",
+                ext,
+                target_dir.display()
+            ),
+        })
     }
 }

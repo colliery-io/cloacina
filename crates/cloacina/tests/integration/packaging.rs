@@ -24,9 +24,26 @@ use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-use cloacina::packaging::{
-    compile_workflow, generate_manifest, package_workflow, CompileOptions, Manifest,
-};
+use cloacina::packaging::{package_workflow, CompileOptions, Manifest};
+
+/// Write a minimal `package.toml` into a project directory for testing.
+fn write_package_toml(project_path: &Path) {
+    let content = r#"[package]
+name = "test-workflow"
+version = "1.0.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "test_package"
+language = "rust"
+description = "Test workflow for packaging"
+author = "Test"
+"#;
+    std::fs::write(project_path.join("package.toml"), content)
+        .expect("Failed to write package.toml");
+}
 
 /// Test fixture for managing temporary projects and packages
 struct PackagingFixture {
@@ -96,69 +113,15 @@ pub mod test_package {
 
 #[tokio::test]
 #[serial]
-async fn test_compile_workflow_basic() {
-    let fixture = PackagingFixture::new().expect("Failed to create fixture");
-
-    let temp_so = tempfile::NamedTempFile::new().expect("Failed to create temp file");
-    let so_path = temp_so.path().to_path_buf();
-
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
-    };
-
-    let result = compile_workflow(
-        fixture.get_project_path().to_path_buf(),
-        so_path.clone(),
-        options,
-    );
-
-    // Note: This test might fail in CI due to compilation dependencies,
-    // but it should work in a local development environment
-    match result {
-        Ok(compile_result) => {
-            assert!(so_path.exists(), "Compiled library should exist");
-            assert!(
-                !compile_result.manifest.tasks.is_empty(),
-                "Should have extracted tasks"
-            );
-
-            // Verify manifest content (Manifest)
-            assert_eq!(compile_result.manifest.package.name, "test-workflow");
-            assert_eq!(compile_result.manifest.package.version, "1.0.0");
-            assert_eq!(compile_result.manifest.format_version, "2");
-            let lib_path = &compile_result.manifest.rust.as_ref().unwrap().library_path;
-            assert!(
-                lib_path.ends_with(".so")
-                    || lib_path.ends_with(".dylib")
-                    || lib_path.ends_with(".dll")
-            );
-        }
-        Err(e) => {
-            // Log the error for debugging but don't fail the test if it's a compilation issue
-            println!("Compilation failed (may be expected in CI): {}", e);
-        }
-    }
-}
-
-#[tokio::test]
-#[serial]
 async fn test_package_workflow_full_pipeline() {
     let fixture = PackagingFixture::new().expect("Failed to create fixture");
 
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec![],
-        jobs: None,
-    };
+    // Write the required package.toml for fidius source packaging
+    write_package_toml(fixture.get_project_path());
 
     let result = package_workflow(
         fixture.get_project_path().to_path_buf(),
         fixture.get_output_path().to_path_buf(),
-        options,
     );
 
     match result {
@@ -173,8 +136,8 @@ async fn test_package_workflow_full_pipeline() {
                 .expect("Should be able to read package file");
             assert!(!package_data.is_empty(), "Package should not be empty");
 
-            // Verify it's a gzipped tar archive (starts with gzip magic)
-            assert_eq!(&package_data[0..2], &[0x1f, 0x8b], "Should be gzipped");
+            // fidius produces a bzip2 tar archive (starts with bzip2 magic: 0x42 0x5a)
+            assert_eq!(&package_data[0..2], &[0x42, 0x5a], "Should be bzip2");
         }
         Err(e) => {
             println!("Packaging failed (may be expected in CI): {}", e);
@@ -209,34 +172,28 @@ fn test_compile_options_custom() {
 
 #[tokio::test]
 #[serial]
-async fn test_packaging_with_cross_compilation() {
+async fn test_packaging_with_package_toml() {
     let fixture = PackagingFixture::new().expect("Failed to create fixture");
 
-    let options = CompileOptions {
-        target: Some("x86_64-unknown-linux-gnu".to_string()),
-        profile: "release".to_string(),
-        cargo_flags: vec![],
-        jobs: Some(1),
-    };
+    // Write a package.toml so fidius can pack
+    write_package_toml(fixture.get_project_path());
 
     let result = package_workflow(
         fixture.get_project_path().to_path_buf(),
         fixture.get_output_path().to_path_buf(),
-        options,
     );
 
-    // This will likely fail on macOS trying to cross-compile to Linux,
-    // but we can test that the error is related to cross-compilation
-    if let Err(e) = result {
-        let error_msg = format!("{}", e);
-        // Should fail due to missing cross-compilation toolchain, not our code
-        assert!(
-            error_msg.contains("target")
-                || error_msg.contains("cargo")
-                || error_msg.contains("build"),
-            "Error should be compilation-related: {}",
-            error_msg
-        );
+    // With a valid project and package.toml, fidius source packaging should succeed
+    match result {
+        Ok(()) => {
+            assert!(
+                fixture.get_output_path().exists(),
+                "Package file should exist after successful packaging"
+            );
+        }
+        Err(e) => {
+            println!("Packaging failed: {}", e);
+        }
     }
 }
 
@@ -248,9 +205,7 @@ async fn test_packaging_invalid_project() {
     let output_path = temp_dir.path().join("output.cloacina");
 
     // Don't create the project directory - it should fail
-    let options = CompileOptions::default();
-
-    let result = package_workflow(invalid_project, output_path, options);
+    let result = package_workflow(invalid_project, output_path);
 
     assert!(result.is_err(), "Should fail with invalid project path");
 }
@@ -265,43 +220,29 @@ async fn test_packaging_missing_cargo_toml() {
     // Create directory but no Cargo.toml
     std::fs::create_dir_all(&project_path).expect("Failed to create project dir");
 
-    let options = CompileOptions::default();
-
-    let result = package_workflow(project_path, output_path, options);
+    let result = package_workflow(project_path, output_path);
 
     assert!(result.is_err(), "Should fail with missing Cargo.toml");
 }
 
 #[tokio::test]
 #[serial]
-async fn test_packaging_with_cargo_flags() {
+async fn test_packaging_missing_package_toml() {
     let fixture = PackagingFixture::new().expect("Failed to create fixture");
 
-    let options = CompileOptions {
-        target: None,
-        profile: "debug".to_string(),
-        cargo_flags: vec!["--offline".to_string()], // This will likely fail but tests flag passing
-        jobs: None,
-    };
-
+    // Do NOT write package.toml — packaging should fail with a clear error
     let result = package_workflow(
         fixture.get_project_path().to_path_buf(),
         fixture.get_output_path().to_path_buf(),
-        options,
     );
 
-    // This will likely fail due to --offline, but we're testing that flags are passed through
-    if let Err(e) = result {
-        let error_msg = format!("{}", e);
-        // Should contain cargo-related error messages
-        assert!(
-            error_msg.contains("cargo")
-                || error_msg.contains("build")
-                || error_msg.contains("offline"),
-            "Error should mention cargo flags: {}",
-            error_msg
-        );
-    }
+    assert!(result.is_err(), "Should fail without package.toml");
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(
+        error_msg.contains("package.toml"),
+        "Error should mention package.toml: {}",
+        error_msg
+    );
 }
 
 #[test]

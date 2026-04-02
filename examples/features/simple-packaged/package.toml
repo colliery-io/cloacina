@@ -1,0 +1,12 @@
+[package]
+name = "simple-packaged-demo"
+version = "0.1.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "data_processing"
+language = "rust"
+description = "Simple data processing workflow for demonstration"
+author = "Cloacina Demo Team"

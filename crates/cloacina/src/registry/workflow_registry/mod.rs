@@ -242,81 +242,72 @@ impl<S: RegistryStorage + Send + Sync> WorkflowRegistry for WorkflowRegistryImpl
         &mut self,
         package_data: Vec<u8>,
     ) -> Result<WorkflowPackageId, RegistryError> {
-        // 1. Check if this is a .cloacina package
-        let is_cloacina = Self::is_cloacina_package(&package_data);
-
-        // 2. Extract .so file for validation if needed
-        let so_data = if is_cloacina {
-            Self::extract_so_from_cloacina(&package_data).await?
-        } else {
-            package_data.clone()
-        };
-
-        // 3. Validate the extracted .so file
-        let validation_result = self
-            .validator
-            .validate_package(&so_data, None)
-            .await
-            .map_err(RegistryError::Loader)?;
-
-        if !validation_result.is_valid {
+        // 1. Require a bzip2 source archive (.cloacina)
+        if !Self::is_cloacina_package(&package_data) {
             return Err(RegistryError::ValidationError {
-                reason: validation_result.errors.join("; "),
+                reason: "Package data is not a valid .cloacina bzip2 source archive. \
+                         Raw library registration is not supported."
+                    .to_string(),
             });
         }
 
-        // 4. Extract metadata from the package
-        let package_metadata = if is_cloacina {
-            // For .cloacina packages, extract metadata directly from the archive
-            self.loader
-                .extract_metadata(&package_data)
-                .await
-                .map_err(RegistryError::Loader)?
-        } else {
-            // For raw .so files, we need to create a simple PackageLoader that handles raw files
-            // For now, return an error as we haven't implemented raw .so support in the new PackageLoader
-            return Err(RegistryError::ValidationError {
-                reason:
-                    "Raw .so file registration not yet supported. Please use .cloacina packages."
-                        .to_string(),
-            });
-        };
+        // 2. Read the manifest to extract package name/version for duplicate checking.
+        //    We do this by writing to a temp dir and calling unpack + load_manifest.
+        let work_dir = tempfile::TempDir::new()
+            .map_err(|e| RegistryError::Internal(format!("Failed to create temp dir: {}", e)))?;
+        let archive_path = work_dir.path().join("pkg.cloacina");
+        std::fs::write(&archive_path, &package_data)
+            .map_err(|e| RegistryError::Internal(format!("Failed to write archive: {}", e)))?;
+        let extract_dir = work_dir.path().join("source");
+        std::fs::create_dir_all(&extract_dir)
+            .map_err(|e| RegistryError::Internal(format!("Failed to create extract dir: {}", e)))?;
 
-        // 4. Check if package already exists
+        let source_dir = fidius_core::package::unpack_package(&archive_path, &extract_dir)
+            .map_err(|e| RegistryError::ValidationError {
+                reason: format!("Failed to unpack source archive: {}", e),
+            })?;
+
+        let manifest = fidius_core::package::load_manifest::<
+            cloacina_workflow_plugin::CloacinaMetadata,
+        >(&source_dir)
+        .map_err(|e| RegistryError::ValidationError {
+            reason: format!("Failed to load package.toml: {}", e),
+        })?;
+
+        let pkg_name = manifest.package.name.clone();
+        let pkg_version = manifest.package.version.clone();
+
+        // 3. Check for duplicate
         if self
-            .get_package_metadata(&package_metadata.package_name, &package_metadata.version)
+            .get_package_metadata(&pkg_name, &pkg_version)
             .await?
             .is_some()
         {
             return Err(RegistryError::PackageExists {
-                package_name: package_metadata.package_name,
-                version: package_metadata.version,
+                package_name: pkg_name,
+                version: pkg_version,
             });
         }
 
-        // 5. Store original package data in registry storage (.cloacina or .so)
+        // 4. Build a lightweight PackageMetadata for storage (tasks populated at load time)
+        let package_metadata = crate::registry::loader::package_loader::PackageMetadata {
+            package_name: pkg_name,
+            version: pkg_version,
+            description: manifest.metadata.description.clone(),
+            author: manifest.metadata.author.clone(),
+            tasks: vec![],
+            graph_data: None,
+            architecture: std::env::consts::ARCH.to_string(),
+            symbols: vec![],
+        };
+
+        // 5. Store the source archive
         let registry_id = self.storage.store_binary(package_data).await?;
 
         // 6. Store metadata in database
         let package_id = self
             .store_package_metadata(&registry_id, &package_metadata)
             .await?;
-
-        // 7. Register tasks with the global registry using .so data
-        let registered_namespaces = self
-            .registrar
-            .register_package_tasks(
-                &package_id.to_string(),
-                &so_data,
-                &package_metadata,
-                Some("public"), // Default tenant
-            )
-            .await
-            .map_err(RegistryError::Loader)?;
-
-        // 7. Track loaded state
-        self.loaded_packages
-            .insert(package_id, registered_namespaces);
 
         Ok(package_id)
     }
