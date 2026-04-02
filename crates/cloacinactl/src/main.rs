@@ -65,6 +65,11 @@ enum Commands {
         /// Database URL (overrides config file and DATABASE_URL env var)
         #[arg(long, env = "DATABASE_URL")]
         database_url: Option<String>,
+
+        /// Bootstrap API key (used instead of auto-generating on first startup).
+        /// If provided and no keys exist, this key is registered as the admin key.
+        #[arg(long, env = "CLOACINA_BOOTSTRAP_KEY")]
+        bootstrap_key: Option<String>,
     },
 
     /// Manage configuration (get/set/list values in ~/.cloacina/config.toml)
@@ -140,10 +145,14 @@ async fn main() -> Result<()> {
             commands::daemon::run(cli.home, watch_dirs, poll_interval, cli.verbose).await?;
         }
 
-        Commands::Serve { bind, database_url } => {
+        Commands::Serve {
+            bind,
+            database_url,
+            bootstrap_key,
+        } => {
             let db_url =
                 commands::config::resolve_database_url(database_url.as_deref(), &config_path)?;
-            commands::serve::run(cli.home, bind, db_url, cli.verbose).await?;
+            commands::serve::run(cli.home, bind, db_url, cli.verbose, bootstrap_key).await?;
         }
 
         Commands::Config { command } => match command {

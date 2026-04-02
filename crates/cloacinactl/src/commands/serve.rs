@@ -45,6 +45,7 @@ pub async fn run(
     bind: SocketAddr,
     database_url: String,
     verbose: bool,
+    bootstrap_key: Option<String>,
 ) -> Result<()> {
     // Set up logging (file + stderr, same as daemon)
     std::fs::create_dir_all(&home)
@@ -90,7 +91,7 @@ pub async fn run(
     };
 
     // Bootstrap: create initial admin key if none exist
-    bootstrap_admin_key(&state, &home).await?;
+    bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
     // Build router
     let app = build_router(state);
@@ -270,7 +271,11 @@ async fn shutdown_signal() {
 ///
 /// Writes the plaintext key to `~/.cloacina/bootstrap-key` with mode 0600.
 /// The key is never logged.
-async fn bootstrap_admin_key(state: &AppState, home: &std::path::Path) -> Result<()> {
+async fn bootstrap_admin_key(
+    state: &AppState,
+    home: &std::path::Path,
+    provided_key: Option<&str>,
+) -> Result<()> {
     let dal = cloacina::dal::DAL::new(state.database.clone());
     let has_keys = dal.api_keys().has_any_keys().await.unwrap_or(false);
 
@@ -281,7 +286,15 @@ async fn bootstrap_admin_key(state: &AppState, home: &std::path::Path) -> Result
 
     info!("No API keys found — creating bootstrap admin key");
 
-    let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+    let (plaintext, hash) = if let Some(key) = provided_key {
+        // Use provided key
+        let hash = cloacina::security::api_keys::hash_api_key(key);
+        (key.to_string(), hash)
+    } else {
+        // Auto-generate
+        cloacina::security::api_keys::generate_api_key()
+    };
+
     dal.api_keys()
         .create_key(&hash, "bootstrap-admin")
         .await
@@ -304,7 +317,6 @@ async fn bootstrap_admin_key(state: &AppState, home: &std::path::Path) -> Result
         "Bootstrap admin key written to {} (mode 0600)",
         key_path.display()
     );
-    info!("Use this key to authenticate API requests, then create additional keys via POST /auth/keys");
 
     Ok(())
 }
