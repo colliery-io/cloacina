@@ -131,7 +131,7 @@
     "crates/cloacina/src/registry/loader/validator/symbols.rs": "28166cf3a81244cd5304afaa332cde45d2c2702d1489c5785c981c4dc8f560f7",
     "crates/cloacina/src/registry/loader/validator/types.rs": "d84aa6c94ef507beafb6fdbd4374a5caa9a07bf6127717c6b4214caa8e406ab6",
     "crates/cloacina/src/registry/mod.rs": "068db188c6ce4df3bce5681fed2e3ad8544f41cd50d64a5d2cb2e393c0625ff1",
-    "crates/cloacina/src/registry/reconciler/extraction.rs": "bc01ae271afc571f1e0c5d78f536a885865ae35f51cf2456121525c48abb5235",
+    "crates/cloacina/src/registry/reconciler/extraction.rs": "143cf959855b60773b8986dbcc39c3eb7a4fe613639d74390452235e9f2a87cd",
     "crates/cloacina/src/registry/reconciler/loading.rs": "d9bd4625294caba5f73d8c683c75da579b5bd717a1936610a4f7e34cbdea0e88",
     "crates/cloacina/src/registry/reconciler/mod.rs": "d39f9ada09891d50b2a9108e6160c175510993cf8be848e76dd90fbf075efdfd",
     "crates/cloacina/src/registry/storage/mod.rs": "5042969231da205bbfabebb519d7608a88998e87a3e6cbd2f9a0b608bdbcaa7d",

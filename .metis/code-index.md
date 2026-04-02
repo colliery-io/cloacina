@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-01T22:59:02Z | 370 files | JavaScript, Python, Rust
+> Generated: 2026-04-02T00:14:39Z | 370 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2789,9 +2789,12 @@
 
 #### crates/cloacina/src/registry/reconciler/extraction.rs
 
--  `RegistryReconciler` type L26-124 — `= RegistryReconciler` — it to a cdylib using `cargo build`.
--  `compile_source_package` function L32-73 — `( source_dir: &Path, ) -> Result<PathBuf, RegistryError>` — Compile a Rust source package directory to a cdylib.
--  `find_compiled_library` function L80-123 — `(target_dir: &Path) -> Result<PathBuf, RegistryError>` — Search `target_dir` for the cdylib produced by `cargo build --lib`.
+-  `HOST_CRATES` variable L29-35 — `: &[(&str, &str)]` — Cloacina crates whose path dependencies should be rewritten to host paths
+-  `host_workspace_root` function L40-47 — `() -> PathBuf` — Returns the host workspace root, derived from `CARGO_MANIFEST_DIR` at compile time.
+-  `rewrite_host_dependencies` function L57-143 — `(source_dir: &Path) -> Result<(), RegistryError>` — Rewrite path dependencies in an extracted source package's Cargo.toml
+-  `RegistryReconciler` type L145-252 — `= RegistryReconciler` — it to a cdylib using `cargo build`.
+-  `compile_source_package` function L155-201 — `( source_dir: &Path, ) -> Result<PathBuf, RegistryError>` — Compile a Rust source package directory to a cdylib.
+-  `find_compiled_library` function L208-251 — `(target_dir: &Path) -> Result<PathBuf, RegistryError>` — Search `target_dir` for the cdylib produced by `cargo build --lib`.
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
