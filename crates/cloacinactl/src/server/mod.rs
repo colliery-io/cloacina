@@ -17,6 +17,7 @@
 //! API server route handlers and middleware.
 
 pub mod auth;
+pub mod executions;
 pub mod keys;
 pub mod tenants;
 pub mod workflows;

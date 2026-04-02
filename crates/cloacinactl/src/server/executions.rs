@@ -1,0 +1,207 @@
+/*
+ *  Copyright 2025-2026 Colliery Software
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+//! Execution API — trigger workflows and query execution status.
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use serde::Deserialize;
+use tracing::{info, warn};
+
+use cloacina::executor::PipelineExecutor;
+use cloacina::Context;
+
+use crate::commands::serve::AppState;
+
+/// Request body for executing a workflow.
+#[derive(Deserialize)]
+pub struct ExecuteRequest {
+    /// Optional JSON context to pass to the workflow.
+    #[serde(default)]
+    pub context: Option<serde_json::Value>,
+}
+
+/// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+pub async fn execute_workflow(
+    State(state): State<AppState>,
+    Path((tenant_id, name)): Path<(String, String)>,
+    Json(body): Json<ExecuteRequest>,
+) -> impl IntoResponse {
+    let mut context = Context::new();
+
+    // Merge provided context if any
+    if let Some(ctx_value) = body.context {
+        if let Some(obj) = ctx_value.as_object() {
+            for (k, v) in obj {
+                context.insert(k.clone(), v.clone()).unwrap_or_default();
+            }
+        }
+    }
+
+    match state.runner.execute_async(&name, context).await {
+        Ok(execution) => {
+            info!(
+                "Executed workflow '{}' for tenant '{}': {}",
+                name, tenant_id, execution.execution_id
+            );
+            (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({
+                    "execution_id": execution.execution_id.to_string(),
+                    "workflow_name": name,
+                    "tenant_id": tenant_id,
+                    "status": "scheduled",
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            warn!(
+                "Failed to execute workflow '{}' for tenant '{}': {}",
+                name, tenant_id, e
+            );
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("{}", e)})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /tenants/:tenant_id/executions — list pipeline executions.
+pub async fn list_executions(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+) -> impl IntoResponse {
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+
+    match dal.pipeline_execution().get_active_executions().await {
+        Ok(executions) => {
+            let items: Vec<_> = executions
+                .into_iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.id.0.to_string(),
+                        "pipeline_name": e.pipeline_name,
+                        "status": e.status,
+                        "started_at": e.started_at.0.to_rfc3339(),
+                        "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "tenant_id": tenant_id,
+                "executions": items,
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            warn!(
+                "Failed to list executions for tenant '{}': {}",
+                tenant_id, e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("{}", e)})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /tenants/:tenant_id/executions/:id — get execution details.
+pub async fn get_execution(
+    State(state): State<AppState>,
+    Path((tenant_id, exec_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let id = match uuid::Uuid::parse_str(&exec_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid execution ID"})),
+            )
+                .into_response()
+        }
+    };
+
+    match state.runner.get_execution_status(id).await {
+        Ok(status) => Json(serde_json::json!({
+            "tenant_id": tenant_id,
+            "execution_id": exec_id,
+            "status": format!("{:?}", status),
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("{}", e)})),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /tenants/:tenant_id/executions/:id/events — execution event log.
+pub async fn get_execution_events(
+    State(state): State<AppState>,
+    Path((tenant_id, exec_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let id = match uuid::Uuid::parse_str(&exec_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid execution ID"})),
+            )
+                .into_response()
+        }
+    };
+
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    let universal_id = cloacina::database::universal_types::UniversalUuid(id);
+
+    match dal.execution_event().list_by_pipeline(universal_id).await {
+        Ok(events) => {
+            let items: Vec<_> = events
+                .into_iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.id.0.to_string(),
+                        "event_type": e.event_type,
+                        "event_data": e.event_data,
+                        "created_at": e.created_at.0.to_rfc3339(),
+                        "sequence_num": e.sequence_num,
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "tenant_id": tenant_id,
+                "execution_id": exec_id,
+                "events": items,
+            }))
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{}", e)})),
+        )
+            .into_response(),
+    }
+}

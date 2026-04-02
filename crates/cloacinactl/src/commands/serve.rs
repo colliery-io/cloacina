@@ -159,6 +159,23 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::server::workflows::delete_workflow),
         )
+        // Executions (tenant-scoped)
+        .route(
+            "/tenants/{tenant_id}/workflows/{name}/execute",
+            post(crate::server::executions::execute_workflow),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions",
+            get(crate::server::executions::list_executions),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}",
+            get(crate::server::executions::get_execution),
+        )
+        .route(
+            "/tenants/{tenant_id}/executions/{exec_id}/events",
+            get(crate::server::executions::get_execution_events),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             crate::server::auth::require_auth,
