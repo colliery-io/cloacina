@@ -219,47 +219,56 @@ def soak(duration=None):
 
             print("  Daemon is running.")
 
-            # Step 3: Drop packages and verify reconciliation
-            print_section_header("Step 3: Drop test packages")
+            # Step 3: Drop a package and wait for it to compile + load
+            print_section_header("Step 3: Drop test package")
 
-            packages_dropped = []
-            packages_to_drop = 1
-            # Compilation is memory-heavy — only one package at a time.
-            # First compilation downloads deps (~60s), just wait for it.
-            drop_interval = 60
+            pkg_name = "soak-test-pkg-0"
+            pkg_data = create_test_package(pkg_name, "1.0.0")
+            pkg_path = packages_dir / f"{pkg_name}.cloacina"
 
-            for i in range(packages_to_drop):
-                pkg_name = f"soak-test-pkg-{i}"
-                pkg_data = create_test_package(pkg_name, f"1.0.{i}")
-                pkg_path = packages_dir / f"{pkg_name}.cloacina"
+            print(f"  Dropping: {pkg_name}.cloacina")
+            pkg_path.write_bytes(pkg_data)
 
-                print(f"  Dropping: {pkg_name}.cloacina")
-                pkg_path.write_bytes(pkg_data)
-                packages_dropped.append(pkg_path)
+            # Wait for compilation to finish (~60s first time, deps need downloading)
+            print("  Waiting for compilation (up to 90s)...")
+            compile_timeout = 90
+            compile_start = time.time()
+            while time.time() - compile_start < compile_timeout:
+                assert daemon_proc.poll() is None, "Daemon crashed during compilation!"
+                time.sleep(5)
+                # Check stderr for compilation success indicators
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                if "Successfully registered" in stderr and pkg_name in stderr:
+                    print(f"  Package compiled and loaded ({int(time.time() - compile_start)}s)")
+                    break
+            else:
+                print(f"  WARNING: Compilation may not have finished in {compile_timeout}s")
 
-                # Wait for reconciler to notice
-                time.sleep(drop_interval)
+            # Step 4: Let cron execute for the soak duration
+            soak_duration = max(30, duration - int(time.time() - compile_start))
+            print_section_header(f"Step 4: Soak — running for {soak_duration}s")
+            print("  Package has cron_expression = '*/30 * * * * *' (every 30s)")
+            print(f"  Expecting ~{soak_duration // 30} cron executions...")
 
-            # Verify packages are present
-            cloacina_files = list(packages_dir.glob("*.cloacina"))
-            print(f"  Packages in watch dir: {len(cloacina_files)}")
-            assert len(cloacina_files) == packages_to_drop, \
-                f"Expected {packages_to_drop} packages, found {len(cloacina_files)}"
+            check_interval = 10
+            executions_seen = 0
+            for elapsed in range(0, soak_duration, check_interval):
+                time.sleep(check_interval)
+                assert daemon_proc.poll() is None, \
+                    f"Daemon crashed after {elapsed + check_interval}s of soak!"
+                # Count completed pipelines in stderr
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                new_count = stderr.count("Pipeline completed")
+                if new_count > executions_seen:
+                    executions_seen = new_count
+                    print(f"  [{elapsed + check_interval}s] {executions_seen} pipeline executions completed")
 
-            # Step 4: Remove packages
-            print_section_header("Step 4: Remove test packages")
+            print(f"  Soak complete: {executions_seen} total executions")
+            assert executions_seen > 0, "No pipeline executions during soak period!"
 
-            for pkg_path in packages_dropped:
-                print(f"  Removing: {pkg_path.name}")
-                pkg_path.unlink()
-                time.sleep(drop_interval)
-
-            # Verify all removed
-            remaining = list(packages_dir.glob("*.cloacina"))
-            print(f"  Packages remaining: {len(remaining)}")
-            assert len(remaining) == 0, f"Expected 0 packages, found {len(remaining)}"
-
-            # Step 5: Verify daemon is still running and parse logs
+            # Step 5: Verify daemon health and parse logs
             print_section_header("Step 5: Verify daemon health")
             assert daemon_proc.poll() is None, "Daemon crashed during soak test!"
             print("  Daemon is still running — no crashes.")
