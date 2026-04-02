@@ -159,6 +159,15 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{tenant_id}/workflows/{name}/{version}",
             delete(crate::server::workflows::delete_workflow),
         )
+        // Trigger schedules (tenant-scoped, read-only)
+        .route(
+            "/tenants/{tenant_id}/triggers",
+            get(crate::server::triggers::list_triggers),
+        )
+        .route(
+            "/tenants/{tenant_id}/triggers/{name}",
+            get(crate::server::triggers::get_trigger),
+        )
         // Executions (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows/{name}/execute",

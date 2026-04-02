@@ -20,4 +20,5 @@ pub mod auth;
 pub mod executions;
 pub mod keys;
 pub mod tenants;
+pub mod triggers;
 pub mod workflows;
