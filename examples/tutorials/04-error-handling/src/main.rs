@@ -362,6 +362,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demonstrates retry policies, fallback strategies, and resilient workflows");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("tutorial-04.db");
 
     let config = DefaultRunnerConfig::default();
     let runner = DefaultRunner::with_config("sqlite://tutorial-04.db", config).await?;

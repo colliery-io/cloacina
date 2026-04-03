@@ -56,6 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Simple Cloacina Example");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("tutorial-01.db");
 
     let runner =
         DefaultRunner::with_config("sqlite://tutorial-01.db", DefaultRunnerConfig::default())

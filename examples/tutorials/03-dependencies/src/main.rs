@@ -560,6 +560,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Parallel Processing Example");
 
     // Initialize runner with SQLite database using WAL mode for better concurrency
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("tutorial-03.db");
 
     let runner =
         DefaultRunner::with_config("sqlite://tutorial-03.db", DefaultRunnerConfig::default())

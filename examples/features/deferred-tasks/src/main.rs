@@ -136,6 +136,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("=== Deferred Tasks Example ===");
     info!("Demonstrates TaskHandle::defer_until for concurrency slot management");
 
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("deferred-tasks.db");
+
     let runner =
         DefaultRunner::with_config("sqlite://deferred-tasks.db", DefaultRunnerConfig::default())
             .await?;

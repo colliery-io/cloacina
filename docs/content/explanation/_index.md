@@ -14,6 +14,7 @@ Explanation documents are understanding-oriented. They provide context, backgrou
 - **[Workflow Versioning]({{< ref "workflow-versioning" >}})** -- Version management for workflows and how changes are tracked
 - **[Trigger Rules]({{< ref "trigger-rules" >}})** -- Conditional execution logic that controls when tasks run based on outcomes and context
 - **[Macro System]({{< ref "macro-system" >}})** -- How the `#[task]` and `#[workflow]` attribute macros work under the hood
+- **[Task Deferral]({{< ref "task-deferral" >}})** -- How TaskHandle and defer_until manage concurrency slots during long-running waits
 
 ## Architecture
 

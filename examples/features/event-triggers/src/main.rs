@@ -353,6 +353,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .trigger_poll_timeout(Duration::from_secs(10))
         .build();
 
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("event_triggers.db");
+
     let runner = DefaultRunner::with_config("sqlite://event_triggers.db", config).await?;
 
     info!("DefaultRunner initialized with trigger scheduling enabled");

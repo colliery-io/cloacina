@@ -241,8 +241,109 @@ def validation_task(context):
     return context
 ```
 
+## TaskHandle
+
+Tasks can accept an optional second parameter named `handle` or `task_handle` to gain access to concurrency slot management. The `@task` decorator inspects the function signature at registration time and, when a handle parameter is detected, arranges for the executor to provide a `TaskHandle` instance at runtime.
+
+### Requesting a TaskHandle
+
+Add a second parameter named `handle` or `task_handle` to the task function:
+
+```python
+@cloaca.task(id="wait_for_ready")
+def wait_for_ready(context, handle):
+    """Task that defers until an external condition is met."""
+    def check_ready():
+        # Return True when the task should resume
+        return some_external_check()
+
+    handle.defer_until(check_ready, poll_interval_ms=1000)
+
+    context.set("ready", True)
+    return context
+```
+
+The parameter name matters: it must be exactly `handle` or `task_handle`. Any other name will not trigger handle injection.
+
+### TaskHandle Methods
+
+#### `defer_until(condition, poll_interval_ms=1000)`
+
+Release the concurrency slot while polling an external condition.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `condition` | `callable` | required | A function returning `bool`. Called repeatedly at `poll_interval_ms` intervals. |
+| `poll_interval_ms` | `int` | `1000` | Milliseconds between condition checks. |
+
+**Behavior:**
+
+1. Releases the executor concurrency slot (freeing it for other tasks)
+2. Polls `condition()` every `poll_interval_ms` milliseconds
+3. Reclaims a slot when `condition()` returns `True`
+4. Returns control to the task
+
+**Raises:** `ValueError` if the handle has already been consumed or the semaphore is closed.
+
+```python
+@cloaca.task(id="wait_for_file")
+def wait_for_file(context, handle):
+    import os
+
+    target = "/data/input.csv"
+
+    handle.defer_until(
+        lambda: os.path.exists(target),
+        poll_interval_ms=5000,
+    )
+
+    context.set("file_path", target)
+    return context
+```
+
+#### `is_slot_held()`
+
+Returns whether the handle currently holds a concurrency slot.
+
+**Returns:** `bool`
+
+**Raises:** `ValueError` if the handle has already been consumed.
+
+### Mixing Handle and Non-Handle Tasks
+
+Handle-aware and regular tasks work together in the same workflow:
+
+```python
+with cloaca.WorkflowBuilder("mixed_pipeline") as builder:
+    @cloaca.task(id="normal_task")
+    def normal_task(context):
+        context.set("step_1", True)
+        return context
+
+    @cloaca.task(id="deferred_task", dependencies=["normal_task"])
+    def deferred_task(context, handle):
+        handle.defer_until(lambda: True, poll_interval_ms=10)
+        context.set("step_2", True)
+        return context
+```
+
+### Direct Calls (Testing)
+
+When calling a handle-aware task directly (outside the executor), pass `None` for the handle parameter:
+
+```python
+ctx = cloaca.Context()
+result = my_handle_task(ctx, None)
+```
+
+The `defer_until` call will fail if there is no real `TaskHandle`, so direct calls are useful only for testing the non-deferral parts of the function logic.
+
 ## See Also
 
 - **[Context]({{< ref "/python-bindings/api-reference/context/" >}})** - Data passed between tasks
 - **[WorkflowBuilder]({{< ref "/python-bindings/api-reference/workflow-builder/" >}})** - Combine tasks into workflows
 - **[DefaultRunner]({{< ref "/python-bindings/api-reference/runner/" >}})** - Execute workflows containing tasks
+- **[Task Deferral Architecture]({{< ref "/explanation/task-deferral" >}})** - Internal mechanics of slot tokens and defer_until
+- **[Tutorial 10 - Task Deferral]({{< ref "/tutorials/10-task-deferral" >}})** - Rust walkthrough of the deferred-tasks example

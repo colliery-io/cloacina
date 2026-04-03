@@ -484,6 +484,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cron_recovery_interval(Duration::from_secs(30)) // Recovery check every 30 seconds
         .build();
 
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("cronscheduling.db");
+
     let runner = DefaultRunner::with_config("sqlite://cronscheduling.db", config).await?;
 
     info!("DefaultRunner initialized with cron scheduling enabled");

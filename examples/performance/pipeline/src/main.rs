@@ -111,6 +111,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_concurrent_tasks(args.concurrency)
         .build();
 
+    // Clean up stale database from previous runs
+    let _ = std::fs::remove_file("performance-pipeline.db");
+
     let runner = DefaultRunner::with_config("sqlite://performance-pipeline.db", config).await?;
 
     // Workflow is auto-registered by #[workflow] attribute macro

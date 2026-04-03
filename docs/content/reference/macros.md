@@ -112,18 +112,37 @@ The task function must:
 2. Return `Result<(), TaskError>` (or any error type convertible to `TaskError`)
 3. Be `async` (or synchronous -- both are supported)
 
-An optional second parameter named `handle` or `task_handle` provides access to a `TaskHandle` for progress reporting:
+An optional second parameter named `handle` or `task_handle` provides access to a `TaskHandle` for concurrency slot management. When the macro detects a parameter with one of these names, it sets `requires_handle() = true` on the generated `Task` trait implementation. The executor then creates a `TaskHandle` and injects it via task-local storage at runtime.
 
 ```rust
-#[task(id = "long_running")]
-pub async fn long_running(
+#[task(id = "wait_for_file")]
+pub async fn wait_for_file(
     context: &mut Context<Value>,
     handle: &mut TaskHandle,
 ) -> Result<(), TaskError> {
-    handle.report_progress(50).await;
+    handle.defer_until(
+        || async { std::path::Path::new("/data/input.csv").exists() },
+        Duration::from_secs(5),
+    ).await.map_err(|e| TaskError::ExecutionFailed {
+        message: format!("defer_until failed: {e}"),
+        task_id: "wait_for_file".into(),
+        timestamp: chrono::Utc::now(),
+    })?;
+
+    // File exists -- slot has been reclaimed, proceed with work
     Ok(())
 }
 ```
+
+`TaskHandle` methods:
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `defer_until` | `async fn(&mut self, condition: F, poll_interval: Duration) -> Result<(), ExecutorError>` | Release the concurrency slot, poll `condition` at `poll_interval`, reclaim when `true` |
+| `is_slot_held` | `fn(&self) -> bool` | Whether the handle currently holds a concurrency slot |
+| `task_execution_id` | `fn(&self) -> UniversalUuid` | The task execution ID for this invocation |
+
+See [Task Deferral Architecture]({{< ref "/explanation/task-deferral" >}}) for the full lifecycle and [Tutorial 10]({{< ref "/tutorials/10-task-deferral" >}}) for a walkthrough.
 
 ### Generated Code
 
