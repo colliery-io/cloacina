@@ -41,6 +41,65 @@ def find_daemon_binary():
     return str(binary)
 
 
+def create_python_test_package(name, version="1.0.0"):
+    """Create a fidius source package (.cloacina bzip2 tar) with a Python workflow.
+
+    The package contains package.toml + workflow/ directory with a simple
+    Python task module that the daemon's reconciler can load via PyO3.
+    """
+    safe_name = name.replace("-", "_")
+    prefix = f"{name}-{version}"
+
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{safe_name}"
+language = "python"
+description = "Python soak test package {name}"
+author = "soak-test"
+entry_module = "{safe_name}.tasks"
+
+[[metadata.triggers]]
+name = "{safe_name}_cron"
+workflow = "{safe_name}"
+poll_interval = "30s"
+cron_expression = "*/30 * * * * *"
+"""
+
+    init_py = ""
+
+    tasks_py = f"""from __future__ import annotations
+import cloaca
+
+@cloaca.task(id="py-task1", dependencies=[])
+def py_task1(context):
+    context.set("python_soak_test", True)
+    context.set("package_name", "{name}")
+    return context
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            (f"workflow/{safe_name}/__init__.py", init_py),
+            (f"workflow/{safe_name}/tasks.py", tasks_py),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
 def create_test_package(name, version="1.0.0"):
     """Create a fidius source package (.cloacina bzip2 tar) with a real compilable Rust project.
 
@@ -244,6 +303,45 @@ def soak(duration=None):
                     break
             else:
                 print(f"  WARNING: Compilation may not have finished in {compile_timeout}s")
+
+            # Step 3b: Drop a Python package
+            print_section_header("Step 3b: Drop Python test package")
+
+            py_pkg_name = "soak-test-python-pkg"
+            py_pkg_data = create_python_test_package(py_pkg_name, "1.0.0")
+            py_pkg_path = packages_dir / f"{py_pkg_name}.cloacina"
+
+            print(f"  Dropping: {py_pkg_name}.cloacina")
+            py_pkg_path.write_bytes(py_pkg_data)
+
+            # Python packages don't need compilation — should load quickly
+            print("  Waiting for Python package to load (up to 30s)...")
+            py_load_timeout = 30
+            py_load_start = time.time()
+            py_loaded = False
+            while time.time() - py_load_start < py_load_timeout:
+                assert daemon_proc.poll() is None, "Daemon crashed during Python package loading!"
+                time.sleep(2)
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                if "Python package loaded" in stderr or ("Python workflow imported" in stderr and py_pkg_name in stderr):
+                    print(f"  Python package loaded ({int(time.time() - py_load_start)}s)")
+                    py_loaded = True
+                    break
+                # Also check for registration success via task registration
+                if "Successfully registered" in stderr and py_pkg_name in stderr:
+                    print(f"  Python package registered ({int(time.time() - py_load_start)}s)")
+                    py_loaded = True
+                    break
+            if not py_loaded:
+                daemon_stderr_file.flush()
+                stderr = daemon_stderr_path.read_text() if daemon_stderr_path.exists() else ""
+                # Check for errors
+                if "Python" in stderr and "error" in stderr.lower():
+                    for line in stderr.splitlines():
+                        if "Python" in line or "python" in line:
+                            print(f"  ERROR: {line[:200]}")
+                raise RuntimeError(f"Python package did not load within {py_load_timeout}s")
 
             # Step 4: Let cron execute for the soak duration
             soak_duration = max(30, duration - int(time.time() - compile_start))

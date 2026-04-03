@@ -188,6 +188,25 @@ pub fn import_and_register_python_workflow(
     package_name: &str,
     tenant_id: &str,
 ) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
+    // Default: use package_name as workflow_name
+    import_and_register_python_workflow_named(
+        workflow_dir,
+        vendor_dir,
+        entry_module,
+        package_name,
+        package_name,
+        tenant_id,
+    )
+}
+
+pub fn import_and_register_python_workflow_named(
+    workflow_dir: &Path,
+    vendor_dir: &Path,
+    entry_module: &str,
+    package_name: &str,
+    workflow_name: &str,
+    tenant_id: &str,
+) -> Result<Vec<TaskNamespace>, PythonLoaderError> {
     // SECURITY: Check for stdlib shadowing before importing
     validate_no_stdlib_shadowing(workflow_dir, vendor_dir)?;
 
@@ -195,6 +214,7 @@ pub fn import_and_register_python_workflow(
     let vendor_dir = vendor_dir.to_path_buf();
     let entry_module = entry_module.to_string();
     let package_name = package_name.to_string();
+    let workflow_name = workflow_name.to_string();
     let tenant_id = tenant_id.to_string();
     let timeout = Duration::from_secs(IMPORT_TIMEOUT_SECS);
 
@@ -226,7 +246,7 @@ pub fn import_and_register_python_workflow(
             }
 
             // 3. Push workflow context for @task decorators
-            let context = PyWorkflowContext::new(&tenant_id, &package_name, &entry_module);
+            let context = PyWorkflowContext::new(&tenant_id, &package_name, &workflow_name);
             push_workflow_context(context.clone());
 
             // 4. Import entry module — @task decorators fire, tasks registered

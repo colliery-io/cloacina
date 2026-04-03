@@ -114,43 +114,118 @@ impl RegistryReconciler {
             cloacina_manifest.metadata.language
         );
 
-        // --- Step 4 & 5: compile (Rust) and read cdylib ---
-        let library_data = if cloacina_manifest.metadata.language == "rust" {
+        // --- Step 4, 5, 6: language-specific loading ---
+        let (task_namespaces, workflow_name, trigger_names) = if cloacina_manifest.metadata.language
+            == "rust"
+        {
+            // Rust path: compile cdylib, extract metadata via FFI, register
             debug!(
                 "Compiling Rust source for package: {}",
                 metadata.package_name
             );
             let lib_path = Self::compile_source_package(&source_dir).await?;
 
-            tokio::fs::read(&lib_path)
-                .await
-                .map_err(|e| RegistryError::RegistrationFailed {
+            let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
+                RegistryError::RegistrationFailed {
                     message: format!(
                         "Failed to read compiled library {}: {}",
                         lib_path.display(),
                         e
                     ),
-                })?
+                }
+            })?;
+
+            let task_namespaces = self
+                .register_package_tasks(&metadata, &library_data)
+                .await?;
+            let workflow_name = self
+                .register_package_workflows(&metadata, &library_data)
+                .await?;
+            let trigger_names =
+                self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
+
+            (task_namespaces, workflow_name, trigger_names)
+        } else if cloacina_manifest.metadata.language == "python" {
+            // Python path: extract package, import module, register via PyO3
+            debug!("Loading Python package: {}", metadata.package_name);
+
+            // Ensure the Python interpreter is initialized (idempotent — safe to call multiple times)
+            pyo3::prepare_freethreaded_python();
+
+            let extracted = tokio::task::spawn_blocking({
+                let archive_data = loaded_workflow.package_data.clone();
+                let staging = work_dir.path().join("python-staging");
+                move || {
+                    std::fs::create_dir_all(&staging).map_err(|e| {
+                        RegistryError::RegistrationFailed {
+                            message: format!("Failed to create Python staging dir: {}", e),
+                        }
+                    })?;
+                    crate::registry::loader::python_loader::extract_python_package(
+                        &archive_data,
+                        &staging,
+                    )
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!("Failed to extract Python package: {}", e),
+                    })
+                }
+            })
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("spawn_blocking failed during Python extraction: {}", e),
+            })??;
+
+            let tenant_id = self.config.default_tenant_id.clone();
+            let task_namespaces = tokio::task::spawn_blocking({
+                let workflow_dir = extracted.workflow_dir.clone();
+                let vendor_dir = extracted.vendor_dir.clone();
+                let entry_module = extracted.entry_module.clone();
+                let package_name = extracted.package_name.clone();
+                let workflow_name = extracted.workflow_name.clone();
+                let tenant_id = tenant_id.clone();
+                move || {
+                    crate::python::loader::import_and_register_python_workflow_named(
+                        &workflow_dir,
+                        &vendor_dir,
+                        &entry_module,
+                        &package_name,
+                        &workflow_name,
+                        &tenant_id,
+                    )
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!("Python workflow import failed: {}", e),
+                    })
+                }
+            })
+            .await
+            .map_err(|e| RegistryError::RegistrationFailed {
+                message: format!("spawn_blocking failed during Python import: {}", e),
+            })??;
+
+            let workflow_name = Some(extracted.workflow_name.clone());
+
+            // Python triggers are registered during import_and_register_python_workflow.
+            // Track them from the manifest so they can be unloaded later.
+            let trigger_names =
+                self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
+
+            info!(
+                "Python package loaded: {} v{} — {} tasks, workflow '{}'",
+                metadata.package_name,
+                metadata.version,
+                task_namespaces.len(),
+                extracted.workflow_name,
+            );
+
+            (task_namespaces, workflow_name, trigger_names)
         } else {
             return Err(RegistryError::RegistrationFailed {
-                message: format!(
-                    "Unsupported package language '{}' for package {} — only 'rust' is supported by this loader",
-                    cloacina_manifest.metadata.language, metadata.package_name
-                ),
-            });
+                    message: format!(
+                        "Unsupported package language '{}' for package {} — only 'rust' and 'python' are supported",
+                        cloacina_manifest.metadata.language, metadata.package_name
+                    ),
+                });
         };
-
-        // --- Step 6: register tasks and workflows ---
-        let task_namespaces = self
-            .register_package_tasks(&metadata, &library_data)
-            .await?;
-        let workflow_name = self
-            .register_package_workflows(&metadata, &library_data)
-            .await?;
-
-        // Register triggers from the manifest metadata
-        let trigger_names =
-            self.register_package_triggers(&metadata, &cloacina_manifest.metadata)?;
 
         // Track the loaded package state
         let package_state = PackageState {

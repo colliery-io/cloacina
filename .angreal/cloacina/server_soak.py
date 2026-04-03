@@ -102,6 +102,56 @@ def api_request(method, url, token=None, data=None, files=None):
         return e.code, body
 
 
+def create_python_source_package():
+    """Create a minimal fidius source package with a Python workflow."""
+    safe_name = "soak_server_python"
+    name = "soak-server-python"
+    version = "1.0.0"
+    prefix = f"{name}-{version}"
+
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{safe_name}"
+language = "python"
+description = "Server soak test Python workflow"
+author = "soak-test"
+entry_module = "{safe_name}.tasks"
+"""
+
+    init_py = ""
+
+    tasks_py = """from __future__ import annotations
+import cloaca
+
+@cloaca.task(id="py-server-task1", dependencies=[])
+def py_server_task1(context):
+    context.set("python_server_soak", True)
+    return context
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            (f"workflow/{safe_name}/__init__.py", init_py),
+            (f"workflow/{safe_name}/tasks.py", tasks_py),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
 def create_test_source_package():
     """Create a minimal fidius source package for testing."""
     safe_name = "soak_server_test"
@@ -323,6 +373,57 @@ def server_soak():
         if not workflow_ready:
             print("  WARNING: Package may not have compiled — executions may fail")
 
+        # Step 8b: Upload and load Python workflow package
+        print_section_header("Step 8b: Upload Python workflow package")
+        py_package_data = create_python_source_package()
+        status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
+                                   token=token, files=py_package_data)
+        print(f"  Python upload status: {status}")
+        if status == 201:
+            print("  Python upload successful ✓")
+        else:
+            print(f"  Python upload returned {status}: {json.dumps(body)[:200]}")
+
+        # Wait for Python package to load (no compilation needed — should be fast)
+        print("  Waiting for Python package to load (up to 30s)...")
+        py_workflow_ready = False
+        py_load_start = time.time()
+        for _ in range(15):
+            time.sleep(2)
+            assert server_proc.poll() is None, "Server crashed during Python package loading!"
+            stderr_file.flush()
+            stderr = stderr_path.read_text() if stderr_path.exists() else ""
+            if "Python package loaded" in stderr or "Python workflow imported" in stderr:
+                elapsed = int(time.time() - py_load_start)
+                print(f"  Python package loaded ({elapsed}s) ✓")
+                py_workflow_ready = True
+                break
+        if not py_workflow_ready:
+            print("  WARNING: Python package may not have loaded — Python executions may fail")
+
+        # Execute the Python workflow once to verify it works
+        if py_workflow_ready:
+            print("  Executing Python workflow...")
+            s, b = api_request(
+                "POST",
+                f"{base_url}/tenants/public/workflows/soak_server_python/execute",
+                token=token,
+                data={"context": {"test": "python_soak"}},
+            )
+            if s in (200, 202):
+                print(f"  Python execution accepted ✓ (status {s})")
+            else:
+                print(f"  Python execution returned {s}: {json.dumps(b)[:200]}")
+
+            # Wait a few seconds for execution to complete
+            time.sleep(5)
+            stderr_file.flush()
+            stderr = stderr_path.read_text() if stderr_path.exists() else ""
+            if "Pipeline completed" in stderr:
+                print("  Python pipeline completed ✓")
+            else:
+                print("  WARNING: Python pipeline may not have completed yet")
+
         # Step 9: Operational soak — execute workflows while querying API
         soak_duration = 60
         print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
@@ -332,6 +433,8 @@ def server_soak():
             "health_ok": 0,
             "executions_triggered": 0,
             "executions_accepted": 0,
+            "py_executions_triggered": 0,
+            "py_executions_accepted": 0,
             "list_queries": 0,
             "api_errors": 0,
             "connection_errors": 0,
@@ -354,7 +457,7 @@ def server_soak():
                 else:
                     stats["api_errors"] += 1
 
-                # Trigger a workflow execution every 3 iterations
+                # Trigger Rust workflow execution every 3 iterations
                 if iteration % 3 == 0 and workflow_ready:
                     stats["executions_triggered"] += 1
                     s, b = api_request(
@@ -365,6 +468,20 @@ def server_soak():
                     )
                     if s in (200, 202):
                         stats["executions_accepted"] += 1
+                    else:
+                        stats["api_errors"] += 1
+
+                # Trigger Python workflow execution every 5 iterations
+                if iteration % 5 == 0 and py_workflow_ready:
+                    stats["py_executions_triggered"] += 1
+                    s, b = api_request(
+                        "POST",
+                        f"{base_url}/tenants/public/workflows/soak_server_python/execute",
+                        token=token,
+                        data={"context": {"iteration": iteration, "lang": "python"}},
+                    )
+                    if s in (200, 202):
+                        stats["py_executions_accepted"] += 1
                     else:
                         stats["api_errors"] += 1
 
@@ -407,7 +524,8 @@ def server_soak():
                 last_report = elapsed
                 print(
                     f"  [{elapsed}s] health={stats['health_ok']} "
-                    f"exec={stats['executions_accepted']}/{stats['executions_triggered']} "
+                    f"rust={stats['executions_accepted']}/{stats['executions_triggered']} "
+                    f"python={stats['py_executions_accepted']}/{stats['py_executions_triggered']} "
                     f"queries={stats['list_queries']} "
                     f"errors={stats['api_errors']}"
                 )
@@ -422,8 +540,10 @@ def server_soak():
         print("\n  Soak complete:")
         print(f"    Iterations:           {iteration}")
         print(f"    Health checks OK:     {stats['health_ok']}")
-        print(f"    Executions triggered: {stats['executions_triggered']}")
-        print(f"    Executions accepted:  {stats['executions_accepted']}")
+        print(f"    Rust exec triggered:  {stats['executions_triggered']}")
+        print(f"    Rust exec accepted:   {stats['executions_accepted']}")
+        print(f"    Python exec triggered:{stats['py_executions_triggered']}")
+        print(f"    Python exec accepted: {stats['py_executions_accepted']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
         print(f"    Connection errors:    {stats['connection_errors']}")
@@ -432,8 +552,10 @@ def server_soak():
         assert stats["connection_errors"] == 0, "Server had connection errors!"
         assert stats["health_ok"] > 0, "No successful health checks!"
         if workflow_ready:
-            assert stats["executions_accepted"] > 0, "No executions accepted!"
+            assert stats["executions_accepted"] > 0, "No Rust executions accepted!"
             assert pipelines_completed > 0, "No pipelines completed in server logs!"
+        if py_workflow_ready:
+            assert stats["py_executions_accepted"] > 0, "No Python executions accepted!"
 
         # Step 10: Final health check
         print_section_header("Step 10: Final health check")
