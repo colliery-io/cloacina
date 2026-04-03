@@ -45,40 +45,29 @@ Key learnings from prior iterations (I-0045, I-0046):
 - Automated regression detection or trend analysis (future work)
 - Multi-tenant performance testing
 
-## Blocked By
+## Status — Mostly Complete
 
-- I-0049 (Server & Daemon — Deployment Infrastructure)
+Soak tests were built as part of I-0049 (server) and I-0061 (daemon):
 
-## Detailed Design
+### Done
+- **Daemon soak** (`angreal cloacina soak`) — drops real fidius source package, waits for compilation, verifies sustained cron execution over 120s, checks daemon health throughout. Logs to `target/soak-test/`.
+- **Server soak** (`angreal cloacina server-soak`) — starts Postgres + server, bootstraps auth, uploads workflow package, waits for reconciler compilation, then 60s sustained load: triggers workflow executions every 3 iterations while querying all API endpoints. Verified: 94 executions, 94 pipelines completed, 0 errors.
+- **Performance demos** — `angreal performance simple/parallel/pipeline` exist and work.
 
-### Soak Tests
-- `angreal soak --mode daemon` — Sustained load against daemon process with concurrent injectors
-- `angreal soak --mode server` — Sustained load against server process (containerized with postgres)
-- Configurable duration, injector count, and failure thresholds
-
-### Performance Benchmarks
-- Python-based (`tests/performance/scheduler_bench.py`)
-- Build real packages, spawn daemon/server, measure e2e latency
-- `angreal performance daemon` for daemon-mode bench
-- Server bench requires Docker compose (server + postgres containers)
-
-### Continuous Scheduling Bench
-- Deferred until I-0053 (Continuous Scheduling) ships packaged continuous tasks
-
-## Prior Art
-
-Reference implementation on `archive/cloacina-server-week1`:
-- Performance bench v1 (Rust, replaced): commits `5e11e57`, `7fd3184`
-- Performance bench v2 (Python): commit `3e7e2da`
-- Soak test infrastructure: within commit `5c4387a`
+### Remaining
+- **Chaos scenarios** — process crashes, network partitions, resource exhaustion. Not started.
+- **Continuous scheduling bench** — deferred until I-0053 ships.
+- **Multi-tenant performance** — not in scope yet.
+- **CI integration** — soak tests run locally, not in CI pipeline (too slow for PR checks).
 
 ## Alternatives Considered
 
-- **In-process Rust benchmarks (criterion)**: Rejected. Prior attempts (I-0045) showed library-level benchmarks do not capture real deployment overhead (process spawn, IPC, network, database).
-- **Separate CI repo for soak/perf jobs**: Rejected. Keeping workflows in the same repo ensures tests stay in sync with code.
+- **In-process Rust benchmarks (criterion)**: Rejected. Library-level benchmarks don't capture real deployment overhead.
+- **Separate CI repo for soak/perf jobs**: Rejected. Keeping in same repo ensures tests stay in sync.
 
 ## Implementation Plan
 
-1. **Soak tests** — Daemon soak first, server soak after Docker orchestration is ready
-2. **Performance bench** — Python-based daemon bench, then server bench with Docker compose
-3. **Continuous scheduling bench** — After I-0053 ships
+1. ~~Soak tests~~ ✓ Done (I-0049, I-0061)
+2. ~~Performance demos~~ ✓ Exist
+3. **Chaos scenarios** — Future work
+4. **Continuous scheduling bench** — After I-0053

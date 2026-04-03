@@ -4,15 +4,15 @@ level: task
 title: "Clean up stale SQLite databases in examples and test harnesses before/after runs"
 short_code: "CLOACI-T-0312"
 created_at: 2026-03-30T12:05:29.120078+00:00
-updated_at: 2026-03-30T12:05:29.120078+00:00
+updated_at: 2026-04-03T01:33:27.316529+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -24,6 +24,12 @@ initiative_id: NULL
 ## Objective
 
 Stale SQLite database files from previous runs cause misleading test failures and runtime errors. Examples and tutorials write `.db` files that persist between runs. When task namespaces change (e.g., from `public::embedded::` to `public::{pkg_name}::`), the old pipeline/task records in the DB reference namespaces that no longer exist, causing `Task not found` errors.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

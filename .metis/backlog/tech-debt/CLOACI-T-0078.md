@@ -4,19 +4,18 @@ level: task
 title: "Document TaskHandle/defer_until and Python workflow packaging features"
 short_code: "CLOACI-T-0078"
 created_at: 2026-01-29T19:06:24.383932+00:00
-updated_at: 2026-01-29T19:06:24.383932+00:00
+updated_at: 2026-04-03T01:33:25.850982+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-strategy_id: NULL
 initiative_id: NULL
 ---
 
@@ -25,6 +24,12 @@ initiative_id: NULL
 ## Objective
 
 Two features shipped with zero documentation. Create 6 new docs and update 4 existing ones.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
