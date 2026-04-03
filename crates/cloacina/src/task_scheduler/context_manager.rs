@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -237,5 +237,352 @@ impl<'a> ContextManager<'a> {
                 expected,
             )?),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context<serde_json::Value> {
+        let mut ctx = Context::new();
+        for (k, v) in pairs {
+            ctx.insert(k.to_string(), v).unwrap();
+        }
+        ctx
+    }
+
+    // ── Exists / NotExists ──────────────────────────────────────────
+
+    #[test]
+    fn exists_returns_true_when_key_present() {
+        let ctx = ctx_with(vec![("name", json!("alice"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "name",
+            &ValueOperator::Exists,
+            &json!(true),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn exists_returns_false_when_key_missing() {
+        let ctx = Context::new();
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "name",
+            &ValueOperator::Exists,
+            &json!(true),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn not_exists_returns_true_when_key_missing() {
+        let ctx = Context::new();
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "name",
+            &ValueOperator::NotExists,
+            &json!(true),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn not_exists_returns_false_when_key_present() {
+        let ctx = ctx_with(vec![("name", json!("alice"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "name",
+            &ValueOperator::NotExists,
+            &json!(true),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    // ── Equals / NotEquals ──────────────────────────────────────────
+
+    #[test]
+    fn equals_string_match() {
+        let ctx = ctx_with(vec![("status", json!("ready"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "status",
+            &ValueOperator::Equals,
+            &json!("ready"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn equals_string_mismatch() {
+        let ctx = ctx_with(vec![("status", json!("pending"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "status",
+            &ValueOperator::Equals,
+            &json!("ready"),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn equals_number_match() {
+        let ctx = ctx_with(vec![("count", json!(42))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "count",
+            &ValueOperator::Equals,
+            &json!(42),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn equals_boolean_match() {
+        let ctx = ctx_with(vec![("flag", json!(true))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "flag",
+            &ValueOperator::Equals,
+            &json!(true),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn equals_missing_key_returns_false() {
+        let ctx = Context::new();
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "missing",
+            &ValueOperator::Equals,
+            &json!("anything"),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn not_equals_different_values() {
+        let ctx = ctx_with(vec![("status", json!("error"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "status",
+            &ValueOperator::NotEquals,
+            &json!("ok"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn not_equals_same_values() {
+        let ctx = ctx_with(vec![("status", json!("ok"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "status",
+            &ValueOperator::NotEquals,
+            &json!("ok"),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    // ── GreaterThan / LessThan ──────────────────────────────────────
+
+    #[test]
+    fn greater_than_true() {
+        let ctx = ctx_with(vec![("score", json!(100))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "score",
+            &ValueOperator::GreaterThan,
+            &json!(50),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn greater_than_false_when_equal() {
+        let ctx = ctx_with(vec![("score", json!(50))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "score",
+            &ValueOperator::GreaterThan,
+            &json!(50),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn greater_than_non_number_returns_false() {
+        let ctx = ctx_with(vec![("name", json!("alice"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "name",
+            &ValueOperator::GreaterThan,
+            &json!(10),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn greater_than_missing_key_returns_false() {
+        let ctx = Context::new();
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "missing",
+            &ValueOperator::GreaterThan,
+            &json!(0),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn less_than_true() {
+        let ctx = ctx_with(vec![("score", json!(10))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "score",
+            &ValueOperator::LessThan,
+            &json!(50),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn less_than_float() {
+        let ctx = ctx_with(vec![("ratio", json!(0.5))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "ratio",
+            &ValueOperator::LessThan,
+            &json!(1.0),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    // ── Contains / NotContains ──────────────────────────────────────
+
+    #[test]
+    fn contains_string_substring() {
+        let ctx = ctx_with(vec![("message", json!("hello world"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "message",
+            &ValueOperator::Contains,
+            &json!("world"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn contains_string_not_found() {
+        let ctx = ctx_with(vec![("message", json!("hello"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "message",
+            &ValueOperator::Contains,
+            &json!("world"),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn contains_array_element() {
+        let ctx = ctx_with(vec![("tags", json!(["a", "b", "c"]))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "tags",
+            &ValueOperator::Contains,
+            &json!("b"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn contains_array_element_missing() {
+        let ctx = ctx_with(vec![("tags", json!(["a", "b"]))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "tags",
+            &ValueOperator::Contains,
+            &json!("z"),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn contains_non_string_non_array_returns_false() {
+        let ctx = ctx_with(vec![("count", json!(42))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "count",
+            &ValueOperator::Contains,
+            &json!(4),
+        )
+        .unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn not_contains_string() {
+        let ctx = ctx_with(vec![("message", json!("hello"))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "message",
+            &ValueOperator::NotContains,
+            &json!("world"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn not_contains_array() {
+        let ctx = ctx_with(vec![("tags", json!(["a", "b"]))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "tags",
+            &ValueOperator::NotContains,
+            &json!("z"),
+        )
+        .unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn not_contains_when_present() {
+        let ctx = ctx_with(vec![("tags", json!(["a", "b"]))]);
+        let result = ContextManager::evaluate_context_condition(
+            &ctx,
+            "tags",
+            &ValueOperator::NotContains,
+            &json!("a"),
+        )
+        .unwrap();
+        assert!(!result);
     }
 }

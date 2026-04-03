@@ -170,18 +170,31 @@ async fn test_task_executor_basic_execution() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for scheduler loop and dispatcher to process
-    time::sleep(Duration::from_millis(500)).await;
-
-    // Check that task was executed
+    // Poll until task completes (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "task should complete",
+        || {
+            let dal = dal.clone();
+            async move {
+                let tasks = dal
+                    .task_execution()
+                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .await
+                    .unwrap_or_default();
+                tasks.len() == 1 && tasks[0].status == "Completed"
+            }
+        },
+    )
+    .await;
+
     let task_executions = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
         .await
         .unwrap();
-
-    // Verify task execution
     assert_eq!(task_executions.len(), 1);
     let task = &task_executions[0];
     assert_eq!(task.status, "Completed");
@@ -277,11 +290,33 @@ async fn test_task_executor_dependency_loading() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for both tasks to execute
-    time::sleep(Duration::from_secs(2)).await;
+    // Poll until both tasks complete (replaces fixed sleep)
+    let dal = cloacina::dal::DAL::new(database.clone());
+    let consumer_namespace_for_poll = cloacina::TaskNamespace::new(
+        workflow.tenant(),
+        workflow.package(),
+        workflow.name(),
+        "consumer_task",
+    );
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "consumer task should complete",
+        || {
+            let dal = dal.clone();
+            let ns = consumer_namespace_for_poll.clone();
+            async move {
+                let meta = dal
+                    .task_execution_metadata()
+                    .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &ns)
+                    .await;
+                meta.is_ok()
+            }
+        },
+    )
+    .await;
 
     // Check that consumer task successfully loaded dependency data
-    let dal = cloacina::dal::DAL::new(database.clone());
     let consumer_namespace = cloacina::TaskNamespace::new(
         workflow.tenant(),
         workflow.package(),
@@ -389,10 +424,7 @@ async fn test_task_executor_timeout_handling() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for timeout to occur
-    time::sleep(Duration::from_secs(2)).await;
-
-    // Check that task failed due to timeout
+    // Poll until task fails due to timeout (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
     let full_task_name = format!(
         "{}::{}::{}::timeout_task_test",
@@ -400,6 +432,25 @@ async fn test_task_executor_timeout_handling() {
         workflow.package(),
         workflow.name()
     );
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "task should fail due to timeout",
+        || {
+            let dal = dal.clone();
+            let name = full_task_name.clone();
+            async move {
+                let status = dal
+                    .task_execution()
+                    .get_task_status(UniversalUuid(pipeline_id), &name)
+                    .await
+                    .unwrap_or_default();
+                status == "Failed"
+            }
+        },
+    )
+    .await;
+
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
@@ -479,10 +530,7 @@ async fn test_default_runner_execution() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for execution
-    time::sleep(Duration::from_secs(1)).await;
-
-    // Check that task was processed
+    // Poll until task is processed (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
     let task_namespace = cloacina::TaskNamespace::new(
         workflow.tenant(),
@@ -490,6 +538,24 @@ async fn test_default_runner_execution() {
         workflow.name(),
         "unified_task_test",
     );
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "unified task should be processed",
+        || {
+            let dal = dal.clone();
+            let ns = task_namespace.clone();
+            async move {
+                dal.task_execution_metadata()
+                    .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &ns)
+                    .await
+                    .is_ok()
+            }
+        },
+    )
+    .await;
+
+    // Check that task was processed
     let task_metadata = dal
         .task_execution_metadata()
         .get_by_pipeline_and_task(UniversalUuid(pipeline_id), &task_namespace)
@@ -623,10 +689,7 @@ async fn test_task_executor_context_loading_no_dependencies() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for execution
-    time::sleep(Duration::from_secs(1)).await;
-
-    // Verify the task successfully processed the initial context
+    // Poll until task completes (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
     let full_task_name = format!(
         "{}::{}::{}::initial_context_task_test",
@@ -634,6 +697,26 @@ async fn test_task_executor_context_loading_no_dependencies() {
         workflow.package(),
         workflow.name()
     );
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "initial_context_task should complete",
+        || {
+            let dal = dal.clone();
+            let name = full_task_name.clone();
+            async move {
+                let status = dal
+                    .task_execution()
+                    .get_task_status(UniversalUuid(pipeline_id), &name)
+                    .await
+                    .unwrap_or_default();
+                status == "Completed"
+            }
+        },
+    )
+    .await;
+
+    // Verify the task successfully processed the initial context
     let task_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), &full_task_name)
@@ -825,10 +908,7 @@ async fn test_task_executor_context_loading_with_dependencies() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Give time for both tasks to execute
-    time::sleep(Duration::from_secs(2)).await;
-
-    // Verify both tasks completed
+    // Poll until both tasks complete (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
     let producer_full_name = format!(
         "{}::{}::{}::producer_context_task",
@@ -842,6 +922,32 @@ async fn test_task_executor_context_loading_with_dependencies() {
         workflow.package(),
         workflow.name()
     );
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "both producer and consumer tasks should complete",
+        || {
+            let dal = dal.clone();
+            let producer_name = producer_full_name.clone();
+            let consumer_name = consumer_full_name.clone();
+            async move {
+                let p = dal
+                    .task_execution()
+                    .get_task_status(UniversalUuid(pipeline_id), &producer_name)
+                    .await
+                    .unwrap_or_default();
+                let c = dal
+                    .task_execution()
+                    .get_task_status(UniversalUuid(pipeline_id), &consumer_name)
+                    .await
+                    .unwrap_or_default();
+                p == "Completed" && c == "Completed"
+            }
+        },
+    )
+    .await;
+
+    // Verify both tasks completed
     let producer_status = dal
         .task_execution()
         .get_task_status(UniversalUuid(pipeline_id), &producer_full_name)

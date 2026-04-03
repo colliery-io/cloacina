@@ -328,3 +328,152 @@ pub fn resolve_database_url(cli_url: Option<&str>, config_path: &Path) -> Result
         )
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn config_defaults_are_sensible() {
+        let config = CloacinaConfig::default();
+        assert!(config.database_url.is_none());
+        assert_eq!(config.daemon.poll_interval_ms, 500);
+        assert_eq!(config.daemon.log_level, "info");
+        assert_eq!(config.daemon.shutdown_timeout_s, 30);
+        assert_eq!(config.daemon.watcher_debounce_ms, 500);
+        assert_eq!(config.daemon.trigger_poll_interval_ms, 1000);
+        assert!(config.daemon.cron_max_catchup.is_none());
+        assert_eq!(config.daemon.cron_recovery_interval_s, 300);
+        assert_eq!(config.daemon.cron_lost_threshold_min, 10);
+        assert!(config.watch.directories.is_empty());
+    }
+
+    #[test]
+    fn config_load_missing_file_returns_defaults() {
+        let config = CloacinaConfig::load(Path::new("/nonexistent/config.toml"));
+        assert!(config.database_url.is_none());
+        assert_eq!(config.daemon.poll_interval_ms, 500);
+    }
+
+    #[test]
+    fn config_load_valid_toml() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+database_url = "postgres://localhost/test"
+
+[daemon]
+poll_interval_ms = 1000
+shutdown_timeout_s = 60
+
+[watch]
+directories = ["/extra/dir1", "~/workflows"]
+"#,
+        )
+        .unwrap();
+
+        let config = CloacinaConfig::load(&path);
+        assert_eq!(
+            config.database_url.as_deref(),
+            Some("postgres://localhost/test")
+        );
+        assert_eq!(config.daemon.poll_interval_ms, 1000);
+        assert_eq!(config.daemon.shutdown_timeout_s, 60);
+        // Unspecified fields should still have defaults
+        assert_eq!(config.daemon.log_level, "info");
+        assert_eq!(config.watch.directories.len(), 2);
+    }
+
+    #[test]
+    fn config_load_invalid_toml_returns_defaults() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "this is { not valid toml !!!").unwrap();
+
+        let config = CloacinaConfig::load(&path);
+        // Should return defaults, not crash
+        assert!(config.database_url.is_none());
+        assert_eq!(config.daemon.poll_interval_ms, 500);
+    }
+
+    #[test]
+    fn config_load_partial_toml_fills_defaults() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "database_url = \"pg://localhost/db\"\n").unwrap();
+
+        let config = CloacinaConfig::load(&path);
+        assert_eq!(config.database_url.as_deref(), Some("pg://localhost/db"));
+        // All daemon fields should be defaults
+        assert_eq!(config.daemon.poll_interval_ms, 500);
+        assert_eq!(config.daemon.shutdown_timeout_s, 30);
+    }
+
+    #[test]
+    fn config_resolve_watch_dirs_expands_tilde() {
+        let mut config = CloacinaConfig::default();
+        config.watch.directories = vec!["~/workflows".to_string(), "/absolute/path".to_string()];
+
+        let dirs = config.resolve_watch_dirs();
+        assert_eq!(dirs.len(), 2);
+        // First dir should be expanded (not start with ~)
+        assert!(!dirs[0].to_str().unwrap().starts_with('~'));
+        assert!(dirs[0].to_str().unwrap().ends_with("workflows"));
+        // Second dir should be unchanged
+        assert_eq!(dirs[1], PathBuf::from("/absolute/path"));
+    }
+
+    #[test]
+    fn config_resolve_watch_dirs_empty() {
+        let config = CloacinaConfig::default();
+        assert!(config.resolve_watch_dirs().is_empty());
+    }
+
+    #[test]
+    fn config_save_and_reload_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let mut config = CloacinaConfig::default();
+        config.database_url = Some("postgres://test".to_string());
+        config.daemon.poll_interval_ms = 2000;
+        config.watch.directories = vec!["/dir1".to_string()];
+        config.save(&path).unwrap();
+
+        let reloaded = CloacinaConfig::load(&path);
+        assert_eq!(reloaded.database_url.as_deref(), Some("postgres://test"));
+        assert_eq!(reloaded.daemon.poll_interval_ms, 2000);
+        assert_eq!(reloaded.watch.directories, vec!["/dir1".to_string()]);
+    }
+
+    #[test]
+    fn config_get_dotted_key() {
+        let config = CloacinaConfig::default();
+        assert_eq!(
+            config.get("daemon.poll_interval_ms"),
+            Some("500".to_string())
+        );
+        assert_eq!(config.get("daemon.log_level"), Some("info".to_string()));
+        assert!(config.get("nonexistent.key").is_none());
+    }
+
+    #[test]
+    fn config_set_dotted_key() {
+        let mut config = CloacinaConfig::default();
+        config.set("daemon.poll_interval_ms", "2000").unwrap();
+        assert_eq!(config.daemon.poll_interval_ms, 2000);
+    }
+
+    #[test]
+    fn config_list_returns_all_keys() {
+        let config = CloacinaConfig::default();
+        let pairs = config.list();
+        assert!(!pairs.is_empty());
+        // Should contain daemon keys
+        assert!(pairs.iter().any(|(k, _)| k == "daemon.poll_interval_ms"));
+        assert!(pairs.iter().any(|(k, _)| k == "daemon.log_level"));
+    }
+}

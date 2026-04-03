@@ -106,7 +106,7 @@ impl StaleClaimSweeper {
     }
 
     /// Perform a single sweep pass.
-    async fn sweep(&self) {
+    pub async fn sweep(&self) {
         // Startup grace period: don't sweep until we've been running for
         // at least one full stale_threshold duration. This prevents false
         // positives when the scheduler restarts — tasks that were being
@@ -184,5 +184,35 @@ impl StaleClaimSweeper {
             "Stale claim sweep complete: {} claims released",
             stale_claims.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_defaults() {
+        let config = StaleClaimSweeperConfig::default();
+        assert_eq!(config.sweep_interval, Duration::from_secs(30));
+        assert_eq!(config.stale_threshold, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn config_custom_values() {
+        let config = StaleClaimSweeperConfig {
+            sweep_interval: Duration::from_secs(10),
+            stale_threshold: Duration::from_secs(120),
+        };
+        assert_eq!(config.sweep_interval, Duration::from_secs(10));
+        assert_eq!(config.stale_threshold, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn config_clone() {
+        let config = StaleClaimSweeperConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.sweep_interval, cloned.sweep_interval);
+        assert_eq!(config.stale_threshold, cloned.stale_threshold);
     }
 }

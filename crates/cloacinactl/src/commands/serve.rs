@@ -334,3 +334,830 @@ fn mask_db_url(url: &str) -> String {
     }
     url.to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use http_body_util::BodyExt;
+    use serial_test::serial;
+    use std::io::Write;
+    use tower::ServiceExt;
+
+    const TEST_DB_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+
+    /// Create a test AppState with a real Postgres connection.
+    async fn test_state() -> AppState {
+        let runner_config = cloacina::runner::DefaultRunnerConfig::builder()
+            .registry_storage_backend("database")
+            .build();
+
+        let runner = cloacina::runner::DefaultRunner::with_config(TEST_DB_URL, runner_config)
+            .await
+            .expect("Failed to connect to test database");
+
+        AppState {
+            database: runner.database().clone(),
+            runner: Arc::new(runner),
+            key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+        }
+    }
+
+    /// Create a bootstrap API key and return the plaintext token.
+    async fn create_test_api_key(state: &AppState) -> String {
+        let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        dal.api_keys()
+            .create_key(&hash, "test-key")
+            .await
+            .expect("Failed to create test API key");
+        plaintext
+    }
+
+    /// Send a request to the router and return (status, body as serde_json::Value).
+    async fn send_request(
+        app: Router,
+        request: axum::http::Request<Body>,
+    ) -> (StatusCode, serde_json::Value) {
+        let response = app.oneshot(request).await.expect("request failed");
+        let status = response.status();
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let body: serde_json::Value =
+            serde_json::from_slice(&body_bytes).unwrap_or(serde_json::json!({}));
+        (status, body)
+    }
+
+    // ── Health / Ready / Metrics ──────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_health_returns_200() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/health")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ok");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_ready_returns_200_with_db() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/ready")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ready");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_metrics_returns_200() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("failed to read body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+        assert!(text.contains("cloacina_up"));
+    }
+
+    // ── Auth middleware ───────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_auth_no_token_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body["error"].as_str().unwrap().contains("Authorization"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_auth_invalid_token_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .header("Authorization", "Bearer clk_totally_invalid_key_12345678")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body["error"].as_str().unwrap().contains("invalid"));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_auth_valid_token_passes() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_auth_malformed_header_returns_401() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        // "Basic" instead of "Bearer"
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .header("Authorization", "Basic abc123")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ── Key management ───────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_key_returns_201() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/keys")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name": "new-test-key"}"#))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(body["key"].as_str().unwrap().starts_with("clk_"));
+        assert_eq!(body["name"], "new-test-key");
+        assert!(body["id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_key_missing_name_returns_422() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/auth/keys")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{}"#))
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        // axum returns 422 for deserialization failures
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_keys_returns_list() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/auth/keys")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["keys"].as_array().is_some());
+        assert!(!body["keys"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_revoke_key_valid() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Create a second key to revoke
+        let (_, hash2) = cloacina::security::api_keys::generate_api_key();
+        let dal = cloacina::dal::DAL::new(state.database.clone());
+        let info2 = dal
+            .api_keys()
+            .create_key(&hash2, "to-revoke")
+            .await
+            .expect("create key");
+
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(&format!("/auth/keys/{}", info2.id))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "revoked");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_revoke_key_nonexistent_returns_404() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(&format!("/auth/keys/{}", fake_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_revoke_key_invalid_uuid_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri("/auth/keys/not-a-uuid")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // ── Tenants ──────────────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_returns_201() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let body_json = serde_json::json!({
+            "schema_name": schema,
+            "username": schema,
+            "password": "testpass123"
+        });
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(serde_json::to_string(&body_json).unwrap()))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+        assert_eq!(body["schema_name"], schema);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_tenants() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["tenants"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_remove_tenant_nonexistent_succeeds() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri("/tenants/nonexistent_schema_xyz")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        // DROP SCHEMA IF EXISTS is idempotent — succeeds even if schema doesn't exist
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "removed");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_then_delete_tenant() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let body_json = serde_json::json!({
+            "schema_name": schema,
+            "username": schema,
+            "password": "testpass123"
+        });
+
+        // Create
+        let app = build_router(state.clone());
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(serde_json::to_string(&body_json).unwrap()))
+            .unwrap();
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        // Delete
+        let app = build_router(state);
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(&format!("/tenants/{}", schema))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "removed");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_tenant_missing_fields_returns_422() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        // Missing required schema_name and username
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{}"#))
+            .unwrap();
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // ── Workflows ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_workflows_returns_list() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["workflows"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_workflow_nonexistent_returns_404() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/workflows/nonexistent_workflow")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_workflow_empty_file_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        // Build a multipart body with an empty file
+        let boundary = "----testboundary";
+        let multipart_body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.cloacina\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--{boundary}--\r\n"
+        );
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(multipart_body))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {:?}", body);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_workflow_no_file_field_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        // Multipart body with wrong field name
+        let boundary = "----testboundary";
+        let multipart_body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"data\"; filename=\"test.txt\"\r\nContent-Type: application/octet-stream\r\n\r\nsome data\r\n--{boundary}--\r\n"
+        );
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(multipart_body))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {:?}", body);
+    }
+
+    /// Path to test fixture directory (relative to workspace root).
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        std::path::PathBuf::from(manifest_dir)
+            .join("test-fixtures")
+            .join(name)
+    }
+
+    /// Build a multipart request body with a file field.
+    fn multipart_file_body(data: &[u8]) -> (String, Vec<u8>) {
+        let boundary = "----TestBoundary9876543210";
+        let mut body = Vec::new();
+        write!(
+            body,
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"pkg.cloacina\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+        )
+        .unwrap();
+        body.extend_from_slice(data);
+        write!(body, "\r\n--{boundary}--\r\n").unwrap();
+        (boundary.to_string(), body)
+    }
+
+    /// Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+    async fn delete_workflow_if_exists(state: &AppState, token: &str, name: &str, version: &str) {
+        let app = build_router(state.clone());
+        let req = axum::http::Request::builder()
+            .method("DELETE")
+            .uri(&format!("/tenants/default/workflows/{}/{}", name, version))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        // Ignore result — may 404 on first run
+        let _ = app.oneshot(req).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_valid_python_workflow_returns_201() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Clean up from any prior run
+        delete_workflow_if_exists(&state, &token, "test-fixture-python", "1.0.0").await;
+
+        let app = build_router(state);
+        let package_data = std::fs::read(fixture_path("python-workflow.cloacina"))
+            .expect("fixture file not found");
+        let (boundary, body_bytes) = multipart_file_body(&package_data);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body_bytes))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+        assert!(body["package_id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_valid_rust_workflow_returns_201() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+
+        // Clean up from any prior run
+        delete_workflow_if_exists(&state, &token, "test-fixture-rust", "1.0.0").await;
+
+        let app = build_router(state);
+        let package_data =
+            std::fs::read(fixture_path("rust-workflow.cloacina")).expect("fixture file not found");
+        let (boundary, body_bytes) = multipart_file_body(&package_data);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body_bytes))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::CREATED, "body: {:?}", body);
+        assert!(body["package_id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_upload_corrupt_package_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let (boundary, body_bytes) = multipart_file_body(b"this is not a valid bzip2 archive");
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows")
+            .header("Authorization", format!("Bearer {}", token))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body_bytes))
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {:?}", body);
+    }
+
+    // ── Executions ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_executions_returns_list() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/executions")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["executions"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_execution_invalid_uuid_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/executions/not-a-uuid")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_execution_nonexistent_returns_404() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = axum::http::Request::builder()
+            .uri(&format!("/tenants/default/executions/{}", fake_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_execution_events_invalid_uuid_returns_400() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/executions/not-a-uuid/events")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_execute_nonexistent_workflow_returns_error() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/tenants/default/workflows/nonexistent_wf/execute")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"context": {}}"#))
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_execution_events_valid_uuid_no_events() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        // Valid UUID format but no matching execution — should return
+        // an empty events list (the DAL returns Ok([]) for missing pipelines)
+        let fake_id = uuid::Uuid::new_v4();
+        let req = axum::http::Request::builder()
+            .uri(&format!("/tenants/default/executions/{}/events", fake_id))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["events"].as_array().is_some());
+        assert!(body["events"].as_array().unwrap().is_empty());
+    }
+
+    // ── Triggers ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_list_triggers_returns_list() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/triggers")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["schedules"].as_array().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_trigger_nonexistent_returns_404() {
+        let state = test_state().await;
+        let token = create_test_api_key(&state).await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/tenants/default/triggers/nonexistent_trigger")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, _) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    // ── Fallback / 404 ──────────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_unknown_route_returns_404() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let req = axum::http::Request::builder()
+            .uri("/nonexistent/route")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = send_request(app, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "not found");
+    }
+}

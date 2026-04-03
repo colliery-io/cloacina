@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -479,5 +479,53 @@ mod tests {
 
         let result: Result<CronEvaluator, _> = "invalid format".parse();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_executions_between_respects_max_limit() {
+        let evaluator = CronEvaluator::new("* * * * *", "UTC").unwrap(); // Every minute
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0).unwrap(); // 24 hours = 1440 minutes
+
+        let executions = evaluator.executions_between(start, end, 5).unwrap();
+        assert_eq!(executions.len(), 5, "Should cap at max_executions");
+    }
+
+    #[test]
+    fn test_executions_between_empty_range() {
+        let evaluator = CronEvaluator::new("0 12 * * *", "UTC").unwrap(); // Daily at noon
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 13, 0, 0).unwrap(); // 1 PM
+        let end = Utc.with_ymd_and_hms(2025, 1, 1, 14, 0, 0).unwrap(); // 2 PM
+
+        let executions = evaluator.executions_between(start, end, 10).unwrap();
+        assert!(
+            executions.is_empty(),
+            "No noon execution between 1PM and 2PM"
+        );
+    }
+
+    #[test]
+    fn test_executions_between_multiple_days() {
+        let evaluator = CronEvaluator::new("0 9 * * *", "UTC").unwrap(); // Daily at 9 AM
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2025, 1, 4, 0, 0, 0).unwrap(); // 3 days
+
+        let executions = evaluator.executions_between(start, end, 100).unwrap();
+        assert_eq!(executions.len(), 3, "Should find 3 daily executions");
+        assert_eq!(executions[0].day(), 1);
+        assert_eq!(executions[1].day(), 2);
+        assert_eq!(executions[2].day(), 3);
+    }
+
+    #[test]
+    fn test_executions_between_timezone_aware() {
+        // 9 AM Eastern = 2 PM UTC (EST, January)
+        let evaluator = CronEvaluator::new("0 9 * * *", "America/New_York").unwrap();
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = Utc.with_ymd_and_hms(2025, 1, 2, 0, 0, 0).unwrap();
+
+        let executions = evaluator.executions_between(start, end, 10).unwrap();
+        assert_eq!(executions.len(), 1);
+        assert_eq!(executions[0].hour(), 14, "9 AM EST = 2 PM UTC");
     }
 }

@@ -227,11 +227,27 @@ async fn test_defer_until_full_pipeline() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Wait for completion (defer_until polls every 10ms, needs 3 polls + overhead)
-    time::sleep(Duration::from_millis(1000)).await;
+    // Poll until task completes (replaces fixed sleep)
+    let dal = cloacina::dal::DAL::new(database.clone());
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "deferred task should complete",
+        || {
+            let dal = dal.clone();
+            async move {
+                let tasks = dal
+                    .task_execution()
+                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .await
+                    .unwrap_or_default();
+                tasks.len() == 1 && tasks[0].status == "Completed"
+            }
+        },
+    )
+    .await;
 
     // Verify task completed
-    let dal = cloacina::dal::DAL::new(database.clone());
     let task_executions = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
@@ -314,10 +330,26 @@ async fn test_defer_until_with_downstream_dependency() {
         .unwrap();
     let pipeline_id = execution.execution_id;
 
-    // Wait for both tasks to complete
-    time::sleep(Duration::from_millis(2000)).await;
-
+    // Poll until both tasks complete (replaces fixed sleep)
     let dal = cloacina::dal::DAL::new(database.clone());
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "both deferred and downstream tasks should complete",
+        || {
+            let dal = dal.clone();
+            async move {
+                let tasks = dal
+                    .task_execution()
+                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .await
+                    .unwrap_or_default();
+                tasks.len() == 2 && tasks.iter().all(|t| t.status == "Completed")
+            }
+        },
+    )
+    .await;
+
     let task_executions = dal
         .task_execution()
         .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
@@ -411,8 +443,24 @@ async fn test_sub_status_transitions_during_deferral() {
         "Should have observed sub_status='Deferred' during deferral"
     );
 
-    // Wait for completion
-    time::sleep(Duration::from_millis(2000)).await;
+    // Poll until task completes (replaces fixed sleep)
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "slow deferred task should complete",
+        || {
+            let dal = dal.clone();
+            async move {
+                let tasks = dal
+                    .task_execution()
+                    .get_all_tasks_for_pipeline(UniversalUuid(pipeline_id))
+                    .await
+                    .unwrap_or_default();
+                tasks.len() == 1 && tasks[0].status == "Completed"
+            }
+        },
+    )
+    .await;
 
     let tasks = dal
         .task_execution()

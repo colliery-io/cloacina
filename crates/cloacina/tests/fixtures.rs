@@ -451,6 +451,44 @@ impl TestFixture {
     }
 }
 
+/// Poll a condition until it returns true, or timeout.
+///
+/// Replaces fixed `sleep()` calls in tests — polls every `interval` until
+/// `condition` returns `true` or `timeout` elapses. Panics with `msg` on timeout.
+///
+/// # Example
+/// ```ignore
+/// poll_until(
+///     Duration::from_secs(5),
+///     Duration::from_millis(100),
+///     "task should complete",
+///     || async {
+///         let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+///         task.status == "Completed"
+///     },
+/// ).await;
+/// ```
+pub async fn poll_until<F, Fut>(
+    timeout: std::time::Duration,
+    interval: std::time::Duration,
+    msg: &str,
+    condition: F,
+) where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if condition().await {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("poll_until timed out after {:?}: {}", timeout, msg);
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
 impl Drop for TestFixture {
     fn drop(&mut self) {
         // No need to reset the database here - tests should manage their own cleanup

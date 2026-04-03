@@ -21,6 +21,7 @@ pub mod context;
 pub mod dal;
 pub mod database;
 pub mod error;
+pub mod error_paths;
 pub mod executor;
 pub mod fidius_validation;
 pub mod logging;

@@ -391,20 +391,38 @@ mod tests {
         assert!(!config.recover_disabled_schedules);
     }
 
-    #[tokio::test]
-    async fn test_recovery_attempts_tracking() {
-        let (_tx, _rx) = watch::channel(false);
-        // This would need proper mocking of DAL and executor for full testing
-        // Just testing the basic structure here
-
+    #[test]
+    fn test_recovery_config_custom() {
         let config = CronRecoveryConfig {
-            check_interval: Duration::from_secs(1),
+            check_interval: Duration::from_secs(60),
             lost_threshold_minutes: 5,
             max_recovery_age: Duration::from_secs(3600),
-            max_recovery_attempts: 3,
-            recover_disabled_schedules: false,
+            max_recovery_attempts: 5,
+            recover_disabled_schedules: true,
         };
 
-        assert_eq!(config.max_recovery_attempts, 3);
+        assert_eq!(config.check_interval, Duration::from_secs(60));
+        assert_eq!(config.lost_threshold_minutes, 5);
+        assert_eq!(config.max_recovery_age, Duration::from_secs(3600));
+        assert_eq!(config.max_recovery_attempts, 5);
+        assert!(config.recover_disabled_schedules);
+    }
+
+    #[test]
+    fn test_recovery_config_clone() {
+        let config = CronRecoveryConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.check_interval, cloned.check_interval);
+        assert_eq!(config.lost_threshold_minutes, cloned.lost_threshold_minutes);
+        assert_eq!(config.max_recovery_attempts, cloned.max_recovery_attempts);
+    }
+
+    #[test]
+    fn test_recovery_config_default_recovery_window() {
+        let config = CronRecoveryConfig::default();
+        // Default max_recovery_age is 24 hours
+        assert_eq!(config.max_recovery_age.as_secs(), 86400);
+        // Default check interval is 5 minutes
+        assert_eq!(config.check_interval.as_secs(), 300);
     }
 }

@@ -254,3 +254,105 @@ fn manifest_validates_python_function_path_format() {
         "Expected InvalidFunctionPath error, got: {err:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Tests — Python e2e: pack → extract → load → register → execute
+// ---------------------------------------------------------------------------
+
+/// Create a Python workflow source dir with a task that sets a context key.
+fn create_python_e2e_source_dir(dir: &std::path::Path, name: &str) {
+    let safe_name = name.replace('-', "_");
+    let package_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "1.0.0"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+workflow_name = "{safe_name}"
+language = "python"
+description = "E2E test Python workflow"
+entry_module = "{safe_name}.tasks"
+"#
+    );
+    std::fs::write(dir.join("package.toml"), package_toml).unwrap();
+
+    let workflow_dir = dir.join("workflow").join(&safe_name);
+    std::fs::create_dir_all(&workflow_dir).unwrap();
+    std::fs::write(workflow_dir.join("__init__.py"), "").unwrap();
+    std::fs::write(
+        workflow_dir.join("tasks.py"),
+        format!(
+            r#"from __future__ import annotations
+import cloaca
+
+@cloaca.task(id="e2e-task", dependencies=[])
+def e2e_task(context):
+    context.set("e2e_result", "success")
+    context.set("package_name", "{name}")
+    return context
+"#
+        ),
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(dir.join("vendor")).unwrap();
+}
+
+#[test]
+fn python_e2e_pack_extract_load_register() {
+    // 1. Create source dir and pack to archive
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("e2e-python-pkg");
+    std::fs::create_dir_all(&src).unwrap();
+    create_python_e2e_source_dir(&src, "e2e-python-pkg");
+    let archive = pack_to_bytes(&src, tmp.path());
+
+    // 2. Extract the archive
+    let staging = TempDir::new().unwrap();
+    let extracted = extract_python_package(&archive, staging.path()).unwrap();
+
+    assert_eq!(extracted.package_name, "e2e-python-pkg");
+    assert_eq!(extracted.workflow_name, "e2e_python_pkg");
+    assert_eq!(extracted.entry_module, "e2e_python_pkg.tasks");
+    assert!(extracted.workflow_dir.exists());
+    assert!(extracted
+        .workflow_dir
+        .join("e2e_python_pkg/tasks.py")
+        .exists());
+
+    // 3. Load and register the Python workflow
+    pyo3::prepare_freethreaded_python();
+
+    let task_namespaces = cloacina::python::import_and_register_python_workflow(
+        &extracted.workflow_dir,
+        &extracted.vendor_dir,
+        &extracted.entry_module,
+        &extracted.package_name,
+        "public",
+    )
+    .expect("Failed to import and register Python workflow");
+
+    // 4. Verify tasks were registered
+    assert!(
+        !task_namespaces.is_empty(),
+        "Should register at least one task"
+    );
+
+    let e2e_ns = task_namespaces
+        .iter()
+        .find(|ns| ns.to_string().contains("e2e-task"))
+        .expect("Should have registered e2e-task");
+
+    // 5. Verify the task is in the global registry
+    let registry = cloacina::task::global_task_registry();
+    let guard = registry.read();
+    let constructor = guard
+        .get(e2e_ns)
+        .expect("Task should be in global registry");
+    let task_instance = constructor();
+    assert_eq!(task_instance.id(), "e2e-task");
+    assert!(task_instance.dependencies().is_empty());
+}

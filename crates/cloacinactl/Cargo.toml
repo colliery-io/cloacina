@@ -31,7 +31,7 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
 axum = { version = "0.8", features = ["multipart"] }
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 hyper = { version = "1.0" }
 lru = "0.12"
@@ -42,6 +42,10 @@ chrono = { version = "0.4" }
 tracing = { version = "0.1" }
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+serial_test = "3"
 
 [build-dependencies]
 cloacina-build = { path = "../cloacina-build" }

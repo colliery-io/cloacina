@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -213,4 +213,205 @@ pub enum ValueOperator {
     Exists,
     /// Key does not exist in context.
     NotExists,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── TriggerRule serialization ────────────────────────────────────
+
+    #[test]
+    fn trigger_rule_always_roundtrip() {
+        let rule = TriggerRule::Always;
+        let json = serde_json::to_string(&rule).unwrap();
+        let deserialized: TriggerRule = serde_json::from_str(&json).unwrap();
+        assert!(matches!(deserialized, TriggerRule::Always));
+    }
+
+    #[test]
+    fn trigger_rule_all_roundtrip() {
+        let rule = TriggerRule::All {
+            conditions: vec![
+                TriggerCondition::TaskSuccess {
+                    task_name: "task1".to_string(),
+                },
+                TriggerCondition::ContextValue {
+                    key: "status".to_string(),
+                    operator: ValueOperator::Equals,
+                    value: json!("ready"),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&rule).unwrap();
+        let deserialized: TriggerRule = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerRule::All { conditions } => assert_eq!(conditions.len(), 2),
+            _ => panic!("Expected TriggerRule::All"),
+        }
+    }
+
+    #[test]
+    fn trigger_rule_any_roundtrip() {
+        let rule = TriggerRule::Any {
+            conditions: vec![TriggerCondition::TaskFailed {
+                task_name: "task2".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&rule).unwrap();
+        let deserialized: TriggerRule = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerRule::Any { conditions } => assert_eq!(conditions.len(), 1),
+            _ => panic!("Expected TriggerRule::Any"),
+        }
+    }
+
+    #[test]
+    fn trigger_rule_none_roundtrip() {
+        let rule = TriggerRule::None {
+            conditions: vec![TriggerCondition::TaskSkipped {
+                task_name: "task3".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&rule).unwrap();
+        let deserialized: TriggerRule = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerRule::None { conditions } => assert_eq!(conditions.len(), 1),
+            _ => panic!("Expected TriggerRule::None"),
+        }
+    }
+
+    #[test]
+    fn trigger_rule_all_empty_conditions() {
+        let rule = TriggerRule::All { conditions: vec![] };
+        let json = serde_json::to_string(&rule).unwrap();
+        let deserialized: TriggerRule = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerRule::All { conditions } => assert!(conditions.is_empty()),
+            _ => panic!("Expected TriggerRule::All"),
+        }
+    }
+
+    // ── TriggerCondition serialization ───────────────────────────────
+
+    #[test]
+    fn condition_task_success_roundtrip() {
+        let cond = TriggerCondition::TaskSuccess {
+            task_name: "my_task".to_string(),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        assert!(json.contains("TaskSuccess"));
+        let deserialized: TriggerCondition = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerCondition::TaskSuccess { task_name } => assert_eq!(task_name, "my_task"),
+            _ => panic!("Expected TaskSuccess"),
+        }
+    }
+
+    #[test]
+    fn condition_task_failed_roundtrip() {
+        let cond = TriggerCondition::TaskFailed {
+            task_name: "fail_task".to_string(),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        let deserialized: TriggerCondition = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerCondition::TaskFailed { task_name } => assert_eq!(task_name, "fail_task"),
+            _ => panic!("Expected TaskFailed"),
+        }
+    }
+
+    #[test]
+    fn condition_task_skipped_roundtrip() {
+        let cond = TriggerCondition::TaskSkipped {
+            task_name: "skip_task".to_string(),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        let deserialized: TriggerCondition = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerCondition::TaskSkipped { task_name } => assert_eq!(task_name, "skip_task"),
+            _ => panic!("Expected TaskSkipped"),
+        }
+    }
+
+    #[test]
+    fn condition_context_value_roundtrip() {
+        let cond = TriggerCondition::ContextValue {
+            key: "count".to_string(),
+            operator: ValueOperator::GreaterThan,
+            value: json!(10),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        let deserialized: TriggerCondition = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            TriggerCondition::ContextValue {
+                key,
+                operator,
+                value,
+            } => {
+                assert_eq!(key, "count");
+                assert!(matches!(operator, ValueOperator::GreaterThan));
+                assert_eq!(value, json!(10));
+            }
+            _ => panic!("Expected ContextValue"),
+        }
+    }
+
+    // ── ValueOperator serialization ─────────────────────────────────
+
+    #[test]
+    fn all_value_operators_roundtrip() {
+        let operators = vec![
+            ValueOperator::Equals,
+            ValueOperator::NotEquals,
+            ValueOperator::GreaterThan,
+            ValueOperator::LessThan,
+            ValueOperator::Contains,
+            ValueOperator::NotContains,
+            ValueOperator::Exists,
+            ValueOperator::NotExists,
+        ];
+        for op in operators {
+            let json = serde_json::to_string(&op).unwrap();
+            let deserialized: ValueOperator = serde_json::from_str(&json).unwrap();
+            // Verify the format string matches (Debug impl)
+            assert_eq!(format!("{:?}", op), format!("{:?}", deserialized));
+        }
+    }
+
+    // ── Deserialization from JSON literals ───────────────────────────
+
+    #[test]
+    fn trigger_rule_from_json_literal() {
+        let json = r#"{"type":"Always"}"#;
+        let rule: TriggerRule = serde_json::from_str(json).unwrap();
+        assert!(matches!(rule, TriggerRule::Always));
+    }
+
+    #[test]
+    fn trigger_rule_all_from_json_literal() {
+        let json = r#"{
+            "type": "All",
+            "conditions": [
+                {"type": "TaskSuccess", "task_name": "extract"},
+                {"type": "ContextValue", "key": "ready", "operator": "Equals", "value": true}
+            ]
+        }"#;
+        let rule: TriggerRule = serde_json::from_str(json).unwrap();
+        match rule {
+            TriggerRule::All { conditions } => {
+                assert_eq!(conditions.len(), 2);
+                assert!(matches!(
+                    &conditions[0],
+                    TriggerCondition::TaskSuccess { .. }
+                ));
+                assert!(matches!(
+                    &conditions[1],
+                    TriggerCondition::ContextValue { .. }
+                ));
+            }
+            _ => panic!("Expected All"),
+        }
+    }
 }

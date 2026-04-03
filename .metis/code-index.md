@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-03T01:34:03Z | 381 files | JavaScript, Python, Rust
+> Generated: 2026-04-03T11:50:18Z | 383 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -211,6 +211,7 @@
 │   │           │   ├── migrations.rs
 │   │           │   └── mod.rs
 │   │           ├── error.rs
+│   │           ├── error_paths.rs
 │   │           ├── executor/
 │   │           │   ├── context_merging.rs
 │   │           │   ├── defer_until.rs
@@ -237,6 +238,7 @@
 │   │           │   ├── dependency_resolution.rs
 │   │           │   ├── mod.rs
 │   │           │   ├── recovery.rs
+│   │           │   ├── stale_claims.rs
 │   │           │   └── trigger_rules.rs
 │   │           ├── signing/
 │   │           │   ├── key_rotation.rs
@@ -547,7 +549,7 @@
 -  `CronEvaluator` type L352-378 — `impl FromStr for CronEvaluator` — ```
 -  `Err` type L353 — `= CronError` — ```
 -  `from_str` function L368-377 — `(s: &str) -> Result<Self, Self::Err>` — Creates a CronEvaluator from a string in the format "expression@timezone"
--  `tests` module L381-483 — `-` — ```
+-  `tests` module L381-528 — `-` — ```
 -  `test_cron_evaluator_creation` function L386-390 — `()` — ```
 -  `test_invalid_cron_expression` function L393-400 — `()` — ```
 -  `test_invalid_timezone` function L403-407 — `()` — ```
@@ -557,6 +559,10 @@
 -  `test_executions_between` function L447-459 — `()` — ```
 -  `test_validation_functions` function L462-472 — `()` — ```
 -  `test_from_str` function L475-482 — `()` — ```
+-  `test_executions_between_respects_max_limit` function L485-492 — `()` — ```
+-  `test_executions_between_empty_range` function L495-502 — `()` — ```
+-  `test_executions_between_multiple_days` function L505-515 — `()` — ```
+-  `test_executions_between_timezone_aware` function L518-527 — `()` — ```
 
 #### crates/cloacina/src/cron_recovery.rs
 
@@ -572,9 +578,11 @@
 -  `CronRecoveryService` type L96-377 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
 -  `check_and_recover_lost_executions` function L163-195 — `(&self) -> Result<(), PipelineError>` — Checks for lost executions and attempts to recover them.
 -  `recover_execution` function L198-357 — `(&self, execution: &ScheduleExecution) -> Result<(), PipelineError>` — Attempts to recover a single lost execution.
--  `tests` module L380-410 — `-` — - The execution is too old (beyond recovery window)
+-  `tests` module L380-428 — `-` — - The execution is too old (beyond recovery window)
 -  `test_recovery_config_default` function L385-392 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_attempts_tracking` function L395-409 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_custom` function L395-409 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_clone` function L412-418 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default_recovery_window` function L421-427 — `()` — - The execution is too old (beyond recovery window)
 
 #### crates/cloacina/src/error.rs
 
@@ -2422,7 +2430,8 @@
 - pub `PythonLoaderError` enum L69-81 — `ImportError | ValidationError | RegistrationError | RuntimeError` — Error type for Python package loading operations.
 - pub `ensure_cloaca_module` function L94-133 — `(py: Python) -> PyResult<()>` — Ensure the `cloaca` Python module is available in the embedded interpreter.
 - pub `validate_no_stdlib_shadowing` function L158-182 — `( workflow_dir: &Path, vendor_dir: &Path, ) -> Result<(), PythonLoaderError>` — Import a Python workflow module and register its tasks.
-- pub `import_and_register_python_workflow` function L184-335 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+- pub `import_and_register_python_workflow` function L184-200 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
+- pub `import_and_register_python_workflow_named` function L202-355 — `( workflow_dir: &Path, vendor_dir: &Path, entry_module: &str, package_name: &str...` — cloacina task execution engine.
 -  `IMPORT_TIMEOUT_SECS` variable L35 — `: u64` — Default timeout for Python module import (seconds).
 -  `STDLIB_DENY_LIST` variable L39-65 — `: &[&str]` — Python stdlib module names that must never appear in extracted packages.
 -  `PythonLoaderError` type L83-87 — `= PythonLoaderError` — cloacina task execution engine.
@@ -2842,17 +2851,17 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-598 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-167 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L170-207 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L210-251 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L254-395 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L398-446 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L449-496 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L499-522 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L525-536 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L544-586 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L589-597 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `RegistryReconciler` type L27-673 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-242 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L245-282 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L285-326 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L329-470 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L473-521 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L524-571 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L574-597 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L600-611 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L619-661 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L664-672 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -3368,6 +3377,33 @@
 - pub `load_context_for_task` function L43-144 — `( &self, task_execution: &TaskExecution, ) -> Result<Context<serde_json::Value>,...` — Loads the context for a specific task based on its dependencies.
 - pub `evaluate_context_condition` function L201-240 — `( context: &Context<serde_json::Value>, key: &str, operator: &ValueOperator, exp...` — Evaluates a context-based condition using the provided operator.
 -  `merge_dependency_contexts` function L147-198 — `( &self, task_execution: &TaskExecution, dependencies: &[crate::task::TaskNamesp...` — Merges contexts from multiple dependencies.
+-  `tests` module L244-580 — `-` — their dependencies.
+-  `ctx_with` function L248-254 — `(pairs: Vec<(&str, serde_json::Value)>) -> Context<serde_json::Value>` — their dependencies.
+-  `exists_returns_true_when_key_present` function L259-265 — `()` — their dependencies.
+-  `exists_returns_false_when_key_missing` function L268-274 — `()` — their dependencies.
+-  `not_exists_returns_true_when_key_missing` function L277-287 — `()` — their dependencies.
+-  `not_exists_returns_false_when_key_present` function L290-300 — `()` — their dependencies.
+-  `equals_string_match` function L305-315 — `()` — their dependencies.
+-  `equals_string_mismatch` function L318-328 — `()` — their dependencies.
+-  `equals_number_match` function L331-341 — `()` — their dependencies.
+-  `equals_boolean_match` function L344-354 — `()` — their dependencies.
+-  `equals_missing_key_returns_false` function L357-367 — `()` — their dependencies.
+-  `not_equals_different_values` function L370-380 — `()` — their dependencies.
+-  `not_equals_same_values` function L383-393 — `()` — their dependencies.
+-  `greater_than_true` function L398-408 — `()` — their dependencies.
+-  `greater_than_false_when_equal` function L411-421 — `()` — their dependencies.
+-  `greater_than_non_number_returns_false` function L424-434 — `()` — their dependencies.
+-  `greater_than_missing_key_returns_false` function L437-447 — `()` — their dependencies.
+-  `less_than_true` function L450-460 — `()` — their dependencies.
+-  `less_than_float` function L463-473 — `()` — their dependencies.
+-  `contains_string_substring` function L478-488 — `()` — their dependencies.
+-  `contains_string_not_found` function L491-501 — `()` — their dependencies.
+-  `contains_array_element` function L504-514 — `()` — their dependencies.
+-  `contains_array_element_missing` function L517-527 — `()` — their dependencies.
+-  `contains_non_string_non_array_returns_false` function L530-540 — `()` — their dependencies.
+-  `not_contains_string` function L543-553 — `()` — their dependencies.
+-  `not_contains_array` function L556-566 — `()` — their dependencies.
+-  `not_contains_when_present` function L569-579 — `()` — their dependencies.
 
 #### crates/cloacina/src/task_scheduler/mod.rs
 
@@ -3423,10 +3459,14 @@
 - pub `StaleClaimSweeper` struct L58-64 — `{ dal: Arc<DAL>, config: StaleClaimSweeperConfig, shutdown_rx: watch::Receiver<b...` — Background service that sweeps for stale task claims.
 - pub `new` function L68-79 — `( dal: Arc<DAL>, config: StaleClaimSweeperConfig, shutdown_rx: watch::Receiver<b...` — Create a new stale claim sweeper.
 - pub `run` function L82-106 — `(&mut self)` — Run the sweep loop.
+- pub `sweep` function L109-187 — `(&self)` — Perform a single sweep pass.
 -  `StaleClaimSweeperConfig` type L48-55 — `impl Default for StaleClaimSweeperConfig` — because the sweeper wasn't running to observe their heartbeats.
 -  `default` function L49-54 — `() -> Self` — because the sweeper wasn't running to observe their heartbeats.
 -  `StaleClaimSweeper` type L66-188 — `= StaleClaimSweeper` — because the sweeper wasn't running to observe their heartbeats.
--  `sweep` function L109-187 — `(&self)` — Perform a single sweep pass.
+-  `tests` module L191-218 — `-` — because the sweeper wasn't running to observe their heartbeats.
+-  `config_defaults` function L195-199 — `()` — because the sweeper wasn't running to observe their heartbeats.
+-  `config_custom_values` function L202-209 — `()` — because the sweeper wasn't running to observe their heartbeats.
+-  `config_clone` function L212-217 — `()` — because the sweeper wasn't running to observe their heartbeats.
 
 #### crates/cloacina/src/task_scheduler/state_manager.rs
 
@@ -3442,6 +3482,19 @@
 - pub `TriggerRule` enum L86-95 — `Always | All | Any | None` — Trigger rule definitions for conditional task execution.
 - pub `TriggerCondition` enum L143-156 — `TaskSuccess | TaskFailed | TaskSkipped | ContextValue` — Individual conditions that can be evaluated for trigger rules.
 - pub `ValueOperator` enum L199-216 — `Equals | NotEquals | GreaterThan | LessThan | Contains | NotContains | Exists | ...` — Operators for evaluating context values in trigger conditions.
+-  `tests` module L219-413 — `-` — when tasks should be executed based on various conditions.
+-  `trigger_rule_always_roundtrip` function L226-231 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_all_roundtrip` function L234-253 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_any_roundtrip` function L256-268 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_none_roundtrip` function L271-283 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_all_empty_conditions` function L286-296 — `()` — when tasks should be executed based on various conditions.
+-  `condition_task_success_roundtrip` function L301-312 — `()` — when tasks should be executed based on various conditions.
+-  `condition_task_failed_roundtrip` function L315-325 — `()` — when tasks should be executed based on various conditions.
+-  `condition_task_skipped_roundtrip` function L328-338 — `()` — when tasks should be executed based on various conditions.
+-  `condition_context_value_roundtrip` function L341-361 — `()` — when tasks should be executed based on various conditions.
+-  `all_value_operators_roundtrip` function L366-383 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_from_json_literal` function L388-392 — `()` — when tasks should be executed based on various conditions.
+-  `trigger_rule_all_from_json_literal` function L395-412 — `()` — when tasks should be executed based on various conditions.
 
 ### crates/cloacina/src/trigger
 
@@ -3656,7 +3709,8 @@
 - pub `create_filesystem_storage` function L325-330 — `(&self) -> cloacina::dal::FilesystemRegistryStorage` — Create a filesystem storage backend for testing
 - pub `initialize` function L333-362 — `(&mut self)` — Initialize the fixture with additional setup
 - pub `reset_database` function L365-451 — `(&mut self)` — Reset the database by truncating all tables in the test schema
-- pub `fixtures` module L468-534 — `-` — for integration tests.
+- pub `poll_until` function L471-486 — `(timeout: std::time::Duration, interval: std::time::Duration, msg: &str, conditi...` — Poll a condition until it returns true, or timeout.
+- pub `fixtures` module L502-568 — `-` — for integration tests.
 -  `INIT` variable L41 — `: Once` — for integration tests.
 -  `POSTGRES_FIXTURE` variable L43 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
 -  `SQLITE_FIXTURE` variable L45 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
@@ -3667,11 +3721,11 @@
 -  `TestFixture` type L227-452 — `= TestFixture` — for integration tests.
 -  `TableName` struct L383-386 — `{ tablename: String }` — for integration tests.
 -  `TableName` struct L427-430 — `{ name: String }` — for integration tests.
--  `TestFixture` type L454-459 — `impl Drop for TestFixture` — for integration tests.
--  `drop` function L455-458 — `(&mut self)` — for integration tests.
--  `TableCount` struct L462-465 — `{ count: i64 }` — for integration tests.
--  `test_migration_function_postgres` function L475-502 — `()` — for integration tests.
--  `test_migration_function_sqlite` function L507-533 — `()` — for integration tests.
+-  `TestFixture` type L488-493 — `impl Drop for TestFixture` — for integration tests.
+-  `drop` function L489-492 — `(&mut self)` — for integration tests.
+-  `TableCount` struct L496-499 — `{ count: i64 }` — for integration tests.
+-  `test_migration_function_postgres` function L509-536 — `()` — for integration tests.
+-  `test_migration_function_sqlite` function L541-567 — `()` — for integration tests.
 
 ### crates/cloacina/tests/integration
 
@@ -3693,6 +3747,33 @@
 -  `test_subgraph_error_display` function L106-118 — `()`
 -  `test_error_source_chains` function L121-132 — `()`
 -  `test_error_debug_formatting` function L135-146 — `()`
+
+#### crates/cloacina/tests/integration/error_paths.rs
+
+-  `MockTask` struct L29-32 — `{ id: String, deps: Vec<TaskNamespace> }` — Tests that invalid inputs produce the correct errors (not panics).
+-  `MockTask` type L35-50 — `impl Task for MockTask` — Tests that invalid inputs produce the correct errors (not panics).
+-  `execute` function L36-41 — `( &self, context: Context<serde_json::Value>, ) -> Result<Context<serde_json::Va...` — Tests that invalid inputs produce the correct errors (not panics).
+-  `id` function L43-45 — `(&self) -> &str` — Tests that invalid inputs produce the correct errors (not panics).
+-  `dependencies` function L47-49 — `(&self) -> &[TaskNamespace]` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_empty_workflow_returns_error` function L55-60 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_duplicate_task_returns_error` function L63-85 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_missing_dependency_returns_error` function L88-109 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cyclic_dependency_returns_error` function L112-136 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_invalid_trigger_rule_json` function L141-144 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_trigger_rule_type` function L147-150 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_trigger_rule_all_missing_conditions` function L153-156 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_trigger_rule_conditions_wrong_type` function L159-163 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_condition_type` function L166-170 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_value_condition_missing_fields` function L173-177 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_value_operator` function L180-183 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_duplicate_insert_returns_error` function L188-194 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_update_missing_key_returns_error` function L197-201 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_get_missing_key_returns_none` function L204-207 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_invalid_expression_error` function L212-216 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_invalid_timezone_error` function L219-223 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_empty_expression_error` function L226-230 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_manifest_parse_duration_invalid` function L235-241 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_manifest_parse_duration_valid` function L244-262 — `()` — Tests that invalid inputs produce the correct errors (not panics).
 
 #### crates/cloacina/tests/integration/fidius_validation.rs
 
@@ -3717,24 +3798,25 @@
 - pub `dal` module L21 — `-`
 - pub `database` module L22 — `-`
 - pub `error` module L23 — `-`
-- pub `executor` module L24 — `-`
-- pub `fidius_validation` module L25 — `-`
-- pub `logging` module L26 — `-`
-- pub `models` module L27 — `-`
-- pub `packaging` module L28 — `-`
-- pub `packaging_inspection` module L29 — `-`
-- pub `python_package` module L30 — `-`
-- pub `registry_simple_functional_test` module L31 — `-`
-- pub `registry_storage_tests` module L32 — `-`
-- pub `registry_workflow_registry_tests` module L33 — `-`
-- pub `runner_configurable_registry_tests` module L34 — `-`
-- pub `scheduler` module L35 — `-`
-- pub `signing` module L36 — `-`
-- pub `task` module L37 — `-`
-- pub `trigger_packaging` module L38 — `-`
-- pub `unified_workflow` module L39 — `-`
-- pub `workflow` module L40 — `-`
--  `fixtures` module L43 — `-`
+- pub `error_paths` module L24 — `-`
+- pub `executor` module L25 — `-`
+- pub `fidius_validation` module L26 — `-`
+- pub `logging` module L27 — `-`
+- pub `models` module L28 — `-`
+- pub `packaging` module L29 — `-`
+- pub `packaging_inspection` module L30 — `-`
+- pub `python_package` module L31 — `-`
+- pub `registry_simple_functional_test` module L32 — `-`
+- pub `registry_storage_tests` module L33 — `-`
+- pub `registry_workflow_registry_tests` module L34 — `-`
+- pub `runner_configurable_registry_tests` module L35 — `-`
+- pub `scheduler` module L36 — `-`
+- pub `signing` module L37 — `-`
+- pub `task` module L38 — `-`
+- pub `trigger_packaging` module L39 — `-`
+- pub `unified_workflow` module L40 — `-`
+- pub `workflow` module L41 — `-`
+-  `fixtures` module L44 — `-`
 
 #### crates/cloacina/tests/integration/packaging.rs
 
@@ -3782,6 +3864,8 @@
 -  `manifest_validates_task_dependency_references` function L223-232 — `()` — full round-trip: pack → detect → extract → validate.
 -  `manifest_validates_duplicate_task_ids` function L235-244 — `()` — full round-trip: pack → detect → extract → validate.
 -  `manifest_validates_python_function_path_format` function L247-256 — `()` — full round-trip: pack → detect → extract → validate.
+-  `create_python_e2e_source_dir` function L263-302 — `(dir: &std::path::Path, name: &str)` — Create a Python workflow source dir with a task that sets a context key.
+-  `python_e2e_pack_extract_load_register` function L305-353 — `()` — full round-trip: pack → detect → extract → validate.
 
 #### crates/cloacina/tests/integration/registry_simple_functional_test.rs
 
@@ -4104,9 +4188,9 @@
 -  `execute` function L162-164 — `(&self, context: Context<Value>) -> Result<Context<Value>, TaskError>` — once a condition is met.
 -  `id` function L165-167 — `(&self) -> &str` — once a condition is met.
 -  `dependencies` function L168-170 — `(&self) -> &[TaskNamespace]` — once a condition is met.
--  `test_defer_until_full_pipeline` function L180-252 — `()` — Verifies that a task using `defer_until` via TaskHandle completes
--  `test_defer_until_with_downstream_dependency` function L256-339 — `()` — Verifies that a deferred task correctly chains with a downstream task.
--  `test_sub_status_transitions_during_deferral` function L344-433 — `()` — Verifies that sub_status transitions through "Deferred" while the task is
+-  `test_defer_until_full_pipeline` function L180-267 — `()` — Verifies that a task using `defer_until` via TaskHandle completes
+-  `test_defer_until_with_downstream_dependency` function L271-369 — `()` — Verifies that a deferred task correctly chains with a downstream task.
+-  `test_sub_status_transitions_during_deferral` function L374-478 — `()` — Verifies that sub_status transitions through "Deferred" while the task is
 
 #### crates/cloacina/tests/integration/executor/mod.rs
 
@@ -4164,16 +4248,16 @@
 -  `producer_task` function L79-83 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `consumer_task` function L89-105 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `timeout_task_test` function L112-116 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
--  `test_task_executor_basic_execution` function L119-198 — `()`
--  `test_task_executor_dependency_loading` function L201-325 — `()`
--  `test_task_executor_timeout_handling` function L328-416 — `()`
--  `unified_task_test` function L422-426 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
--  `test_default_runner_execution` function L429-536 — `()`
--  `initial_context_task_test` function L542-557 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
--  `test_task_executor_context_loading_no_dependencies` function L560-689 — `()`
--  `producer_context_task` function L695-710 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
--  `consumer_context_task` function L716-739 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
--  `test_task_executor_context_loading_with_dependencies` function L742-913 — `()`
+-  `test_task_executor_basic_execution` function L119-211 — `()`
+-  `test_task_executor_dependency_loading` function L214-359 — `()`
+-  `test_task_executor_timeout_handling` function L362-465 — `()`
+-  `unified_task_test` function L471-475 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `test_default_runner_execution` function L478-600 — `()`
+-  `initial_context_task_test` function L606-621 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `test_task_executor_context_loading_no_dependencies` function L624-769 — `()`
+-  `producer_context_task` function L775-790 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `consumer_context_task` function L796-819 — `(context: &mut Context<Value>) -> Result<(), TaskError>`
+-  `test_task_executor_context_loading_with_dependencies` function L822-1014 — `()`
 
 ### crates/cloacina/tests/integration/models
 
@@ -4204,6 +4288,9 @@
 -  `test_cron_schedule_creation` function L44-58 — `()`
 -  `test_default_runner_cron_integration` function L62-104 — `()`
 -  `test_cron_scheduler_startup_shutdown` function L108-128 — `()`
+-  `test_cron_missed_executions_catchup_count` function L132-147 — `()`
+-  `test_cron_catchup_respects_max_limit` function L151-160 — `()`
+-  `test_cron_schedule_with_recovery_config` function L164-199 — `()`
 
 #### crates/cloacina/tests/integration/scheduler/dependency_resolution.rs
 
@@ -4221,7 +4308,8 @@
 -  `cron_basic` module L18 — `-`
 -  `dependency_resolution` module L20 — `-`
 -  `recovery` module L21 — `-`
--  `trigger_rules` module L22 — `-`
+-  `stale_claims` module L22 — `-`
+-  `trigger_rules` module L23 — `-`
 
 #### crates/cloacina/tests/integration/scheduler/recovery.rs
 
@@ -4240,6 +4328,16 @@
 -  `test_recovery_event_details` function L1009-1070 — `()`
 -  `test_graceful_recovery_for_unknown_workflow` function L1074-1193 — `()`
 
+#### crates/cloacina/tests/integration/scheduler/stale_claims.rs
+
+-  `test_sweeper` function L30-37 — `(dal: Arc<DAL>, threshold: Duration) -> StaleClaimSweeper` — Create a sweeper with a very short stale threshold for testing.
+-  `create_claimed_task` function L43-82 — `( dal: &DAL, pipeline_name: &str, task_name: &str, ) -> (UniversalUuid, Universa...` — Helper: create a pipeline + task in "Running" state with a runner claim.
+-  `test_sweep_during_grace_period_is_noop` function L85-113 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_after_grace_period_no_stale_claims` function L116-137 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_resets_stale_task_to_ready` function L140-172 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_multiple_stale_tasks` function L175-205 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweeper_run_loop_stops_on_shutdown` function L208-241 — `()` — Integration tests for the stale claim sweeper.
+
 #### crates/cloacina/tests/integration/scheduler/trigger_rules.rs
 
 -  `SimpleTask` struct L27-29 — `{ id: String }`
@@ -4247,11 +4345,27 @@
 -  `execute` function L33-38 — `( &self, context: Context<serde_json::Value>, ) -> Result<Context<serde_json::Va...`
 -  `id` function L40-42 — `(&self) -> &str`
 -  `dependencies` function L44-46 — `(&self) -> &[TaskNamespace]`
--  `test_always_trigger_rule` function L51-101 — `()`
--  `test_trigger_rule_serialization` function L105-142 — `()`
--  `test_context_value_operators` function L146-172 — `()`
--  `test_trigger_condition_types` function L176-203 — `()`
--  `test_complex_trigger_rule` function L207-233 — `()`
+-  `TriggerTask` struct L51-55 — `{ id: String, deps: Vec<TaskNamespace>, rules: serde_json::Value }` — Mock task with configurable trigger rules and dependencies.
+-  `TriggerTask` type L58-80 — `impl Task for TriggerTask`
+-  `execute` function L59-67 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...`
+-  `id` function L69-71 — `(&self) -> &str`
+-  `dependencies` function L73-75 — `(&self) -> &[TaskNamespace]`
+-  `trigger_rules` function L77-79 — `(&self) -> serde_json::Value`
+-  `test_always_trigger_rule` function L84-134 — `()`
+-  `test_trigger_rule_serialization` function L138-175 — `()`
+-  `test_context_value_operators` function L179-205 — `()`
+-  `test_trigger_condition_types` function L209-236 — `()`
+-  `test_complex_trigger_rule` function L240-266 — `()`
+-  `schedule_and_process` function L272-315 — `( workflow_name: &str, workflow: Workflow, input: Context<serde_json::Value>, ) ...` — Helper: schedule a workflow and run one round of pipeline processing.
+-  `test_runtime_all_conditions_met_task_becomes_ready` function L319-364 — `()`
+-  `test_runtime_always_rule_no_deps_becomes_ready` function L368-392 — `()`
+-  `test_runtime_none_rule_no_conditions_becomes_ready` function L396-421 — `()`
+-  `test_runtime_all_empty_conditions_becomes_ready` function L425-450 — `()`
+-  `test_runtime_any_empty_conditions_gets_skipped` function L454-477 — `()`
+-  `test_runtime_context_value_exists_passes` function L481-512 — `()`
+-  `test_runtime_context_value_exists_fails_skipped` function L516-544 — `()`
+-  `test_runtime_context_value_equals_passes` function L548-578 — `()`
+-  `test_runtime_context_value_equals_fails_skipped` function L582-610 — `()`
 
 ### crates/cloacina/tests/integration/signing
 
@@ -4861,11 +4975,31 @@
 -  `set_key` function L195-241 — `(root: &mut toml::Value, key: &str, value: &str) -> Result<()>` — Set a value at a dotted key path in a TOML value tree.
 -  `collect_pairs` function L244-260 — `(value: &toml::Value, prefix: &str, pairs: &mut Vec<(String, String)>)` — Collect all leaf key-value pairs with dotted paths.
 -  `format_value` function L263-276 — `(value: &toml::Value) -> String` — Format a TOML value for display.
+-  `tests` module L333-479 — `-` — - Config value lookup for commands that need database_url etc.
+-  `config_defaults_are_sensible` function L338-350 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_missing_file_returns_defaults` function L353-357 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_valid_toml` function L360-388 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_invalid_toml_returns_defaults` function L391-400 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_load_partial_toml_fills_defaults` function L403-413 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_expands_tilde` function L416-430 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_resolve_watch_dirs_empty` function L433-436 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_save_and_reload_roundtrip` function L439-453 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_get_dotted_key` function L456-461 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_set_dotted_key` function L464-468 — `()` — - Config value lookup for commands that need database_url etc.
+-  `config_list_returns_all_keys` function L471-478 — `()` — - Config value lookup for commands that need database_url etc.
 
 #### crates/cloacinactl/src/commands/daemon.rs
 
-- pub `run` function L49-357 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
--  `register_triggers_from_reconcile` function L361-479 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+- pub `run` function L118-358 — `( home: PathBuf, watch_dirs: Vec<PathBuf>, poll_interval_ms: u64, verbose: bool,...` — Run the daemon.
+-  `collect_watch_dirs` function L43-55 — `( packages_dir: &Path, cli_dirs: &[PathBuf], config_dirs: &[PathBuf], ) -> Vec<P...` — Merge watch directories from multiple sources, deduplicating.
+-  `apply_watch_dir_changes` function L61-84 — `( watcher: &mut PackageWatcher, current: &[PathBuf], new: &[PathBuf], )` — Diff watch directories and apply changes to the watcher.
+-  `handle_reconcile` function L87-107 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — Handle a reconciliation result: log changes/failures and register triggers.
+-  `register_triggers_from_reconcile` function L362-480 — `( runner: &DefaultRunner, registry: &Arc<FilesystemWorkflowRegistry>, result: &R...` — After reconciliation loads new packages, register their triggers with the
+-  `tests` module L483-546 — `-` — package storage.
+-  `collect_watch_dirs_deduplicates` function L488-509 — `()` — package storage.
+-  `collect_watch_dirs_packages_dir_always_first` function L512-520 — `()` — package storage.
+-  `collect_watch_dirs_empty_sources` function L523-527 — `()` — package storage.
+-  `collect_watch_dirs_preserves_order` function L530-545 — `()` — package storage.
 
 #### crates/cloacinactl/src/commands/mod.rs
 
@@ -4887,6 +5021,48 @@
 -  `shutdown_signal` function L248-270 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
 -  `bootstrap_admin_key` function L276-324 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
 -  `mask_db_url` function L327-336 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L339-1160 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L347 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L350-364 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L367-375 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L378-393 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_health_returns_200` function L399-411 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L415-427 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_200` function L431-454 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L460-472 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L476-489 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L493-506 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L510-523 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L529-547 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L551-567 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L571-586 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L590-615 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L619-634 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L638-652 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L658-681 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L685-699 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L703-719 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L723-757 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L761-776 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L782-796 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L800-813 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L817-841 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L845-869 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L872-877 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L880-891 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L894-904 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L908-934 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L938-964 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L968-988 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L994-1008 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1012-1025 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1029-1043 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1047-1060 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1064-1079 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1083-1104 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1110-1124 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1128-1141 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1147-1159 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -4896,6 +5072,17 @@
 - pub `watch_dir` function L131-135 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Add a new directory to the watcher.
 - pub `unwatch_dir` function L138-142 — `(&mut self, dir: &Path) -> Result<(), notify::Error>` — Remove a directory from the watcher.
 -  `PackageWatcher` type L39-143 — `= PackageWatcher` — modified, or removed.
+-  `tests` module L146-322 — `-` — modified, or removed.
+-  `watcher_creates_on_valid_directory` function L152-157 — `()` — modified, or removed.
+-  `settle` function L160-162 — `()` — kqueue (macOS) needs time to register the watch before events fire.
+-  `watcher_signals_on_cloacina_file_create` function L165-179 — `()` — modified, or removed.
+-  `watcher_ignores_non_cloacina_files` function L182-196 — `()` — modified, or removed.
+-  `watcher_signals_on_cloacina_file_modify` function L199-219 — `()` — modified, or removed.
+-  `watcher_signals_on_cloacina_file_remove` function L222-242 — `()` — modified, or removed.
+-  `watcher_debounces_rapid_changes` function L245-270 — `()` — modified, or removed.
+-  `watcher_watch_dir_adds_directory` function L273-289 — `()` — modified, or removed.
+-  `watcher_unwatch_dir_removes_directory` function L292-309 — `()` — modified, or removed.
+-  `watcher_skips_nonexistent_directories` function L312-321 — `()` — modified, or removed.
 
 ### crates/cloacinactl/src
 

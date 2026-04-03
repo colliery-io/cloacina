@@ -39,6 +39,79 @@ jobs:
     uses: ./.github/workflows/performance.yml
 
   # -----------------------------------------------------------------------
+  # Code coverage — cargo-tarpaulin on cloacina core
+  # -----------------------------------------------------------------------
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cloacina
+          POSTGRES_PASSWORD: cloacina
+          POSTGRES_DB: cloacina
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloacina"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "cloacina-coverage"
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Run coverage (cloacina core)
+        run: |
+          cargo tarpaulin \
+            -p cloacina \
+            --features postgres,sqlite,macros \
+            --out xml \
+            --output-dir target/coverage \
+            --skip-clean \
+            --timeout 300 \
+            --exclude-files "crates/cloacina/tests/*" \
+            --exclude-files "crates/cloacina/src/python/*" \
+            -- --test-threads=1
+        env:
+          DATABASE_URL: postgres://cloacina:cloacina@localhost:5432/cloacina
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: target/coverage/cobertura.xml
+          retention-days: 30
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f target/coverage/cobertura.xml ]; then
+            echo "Coverage report generated successfully"
+            # Extract line rate from cobertura XML
+            LINE_RATE=$(grep -oP 'line-rate="\K[^"]+' target/coverage/cobertura.xml | head -1)
+            PERCENT=$(echo "$LINE_RATE * 100" | bc -l 2>/dev/null | head -c 5 || echo "N/A")
+            echo "## Coverage: ${PERCENT}%" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Coverage report not generated" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # -----------------------------------------------------------------------
   # macOS integration — verify builds on macOS
   # -----------------------------------------------------------------------
 
@@ -80,7 +153,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, performance, macos-integration]
+    needs: [cloacina-tests, examples-docs, performance, coverage, macos-integration]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -144,7 +217,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, performance, macos-integration]
+    needs: [cloacina-tests, examples-docs, performance, coverage, macos-integration]
     if: success()
     runs-on: ubuntu-latest
     permissions:

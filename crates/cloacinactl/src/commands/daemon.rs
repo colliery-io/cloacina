@@ -21,7 +21,7 @@
 //! package storage.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -36,6 +36,75 @@ use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
 use super::config::CloacinaConfig;
 use super::watcher::PackageWatcher;
+
+/// Merge watch directories from multiple sources, deduplicating.
+///
+/// Priority: packages_dir (always first), then CLI dirs, then config dirs.
+pub(crate) fn collect_watch_dirs(
+    packages_dir: &Path,
+    cli_dirs: &[PathBuf],
+    config_dirs: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut dirs = vec![packages_dir.to_path_buf()];
+    for dir in cli_dirs.iter().chain(config_dirs.iter()) {
+        if !dirs.contains(dir) {
+            dirs.push(dir.clone());
+        }
+    }
+    dirs
+}
+
+/// Diff watch directories and apply changes to the watcher.
+///
+/// Returns the new set of watch directories. Logs warnings on failure
+/// but never errors — the daemon keeps running.
+pub(crate) fn apply_watch_dir_changes(
+    watcher: &mut PackageWatcher,
+    current: &[PathBuf],
+    new: &[PathBuf],
+) {
+    for dir in new {
+        if !current.contains(dir) {
+            if let Err(e) = watcher.watch_dir(dir) {
+                warn!("Failed to watch new directory {}: {}", dir.display(), e);
+            } else {
+                info!("Added watch directory: {}", dir.display());
+            }
+        }
+    }
+    for dir in current {
+        if !new.contains(dir) {
+            if let Err(e) = watcher.unwatch_dir(dir) {
+                warn!("Failed to unwatch directory {}: {}", dir.display(), e);
+            } else {
+                info!("Removed watch directory: {}", dir.display());
+            }
+        }
+    }
+}
+
+/// Handle a reconciliation result: log changes/failures and register triggers.
+pub(crate) async fn handle_reconcile(
+    runner: &DefaultRunner,
+    registry: &Arc<FilesystemWorkflowRegistry>,
+    result: &ReconcileResult,
+    label: &str,
+) {
+    if result.has_changes() {
+        info!(
+            "{}: {} loaded, {} unloaded",
+            label,
+            result.packages_loaded.len(),
+            result.packages_unloaded.len()
+        );
+        register_triggers_from_reconcile(runner, registry, result).await;
+    }
+    if result.has_failures() {
+        for (id, err) in &result.packages_failed {
+            warn!("Package {} failed: {}", id, err);
+        }
+    }
+}
 
 /// Run the daemon.
 ///
@@ -83,13 +152,14 @@ pub async fn run(
     std::fs::create_dir_all(&packages_dir)
         .with_context(|| format!("Failed to create packages dir: {}", packages_dir.display()))?;
 
-    // Collect all watch directories (default + user-specified)
-    let mut all_watch_dirs = vec![packages_dir.clone()];
-    for dir in &watch_dirs {
-        if *dir != packages_dir {
-            all_watch_dirs.push(dir.clone());
-        }
-    }
+    // 2. Load config file (if exists) — needed for runner and watcher settings
+    let config_path = home.join("config.toml");
+    let config = CloacinaConfig::load(&config_path);
+    let daemon_cfg = &config.daemon;
+
+    // Collect all watch directories (default + CLI + config)
+    let all_watch_dirs =
+        collect_watch_dirs(&packages_dir, &watch_dirs, &config.resolve_watch_dirs());
 
     info!(
         "Watch directories: {:?}",
@@ -98,11 +168,6 @@ pub async fn run(
             .map(|d| d.display().to_string())
             .collect::<Vec<_>>()
     );
-
-    // 2. Load config file (if exists) — needed for runner and watcher settings
-    let config_path = home.join("config.toml");
-    let config = CloacinaConfig::load(&config_path);
-    let daemon_cfg = &config.daemon;
 
     // 3. Create/open SQLite database
     let db_path = home.join("cloacina.db");
@@ -122,14 +187,14 @@ pub async fn run(
         .context("Failed to create DefaultRunner")?;
     info!("DefaultRunner initialized with SQLite backend");
 
-    // 4. Create FilesystemWorkflowRegistry
+    // 5. Create FilesystemWorkflowRegistry
     let registry = Arc::new(FilesystemWorkflowRegistry::new(all_watch_dirs.clone()));
     let registry_for_triggers = registry.clone();
 
-    // 5. Create shutdown channel
+    // 6. Create shutdown channel
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // 6. Create RegistryReconciler (we drive it manually, not via its built-in loop)
+    // 7. Create RegistryReconciler (we drive it manually, not via its built-in loop)
     let reconciler_config = ReconcilerConfig {
         reconcile_interval: Duration::from_millis(poll_interval_ms),
         enable_startup_reconciliation: false, // We do it ourselves below
@@ -139,7 +204,7 @@ pub async fn run(
     let reconciler = RegistryReconciler::new(registry, reconciler_config, shutdown_rx)
         .context("Failed to create RegistryReconciler")?;
 
-    // 7. Perform initial reconciliation
+    // 8. Perform initial reconciliation
     info!("Running initial reconciliation...");
     match reconciler.reconcile().await {
         Ok(result) => {
@@ -149,19 +214,10 @@ pub async fn run(
                 result.packages_unloaded.len(),
                 result.packages_failed.len()
             );
-            // Register triggers from newly loaded packages
             register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
         }
         Err(e) => {
             warn!("Initial reconciliation failed: {}", e);
-        }
-    }
-
-    // 8. Merge config file watch dirs with CLI watch dirs
-    let config_watch_dirs = config.resolve_watch_dirs();
-    for dir in &config_watch_dirs {
-        if !all_watch_dirs.contains(dir) {
-            all_watch_dirs.push(dir.clone());
         }
     }
 
@@ -209,19 +265,7 @@ pub async fn run(
                 debug!("Filesystem change detected — reconciling");
                 match reconciler.reconcile().await {
                     Ok(result) => {
-                        if result.has_changes() {
-                            info!(
-                                "Reconciliation: {} loaded, {} unloaded",
-                                result.packages_loaded.len(),
-                                result.packages_unloaded.len()
-                            );
-                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
-                        }
-                        if result.has_failures() {
-                            for (id, err) in &result.packages_failed {
-                                warn!("Package {} failed: {}", id, err);
-                            }
-                        }
+                        handle_reconcile(&runner, &registry_for_triggers, &result, "Reconciliation").await;
                     }
                     Err(e) => {
                         error!("Reconciliation failed: {}", e);
@@ -234,14 +278,7 @@ pub async fn run(
                 debug!("Periodic reconciliation tick");
                 match reconciler.reconcile().await {
                     Ok(result) => {
-                        if result.has_changes() {
-                            info!(
-                                "Periodic reconciliation: {} loaded, {} unloaded",
-                                result.packages_loaded.len(),
-                                result.packages_unloaded.len()
-                            );
-                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
-                        }
+                        handle_reconcile(&runner, &registry_for_triggers, &result, "Periodic reconciliation").await;
                     }
                     Err(e) => {
                         error!("Periodic reconciliation failed: {}", e);
@@ -266,56 +303,20 @@ pub async fn run(
             _ = sighup.recv() => {
                 info!("Received SIGHUP — reloading configuration...");
                 let new_config = CloacinaConfig::load(&config_path);
-                let new_watch_dirs = {
-                    let mut dirs = vec![packages_dir.clone()];
-                    // CLI dirs
-                    for dir in &watch_dirs {
-                        if !dirs.contains(dir) {
-                            dirs.push(dir.clone());
-                        }
-                    }
-                    // Config file dirs
-                    for dir in new_config.resolve_watch_dirs() {
-                        if !dirs.contains(&dir) {
-                            dirs.push(dir.clone());
-                        }
-                    }
-                    dirs
-                };
+                let new_watch_dirs = collect_watch_dirs(
+                    &packages_dir,
+                    &watch_dirs,
+                    &new_config.resolve_watch_dirs(),
+                );
 
-                // Diff watch dirs: add new, remove old
-                for dir in &new_watch_dirs {
-                    if !current_watch_dirs.contains(dir) {
-                        if let Err(e) = watcher.watch_dir(dir) {
-                            warn!("Failed to watch new directory {}: {}", dir.display(), e);
-                        } else {
-                            info!("Added watch directory: {}", dir.display());
-                        }
-                    }
-                }
-                for dir in &current_watch_dirs {
-                    if !new_watch_dirs.contains(dir) {
-                        if let Err(e) = watcher.unwatch_dir(dir) {
-                            warn!("Failed to unwatch directory {}: {}", dir.display(), e);
-                        } else {
-                            info!("Removed watch directory: {}", dir.display());
-                        }
-                    }
-                }
+                apply_watch_dir_changes(&mut watcher, &current_watch_dirs, &new_watch_dirs);
                 current_watch_dirs = new_watch_dirs;
 
                 // Trigger reconciliation to pick up packages in new dirs
                 info!("Triggering reconciliation after config reload...");
                 match reconciler.reconcile().await {
                     Ok(result) => {
-                        if result.has_changes() {
-                            info!(
-                                "Post-reload reconciliation: {} loaded, {} unloaded",
-                                result.packages_loaded.len(),
-                                result.packages_unloaded.len()
-                            );
-                            register_triggers_from_reconcile(&runner, &registry_for_triggers, &result).await;
-                        }
+                        handle_reconcile(&runner, &registry_for_triggers, &result, "Post-reload reconciliation").await;
                     }
                     Err(e) => {
                         error!("Post-reload reconciliation failed: {}", e);
@@ -475,5 +476,68 @@ async fn register_triggers_from_reconcile(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn collect_watch_dirs_deduplicates() {
+        let pkg = PathBuf::from("/home/user/.cloacina/packages");
+        let cli = vec![PathBuf::from("/extra/dir1"), PathBuf::from("/extra/dir2")];
+        let config = vec![
+            PathBuf::from("/extra/dir2"), // duplicate of CLI
+            PathBuf::from("/config/dir3"),
+        ];
+
+        let result = collect_watch_dirs(&pkg, &cli, &config);
+        assert_eq!(
+            result,
+            vec![
+                PathBuf::from("/home/user/.cloacina/packages"),
+                PathBuf::from("/extra/dir1"),
+                PathBuf::from("/extra/dir2"),
+                PathBuf::from("/config/dir3"),
+            ]
+        );
+    }
+
+    #[test]
+    fn collect_watch_dirs_packages_dir_always_first() {
+        let pkg = PathBuf::from("/packages");
+        let cli = vec![PathBuf::from("/packages")]; // same as packages_dir
+        let config = vec![];
+
+        let result = collect_watch_dirs(&pkg, &cli, &config);
+        // packages_dir should appear only once
+        assert_eq!(result, vec![PathBuf::from("/packages")]);
+    }
+
+    #[test]
+    fn collect_watch_dirs_empty_sources() {
+        let pkg = PathBuf::from("/packages");
+        let result = collect_watch_dirs(&pkg, &[], &[]);
+        assert_eq!(result, vec![PathBuf::from("/packages")]);
+    }
+
+    #[test]
+    fn collect_watch_dirs_preserves_order() {
+        let pkg = PathBuf::from("/pkg");
+        let cli = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+        let config = vec![PathBuf::from("/c")];
+
+        let result = collect_watch_dirs(&pkg, &cli, &config);
+        assert_eq!(
+            result,
+            vec![
+                PathBuf::from("/pkg"),
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/c"),
+            ]
+        );
     }
 }
