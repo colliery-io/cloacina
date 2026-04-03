@@ -48,6 +48,19 @@ jobs:
             ${{ runner.os }}-rust-tutorials-
             ${{ runner.os }}-rust-
 
+      - name: Docker Compose Cache
+        if: matrix.tutorial == '06'
+        uses: actions/cache@v4
+        with:
+          path: ~/.docker
+          key: ${{ runner.os }}-docker-${{ hashFiles('.angreal/docker-compose.yaml') }}
+
+      - name: Start PostgreSQL services
+        if: matrix.tutorial == '06'
+        uses: hoverkraft-tech/compose-action@v2.0.1
+        with:
+          compose-file: ".angreal/docker-compose.yaml"
+
       - name: Run tutorial ${{ matrix.tutorial }}
         run: angreal demos tutorial-${{ matrix.tutorial }}
 
