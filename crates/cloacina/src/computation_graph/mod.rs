@@ -23,6 +23,11 @@
 //! - [`GraphResult`] — returned by the compiled graph function
 //! - [`SourceName`] — identifies an accumulator source
 
+pub mod accumulator;
 pub mod types;
 
+pub use accumulator::{
+    accumulator_runtime, shutdown_signal, Accumulator, AccumulatorContext, AccumulatorError,
+    AccumulatorRuntimeConfig, BoundarySender,
+};
 pub use types::{GraphError, GraphResult, InputCache, SourceName};
