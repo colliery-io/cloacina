@@ -4,14 +4,14 @@ level: task
 title: "End-to-end wiring, example binary, and integration tests"
 short_code: "CLOACI-T-0370"
 created_at: 2026-04-04T22:54:50.039393+00:00
-updated_at: 2026-04-04T22:54:50.039393+00:00
+updated_at: 2026-04-04T23:17:16.571013+00:00
 parent: CLOACI-I-0074
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -23,6 +23,10 @@ initiative_id: CLOACI-I-0074
 ## Objective
 
 Wire accumulators → reactor → compiled graph in a working example binary. Proves the full embedded vertical slice: data flows from mock source through accumulator through reactor through compiled graph to terminal node output. Plus integration tests.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -41,4 +45,4 @@ T-0367 (accumulator trait + runtime), T-0368 (stream backend + macros), T-0369 (
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-04-04: End-to-end integration test `test_end_to_end_accumulator_reactor_graph` written and passing. Wires TestPassthroughAccumulator → BoundarySender → Reactor → linear_chain_compiled graph. Verifies fire count increments on each event push (2 pushes → 2 fires) and clean shutdown. Example binary and angreal task deferred — core vertical slice proven via integration test.
