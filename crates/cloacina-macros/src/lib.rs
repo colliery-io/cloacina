@@ -44,6 +44,7 @@
 //! }
 //! ```
 
+pub(crate) mod computation_graph;
 pub(crate) mod packaged_workflow;
 mod registry;
 pub(crate) mod tasks;
@@ -104,4 +105,33 @@ pub fn workflow(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
     trigger_attr::trigger_attr(args, input)
+}
+
+/// Define a computation graph as a module containing async node functions.
+///
+/// The topology is declared in the macro attribute. Nodes are pure async functions
+/// within the module. The macro compiles the topology into a single async function
+/// with nested match arms for enum routing.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// #[computation_graph(
+///     react = when_any(alpha, beta),
+///     graph = {
+///         decision(alpha, beta) => {
+///             Signal -> output_handler,
+///             NoAction -> audit_logger,
+///         },
+///     }
+/// )]
+/// mod my_strategy {
+///     async fn decision(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> DecisionOutcome { ... }
+///     async fn output_handler(signal: &Signal) -> OutputConfirmation { ... }
+///     async fn audit_logger(reason: &NoActionReason) -> AuditRecord { ... }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn computation_graph(args: TokenStream, input: TokenStream) -> TokenStream {
+    computation_graph::computation_graph_attr(args, input)
 }

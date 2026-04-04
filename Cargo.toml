@@ -24,3 +24,4 @@ cloacina-workflow = { version = "0.4.0", path = "crates/cloacina-workflow" }
 clap = { version = "4.0", features = ["derive", "env"] }
 anyhow = { version = "1.0" }
 toml = { version = "0.8" }
+bincode = { version = "1.3" }

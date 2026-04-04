@@ -2,12 +2,12 @@
 id: computation-graph-vertical-slice
 level: initiative
 title: "Computation Graph Vertical Slice — Embedded Mode"
-short_code: "CLOACI-I-0070"
+short_code: "CLOACI-I-0076"
 created_at: 2026-04-04T17:48:53.852921+00:00
-updated_at: 2026-04-04T19:50:08.488298+00:00
+updated_at: 2026-04-04T18:11:23.146804+00:00
 parent: CLOACI-V-0001
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#initiative"
@@ -51,6 +51,10 @@ Spec: CLOACI-S-0006 (Computation Graph Macro).
 - DAL persistence (I-0072)
 - Packaging (I-0072+)
 - Python graph bindings are a fast-follow on this initiative — once the Rust macro works, the Python decorator maps a class + dict topology to the same compiled function. Can be done immediately after or in parallel with I-0074.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

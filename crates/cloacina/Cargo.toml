@@ -76,6 +76,7 @@ hex = { version = "0.4" }
 pem = { version = "3.0" }
 toml = { version = "0.8" }
 anyhow = { version = "1.0" }
+bincode = { workspace = true }
 pyo3 = { version = "0.25", features = ["abi3-py39"] }
 pythonize = { version = "0.25" }
 

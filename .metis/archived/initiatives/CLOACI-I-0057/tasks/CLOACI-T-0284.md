@@ -1,4 +1,4 @@
-th---
+---
 id: hot-reload-sighup-config-re-read
 level: task
 title: "Hot reload — SIGHUP config re-read without restart"

@@ -481,6 +481,7 @@ pub mod prelude {
 
 // #[cfg(feature = "auth")]
 // pub mod auth;
+pub mod computation_graph;
 pub mod context;
 pub mod cron_evaluator;
 pub mod cron_recovery;

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-04T01:14:58Z | 383 files | JavaScript, Python, Rust
+> Generated: 2026-04-04T02:19:06Z | 383 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -1991,7 +1991,7 @@
 -  `has_capacity` function L948-950 — `(&self) -> bool` — to the executor based on routing rules.
 -  `metrics` function L952-962 — `(&self) -> ExecutorMetrics` — to the executor based on routing rules.
 -  `name` function L964-966 — `(&self) -> &str` — to the executor based on routing rules.
--  `tests` module L970-1207 — `-` — to the executor based on routing rules.
+-  `tests` module L970-1208 — `-` — to the executor based on routing rules.
 -  `test_merge_primitives_latest_wins` function L979-984 — `()` — to the executor based on routing rules.
 -  `test_merge_string_latest_wins` function L987-992 — `()` — to the executor based on routing rules.
 -  `test_merge_different_types_latest_wins` function L995-1000 — `()` — to the executor based on routing rules.
@@ -2004,10 +2004,11 @@
 -  `test_merge_nested_arrays_in_objects` function L1051-1056 — `()` — to the executor based on routing rules.
 -  `test_merge_null_latest_wins` function L1059-1064 — `()` — to the executor based on routing rules.
 -  `test_merge_bool_latest_wins` function L1067-1072 — `()` — to the executor based on routing rules.
--  `test_executor` function L1080-1085 — `() -> ThreadTaskExecutor` — Helper to create a minimal ThreadTaskExecutor for testing non-async methods.
--  `test_is_transient_timeout` function L1088-1091 — `()` — to the executor based on routing rules.
--  `test_is_transient_task_not_found` function L1094-1097 — `()` — to the executor based on routing rules.
--  `test_is_transient_connection_pool` function L1100-1105 — `()` — to the executor based on routing rules.
+-  `sqlite_tests` module L1078-1207 — `-` — to the executor based on routing rules.
+-  `test_executor` function L1081-1086 — `() -> ThreadTaskExecutor` — to the executor based on routing rules.
+-  `test_is_transient_timeout` function L1089-1092 — `()` — to the executor based on routing rules.
+-  `test_is_transient_task_not_found` function L1095-1098 — `()` — to the executor based on routing rules.
+-  `test_is_transient_connection_pool` function L1101-1105 — `()` — to the executor based on routing rules.
 -  `test_is_transient_task_execution_with_timeout_msg` function L1108-1117 — `()` — to the executor based on routing rules.
 -  `test_is_transient_task_execution_permanent` function L1120-1129 — `()` — to the executor based on routing rules.
 -  `test_is_transient_task_execution_network` function L1132-1141 — `()` — to the executor based on routing rules.
@@ -2374,7 +2375,7 @@
 -  `PyTenantCredentials` type L76-103 — `= PyTenantCredentials` — multi-tenant PostgreSQL deployments.
 -  `is_postgres_url` function L106-108 — `(url: &str) -> bool` — Helper to check if a URL is a PostgreSQL connection string
 -  `PyDatabaseAdmin` type L120-201 — `= PyDatabaseAdmin` — multi-tenant PostgreSQL deployments.
--  `tests` module L204-274 — `-` — multi-tenant PostgreSQL deployments.
+-  `tests` module L204-264 — `-` — multi-tenant PostgreSQL deployments.
 -  `test_tenant_config_new` function L208-217 — `()` — multi-tenant PostgreSQL deployments.
 -  `test_tenant_config_default_password` function L220-223 — `()` — multi-tenant PostgreSQL deployments.
 -  `test_tenant_config_repr` function L226-237 — `()` — multi-tenant PostgreSQL deployments.
@@ -2382,7 +2383,6 @@
 -  `test_database_admin_rejects_sqlite` function L248-251 — `()` — multi-tenant PostgreSQL deployments.
 -  `test_database_admin_rejects_invalid_url` function L254-257 — `()` — multi-tenant PostgreSQL deployments.
 -  `test_database_admin_rejects_missing_db_name` function L260-263 — `()` — multi-tenant PostgreSQL deployments.
--  `test_database_admin_creates_with_postgres_url` function L267-273 — `()` — multi-tenant PostgreSQL deployments.
 
 #### crates/cloacina/src/python/bindings/context.rs
 
@@ -2483,46 +2483,43 @@
 -  `PyPipelineResult` type L220-261 — `= PyPipelineResult`
 -  `PyDefaultRunner` type L270-2288 — `= PyDefaultRunner`
 -  `PyPipelineResult` type L2290-2294 — `= PyPipelineResult`
--  `tests` module L2297-2916 — `-`
--  `TEST_PG_URL` variable L2300 — `: &str`
--  `unique_sqlite_url` function L2302-2307 — `() -> String`
--  `test_runner_repr` function L2310-2318 — `()`
--  `test_runner_start_returns_not_implemented` function L2321-2326 — `()`
--  `test_runner_stop_returns_not_implemented` function L2329-2334 — `()`
--  `test_runner_shutdown` function L2337-2343 — `()`
--  `test_runner_context_manager` function L2346-2360 — `()`
--  `test_runner_list_cron_schedules_empty` function L2363-2373 — `()`
--  `test_runner_list_trigger_schedules_empty` function L2376-2386 — `()`
--  `test_runner_get_trigger_schedule_not_found` function L2389-2399 — `()`
--  `test_runner_postgres_construction_and_shutdown` function L2403-2409 — `()`
--  `test_runner_register_cron_workflow` function L2412-2432 — `()`
--  `test_runner_list_cron_schedules_after_register` function L2435-2458 — `()`
--  `test_runner_get_cron_schedule` function L2461-2483 — `()`
--  `test_runner_set_cron_schedule_enabled` function L2486-2512 — `()`
--  `test_runner_delete_cron_schedule` function L2515-2539 — `()`
--  `test_runner_update_cron_schedule` function L2542-2567 — `()`
--  `test_runner_get_cron_execution_history_empty` function L2570-2591 — `()`
--  `test_runner_get_cron_execution_stats` function L2594-2607 — `()`
--  `test_runner_set_cron_schedule_enabled_invalid_id` function L2610-2620 — `()`
--  `test_runner_set_trigger_enabled` function L2623-2635 — `()`
--  `test_runner_get_trigger_execution_history` function L2638-2650 — `()`
--  `test_pipeline_result_completed` function L2653-2684 — `()`
--  `test_pipeline_result_failed` function L2687-2706 — `()`
--  `test_runner_execute_nonexistent_workflow` function L2709-2723 — `()`
--  `test_runner_execute_registered_workflow` function L2726-2776 — `()`
--  `NoOpTask` struct L2734 — `-`
--  `NoOpTask` type L2737-2750 — `= NoOpTask`
--  `execute` function L2738-2743 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
--  `id` function L2744-2746 — `(&self) -> &str`
--  `dependencies` function L2747-2749 — `(&self) -> &[crate::TaskNamespace]`
--  `test_runner_get_cron_execution_stats_invalid_date` function L2779-2789 — `()`
--  `test_runner_list_cron_schedules_enabled_only` function L2792-2825 — `()`
--  `test_with_schema_rejects_sqlite` function L2830-2834 — `()`
--  `test_with_schema_rejects_empty_schema` function L2837-2844 — `()`
--  `test_with_schema_rejects_invalid_chars` function L2847-2854 — `()`
--  `test_with_schema_postgres_creates_and_shuts_down` function L2858-2875 — `()`
--  `test_with_schema_register_and_list_cron` function L2879-2903 — `()`
--  `test_shutdown_error_display` function L2906-2915 — `()`
+-  `tests` module L2298-2858 — `-`
+-  `TEST_PG_URL` variable L2301 — `: &str`
+-  `unique_sqlite_url` function L2303-2308 — `() -> String`
+-  `test_runner_repr` function L2311-2319 — `()`
+-  `test_runner_start_returns_not_implemented` function L2322-2327 — `()`
+-  `test_runner_stop_returns_not_implemented` function L2330-2335 — `()`
+-  `test_runner_shutdown` function L2338-2344 — `()`
+-  `test_runner_context_manager` function L2347-2361 — `()`
+-  `test_runner_list_cron_schedules_empty` function L2364-2374 — `()`
+-  `test_runner_list_trigger_schedules_empty` function L2377-2387 — `()`
+-  `test_runner_get_trigger_schedule_not_found` function L2390-2400 — `()`
+-  `test_runner_register_cron_workflow` function L2403-2423 — `()`
+-  `test_runner_list_cron_schedules_after_register` function L2426-2449 — `()`
+-  `test_runner_get_cron_schedule` function L2452-2474 — `()`
+-  `test_runner_set_cron_schedule_enabled` function L2477-2503 — `()`
+-  `test_runner_delete_cron_schedule` function L2506-2530 — `()`
+-  `test_runner_update_cron_schedule` function L2533-2558 — `()`
+-  `test_runner_get_cron_execution_history_empty` function L2561-2582 — `()`
+-  `test_runner_get_cron_execution_stats` function L2585-2598 — `()`
+-  `test_runner_set_cron_schedule_enabled_invalid_id` function L2601-2611 — `()`
+-  `test_runner_set_trigger_enabled` function L2614-2626 — `()`
+-  `test_runner_get_trigger_execution_history` function L2629-2641 — `()`
+-  `test_pipeline_result_completed` function L2644-2675 — `()`
+-  `test_pipeline_result_failed` function L2678-2697 — `()`
+-  `test_runner_execute_nonexistent_workflow` function L2700-2714 — `()`
+-  `test_runner_execute_registered_workflow` function L2717-2767 — `()`
+-  `NoOpTask` struct L2725 — `-`
+-  `NoOpTask` type L2728-2741 — `= NoOpTask`
+-  `execute` function L2729-2734 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
+-  `id` function L2735-2737 — `(&self) -> &str`
+-  `dependencies` function L2738-2740 — `(&self) -> &[crate::TaskNamespace]`
+-  `test_runner_get_cron_execution_stats_invalid_date` function L2770-2780 — `()`
+-  `test_runner_list_cron_schedules_enabled_only` function L2783-2816 — `()`
+-  `test_with_schema_rejects_sqlite` function L2821-2825 — `()`
+-  `test_with_schema_rejects_empty_schema` function L2828-2835 — `()`
+-  `test_with_schema_rejects_invalid_chars` function L2838-2845 — `()`
+-  `test_shutdown_error_display` function L2848-2857 — `()`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -4300,6 +4297,12 @@
 -  `manifest_validates_python_function_path_format` function L246-255 — `()` — full round-trip: pack → detect → extract → validate.
 -  `create_python_e2e_source_dir` function L262-301 — `(dir: &std::path::Path, name: &str)` — Create a Python workflow source dir with a task that sets a context key.
 -  `python_e2e_pack_extract_load_register` function L304-357 — `()` — full round-trip: pack → detect → extract → validate.
+-  `postgres_bindings` module L364-436 — `-` — full round-trip: pack → detect → extract → validate.
+-  `TEST_PG_URL` variable L370 — `: &str` — full round-trip: pack → detect → extract → validate.
+-  `test_runner_postgres_construction_and_shutdown` function L374-380 — `()` — full round-trip: pack → detect → extract → validate.
+-  `test_with_schema_postgres_creates_and_shuts_down` function L384-399 — `()` — full round-trip: pack → detect → extract → validate.
+-  `test_with_schema_register_and_list_cron` function L403-427 — `()` — full round-trip: pack → detect → extract → validate.
+-  `test_database_admin_creates_with_postgres_url` function L431-435 — `()` — full round-trip: pack → detect → extract → validate.
 
 #### crates/cloacina/tests/integration/registry_simple_functional_test.rs
 
