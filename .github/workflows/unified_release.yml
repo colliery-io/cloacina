@@ -50,44 +50,12 @@ jobs:
           fi
 
   # -----------------------------------------------------------------------
-  # Step 3: Build all artifacts and upload to GHA artifact registry
-  # -----------------------------------------------------------------------
-
-  build-rust:
-    name: Build Rust Packages
-    needs: [verify-version]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Build for release
-        run: cargo build --release
-
-      - name: Package crates
-        run: |
-          cargo package -p cloacina-macros --allow-dirty
-          cargo package -p cloacina-workflow --allow-dirty
-          cargo package -p cloacina --allow-dirty
-
-      - name: Upload Rust package artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-packages
-          path: target/package/*.crate
-          retention-days: 14
-
-  # TODO: Python wheel/sdist build jobs will be added once native Python
-  # packaging workflow is established (replaces old cloaca-backend builds)
-
-  # -----------------------------------------------------------------------
-  # Step 4: Manual approval gate — artifacts are ready, human says "send it"
+  # Step 3: Publish to crates.io
   # -----------------------------------------------------------------------
 
   publish-cargo:
     name: Publish to crates.io
-    needs: [build-rust]
+    needs: [verify-version]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     environment:
@@ -97,15 +65,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Download Rust package artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: rust-packages
-          path: artifacts/
-
-      - name: List artifacts
-        run: ls -la artifacts/
 
       - name: Publish to crates.io
         run: |
