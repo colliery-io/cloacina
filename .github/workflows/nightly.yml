@@ -133,6 +133,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
+      - name: Install libpq
+        run: brew install libpq && echo "$(brew --prefix libpq)/lib" >> $GITHUB_PATH
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -142,10 +145,10 @@ jobs:
           shared-key: "cloacina-nightly-macos"
 
       - name: Build workspace
-        run: cargo build --no-default-features --features "sqlite,macros"
+        run: cargo build --features "postgres,sqlite,macros"
 
-      - name: Run unit tests (SQLite)
-        run: cargo test -p cloacina --lib --no-default-features --features "sqlite,macros"
+      - name: Run unit tests
+        run: angreal cloacina unit
 
   # -----------------------------------------------------------------------
   # Failure notification — auto-create GitHub issue
