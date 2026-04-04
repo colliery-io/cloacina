@@ -25,6 +25,11 @@
 //! into the cloacina binary. The `cloaca` Python wheel re-exports these types via its
 //! `#[pymodule]` definition.
 
+// Computation graph bindings
+pub mod computation_graph;
+#[cfg(test)]
+mod computation_graph_tests;
+
 // Abstract executor interface (no PyO3 dependency)
 pub mod executor;
 
