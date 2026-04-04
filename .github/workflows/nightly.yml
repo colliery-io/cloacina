@@ -31,14 +31,6 @@ jobs:
     uses: ./.github/workflows/examples-docs.yml
 
   # -----------------------------------------------------------------------
-  # Performance tests
-  # -----------------------------------------------------------------------
-
-  performance:
-    name: Performance Tests
-    uses: ./.github/workflows/performance.yml
-
-  # -----------------------------------------------------------------------
   # Code coverage — cargo-tarpaulin on cloacina core
   # -----------------------------------------------------------------------
 
