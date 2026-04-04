@@ -134,7 +134,10 @@ jobs:
           pip install angreal
 
       - name: Install libpq
-        run: brew install libpq && echo "$(brew --prefix libpq)/lib" >> $GITHUB_PATH
+        run: |
+          brew install libpq
+          echo "LIBRARY_PATH=$(brew --prefix libpq)/lib" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix libpq)/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
