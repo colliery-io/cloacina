@@ -76,6 +76,19 @@ unsafe impl Send for PythonGraphExecutor {}
 unsafe impl Sync for PythonGraphExecutor {}
 
 impl PythonGraphExecutor {
+    /// Clone for testing — requires the GIL to clone the PyObject.
+    #[cfg(test)]
+    pub fn clone_for_test(&self, py: Python<'_>) -> Self {
+        Self {
+            instance: self.instance.clone_ref(py),
+            topology: self.topology.clone(),
+            execution_order: self.execution_order.clone(),
+            node_map: self.node_map.clone(),
+        }
+    }
+}
+
+impl PythonGraphExecutor {
     /// Execute the graph with the given input cache.
     pub async fn execute(&self, cache: &InputCache) -> GraphResult {
         // Clone what we need for the blocking closure
@@ -122,13 +135,70 @@ fn execute_graph_sync(
     let mut terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     let mut node_results: HashMap<String, PyObject> = HashMap::new();
 
+    // Build incoming edge map: target_node -> [(source_node, variant_or_none)]
+    let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
+    for node in node_map.values() {
+        match &node.edge {
+            PyEdgeDecl::Linear { target } => {
+                incoming
+                    .entry(target.clone())
+                    .or_default()
+                    .push((node.name.clone(), None));
+            }
+            PyEdgeDecl::Routing { variants } => {
+                for (variant_name, target) in variants {
+                    incoming
+                        .entry(target.clone())
+                        .or_default()
+                        .push((node.name.clone(), Some(variant_name.clone())));
+                }
+            }
+            PyEdgeDecl::Terminal => {}
+        }
+    }
+
+    // Track which nodes should be skipped (on non-taken routing branches)
+    let mut skipped_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     for node_name in execution_order {
+        if skipped_nodes.contains(node_name) {
+            continue;
+        }
+
         let node_decl = node_map.get(node_name).ok_or_else(|| {
             GraphError::Execution(format!("node '{}' not found in topology", node_name))
         })?;
 
+        // Check if this node depends on a routing edge that wasn't taken
+        if let Some(sources) = incoming.get(node_name) {
+            let mut should_skip = false;
+            for (from_node, variant) in sources {
+                if let Some(v) = variant {
+                    // This node depends on a specific routing variant
+                    let selected_key = format!("{}:__selected_variant", from_node);
+                    if let Some(selected) = node_results.get(&selected_key) {
+                        let selected_str: String = selected.extract(py).unwrap_or_default();
+                        if selected_str != *v {
+                            should_skip = true;
+                        }
+                    }
+                }
+            }
+            if should_skip {
+                skipped_nodes.insert(node_name.clone());
+                continue;
+            }
+        }
+
         // Build arguments for this node
-        let args = build_node_args(py, node_decl, cache_values, &node_results)?;
+        let args = build_node_args(
+            py,
+            node_name,
+            node_decl,
+            cache_values,
+            &node_results,
+            &incoming,
+        )?;
 
         // Call the method on the instance
         let method = instance.getattr(py, node_name.as_str()).map_err(|e| {
@@ -214,9 +284,11 @@ fn execute_graph_sync(
 /// Build the argument tuple for a Python node call.
 fn build_node_args<'py>(
     py: Python<'py>,
+    node_name: &str,
     node_decl: &PyNodeDecl,
     cache_values: &HashMap<String, serde_json::Value>,
-    _node_results: &HashMap<String, PyObject>,
+    node_results: &HashMap<String, PyObject>,
+    incoming: &HashMap<String, Vec<(String, Option<String>)>>,
 ) -> Result<Bound<'py, PyTuple>, GraphError> {
     let mut args: Vec<PyObject> = Vec::new();
 
@@ -235,12 +307,21 @@ fn build_node_args<'py>(
         }
     }
 
-    // Upstream node outputs
-    // For linear edges, look up the source node's result
-    // For routing variant edges, look up "source:Variant" result
-    // This is handled by the execution order — if this node is downstream of a routing node,
-    // its entry in execution_order was placed there by the topology sort, and the
-    // routing result is stored with the variant key.
+    // Upstream node outputs — look up results from incoming edges
+    if let Some(sources) = incoming.get(node_name) {
+        for (from_node, variant) in sources {
+            let key = if let Some(v) = variant {
+                // From a routing edge — look up "from_node:Variant"
+                format!("{}:{}", from_node, v)
+            } else {
+                // From a linear edge — look up "from_node"
+                from_node.clone()
+            };
+            if let Some(result) = node_results.get(&key) {
+                args.push(result.clone_ref(py));
+            }
+        }
+    }
 
     PyTuple::new(py, &args)
         .map_err(|e| GraphError::NodeExecution(format!("failed to build args tuple: {}", e)))
