@@ -247,3 +247,330 @@ impl RegistryReconciler {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // -----------------------------------------------------------------------
+    // find_compiled_library tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_compiled_library_finds_dylib_on_macos() {
+        let tmp = TempDir::new().unwrap();
+        let target_dir = tmp.path();
+
+        // Create a valid library file (no dash, starts with "lib")
+        let ext = if cfg!(target_os = "macos") {
+            "dylib"
+        } else {
+            "so"
+        };
+        let lib_name = format!("libmyworkflow.{}", ext);
+        std::fs::write(target_dir.join(&lib_name), b"fake library data").unwrap();
+
+        let result = RegistryReconciler::find_compiled_library(target_dir);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let path = result.unwrap();
+        assert!(path.ends_with(&lib_name));
+    }
+
+    #[test]
+    fn find_compiled_library_ignores_hash_suffixed_artifacts() {
+        let tmp = TempDir::new().unwrap();
+        let target_dir = tmp.path();
+
+        let ext = if cfg!(target_os = "macos") {
+            "dylib"
+        } else {
+            "so"
+        };
+
+        // Hash-suffixed artifact (contains a dash) should be ignored
+        let hashed = format!("libmyworkflow-abc123.{}", ext);
+        std::fs::write(target_dir.join(&hashed), b"hashed artifact").unwrap();
+
+        let result = RegistryReconciler::find_compiled_library(target_dir);
+        assert!(result.is_err(), "Should not find hash-suffixed library");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("No compiled library"),
+            "Error should mention no library found: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn find_compiled_library_ignores_wrong_extension() {
+        let tmp = TempDir::new().unwrap();
+        let target_dir = tmp.path();
+
+        // A .a static library should be ignored
+        std::fs::write(target_dir.join("libmyworkflow.a"), b"static lib").unwrap();
+        // A .rlib should be ignored
+        std::fs::write(target_dir.join("libmyworkflow.rlib"), b"rlib").unwrap();
+
+        let result = RegistryReconciler::find_compiled_library(target_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_compiled_library_ignores_non_lib_prefix() {
+        let tmp = TempDir::new().unwrap();
+        let target_dir = tmp.path();
+
+        let ext = if cfg!(target_os = "macos") {
+            "dylib"
+        } else {
+            "so"
+        };
+
+        // File without "lib" prefix should be ignored
+        std::fs::write(
+            target_dir.join(format!("myworkflow.{}", ext)),
+            b"no lib prefix",
+        )
+        .unwrap();
+
+        let result = RegistryReconciler::find_compiled_library(target_dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_compiled_library_empty_directory() {
+        let tmp = TempDir::new().unwrap();
+        let result = RegistryReconciler::find_compiled_library(tmp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn find_compiled_library_nonexistent_directory() {
+        let result =
+            RegistryReconciler::find_compiled_library(std::path::Path::new("/nonexistent/path"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Failed to read target directory"));
+    }
+
+    #[test]
+    fn find_compiled_library_prefers_first_matching() {
+        let tmp = TempDir::new().unwrap();
+        let target_dir = tmp.path();
+
+        let ext = if cfg!(target_os = "macos") {
+            "dylib"
+        } else {
+            "so"
+        };
+
+        // Two valid libraries — should find at least one
+        std::fs::write(target_dir.join(format!("libalpha.{}", ext)), b"alpha").unwrap();
+        std::fs::write(target_dir.join(format!("libbeta.{}", ext)), b"beta").unwrap();
+
+        let result = RegistryReconciler::find_compiled_library(target_dir);
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        assert!(name.starts_with("lib"));
+        assert!(name.ends_with(ext));
+    }
+
+    // -----------------------------------------------------------------------
+    // rewrite_host_dependencies tests (debug builds only)
+    // -----------------------------------------------------------------------
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_adds_path_to_string_dep() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cloacina = "0.1.0"
+serde = "1.0"
+"#;
+        std::fs::write(tmp.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        rewrite_host_dependencies(tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        let doc: toml::Value = content.parse().unwrap();
+
+        // cloacina dep should now be a table with both version and path
+        let cloacina_dep = doc["dependencies"]["cloacina"].as_table().unwrap();
+        assert!(cloacina_dep.contains_key("path"));
+        assert!(cloacina_dep.contains_key("version"));
+        let path_val = cloacina_dep["path"].as_str().unwrap();
+        assert!(
+            path_val.contains("crates/cloacina"),
+            "Path should point to workspace crate: {}",
+            path_val
+        );
+
+        // serde should be untouched (still a string)
+        let serde_dep = &doc["dependencies"]["serde"];
+        assert!(
+            serde_dep.is_str(),
+            "Non-cloacina deps should stay unchanged"
+        );
+
+        // workspace key should be inserted
+        assert!(doc.get("workspace").is_some());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_adds_path_to_table_dep() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cloacina-workflow = { version = "0.1.0", features = ["macros"] }
+"#;
+        std::fs::write(tmp.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        rewrite_host_dependencies(tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        let doc: toml::Value = content.parse().unwrap();
+
+        let dep = doc["dependencies"]["cloacina-workflow"].as_table().unwrap();
+        assert!(dep.contains_key("path"));
+        assert!(dep.contains_key("version"));
+        // features should still be there
+        assert!(dep.contains_key("features"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_preserves_existing_workspace() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = []
+
+[dependencies]
+serde = "1.0"
+"#;
+        std::fs::write(tmp.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        rewrite_host_dependencies(tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        let doc: toml::Value = content.parse().unwrap();
+
+        // workspace should still exist and have members
+        let ws = doc["workspace"].as_table().unwrap();
+        assert!(ws.contains_key("members"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_no_cloacina_deps_is_noop() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+"#;
+        std::fs::write(tmp.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        rewrite_host_dependencies(tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        let doc: toml::Value = content.parse().unwrap();
+
+        // serde should still be a string
+        assert!(doc["dependencies"]["serde"].is_str());
+        // workspace should be added even if no cloacina deps
+        assert!(doc.get("workspace").is_some());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_missing_cargo_toml_errors() {
+        let tmp = TempDir::new().unwrap();
+        let result = rewrite_host_dependencies(tmp.path());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Failed to read Cargo.toml"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_invalid_toml_errors() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "this is not valid toml {{{").unwrap();
+        let result = rewrite_host_dependencies(tmp.path());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Failed to parse Cargo.toml"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn rewrite_host_dependencies_handles_dev_and_build_deps() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = r#"[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+
+[dev-dependencies]
+cloacina = "0.1.0"
+
+[build-dependencies]
+cloacina-build = "0.1.0"
+"#;
+        std::fs::write(tmp.path().join("Cargo.toml"), cargo_toml).unwrap();
+
+        rewrite_host_dependencies(tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(tmp.path().join("Cargo.toml")).unwrap();
+        let doc: toml::Value = content.parse().unwrap();
+
+        // dev-dependencies cloacina should have path
+        let dev_dep = doc["dev-dependencies"]["cloacina"].as_table().unwrap();
+        assert!(dev_dep.contains_key("path"));
+
+        // build-dependencies cloacina-build should have path
+        let build_dep = doc["build-dependencies"]["cloacina-build"]
+            .as_table()
+            .unwrap();
+        assert!(build_dep.contains_key("path"));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn host_workspace_root_returns_valid_path() {
+        let root = host_workspace_root();
+        // The workspace root should contain a Cargo.toml
+        assert!(
+            root.join("Cargo.toml").exists(),
+            "Workspace root {} should contain Cargo.toml",
+            root.display()
+        );
+    }
+}

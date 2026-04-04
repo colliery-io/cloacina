@@ -202,18 +202,18 @@ impl PythonTriggerWrapper {
 /// Parse duration string like "5s", "100ms", "1m" into Duration
 fn parse_duration(s: &str) -> Result<Duration, String> {
     let s = s.trim();
-    if s.ends_with("ms") {
-        let num: u64 = s[..s.len() - 2]
+    if let Some(stripped) = s.strip_suffix("ms") {
+        let num: u64 = stripped
             .parse()
             .map_err(|_| format!("Invalid duration: {}", s))?;
         Ok(Duration::from_millis(num))
-    } else if s.ends_with('s') {
-        let num: u64 = s[..s.len() - 1]
+    } else if let Some(stripped) = s.strip_suffix('s') {
+        let num: u64 = stripped
             .parse()
             .map_err(|_| format!("Invalid duration: {}", s))?;
         Ok(Duration::from_secs(num))
-    } else if s.ends_with('m') {
-        let num: u64 = s[..s.len() - 1]
+    } else if let Some(stripped) = s.strip_suffix('m') {
+        let num: u64 = stripped
             .parse()
             .map_err(|_| format!("Invalid duration: {}", s))?;
         Ok(Duration::from_secs(num * 60))

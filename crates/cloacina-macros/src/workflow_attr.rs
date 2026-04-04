@@ -241,11 +241,8 @@ fn generate_workflow_attr(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> T
         &task_dependencies,
     );
 
-    let packaged_mod_name = syn::Ident::new(
-        &format!(
-            "_packaged_ffi_{}",
-            workflow_name.replace('-', "_").replace(' ', "_")
-        ),
+    let _packaged_mod_name = syn::Ident::new(
+        &format!("_packaged_ffi_{}", workflow_name.replace(['-', ' '], "_")),
         Span::call_site(),
     );
 
@@ -331,6 +328,7 @@ fn validate_dependencies(
 ///
 /// Creates task constructors, workflow constructor, namespace registration,
 /// and `#[ctor]` auto-registration.
+#[allow(clippy::too_many_arguments)]
 fn generate_embedded_registration(
     mod_name: &syn::Ident,
     workflow_name: &str,
@@ -448,9 +446,7 @@ fn generate_embedded_registration(
         .collect();
 
     // Generate workflow constructor
-    let task_addition_code: Vec<TokenStream2> = detected_tasks
-        .iter()
-        .map(|(_task_id, fn_name)| {
+    let task_addition_code: Vec<TokenStream2> = detected_tasks.values().map(|fn_name| {
             let constructor_name = syn::Ident::new(
                 &format!("{}_task", fn_name),
                 fn_name.span(),
@@ -519,7 +515,7 @@ fn generate_embedded_registration(
         })
         .collect();
 
-    let safe_name = workflow_name.replace('-', "_").replace(' ', "_");
+    let safe_name = workflow_name.replace(['-', ' '], "_");
     let workflow_constructor_name = syn::Ident::new(
         &format!("_workflow_{}_constructor", safe_name),
         Span::call_site(),

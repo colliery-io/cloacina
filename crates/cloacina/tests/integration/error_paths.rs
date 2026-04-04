@@ -101,9 +101,7 @@ fn test_missing_dependency_returns_error() {
         .build();
 
     // build() validates and should return the error
-    let err = result
-        .err()
-        .expect("Expected MissingDependency error from build()");
+    let err = result.expect_err("Expected MissingDependency error from build()");
     match err {
         ValidationError::MissingDependency { task, dependency } => {
             assert!(task.contains("task1"));
@@ -136,9 +134,7 @@ fn test_cyclic_dependency_returns_error() {
         .build();
 
     // build() validates and should detect the cycle
-    let err = result
-        .err()
-        .expect("Expected CyclicDependency error from build()");
+    let err = result.expect_err("Expected CyclicDependency error from build()");
     assert!(matches!(err, ValidationError::CyclicDependency { .. }));
 }
 

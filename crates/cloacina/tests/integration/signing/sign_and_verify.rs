@@ -78,7 +78,7 @@ fn test_detached_signature_json_roundtrip() {
         algorithm: "ed25519".to_string(),
         package_hash: "abc123def456".to_string(),
         key_fingerprint: "fingerprint789".to_string(),
-        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &[0u8; 64]),
+        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 64]),
         signed_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -100,7 +100,7 @@ fn test_detached_signature_file_roundtrip() {
         algorithm: "ed25519".to_string(),
         package_hash: "abc123def456".to_string(),
         key_fingerprint: "fingerprint789".to_string(),
-        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &[0u8; 64]),
+        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 64]),
         signed_at: chrono::Utc::now().to_rfc3339(),
     };
 

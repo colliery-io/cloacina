@@ -140,3 +140,108 @@ impl PyTaskNamespace {
         self.inner.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_and_getters() {
+        pyo3::prepare_freethreaded_python();
+        let ns = PyTaskNamespace::new("tenant1", "pkg1", "wf1", "task1");
+        assert_eq!(ns.tenant_id(), "tenant1");
+        assert_eq!(ns.package_name(), "pkg1");
+        assert_eq!(ns.workflow_id(), "wf1");
+        assert_eq!(ns.task_id(), "task1");
+    }
+
+    #[test]
+    fn test_from_string_valid() {
+        pyo3::prepare_freethreaded_python();
+        let ns = PyTaskNamespace::from_string("tenant1::pkg1::wf1::task1").unwrap();
+        assert_eq!(ns.tenant_id(), "tenant1");
+        assert_eq!(ns.package_name(), "pkg1");
+        assert_eq!(ns.workflow_id(), "wf1");
+        assert_eq!(ns.task_id(), "task1");
+    }
+
+    #[test]
+    fn test_from_string_invalid() {
+        pyo3::prepare_freethreaded_python();
+        assert!(PyTaskNamespace::from_string("invalid").is_err());
+        assert!(PyTaskNamespace::from_string("a::b").is_err());
+        assert!(PyTaskNamespace::from_string("a::b::c").is_err());
+    }
+
+    #[test]
+    fn test_parent() {
+        pyo3::prepare_freethreaded_python();
+        let ns = PyTaskNamespace::new("t", "p", "w", "task1");
+        let parent = ns.parent();
+        assert_eq!(parent.tenant_id(), "t");
+        assert_eq!(parent.package_name(), "p");
+        assert_eq!(parent.workflow_id(), "w");
+        assert_eq!(parent.task_id(), "");
+    }
+
+    #[test]
+    fn test_is_child_of() {
+        pyo3::prepare_freethreaded_python();
+        let child = PyTaskNamespace::new("t", "p", "w", "task1");
+        let parent = PyTaskNamespace::new("t", "p", "w", "");
+        let non_parent = PyTaskNamespace::new("t", "p", "other_wf", "");
+
+        assert!(child.is_child_of(&parent));
+        assert!(!child.is_child_of(&non_parent));
+        // A parent is not a child of itself
+        assert!(!parent.is_child_of(&parent));
+    }
+
+    #[test]
+    fn test_is_sibling_of() {
+        pyo3::prepare_freethreaded_python();
+        let task1 = PyTaskNamespace::new("t", "p", "w", "task1");
+        let task2 = PyTaskNamespace::new("t", "p", "w", "task2");
+        let other = PyTaskNamespace::new("t", "p", "other_wf", "task3");
+
+        assert!(task1.is_sibling_of(&task2));
+        assert!(!task1.is_sibling_of(&other));
+        // A task is not a sibling of itself
+        assert!(!task1.is_sibling_of(&task1));
+    }
+
+    #[test]
+    fn test_str_and_repr() {
+        pyo3::prepare_freethreaded_python();
+        let ns = PyTaskNamespace::new("t", "p", "w", "task1");
+        assert_eq!(ns.__str__(), "t::p::w::task1");
+        assert_eq!(ns.__repr__(), "TaskNamespace('t', 'p', 'w', 'task1')");
+    }
+
+    #[test]
+    fn test_eq() {
+        pyo3::prepare_freethreaded_python();
+        let a = PyTaskNamespace::new("t", "p", "w", "task1");
+        let b = PyTaskNamespace::new("t", "p", "w", "task1");
+        let c = PyTaskNamespace::new("t", "p", "w", "task2");
+        assert!(a.__eq__(&b));
+        assert!(!a.__eq__(&c));
+    }
+
+    #[test]
+    fn test_hash_consistency() {
+        pyo3::prepare_freethreaded_python();
+        let a = PyTaskNamespace::new("t", "p", "w", "task1");
+        let b = PyTaskNamespace::new("t", "p", "w", "task1");
+        assert_eq!(a.__hash__(), b.__hash__());
+    }
+
+    #[test]
+    fn test_from_rust_to_rust_roundtrip() {
+        pyo3::prepare_freethreaded_python();
+        let rust_ns = crate::TaskNamespace::new("t", "p", "w", "task1");
+        let py_ns = PyTaskNamespace::from_rust(rust_ns.clone());
+        let roundtripped = py_ns.to_rust();
+        assert_eq!(rust_ns, roundtripped);
+    }
+}

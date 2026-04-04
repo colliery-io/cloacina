@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@
 use cloacina::dal::FilesystemRegistryStorage;
 use cloacina::registry::error::StorageError;
 use cloacina::registry::traits::RegistryStorage;
-use std::sync::Arc;
 use tempfile::TempDir;
 use uuid::Uuid;
 

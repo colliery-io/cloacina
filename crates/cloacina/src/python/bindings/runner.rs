@@ -2292,3 +2292,625 @@ impl PyPipelineResult {
         PyPipelineResult { inner: result }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+
+    fn unique_sqlite_url() -> String {
+        format!(
+            "sqlite:///tmp/cloacina_runner_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        )
+    }
+
+    #[test]
+    fn test_runner_repr() {
+        pyo3::prepare_freethreaded_python();
+        // Create runner with SQLite (lighter weight, no Postgres needed)
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        assert_eq!(
+            runner.__repr__(),
+            "DefaultRunner(thread_separated_async_runtime)"
+        );
+    }
+
+    #[test]
+    fn test_runner_start_returns_not_implemented() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let result = runner.start();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_runner_stop_returns_not_implemented() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        let result = runner.stop();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_runner_shutdown() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            runner.shutdown(py).expect("Shutdown should succeed");
+        });
+    }
+
+    #[test]
+    fn test_runner_context_manager() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let runner = Py::new(py, PyDefaultRunner::new(&unique_sqlite_url()).unwrap()).unwrap();
+            // __enter__ returns self
+            let entered = PyDefaultRunner::__enter__(runner.borrow(py));
+            assert_eq!(
+                entered.__repr__(),
+                "DefaultRunner(thread_separated_async_runtime)"
+            );
+            // __exit__ shuts down
+            let result = runner.borrow(py).__exit__(py, None, None, None);
+            assert!(result.is_ok());
+        });
+    }
+
+    #[test]
+    fn test_runner_list_cron_schedules_empty() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedules = runner
+                .list_cron_schedules(None, None, None, py)
+                .expect("Should return empty list");
+            assert!(schedules.is_empty());
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_list_trigger_schedules_empty() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedules = runner
+                .list_trigger_schedules(None, None, None, py)
+                .expect("Should return empty list");
+            assert!(schedules.is_empty());
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_trigger_schedule_not_found() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let result = runner.get_trigger_schedule("nonexistent".to_string(), py);
+            // Should return Ok(None) or Ok with empty result
+            assert!(result.is_ok());
+            assert!(result.unwrap().is_none());
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn test_runner_postgres_construction_and_shutdown() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(TEST_PG_URL).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            runner.shutdown(py).expect("Shutdown should succeed");
+        });
+    }
+
+    #[test]
+    fn test_runner_register_cron_workflow() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            // Register a cron workflow — should return a schedule ID string
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "test-cron-wf".to_string(),
+                    "0 * * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .expect("register_cron_workflow should succeed");
+            assert!(!schedule_id.is_empty());
+            // Should be a valid UUID
+            assert!(uuid::Uuid::parse_str(&schedule_id).is_ok());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_list_cron_schedules_after_register() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            // Register a workflow
+            runner
+                .register_cron_workflow(
+                    "list-test-wf".to_string(),
+                    "0 12 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            // List should now have one schedule
+            let schedules = runner
+                .list_cron_schedules(None, None, None, py)
+                .expect("list should succeed");
+            assert_eq!(schedules.len(), 1);
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_cron_schedule() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "get-test-wf".to_string(),
+                    "30 2 * * *".to_string(),
+                    "America/New_York".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            let schedule_obj = runner
+                .get_cron_schedule(schedule_id, py)
+                .expect("get should succeed");
+            // Should be a PyDict
+            assert!(!schedule_obj.is_none(py));
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_set_cron_schedule_enabled() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "enable-test-wf".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            // Disable
+            runner
+                .set_cron_schedule_enabled(schedule_id.clone(), false, py)
+                .expect("disable should succeed");
+
+            // Re-enable
+            runner
+                .set_cron_schedule_enabled(schedule_id, true, py)
+                .expect("enable should succeed");
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_delete_cron_schedule() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "delete-test-wf".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            runner
+                .delete_cron_schedule(schedule_id, py)
+                .expect("delete should succeed");
+
+            // List should now be empty
+            let schedules = runner.list_cron_schedules(None, None, None, py).unwrap();
+            assert!(schedules.is_empty());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_update_cron_schedule() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "update-test-wf".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            runner
+                .update_cron_schedule(
+                    schedule_id,
+                    "30 6 * * *".to_string(),
+                    "America/Chicago".to_string(),
+                    py,
+                )
+                .expect("update should succeed");
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_cron_execution_history_empty() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let schedule_id = runner
+                .register_cron_workflow(
+                    "history-test-wf".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+
+            let history = runner
+                .get_cron_execution_history(schedule_id, None, None, py)
+                .expect("history should succeed");
+            assert!(history.is_empty());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_cron_execution_stats() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let since = chrono::Utc::now() - chrono::Duration::try_hours(1).unwrap();
+            let stats = runner
+                .get_cron_execution_stats(since.to_rfc3339(), py)
+                .expect("stats should succeed");
+            assert!(!stats.is_none(py));
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_set_cron_schedule_enabled_invalid_id() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let result = runner.set_cron_schedule_enabled("not-a-uuid".to_string(), false, py);
+            assert!(result.is_err());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_set_trigger_enabled() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            // Enabling a nonexistent trigger — should error or succeed gracefully
+            let result = runner.set_trigger_enabled("nonexistent".to_string(), true, py);
+            // Either way, runner shouldn't crash
+            let _ = result;
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_trigger_execution_history() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let history =
+                runner.get_trigger_execution_history("nonexistent".to_string(), None, None, py);
+            // Should return empty or error, not crash
+            let _ = history;
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_pipeline_result_completed() {
+        pyo3::prepare_freethreaded_python();
+        let mut ctx = crate::Context::new();
+        ctx.insert("result".to_string(), serde_json::json!("done"))
+            .unwrap();
+        let result = crate::executor::PipelineResult {
+            execution_id: uuid::Uuid::new_v4(),
+            workflow_name: "test-wf".to_string(),
+            status: crate::executor::PipelineStatus::Completed,
+            start_time: chrono::Utc::now(),
+            end_time: Some(chrono::Utc::now()),
+            duration: Some(std::time::Duration::from_secs(1)),
+            final_context: ctx,
+            task_results: vec![],
+            error_message: None,
+        };
+        let py_result = PyPipelineResult::from_result(result);
+
+        assert_eq!(py_result.status(), "Completed");
+        assert!(!py_result.start_time().is_empty());
+        assert!(py_result.end_time().is_some());
+        assert!(py_result.error_message().is_none());
+
+        Python::with_gil(|_py| {
+            let ctx = py_result.final_context();
+            assert_eq!(ctx.inner.get("result"), Some(&serde_json::json!("done")));
+        });
+
+        let repr = py_result.__repr__();
+        assert!(repr.contains("Completed"));
+        assert!(repr.contains("None")); // no error
+    }
+
+    #[test]
+    fn test_pipeline_result_failed() {
+        pyo3::prepare_freethreaded_python();
+        let result = crate::executor::PipelineResult {
+            execution_id: uuid::Uuid::new_v4(),
+            workflow_name: "fail-wf".to_string(),
+            status: crate::executor::PipelineStatus::Failed,
+            start_time: chrono::Utc::now(),
+            end_time: None,
+            duration: None,
+            final_context: crate::Context::new(),
+            task_results: vec![],
+            error_message: Some("something broke".to_string()),
+        };
+        let py_result = PyPipelineResult::from_result(result);
+
+        assert_eq!(py_result.status(), "Failed");
+        assert!(py_result.end_time().is_none());
+        assert_eq!(py_result.error_message(), Some("something broke"));
+        assert!(py_result.__repr__().contains("something broke"));
+    }
+
+    #[test]
+    fn test_runner_execute_nonexistent_workflow() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let ctx = crate::python::context::PyContext::new(None).unwrap();
+            let result = runner.execute("nonexistent_workflow", &ctx, py);
+            assert!(
+                result.is_err(),
+                "Execute of nonexistent workflow should error"
+            );
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_execute_registered_workflow() {
+        pyo3::prepare_freethreaded_python();
+
+        // Register a simple workflow
+        use async_trait::async_trait;
+        use std::sync::Arc;
+
+        #[derive(Clone)]
+        struct NoOpTask;
+
+        #[async_trait]
+        impl crate::Task for NoOpTask {
+            async fn execute(
+                &self,
+                context: crate::Context<serde_json::Value>,
+            ) -> Result<crate::Context<serde_json::Value>, crate::TaskError> {
+                Ok(context)
+            }
+            fn id(&self) -> &str {
+                "noop"
+            }
+            fn dependencies(&self) -> &[crate::TaskNamespace] {
+                &[]
+            }
+        }
+
+        let workflow = crate::Workflow::builder("py_runner_exec_test")
+            .add_task(Arc::new(NoOpTask))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        crate::register_workflow_constructor("py_runner_exec_test".to_string(), {
+            let w = workflow.clone();
+            move || w.clone()
+        });
+
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let ctx = crate::python::context::PyContext::new(None).unwrap();
+            let result = runner.execute("py_runner_exec_test", &ctx, py);
+            assert!(result.is_ok(), "Execute should succeed: {:?}", result.err());
+
+            let pipeline_result = result.unwrap();
+            // Should have a status (may be Completed or Pending depending on timing)
+            assert!(!pipeline_result.status().is_empty());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_get_cron_execution_stats_invalid_date() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            let result = runner.get_cron_execution_stats("not-a-date".to_string(), py);
+            assert!(result.is_err(), "Invalid date should error");
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_runner_list_cron_schedules_enabled_only() {
+        pyo3::prepare_freethreaded_python();
+        let url = unique_sqlite_url();
+        let runner = PyDefaultRunner::new(&url).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            // Register a schedule and disable it
+            let id = runner
+                .register_cron_workflow(
+                    "filter-test".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+            runner.set_cron_schedule_enabled(id, false, py).unwrap();
+
+            // List with enabled_only=true should return empty
+            let enabled = runner
+                .list_cron_schedules(Some(true), None, None, py)
+                .unwrap();
+            assert!(
+                enabled.is_empty(),
+                "disabled schedule should be filtered out"
+            );
+
+            // List without filter should return one
+            let all = runner
+                .list_cron_schedules(Some(false), None, None, py)
+                .unwrap();
+            assert_eq!(all.len(), 1);
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    // ── with_schema validation tests ─────────────────────────────────
+
+    #[test]
+    fn test_with_schema_rejects_sqlite() {
+        pyo3::prepare_freethreaded_python();
+        let result = PyDefaultRunner::with_schema("sqlite:///tmp/test.db", "tenant_a");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_with_schema_rejects_empty_schema() {
+        pyo3::prepare_freethreaded_python();
+        let result = PyDefaultRunner::with_schema(
+            "postgres://cloacina:cloacina@localhost:5432/cloacina",
+            "",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_with_schema_rejects_invalid_chars() {
+        pyo3::prepare_freethreaded_python();
+        let result = PyDefaultRunner::with_schema(
+            "postgres://cloacina:cloacina@localhost:5432/cloacina",
+            "tenant;DROP TABLE",
+        );
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn test_with_schema_postgres_creates_and_shuts_down() {
+        pyo3::prepare_freethreaded_python();
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let runner =
+            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        Python::with_gil(|py| {
+            // Verify cron list works through the schema runner
+            let schedules = runner
+                .list_cron_schedules(None, None, None, py)
+                .expect("list should work");
+            assert!(schedules.is_empty());
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn test_with_schema_register_and_list_cron() {
+        pyo3::prepare_freethreaded_python();
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let runner =
+            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        Python::with_gil(|py| {
+            let id = runner
+                .register_cron_workflow(
+                    "schema-cron-test".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+            assert!(!id.is_empty());
+
+            let schedules = runner.list_cron_schedules(None, None, None, py).unwrap();
+            assert_eq!(schedules.len(), 1);
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    fn test_shutdown_error_display() {
+        let err = ShutdownError::ChannelClosed;
+        assert!(format!("{}", err).contains("channel closed"));
+
+        let err = ShutdownError::ThreadPanic;
+        assert!(format!("{}", err).contains("panicked"));
+
+        let err = ShutdownError::Timeout(5);
+        assert!(format!("{}", err).contains("5"));
+    }
+}

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -515,5 +515,260 @@ impl PipelineStatus {
             "Paused" => PipelineStatus::Paused,
             _ => PipelineStatus::Failed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    // -----------------------------------------------------------------------
+    // PipelineStatus tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pipeline_status_is_terminal() {
+        assert!(PipelineStatus::Completed.is_terminal());
+        assert!(PipelineStatus::Failed.is_terminal());
+        assert!(PipelineStatus::Cancelled.is_terminal());
+    }
+
+    #[test]
+    fn test_pipeline_status_is_not_terminal() {
+        assert!(!PipelineStatus::Pending.is_terminal());
+        assert!(!PipelineStatus::Running.is_terminal());
+        assert!(!PipelineStatus::Paused.is_terminal());
+    }
+
+    #[test]
+    fn test_pipeline_status_from_str_valid() {
+        assert_eq!(PipelineStatus::from_str("Pending"), PipelineStatus::Pending);
+        assert_eq!(PipelineStatus::from_str("Running"), PipelineStatus::Running);
+        assert_eq!(
+            PipelineStatus::from_str("Completed"),
+            PipelineStatus::Completed
+        );
+        assert_eq!(PipelineStatus::from_str("Failed"), PipelineStatus::Failed);
+        assert_eq!(
+            PipelineStatus::from_str("Cancelled"),
+            PipelineStatus::Cancelled
+        );
+        assert_eq!(PipelineStatus::from_str("Paused"), PipelineStatus::Paused);
+    }
+
+    #[test]
+    fn test_pipeline_status_from_str_invalid_defaults_to_failed() {
+        assert_eq!(PipelineStatus::from_str("garbage"), PipelineStatus::Failed);
+        assert_eq!(PipelineStatus::from_str(""), PipelineStatus::Failed);
+        assert_eq!(PipelineStatus::from_str("running"), PipelineStatus::Failed);
+        // case-sensitive
+    }
+
+    #[test]
+    fn test_pipeline_status_eq() {
+        assert_eq!(PipelineStatus::Running, PipelineStatus::Running);
+        assert_ne!(PipelineStatus::Running, PipelineStatus::Pending);
+    }
+
+    #[test]
+    fn test_pipeline_status_clone() {
+        let status = PipelineStatus::Paused;
+        let cloned = status.clone();
+        assert_eq!(status, cloned);
+    }
+
+    #[test]
+    fn test_pipeline_status_debug() {
+        let debug_str = format!("{:?}", PipelineStatus::Running);
+        assert_eq!(debug_str, "Running");
+    }
+
+    // -----------------------------------------------------------------------
+    // PipelineError tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pipeline_error_display_database_connection() {
+        let err = PipelineError::DatabaseConnection {
+            message: "connection refused".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Database connection failed: connection refused"
+        );
+    }
+
+    #[test]
+    fn test_pipeline_error_display_workflow_not_found() {
+        let err = PipelineError::WorkflowNotFound {
+            workflow_name: "my_workflow".to_string(),
+        };
+        assert_eq!(err.to_string(), "Workflow not found: my_workflow");
+    }
+
+    #[test]
+    fn test_pipeline_error_display_execution_failed() {
+        let err = PipelineError::ExecutionFailed {
+            message: "something broke".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Pipeline execution failed: something broke"
+        );
+    }
+
+    #[test]
+    fn test_pipeline_error_display_timeout() {
+        let err = PipelineError::Timeout {
+            timeout_seconds: 300,
+        };
+        assert_eq!(err.to_string(), "Pipeline timeout after 300s");
+    }
+
+    #[test]
+    fn test_pipeline_error_display_configuration() {
+        let err = PipelineError::Configuration {
+            message: "bad config".to_string(),
+        };
+        assert_eq!(err.to_string(), "Configuration error: bad config");
+    }
+
+    // -----------------------------------------------------------------------
+    // TaskResult tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_task_result_construction() {
+        let now = Utc::now();
+        let result = TaskResult {
+            task_name: "extract".to_string(),
+            status: TaskState::Completed {
+                completion_time: now,
+            },
+            start_time: Some(now),
+            end_time: Some(now),
+            duration: Some(Duration::from_secs(5)),
+            attempt_count: 1,
+            error_message: None,
+        };
+        assert_eq!(result.task_name, "extract");
+        assert_eq!(result.attempt_count, 1);
+        assert!(result.error_message.is_none());
+    }
+
+    #[test]
+    fn test_task_result_with_error() {
+        let result = TaskResult {
+            task_name: "transform".to_string(),
+            status: TaskState::Failed {
+                error: "division by zero".to_string(),
+                failure_time: Utc::now(),
+            },
+            start_time: None,
+            end_time: None,
+            duration: None,
+            attempt_count: 3,
+            error_message: Some("division by zero".to_string()),
+        };
+        assert_eq!(result.error_message.as_deref(), Some("division by zero"));
+        assert_eq!(result.attempt_count, 3);
+    }
+
+    #[test]
+    fn test_task_result_clone() {
+        let result = TaskResult {
+            task_name: "load".to_string(),
+            status: TaskState::Pending,
+            start_time: None,
+            end_time: None,
+            duration: None,
+            attempt_count: 0,
+            error_message: None,
+        };
+        let cloned = result.clone();
+        assert_eq!(cloned.task_name, result.task_name);
+    }
+
+    // -----------------------------------------------------------------------
+    // PipelineResult tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pipeline_result_construction() {
+        let result = PipelineResult {
+            execution_id: Uuid::new_v4(),
+            workflow_name: "etl_pipeline".to_string(),
+            status: PipelineStatus::Completed,
+            start_time: Utc::now(),
+            end_time: Some(Utc::now()),
+            duration: Some(Duration::from_secs(10)),
+            final_context: Context::new(),
+            task_results: vec![],
+            error_message: None,
+        };
+        assert_eq!(result.workflow_name, "etl_pipeline");
+        assert_eq!(result.status, PipelineStatus::Completed);
+        assert!(result.error_message.is_none());
+        assert!(result.task_results.is_empty());
+    }
+
+    #[test]
+    fn test_pipeline_result_with_tasks() {
+        let task1 = TaskResult {
+            task_name: "step_1".to_string(),
+            status: TaskState::Completed {
+                completion_time: Utc::now(),
+            },
+            start_time: None,
+            end_time: None,
+            duration: Some(Duration::from_secs(2)),
+            attempt_count: 1,
+            error_message: None,
+        };
+        let task2 = TaskResult {
+            task_name: "step_2".to_string(),
+            status: TaskState::Failed {
+                error: "oops".to_string(),
+                failure_time: Utc::now(),
+            },
+            start_time: None,
+            end_time: None,
+            duration: Some(Duration::from_secs(1)),
+            attempt_count: 2,
+            error_message: Some("oops".to_string()),
+        };
+        let result = PipelineResult {
+            execution_id: Uuid::new_v4(),
+            workflow_name: "two_step".to_string(),
+            status: PipelineStatus::Failed,
+            start_time: Utc::now(),
+            end_time: Some(Utc::now()),
+            duration: Some(Duration::from_secs(3)),
+            final_context: Context::new(),
+            task_results: vec![task1, task2],
+            error_message: Some("step_2 failed".to_string()),
+        };
+        assert_eq!(result.task_results.len(), 2);
+        assert_eq!(result.task_results[0].task_name, "step_1");
+        assert_eq!(result.task_results[1].task_name, "step_2");
+    }
+
+    #[test]
+    fn test_pipeline_result_debug() {
+        let result = PipelineResult {
+            execution_id: Uuid::new_v4(),
+            workflow_name: "debug_wf".to_string(),
+            status: PipelineStatus::Running,
+            start_time: Utc::now(),
+            end_time: None,
+            duration: None,
+            final_context: Context::new(),
+            task_results: vec![],
+            error_message: None,
+        };
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("PipelineResult"));
+        assert!(debug_str.contains("debug_wf"));
     }
 }

@@ -29,7 +29,6 @@ use axum::{
 };
 use lru::LruCache;
 use std::num::NonZeroUsize;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::warn;
@@ -41,8 +40,11 @@ use crate::commands::serve::AppState;
 /// Authenticated key info inserted into request extensions.
 #[derive(Clone, Debug)]
 pub struct AuthenticatedKey {
+    #[allow(dead_code)]
     pub key_id: uuid::Uuid,
+    #[allow(dead_code)]
     pub name: String,
+    #[allow(dead_code)]
     pub permissions: String,
 }
 
@@ -101,6 +103,7 @@ impl KeyCache {
     }
 
     /// Evict a specific key (used after revocation).
+    #[allow(dead_code)]
     pub async fn evict(&self, hash: &str) {
         let mut cache = self.cache.lock().await;
         cache.pop(hash);

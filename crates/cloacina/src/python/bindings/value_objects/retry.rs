@@ -67,6 +67,7 @@ impl PyRetryPolicy {
 
     /// Create a default RetryPolicy
     #[staticmethod]
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self {
             inner: crate::retry::RetryPolicy::default(),
@@ -302,5 +303,141 @@ impl PyRetryPolicy {
     /// Convert to Rust RetryPolicy (for internal use)
     pub fn to_rust(&self) -> crate::retry::RetryPolicy {
         self.inner.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_policy() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::default();
+        // Default should have reasonable values
+        assert!(policy.max_attempts() > 0);
+        assert!(policy.initial_delay() > 0.0);
+        assert!(policy.max_delay() >= policy.initial_delay());
+    }
+
+    #[test]
+    fn test_builder_defaults() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::builder().build();
+        assert!(policy.max_attempts() > 0);
+        assert!(policy.initial_delay() > 0.0);
+    }
+
+    #[test]
+    fn test_builder_chain() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::builder()
+            .max_attempts(5)
+            .initial_delay(2.0)
+            .max_delay(60.0)
+            .with_jitter(true)
+            .build();
+        assert_eq!(policy.max_attempts(), 5);
+        assert!((policy.initial_delay() - 2.0).abs() < f64::EPSILON);
+        assert!((policy.max_delay() - 60.0).abs() < f64::EPSILON);
+        assert!(policy.with_jitter());
+    }
+
+    #[test]
+    fn test_should_retry() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::builder().max_attempts(3).build();
+        assert!(policy.should_retry(0, "some_error"));
+        assert!(policy.should_retry(1, "some_error"));
+        assert!(policy.should_retry(2, "some_error"));
+        assert!(!policy.should_retry(3, "some_error"));
+        assert!(!policy.should_retry(4, "some_error"));
+    }
+
+    #[test]
+    fn test_calculate_delay() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::builder()
+            .initial_delay(1.0)
+            .with_jitter(false)
+            .build();
+        let delay = policy.calculate_delay(0);
+        assert!(delay > 0.0);
+    }
+
+    #[test]
+    fn test_retry_policy_repr() {
+        pyo3::prepare_freethreaded_python();
+        let policy = PyRetryPolicy::default();
+        let repr = policy.__repr__();
+        assert!(repr.starts_with("RetryPolicy("));
+        assert!(repr.contains("max_attempts="));
+        assert!(repr.contains("initial_delay="));
+    }
+
+    #[test]
+    fn test_backoff_strategy_fixed() {
+        pyo3::prepare_freethreaded_python();
+        let s = PyBackoffStrategy::fixed();
+        assert_eq!(s.__repr__(), "BackoffStrategy.Fixed");
+    }
+
+    #[test]
+    fn test_backoff_strategy_linear() {
+        pyo3::prepare_freethreaded_python();
+        let s = PyBackoffStrategy::linear(2.0);
+        let repr = s.__repr__();
+        assert!(repr.contains("Linear"));
+        assert!(repr.contains("2"));
+    }
+
+    #[test]
+    fn test_backoff_strategy_exponential() {
+        pyo3::prepare_freethreaded_python();
+        let s = PyBackoffStrategy::exponential(2.0, Some(1.5));
+        let repr = s.__repr__();
+        assert!(repr.contains("Exponential"));
+        assert!(repr.contains("2"));
+    }
+
+    #[test]
+    fn test_retry_condition_never() {
+        pyo3::prepare_freethreaded_python();
+        let c = PyRetryCondition::never();
+        assert_eq!(c.__repr__(), "RetryCondition.Never");
+    }
+
+    #[test]
+    fn test_retry_condition_transient_only() {
+        pyo3::prepare_freethreaded_python();
+        let c = PyRetryCondition::transient_only();
+        assert_eq!(c.__repr__(), "RetryCondition.TransientOnly");
+    }
+
+    #[test]
+    fn test_retry_condition_all_errors() {
+        pyo3::prepare_freethreaded_python();
+        let c = PyRetryCondition::all_errors();
+        assert_eq!(c.__repr__(), "RetryCondition.AllErrors");
+    }
+
+    #[test]
+    fn test_retry_condition_error_pattern() {
+        pyo3::prepare_freethreaded_python();
+        let c = PyRetryCondition::error_pattern(vec!["timeout".to_string(), "conn".to_string()]);
+        let repr = c.__repr__();
+        assert!(repr.contains("ErrorPattern"));
+        assert!(repr.contains("timeout"));
+    }
+
+    #[test]
+    fn test_from_rust_to_rust_roundtrip() {
+        pyo3::prepare_freethreaded_python();
+        let rust_policy = crate::retry::RetryPolicy::default();
+        let py_policy = PyRetryPolicy::from_rust(rust_policy.clone());
+        let roundtripped = py_policy.to_rust();
+        assert_eq!(rust_policy.max_attempts, roundtripped.max_attempts);
+        assert_eq!(rust_policy.initial_delay, roundtripped.initial_delay);
+        assert_eq!(rust_policy.max_delay, roundtripped.max_delay);
     }
 }

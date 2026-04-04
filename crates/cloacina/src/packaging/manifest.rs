@@ -25,6 +25,7 @@ use super::types::CargoToml;
 
 /// Statically compiled regex for matching workflow attributes.
 /// Matches both `#[workflow(name = "...")]` (new) and `#[packaged_workflow(package = "...")]` (legacy).
+#[allow(dead_code)]
 static PACKAGED_WORKFLOW_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r#"#\[(?:packaged_)?workflow\s*\(\s*[^)]*(?:package|name)\s*=\s*"([^"]+)"[^)]*\)\s*\]"#,
@@ -228,6 +229,7 @@ fn extract_task_info_and_graph_from_library(
 }
 
 /// Extract package names from source files by looking for #[packaged_workflow] attributes.
+#[allow(dead_code)]
 pub(crate) fn extract_package_names_from_source(project_path: &Path) -> Result<Vec<String>> {
     let src_path = project_path.join("src");
     let mut package_names = Vec::new();

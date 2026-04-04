@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -249,5 +249,255 @@ impl DependencyGraph {
 impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ns(id: &str) -> TaskNamespace {
+        TaskNamespace::new("public", "embedded", "test", id)
+    }
+
+    #[test]
+    fn test_add_node_and_get_dependencies() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        graph.add_node(a.clone());
+
+        // Node exists with empty dependencies
+        let deps = graph.get_dependencies(&a);
+        assert!(deps.is_some());
+        assert!(deps.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_add_edge_and_get_dependencies() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(b.clone(), a.clone());
+
+        let deps = graph.get_dependencies(&b).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], a);
+    }
+
+    #[test]
+    fn test_get_dependencies_nonexistent_node() {
+        let graph = DependencyGraph::new();
+        let missing = ns("missing");
+        assert!(graph.get_dependencies(&missing).is_none());
+    }
+
+    #[test]
+    fn test_get_dependents() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        graph.add_edge(b.clone(), a.clone());
+        graph.add_edge(c.clone(), a.clone());
+
+        let dependents = graph.get_dependents(&a);
+        assert_eq!(dependents.len(), 2);
+        assert!(dependents.contains(&b));
+        assert!(dependents.contains(&c));
+    }
+
+    #[test]
+    fn test_get_dependents_no_dependents() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        graph.add_node(a.clone());
+
+        let dependents = graph.get_dependents(&a);
+        assert!(dependents.is_empty());
+    }
+
+    #[test]
+    fn test_remove_node() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(b.clone(), a.clone());
+
+        graph.remove_node(&a);
+        assert!(graph.get_dependencies(&a).is_none());
+        // b's dependency on a should be removed
+        let deps = graph.get_dependencies(&b).unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_remove_edge() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(b.clone(), a.clone());
+
+        graph.remove_edge(&b, &a);
+        let deps = graph.get_dependencies(&b).unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_remove_edge_nonexistent() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        // Should not panic
+        graph.remove_edge(&a, &b);
+    }
+
+    #[test]
+    fn test_has_cycles_no_cycle() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        graph.add_edge(b.clone(), a.clone()); // b depends on a
+        graph.add_edge(c.clone(), b.clone()); // c depends on b
+
+        assert!(!graph.has_cycles());
+    }
+
+    #[test]
+    fn test_has_cycles_with_cycle() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(a.clone(), b.clone()); // a depends on b
+        graph.add_edge(b.clone(), a.clone()); // b depends on a
+
+        assert!(graph.has_cycles());
+    }
+
+    #[test]
+    fn test_has_cycles_three_node_cycle() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        graph.add_edge(a.clone(), b.clone());
+        graph.add_edge(b.clone(), c.clone());
+        graph.add_edge(c.clone(), a.clone());
+
+        assert!(graph.has_cycles());
+    }
+
+    #[test]
+    fn test_find_cycle_returns_some_when_cyclic() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(a.clone(), b.clone());
+        graph.add_edge(b.clone(), a.clone());
+
+        let cycle = graph.find_cycle();
+        assert!(cycle.is_some());
+        let cycle = cycle.unwrap();
+        assert!(cycle.len() >= 2);
+    }
+
+    #[test]
+    fn test_find_cycle_returns_none_when_acyclic() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(b.clone(), a.clone());
+
+        assert!(graph.find_cycle().is_none());
+    }
+
+    #[test]
+    fn test_topological_sort_linear_chain() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        graph.add_edge(b.clone(), a.clone()); // b depends on a
+        graph.add_edge(c.clone(), b.clone()); // c depends on b
+
+        let sorted = graph.topological_sort().unwrap();
+        let pos_a = sorted.iter().position(|x| *x == a).unwrap();
+        let pos_b = sorted.iter().position(|x| *x == b).unwrap();
+        let pos_c = sorted.iter().position(|x| *x == c).unwrap();
+
+        assert!(pos_a < pos_b);
+        assert!(pos_b < pos_c);
+    }
+
+    #[test]
+    fn test_topological_sort_diamond() {
+        // a -> b, a -> c, b -> d, c -> d
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        let d = ns("d");
+        graph.add_edge(b.clone(), a.clone());
+        graph.add_edge(c.clone(), a.clone());
+        graph.add_edge(d.clone(), b.clone());
+        graph.add_edge(d.clone(), c.clone());
+
+        let sorted = graph.topological_sort().unwrap();
+        let pos_a = sorted.iter().position(|x| *x == a).unwrap();
+        let pos_b = sorted.iter().position(|x| *x == b).unwrap();
+        let pos_c = sorted.iter().position(|x| *x == c).unwrap();
+        let pos_d = sorted.iter().position(|x| *x == d).unwrap();
+
+        assert!(pos_a < pos_b);
+        assert!(pos_a < pos_c);
+        assert!(pos_b < pos_d);
+        assert!(pos_c < pos_d);
+    }
+
+    #[test]
+    fn test_topological_sort_single_node() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        graph.add_node(a.clone());
+
+        let sorted = graph.topological_sort().unwrap();
+        assert_eq!(sorted.len(), 1);
+        assert_eq!(sorted[0], a);
+    }
+
+    #[test]
+    fn test_topological_sort_independent_nodes() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        let c = ns("c");
+        graph.add_node(a.clone());
+        graph.add_node(b.clone());
+        graph.add_node(c.clone());
+
+        let sorted = graph.topological_sort().unwrap();
+        assert_eq!(sorted.len(), 3);
+    }
+
+    #[test]
+    fn test_topological_sort_cyclic_returns_error() {
+        let mut graph = DependencyGraph::new();
+        let a = ns("a");
+        let b = ns("b");
+        graph.add_edge(a.clone(), b.clone());
+        graph.add_edge(b.clone(), a.clone());
+
+        let result = graph.topological_sort();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::CyclicDependency { .. }
+        ));
+    }
+
+    #[test]
+    fn test_default_creates_empty_graph() {
+        let graph = DependencyGraph::default();
+        assert!(!graph.has_cycles());
     }
 }

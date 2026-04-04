@@ -227,11 +227,11 @@ impl Database {
                         .map_or(String::new(), |s| format!(" with schema '{}'", s))
                 );
 
-                return Ok(Self {
+                Ok(Self {
                     pool: AnyPool::Postgres(pool),
                     backend,
                     schema: validated_schema,
-                });
+                })
             }
             BackendType::Sqlite => {
                 let connection_url = Self::build_sqlite_url(connection_string);
@@ -250,11 +250,11 @@ impl Database {
                     sqlite_pool_size
                 );
 
-                return Ok(Self {
+                Ok(Self {
                     pool: AnyPool::Sqlite(pool),
                     backend,
                     schema: validated_schema,
-                });
+                })
             }
         }
 
@@ -384,8 +384,7 @@ impl Database {
                         .map_err(|e| format!("Failed to run PostgreSQL migrations: {}", e))
                 })
                 .await
-                .map_err(|e| format!("Failed to run migrations: {}", e))?
-                .map_err(|e| e)?;
+                .map_err(|e| format!("Failed to run migrations: {}", e))??;
             }
             AnyPool::Sqlite(pool) => {
                 let conn = pool.get().await.map_err(|e| e.to_string())?;
@@ -407,8 +406,7 @@ impl Database {
                         .map_err(|e| format!("Failed to run SQLite migrations: {}", e))
                 })
                 .await
-                .map_err(|e| format!("Failed to run migrations: {}", e))?
-                .map_err(|e| e)?;
+                .map_err(|e| format!("Failed to run migrations: {}", e))??;
             }
         }
 
@@ -508,8 +506,7 @@ impl Database {
                 .map_err(|e| format!("Failed to run migrations: {}", e))
         })
         .await
-        .map_err(|e| format!("Failed to run migrations in schema: {}", e))?
-        .map_err(|e| e)?;
+        .map_err(|e| format!("Failed to run migrations in schema: {}", e))??;
 
         info!("Schema '{}' set up successfully", schema);
         Ok(())

@@ -34,7 +34,7 @@ static TEST_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
 /// source directory — no cargo subprocess is spawned.
 /// Run `angreal cloacina integration` to set up the environment before tests.
 fn get_test_package() -> Vec<u8> {
-    TEST_PACKAGE.get_or_init(|| create_source_package()).clone()
+    TEST_PACKAGE.get_or_init(create_source_package).clone()
 }
 
 /// Create a fidius source package from the simple-packaged example directory.

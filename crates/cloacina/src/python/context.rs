@@ -236,3 +236,198 @@ impl Clone for PyContext {
         PyContext { inner: new_context }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::types::PyDict;
+
+    #[test]
+    fn test_new_empty() {
+        pyo3::prepare_freethreaded_python();
+        let ctx = PyContext::new(None).unwrap();
+        assert_eq!(ctx.__len__(), 0);
+    }
+
+    #[test]
+    fn test_new_from_dict() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let dict = PyDict::new(py);
+            dict.set_item("key", "value").unwrap();
+            let ctx = PyContext::new(Some(&dict.as_borrowed())).unwrap();
+            assert_eq!(ctx.__len__(), 1);
+            assert!(ctx.__contains__("key"));
+        });
+    }
+
+    #[test]
+    fn test_set_and_get() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = 42i64.into_pyobject(py).unwrap();
+            ctx.set("answer", &val.as_borrowed()).unwrap();
+
+            let result = ctx.get("answer", None).unwrap();
+            let extracted: i64 = result.extract(py).unwrap();
+            assert_eq!(extracted, 42);
+        });
+    }
+
+    #[test]
+    fn test_insert_new_key() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "hello".into_pyobject(py).unwrap();
+            ctx.insert("greeting", &val.as_borrowed()).unwrap();
+            assert!(ctx.__contains__("greeting"));
+        });
+    }
+
+    #[test]
+    fn test_insert_duplicate_errors() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "hello".into_pyobject(py).unwrap();
+            ctx.insert("key", &val.as_borrowed()).unwrap();
+            let val2 = "world".into_pyobject(py).unwrap();
+            assert!(ctx.insert("key", &val2.as_borrowed()).is_err());
+        });
+    }
+
+    #[test]
+    fn test_update_existing_key() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "hello".into_pyobject(py).unwrap();
+            ctx.insert("key", &val.as_borrowed()).unwrap();
+            let val2 = "world".into_pyobject(py).unwrap();
+            ctx.update("key", &val2.as_borrowed()).unwrap();
+
+            let result = ctx.get("key", None).unwrap();
+            let extracted: String = result.extract(py).unwrap();
+            assert_eq!(extracted, "world");
+        });
+    }
+
+    #[test]
+    fn test_update_missing_key_errors() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "hello".into_pyobject(py).unwrap();
+            assert!(ctx.update("missing", &val.as_borrowed()).is_err());
+        });
+    }
+
+    #[test]
+    fn test_remove_existing() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = 99i64.into_pyobject(py).unwrap();
+            ctx.insert("num", &val.as_borrowed()).unwrap();
+
+            let removed = ctx.remove("num").unwrap();
+            assert!(removed.is_some());
+            assert_eq!(ctx.__len__(), 0);
+        });
+    }
+
+    #[test]
+    fn test_remove_missing_returns_none() {
+        pyo3::prepare_freethreaded_python();
+        let mut ctx = PyContext::new(None).unwrap();
+        let removed = ctx.remove("nope").unwrap();
+        assert!(removed.is_none());
+    }
+
+    #[test]
+    fn test_len_and_contains() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            assert_eq!(ctx.__len__(), 0);
+            assert!(!ctx.__contains__("a"));
+
+            let val = 1i64.into_pyobject(py).unwrap();
+            ctx.insert("a", &val.as_borrowed()).unwrap();
+            assert_eq!(ctx.__len__(), 1);
+            assert!(ctx.__contains__("a"));
+        });
+    }
+
+    #[test]
+    fn test_to_json_and_from_json() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "bar".into_pyobject(py).unwrap();
+            ctx.insert("foo", &val.as_borrowed()).unwrap();
+
+            let json = ctx.to_json().unwrap();
+            let ctx2 = PyContext::from_json(&json).unwrap();
+            assert_eq!(ctx2.__len__(), 1);
+            assert!(ctx2.__contains__("foo"));
+
+            let result = ctx2.get("foo", None).unwrap();
+            let extracted: String = result.extract(py).unwrap();
+            assert_eq!(extracted, "bar");
+        });
+    }
+
+    #[test]
+    fn test_to_dict() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = 42i64.into_pyobject(py).unwrap();
+            ctx.insert("x", &val.as_borrowed()).unwrap();
+
+            let dict_obj = ctx.to_dict(py).unwrap();
+            let dict = dict_obj.downcast_bound::<PyDict>(py).unwrap();
+            let x_val: i64 = dict.get_item("x").unwrap().unwrap().extract().unwrap();
+            assert_eq!(x_val, 42);
+        });
+    }
+
+    #[test]
+    fn test_repr() {
+        pyo3::prepare_freethreaded_python();
+        let ctx = PyContext::new(None).unwrap();
+        let repr = ctx.__repr__();
+        assert!(repr.starts_with("Context("));
+    }
+
+    #[test]
+    fn test_from_rust_context_and_clone_inner() {
+        pyo3::prepare_freethreaded_python();
+        let mut rust_ctx = crate::Context::new();
+        rust_ctx
+            .insert("k".to_string(), serde_json::json!("v"))
+            .unwrap();
+        let py_ctx = PyContext::from_rust_context(rust_ctx);
+        assert!(py_ctx.__contains__("k"));
+
+        let cloned = py_ctx.clone_inner();
+        assert_eq!(cloned.get("k"), Some(&serde_json::json!("v")));
+    }
+
+    #[test]
+    fn test_clone_preserves_data() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let mut ctx = PyContext::new(None).unwrap();
+            let val = "hello".into_pyobject(py).unwrap();
+            ctx.insert("key", &val.as_borrowed()).unwrap();
+
+            let cloned = ctx.clone();
+            assert_eq!(cloned.__len__(), 1);
+            assert!(cloned.__contains__("key"));
+        });
+    }
+}

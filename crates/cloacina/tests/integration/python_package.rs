@@ -23,8 +23,7 @@
 use tempfile::TempDir;
 
 use cloacina::packaging::{
-    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, RustRuntime,
-    TaskDefinition,
+    Manifest, ManifestValidationError, PackageInfo, PackageLanguage, PythonRuntime, TaskDefinition,
 };
 use cloacina::registry::loader::{detect_package_kind, extract_python_package, PackageKind};
 

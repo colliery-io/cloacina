@@ -114,6 +114,7 @@ impl PyWorkflowContext {
 
 impl PyWorkflowContext {
     /// Get the default workflow context (for backward compatibility)
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self {
             tenant_id: "public".to_string(),

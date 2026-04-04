@@ -36,7 +36,6 @@ use diesel::sql_types::Text;
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, Once};
 use tracing::info;
-use uuid;
 
 static INIT: Once = Once::new();
 #[cfg(feature = "postgres")]
@@ -312,6 +311,7 @@ impl TestFixture {
     }
 
     /// Create storage backend matching the current database backend
+    #[allow(dead_code)]
     pub fn create_backend_storage(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage> {
         Box::new(cloacina::dal::UnifiedRegistryStorage::new(self.db.clone()))
     }
@@ -386,7 +386,7 @@ impl TestFixture {
                 }
 
                 // Get list of all user tables in the test schema (excluding migrations table)
-                let tables_result: Result<Vec<TableName>, _> = sql_query(&format!(
+                let tables_result: Result<Vec<TableName>, _> = sql_query(format!(
                     "SELECT tablename FROM pg_tables WHERE schemaname = '{}' AND tablename != '__diesel_schema_migrations'",
                     schema
                 ))
@@ -395,7 +395,7 @@ impl TestFixture {
                 if let Ok(table_rows) = tables_result {
                     // Truncate all user tables with CASCADE to handle foreign keys
                     for table_row in &table_rows {
-                        let _ = sql_query(&format!(
+                        let _ = sql_query(format!(
                             "TRUNCATE TABLE \"{}\".\"{}\" CASCADE",
                             schema, table_row.tablename
                         ))
@@ -438,7 +438,7 @@ impl TestFixture {
                 if let Ok(table_rows) = tables_result {
                     // Clear all user tables
                     for table_row in table_rows {
-                        let _ = sql_query(&format!("DELETE FROM {}", table_row.name)).execute(conn);
+                        let _ = sql_query(format!("DELETE FROM {}", table_row.name)).execute(conn);
                     }
                 }
 
@@ -503,6 +503,7 @@ struct TableCount {
 }
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 pub mod fixtures {
     use super::*;
     use serial_test::serial;

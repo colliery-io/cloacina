@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -176,7 +176,7 @@ async fn test_list_contexts_pagination() {
         .list::<i32>(3, 3)
         .await
         .expect("Failed to list contexts");
-    let expected_second_page_size = if total_count > 3 { total_count - 3 } else { 0 };
+    let expected_second_page_size = total_count.saturating_sub(3);
     assert_eq!(
         second_page.len(),
         expected_second_page_size,

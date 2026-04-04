@@ -46,10 +46,12 @@ pub struct WorkflowRegistryImpl<S: RegistryStorage> {
     /// Database for metadata storage
     pub(super) database: Database,
     /// Package loader for metadata extraction
+    #[allow(dead_code)]
     loader: PackageLoader,
     /// Task registrar for global registry integration
     registrar: TaskRegistrar,
     /// Package validator for safety checks
+    #[allow(dead_code)]
     validator: PackageValidator,
     /// Map of package IDs to registered task namespaces for cleanup tracking
     pub(super) loaded_packages: HashMap<Uuid, Vec<TaskNamespace>>,

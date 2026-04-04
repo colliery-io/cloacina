@@ -111,10 +111,7 @@ fn test_invalid_signature_rejected() {
         package_hash,
         key_fingerprint: keypair.fingerprint.clone(),
         // Invalid signature - random bytes instead of actual Ed25519 signature
-        signature: base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            &[0xABu8; 64],
-        ),
+        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0xABu8; 64]),
         signed_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -147,7 +144,7 @@ fn test_wrong_hash_in_signature_rejected() {
         algorithm: "ed25519".to_string(),
         package_hash: wrong_hash,
         key_fingerprint: keypair.fingerprint.clone(),
-        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &[0u8; 64]),
+        signature: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 64]),
         signed_at: chrono::Utc::now().to_rfc3339(),
     };
 

@@ -47,6 +47,7 @@ author = "Test"
 
 /// Test fixture for managing temporary projects and packages
 struct PackagingFixture {
+    #[allow(dead_code)]
     temp_dir: TempDir,
     project_path: PathBuf,
     output_path: PathBuf,
@@ -60,7 +61,7 @@ impl PackagingFixture {
         let output_path = temp_dir.path().join("test_output.cloacina");
 
         // Create a minimal Rust project structure
-        std::fs::create_dir_all(&project_path.join("src"))?;
+        std::fs::create_dir_all(project_path.join("src"))?;
 
         // Create Cargo.toml
         let cargo_toml = r#"

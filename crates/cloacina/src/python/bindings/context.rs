@@ -47,6 +47,7 @@ impl PyDefaultRunnerConfig {
         cron_max_recovery_age_seconds = None,
         cron_max_recovery_attempts = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_concurrent_tasks: Option<usize>,
         scheduler_poll_interval_ms: Option<u64>,
@@ -117,6 +118,7 @@ impl PyDefaultRunnerConfig {
 
     /// Creates a DefaultRunnerConfig with all default values
     #[staticmethod]
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         PyDefaultRunnerConfig {
             inner: crate::runner::DefaultRunnerConfig::default(),
@@ -356,5 +358,114 @@ impl PyDefaultRunnerConfig {
             .cron_max_recovery_age(c.cron_max_recovery_age())
             .cron_max_recovery_attempts(c.cron_max_recovery_attempts());
         apply(builder).build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_construction() {
+        pyo3::prepare_freethreaded_python();
+        let config = PyDefaultRunnerConfig::default();
+        // Should have reasonable defaults
+        assert!(config.max_concurrent_tasks() > 0);
+        assert!(config.task_timeout_seconds() > 0);
+        assert!(config.db_pool_size() > 0);
+    }
+
+    #[test]
+    fn test_new_with_defaults() {
+        pyo3::prepare_freethreaded_python();
+        let config = PyDefaultRunnerConfig::new(
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+        );
+        // Should match ::default()
+        let default = PyDefaultRunnerConfig::default();
+        assert_eq!(
+            config.max_concurrent_tasks(),
+            default.max_concurrent_tasks()
+        );
+        assert_eq!(
+            config.task_timeout_seconds(),
+            default.task_timeout_seconds()
+        );
+    }
+
+    #[test]
+    fn test_new_with_custom_params() {
+        pyo3::prepare_freethreaded_python();
+        let config = PyDefaultRunnerConfig::new(
+            Some(16),
+            Some(500),
+            Some(120),
+            Some(3600),
+            Some(10),
+            Some(true),
+            Some(true),
+            Some(30),
+            Some(5),
+            Some(true),
+            Some(60),
+            Some(15),
+            Some(7200),
+            Some(3),
+        );
+        assert_eq!(config.max_concurrent_tasks(), 16);
+        assert_eq!(config.scheduler_poll_interval_ms(), 500);
+        assert_eq!(config.task_timeout_seconds(), 120);
+        assert_eq!(config.pipeline_timeout_seconds(), Some(3600));
+        assert_eq!(config.db_pool_size(), 10);
+        assert!(config.enable_recovery());
+        assert!(config.enable_cron_scheduling());
+        assert_eq!(config.cron_poll_interval_seconds(), 30);
+        assert_eq!(config.cron_max_catchup_executions(), 5);
+        assert!(config.cron_enable_recovery());
+        assert_eq!(config.cron_recovery_interval_seconds(), 60);
+        assert_eq!(config.cron_lost_threshold_minutes(), 15);
+        assert_eq!(config.cron_max_recovery_age_seconds(), 7200);
+        assert_eq!(config.cron_max_recovery_attempts(), 3);
+    }
+
+    #[test]
+    fn test_repr() {
+        pyo3::prepare_freethreaded_python();
+        let config = PyDefaultRunnerConfig::default();
+        let repr = config.__repr__();
+        assert!(repr.starts_with("DefaultRunnerConfig("));
+        assert!(repr.contains("max_concurrent_tasks="));
+        assert!(repr.contains("db_pool_size="));
+    }
+
+    #[test]
+    fn test_setters() {
+        pyo3::prepare_freethreaded_python();
+        let mut config = PyDefaultRunnerConfig::default();
+
+        config.set_max_concurrent_tasks(32);
+        assert_eq!(config.max_concurrent_tasks(), 32);
+
+        config.set_task_timeout_seconds(999);
+        assert_eq!(config.task_timeout_seconds(), 999);
+
+        config.set_db_pool_size(20);
+        assert_eq!(config.db_pool_size(), 20);
+
+        config.set_enable_cron_scheduling(true);
+        assert!(config.enable_cron_scheduling());
+    }
+
+    #[test]
+    fn test_to_dict() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let config = PyDefaultRunnerConfig::default();
+            let dict_obj = config.to_dict(py).unwrap();
+            let dict = dict_obj.downcast_bound::<pyo3::types::PyDict>(py).unwrap();
+            assert!(dict.contains("max_concurrent_tasks").unwrap());
+            assert!(dict.contains("db_pool_size").unwrap());
+            assert!(dict.contains("enable_cron_scheduling").unwrap());
+        });
     }
 }

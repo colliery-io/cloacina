@@ -895,8 +895,8 @@ mod tests {
         assert!(schedule.start_date.is_none());
         assert!(schedule.end_date.is_none());
         // No window constraints => active
-        let active = schedule.start_date.as_ref().map_or(true, |s| now >= s.0)
-            && schedule.end_date.as_ref().map_or(true, |e| now <= e.0);
+        let active = schedule.start_date.as_ref().is_none_or(|s| now >= s.0)
+            && schedule.end_date.as_ref().is_none_or(|e| now <= e.0);
         assert!(active);
 
         // Suppress unused variable warnings
@@ -912,8 +912,8 @@ mod tests {
         schedule.start_date = Some(UniversalTimestamp(future));
 
         let now = Utc::now();
-        let active = schedule.start_date.as_ref().map_or(true, |s| now >= s.0)
-            && schedule.end_date.as_ref().map_or(true, |e| now <= e.0);
+        let active = schedule.start_date.as_ref().is_none_or(|s| now >= s.0)
+            && schedule.end_date.as_ref().is_none_or(|e| now <= e.0);
         assert!(!active);
     }
 
@@ -925,8 +925,8 @@ mod tests {
         schedule.end_date = Some(UniversalTimestamp(past));
 
         let now = Utc::now();
-        let active = schedule.start_date.as_ref().map_or(true, |s| now >= s.0)
-            && schedule.end_date.as_ref().map_or(true, |e| now <= e.0);
+        let active = schedule.start_date.as_ref().is_none_or(|s| now >= s.0)
+            && schedule.end_date.as_ref().is_none_or(|e| now <= e.0);
         assert!(!active);
     }
 
@@ -970,5 +970,143 @@ mod tests {
             schedule.trigger_name.as_deref().unwrap_or("unknown"),
             "unknown"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // SchedulerConfig tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_scheduler_config_custom() {
+        let config = SchedulerConfig {
+            cron_poll_interval: Duration::from_secs(60),
+            max_catchup_executions: 50,
+            max_acceptable_delay: Duration::from_secs(120),
+            trigger_base_poll_interval: Duration::from_secs(5),
+            trigger_poll_timeout: Duration::from_secs(10),
+        };
+        assert_eq!(config.cron_poll_interval, Duration::from_secs(60));
+        assert_eq!(config.max_catchup_executions, 50);
+        assert_eq!(config.max_acceptable_delay, Duration::from_secs(120));
+        assert_eq!(config.trigger_base_poll_interval, Duration::from_secs(5));
+        assert_eq!(config.trigger_poll_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_scheduler_config_clone() {
+        let config = SchedulerConfig::default();
+        let cloned = config.clone();
+        assert_eq!(cloned.cron_poll_interval, config.cron_poll_interval);
+        assert_eq!(cloned.max_catchup_executions, config.max_catchup_executions);
+        assert_eq!(cloned.max_acceptable_delay, config.max_acceptable_delay);
+        assert_eq!(
+            cloned.trigger_base_poll_interval,
+            config.trigger_base_poll_interval
+        );
+        assert_eq!(cloned.trigger_poll_timeout, config.trigger_poll_timeout);
+    }
+
+    #[test]
+    fn test_scheduler_config_debug() {
+        let config = SchedulerConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("SchedulerConfig"));
+        assert!(debug_str.contains("cron_poll_interval"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Cron schedule active window tests (expanded)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_cron_schedule_active_both_bounds_containing_now() {
+        let mut schedule = create_test_cron_schedule("0 * * * *", "UTC");
+        let past = Utc::now() - chrono::Duration::hours(1);
+        let future = Utc::now() + chrono::Duration::hours(1);
+        schedule.start_date = Some(UniversalTimestamp(past));
+        schedule.end_date = Some(UniversalTimestamp(future));
+
+        let now = Utc::now();
+        let active = schedule.start_date.as_ref().is_none_or(|s| now >= s.0)
+            && schedule.end_date.as_ref().is_none_or(|e| now <= e.0);
+        assert!(active);
+    }
+
+    #[test]
+    fn test_is_cron_schedule_active_both_bounds_excluding_now() {
+        let mut schedule = create_test_cron_schedule("0 * * * *", "UTC");
+        // Both in the future
+        let future1 = Utc::now() + chrono::Duration::hours(1);
+        let future2 = Utc::now() + chrono::Duration::hours(2);
+        schedule.start_date = Some(UniversalTimestamp(future1));
+        schedule.end_date = Some(UniversalTimestamp(future2));
+
+        let now = Utc::now();
+        let active = schedule.start_date.as_ref().is_none_or(|s| now >= s.0)
+            && schedule.end_date.as_ref().is_none_or(|e| now <= e.0);
+        assert!(!active);
+    }
+
+    // -----------------------------------------------------------------------
+    // Catchup policy parsing tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_catchup_policy_unknown_defaults_to_skip() {
+        let policy = CatchupPolicy::from("unknown_policy".to_string());
+        assert_eq!(policy, CatchupPolicy::Skip);
+    }
+
+    #[test]
+    fn test_catchup_policy_none_defaults_to_skip() {
+        let schedule = create_test_cron_schedule("0 * * * *", "UTC");
+        // catchup_policy is Some("skip") by default in our helper
+        let policy_str = schedule.catchup_policy.as_deref().unwrap_or("skip");
+        assert_eq!(policy_str, "skip");
+    }
+
+    #[test]
+    fn test_catchup_policy_missing_defaults_correctly() {
+        let mut schedule = create_test_cron_schedule("0 * * * *", "UTC");
+        schedule.catchup_policy = None;
+        let policy_str = schedule.catchup_policy.as_deref().unwrap_or("skip");
+        let policy = CatchupPolicy::from(policy_str.to_string());
+        assert_eq!(policy, CatchupPolicy::Skip);
+    }
+
+    // -----------------------------------------------------------------------
+    // Cron schedule model tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cron_schedule_helpers() {
+        let schedule = create_test_cron_schedule("*/5 * * * *", "America/New_York");
+        assert!(schedule.is_cron());
+        assert!(!schedule.is_trigger());
+        assert!(schedule.is_enabled());
+        assert_eq!(schedule.cron_expression.as_deref(), Some("*/5 * * * *"));
+        assert_eq!(schedule.timezone.as_deref(), Some("America/New_York"));
+    }
+
+    #[test]
+    fn test_trigger_schedule_no_poll_interval() {
+        let mut schedule = create_test_trigger_schedule("webhook");
+        schedule.poll_interval_ms = None;
+        // With no poll_interval_ms, poll_interval() should return None
+        assert_eq!(schedule.poll_interval(), None);
+    }
+
+    #[test]
+    fn test_trigger_schedule_allows_concurrent() {
+        let mut schedule = create_test_trigger_schedule("queue_trigger");
+        schedule.allow_concurrent = Some(UniversalBool::new(true));
+        assert!(schedule.allows_concurrent());
+    }
+
+    #[test]
+    fn test_trigger_schedule_no_concurrent_flag_defaults_false() {
+        let mut schedule = create_test_trigger_schedule("queue_trigger");
+        schedule.allow_concurrent = None;
+        assert!(!schedule.allows_concurrent());
     }
 }

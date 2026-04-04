@@ -34,6 +34,7 @@ use super::fixtures::get_or_init_fixture;
 /// Creates a fidius source package (bzip2 tar + package.toml) from the
 /// packaged-workflows example source directory.
 struct PackageFixture {
+    #[allow(dead_code)]
     temp_dir: tempfile::TempDir,
     package_path: std::path::PathBuf,
 }
@@ -93,6 +94,7 @@ impl PackageFixture {
     }
 
     /// Get the path to the package file
+    #[allow(dead_code)]
     fn get_package_path(&self) -> &std::path::Path {
         &self.package_path
     }
@@ -107,6 +109,7 @@ fn create_test_storage(
 }
 
 /// Helper to create a test filesystem storage (for tests that specifically need filesystem)
+#[allow(dead_code)]
 fn create_test_filesystem_storage() -> FilesystemRegistryStorage {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let storage_path = temp_dir.path().to_path_buf();

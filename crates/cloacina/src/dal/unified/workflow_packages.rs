@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -524,5 +524,253 @@ impl<'a> WorkflowPackagesDAL<'a> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Database;
+    use crate::registry::loader::package_loader::{PackageMetadata, TaskMetadata};
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/wfpkg_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn sample_metadata(name: &str, version: &str) -> PackageMetadata {
+        PackageMetadata {
+            package_name: name.to_string(),
+            version: version.to_string(),
+            description: Some("A test package".to_string()),
+            author: Some("test-author".to_string()),
+            tasks: vec![TaskMetadata {
+                index: 0,
+                local_id: "task1".to_string(),
+                namespaced_id_template: "{tenant}.{package}.{workflow}.task1".to_string(),
+                dependencies: vec![],
+                description: "test task".to_string(),
+                source_location: "test.rs:1".to_string(),
+            }],
+            graph_data: None,
+            architecture: "x86_64".to_string(),
+            symbols: vec![],
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_store_and_get_package_metadata() {
+        let dal = unique_dal().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("my-package", "1.0.0");
+
+        let pkg_id = dal
+            .workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(pkg_id, Uuid::nil());
+
+        // Retrieve by name and version
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata("my-package", "1.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_some());
+        let (reg_id, retrieved_meta) = result.unwrap();
+        assert_eq!(reg_id, registry_id);
+        assert_eq!(retrieved_meta.package_name, "my-package");
+        assert_eq!(retrieved_meta.version, "1.0.0");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_not_found() {
+        let dal = unique_dal().await;
+
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata("nonexistent", "0.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_by_id() {
+        let dal = unique_dal().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("id-lookup", "2.0.0");
+
+        let pkg_id = dal
+            .workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata_by_id(pkg_id)
+            .await
+            .unwrap();
+        assert!(result.is_some());
+        let (_, retrieved_meta) = result.unwrap();
+        assert_eq!(retrieved_meta.package_name, "id-lookup");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_by_id_not_found() {
+        let dal = unique_dal().await;
+
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata_by_id(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_all_packages() {
+        let dal = unique_dal().await;
+        let registry_id = Uuid::new_v4().to_string();
+
+        // Initially empty
+        let list = dal.workflow_packages().list_all_packages().await.unwrap();
+        assert!(list.is_empty());
+
+        // Store two packages
+        let meta1 = sample_metadata("pkg-a", "1.0.0");
+        let meta2 = sample_metadata("pkg-b", "1.0.0");
+        dal.workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta1,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+        dal.workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta2,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+
+        let list = dal.workflow_packages().list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 2);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_package_metadata() {
+        let dal = unique_dal().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("to-delete", "1.0.0");
+
+        dal.workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+
+        // Confirm it exists
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata("to-delete", "1.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_some());
+
+        // Delete it
+        dal.workflow_packages()
+            .delete_package_metadata("to-delete", "1.0.0")
+            .await
+            .unwrap();
+
+        // Confirm it is gone
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata("to-delete", "1.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_package_metadata_by_id() {
+        let dal = unique_dal().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("delete-by-id", "1.0.0");
+
+        let pkg_id = dal
+            .workflow_packages()
+            .store_package_metadata(
+                &registry_id,
+                &meta,
+                crate::models::workflow_packages::StorageType::Database,
+            )
+            .await
+            .unwrap();
+
+        // Delete by ID
+        dal.workflow_packages()
+            .delete_package_metadata_by_id(pkg_id)
+            .await
+            .unwrap();
+
+        // Confirm it is gone
+        let result = dal
+            .workflow_packages()
+            .get_package_metadata_by_id(pkg_id)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_nonexistent_does_not_error() {
+        let dal = unique_dal().await;
+
+        // Deleting something that does not exist should succeed
+        dal.workflow_packages()
+            .delete_package_metadata("nonexistent", "0.0.0")
+            .await
+            .unwrap();
+
+        dal.workflow_packages()
+            .delete_package_metadata_by_id(Uuid::new_v4())
+            .await
+            .unwrap();
     }
 }

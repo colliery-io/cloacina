@@ -79,7 +79,7 @@ async fn test_workflow_executes_sqlite() {
 
 // --- Trigger macro tests ---
 
-use cloacina_workflow::{TriggerError, TriggerResult};
+use cloacina_workflow::TriggerResult;
 
 #[trigger(on = "unified_test_workflow", poll_interval = "5s")]
 pub async fn test_trigger() -> Result<TriggerResult, TriggerError> {

@@ -30,6 +30,7 @@ use crate::error::ValidationError;
 #[diesel(table_name = api_keys)]
 struct ApiKeyRow {
     pub id: Uuid,
+    #[allow(dead_code)]
     pub key_hash: String,
     pub name: String,
     pub permissions: String,

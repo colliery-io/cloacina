@@ -28,6 +28,7 @@ use cloacina::packaging::package_workflow;
 
 /// Test fixture for packaging and inspecting existing example projects.
 struct PackageInspectionFixture {
+    #[allow(dead_code)]
     temp_dir: TempDir,
     project_path: PathBuf,
     package_path: PathBuf,
@@ -54,10 +55,12 @@ impl PackageInspectionFixture {
         })
     }
 
+    #[allow(dead_code)]
     fn get_project_path(&self) -> &Path {
         &self.project_path
     }
 
+    #[allow(dead_code)]
     fn get_package_path(&self) -> &Path {
         &self.package_path
     }

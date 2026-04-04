@@ -965,3 +965,243 @@ impl TaskExecutor for ThreadTaskExecutor {
         "ThreadTaskExecutor"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // -----------------------------------------------------------------------
+    // merge_context_values tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_merge_primitives_latest_wins() {
+        let existing = json!(42);
+        let new = json!(99);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!(99));
+    }
+
+    #[test]
+    fn test_merge_string_latest_wins() {
+        let existing = json!("old");
+        let new = json!("new");
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!("new"));
+    }
+
+    #[test]
+    fn test_merge_different_types_latest_wins() {
+        let existing = json!(42);
+        let new = json!("now_a_string");
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!("now_a_string"));
+    }
+
+    #[test]
+    fn test_merge_arrays_deduplicates() {
+        let existing = json!([1, 2, 3]);
+        let new = json!([2, 3, 4, 5]);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!([1, 2, 3, 4, 5]));
+    }
+
+    #[test]
+    fn test_merge_arrays_no_overlap() {
+        let existing = json!(["a", "b"]);
+        let new = json!(["c", "d"]);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!(["a", "b", "c", "d"]));
+    }
+
+    #[test]
+    fn test_merge_arrays_complete_overlap() {
+        let existing = json!([1, 2, 3]);
+        let new = json!([1, 2, 3]);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_merge_objects_no_conflict() {
+        let existing = json!({"a": 1, "b": 2});
+        let new = json!({"c": 3, "d": 4});
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!({"a": 1, "b": 2, "c": 3, "d": 4}));
+    }
+
+    #[test]
+    fn test_merge_objects_conflicting_keys() {
+        let existing = json!({"a": 1, "b": "old"});
+        let new = json!({"b": "new", "c": 3});
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!({"a": 1, "b": "new", "c": 3}));
+    }
+
+    #[test]
+    fn test_merge_objects_recursive() {
+        let existing = json!({"nested": {"x": 1, "y": 2}});
+        let new = json!({"nested": {"y": 99, "z": 3}});
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!({"nested": {"x": 1, "y": 99, "z": 3}}));
+    }
+
+    #[test]
+    fn test_merge_nested_arrays_in_objects() {
+        let existing = json!({"items": [1, 2]});
+        let new = json!({"items": [2, 3]});
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!({"items": [1, 2, 3]}));
+    }
+
+    #[test]
+    fn test_merge_null_latest_wins() {
+        let existing = json!(42);
+        let new = json!(null);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!(null));
+    }
+
+    #[test]
+    fn test_merge_bool_latest_wins() {
+        let existing = json!(true);
+        let new = json!(false);
+        let merged = ThreadTaskExecutor::merge_context_values(&existing, &new);
+        assert_eq!(merged, json!(false));
+    }
+
+    // -----------------------------------------------------------------------
+    // is_transient_error tests
+    // -----------------------------------------------------------------------
+
+    /// Helper to create a minimal ThreadTaskExecutor for testing non-async methods.
+    /// Uses a dummy in-memory database URL that won't actually connect.
+    fn test_executor() -> ThreadTaskExecutor {
+        let db = Database::new("sqlite://:memory:", "", 1);
+        let registry = Arc::new(TaskRegistry::new());
+        let config = ExecutorConfig::default();
+        ThreadTaskExecutor::new(db, registry, config)
+    }
+
+    #[test]
+    fn test_is_transient_timeout() {
+        let exec = test_executor();
+        assert!(exec.is_transient_error(&ExecutorError::TaskTimeout));
+    }
+
+    #[test]
+    fn test_is_transient_task_not_found() {
+        let exec = test_executor();
+        assert!(!exec.is_transient_error(&ExecutorError::TaskNotFound("missing".to_string())));
+    }
+
+    #[test]
+    fn test_is_transient_connection_pool() {
+        let exec = test_executor();
+        assert!(
+            exec.is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_is_transient_task_execution_with_timeout_msg() {
+        let exec = test_executor();
+        let task_err = crate::error::TaskError::ExecutionFailed {
+            message: "connection timeout while waiting".to_string(),
+            task_id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let err = ExecutorError::TaskExecution(task_err);
+        assert!(exec.is_transient_error(&err));
+    }
+
+    #[test]
+    fn test_is_transient_task_execution_permanent() {
+        let exec = test_executor();
+        let task_err = crate::error::TaskError::ExecutionFailed {
+            message: "invalid input data".to_string(),
+            task_id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let err = ExecutorError::TaskExecution(task_err);
+        assert!(!exec.is_transient_error(&err));
+    }
+
+    #[test]
+    fn test_is_transient_task_execution_network() {
+        let exec = test_executor();
+        let task_err = crate::error::TaskError::ExecutionFailed {
+            message: "network unreachable".to_string(),
+            task_id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let err = ExecutorError::TaskExecution(task_err);
+        assert!(exec.is_transient_error(&err));
+    }
+
+    #[test]
+    fn test_is_transient_task_execution_unavailable() {
+        let exec = test_executor();
+        let task_err = crate::error::TaskError::ExecutionFailed {
+            message: "service temporarily unavailable".to_string(),
+            task_id: "test".to_string(),
+            timestamp: chrono::Utc::now(),
+        };
+        let err = ExecutorError::TaskExecution(task_err);
+        assert!(exec.is_transient_error(&err));
+    }
+
+    // -----------------------------------------------------------------------
+    // ThreadTaskExecutor construction and metrics tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_executor_has_capacity_initially() {
+        let exec = test_executor();
+        assert!(exec.has_capacity());
+    }
+
+    #[test]
+    fn test_executor_metrics_initial() {
+        let exec = test_executor();
+        let metrics = exec.metrics();
+        assert_eq!(metrics.active_tasks, 0);
+        assert_eq!(metrics.max_concurrent, 4);
+        assert_eq!(metrics.total_executed, 0);
+        assert_eq!(metrics.total_failed, 0);
+    }
+
+    #[test]
+    fn test_executor_name() {
+        let exec = test_executor();
+        assert_eq!(exec.name(), "ThreadTaskExecutor");
+    }
+
+    #[test]
+    fn test_executor_clone_shares_semaphore() {
+        let exec = test_executor();
+        let cloned = exec.clone();
+        // Both should share the same semaphore, so available permits should match
+        assert_eq!(
+            exec.semaphore().available_permits(),
+            cloned.semaphore().available_permits()
+        );
+    }
+
+    #[test]
+    fn test_executor_custom_config() {
+        let db = Database::new("sqlite://:memory:", "", 1);
+        let registry = Arc::new(TaskRegistry::new());
+        let config = ExecutorConfig {
+            max_concurrent_tasks: 8,
+            task_timeout: std::time::Duration::from_secs(60),
+            enable_claiming: false,
+            heartbeat_interval: std::time::Duration::from_secs(5),
+        };
+        let exec = ThreadTaskExecutor::new(db, registry, config);
+        let metrics = exec.metrics();
+        assert_eq!(metrics.max_concurrent, 8);
+        assert_eq!(exec.semaphore().available_permits(), 8);
+    }
+}

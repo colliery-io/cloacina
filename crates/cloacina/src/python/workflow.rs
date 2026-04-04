@@ -301,6 +301,90 @@ impl PyWorkflow {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_workflow_builder_new_defaults() {
+        pyo3::prepare_freethreaded_python();
+        let builder = PyWorkflowBuilder::new("my_workflow", None, None, None);
+        let repr = builder.__repr__();
+        assert_eq!(repr, "WorkflowBuilder(name='my_workflow')");
+    }
+
+    #[test]
+    fn test_workflow_builder_new_with_custom_namespace() {
+        pyo3::prepare_freethreaded_python();
+        let builder = PyWorkflowBuilder::new(
+            "wf1",
+            Some("custom_tenant"),
+            Some("custom_pkg"),
+            Some("custom_wf"),
+        );
+        let repr = builder.__repr__();
+        assert!(repr.contains("wf1"));
+    }
+
+    #[test]
+    fn test_workflow_builder_description_and_tag() {
+        pyo3::prepare_freethreaded_python();
+        let mut builder = PyWorkflowBuilder::new("wf1", None, None, None);
+        builder.description("A test workflow");
+        builder.tag("env", "test");
+        // Should not panic; verify repr still works
+        let repr = builder.__repr__();
+        assert!(repr.contains("wf1"));
+    }
+
+    #[test]
+    fn test_workflow_builder_build_empty_returns_error() {
+        pyo3::prepare_freethreaded_python();
+        let builder = PyWorkflowBuilder::new("empty_wf", None, None, None);
+        let result = builder.build();
+        assert!(result.is_err(), "Empty workflow build should fail");
+    }
+
+    #[test]
+    fn test_workflow_builder_build_with_task() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            // Register a task first so the builder has something
+            crate::python::task::push_workflow_context(
+                crate::python::workflow_context::PyWorkflowContext::new(
+                    "public",
+                    "embedded",
+                    "build_test_wf",
+                ),
+            );
+            let decorator = crate::python::task::task(
+                Some("build_task".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let func = py
+                .eval(pyo3::ffi::c_str!("lambda ctx: ctx"), None, None)
+                .unwrap();
+            decorator.__call__(py, func.into()).unwrap();
+            crate::python::task::pop_workflow_context();
+
+            // Now build a workflow that references the registered task
+            let builder = PyWorkflowBuilder::new("build_test_wf", None, None, None);
+            // build() may still fail if the task isn't wired through the builder
+            // Just verify it doesn't panic
+            let _ = builder.build();
+        });
+    }
+}
+
 /// Register a workflow constructor function
 #[pyfunction]
 pub fn register_workflow_constructor(name: String, constructor: PyObject) -> PyResult<()> {

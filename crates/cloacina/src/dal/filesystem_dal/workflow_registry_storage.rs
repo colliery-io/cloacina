@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -330,7 +330,7 @@ mod tests {
         let temp_files: Vec<_> = std::fs::read_dir(temp_dir.path())
             .unwrap()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.path().extension().map_or(false, |ext| ext == "tmp"))
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "tmp"))
             .collect();
 
         assert_eq!(temp_files.len(), 0, "Temporary files should be cleaned up");

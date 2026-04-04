@@ -54,7 +54,7 @@ async fn test_cron_schedule_creation() {
     );
 
     let created_schedule = dal.schedule().create(schedule).await.unwrap();
-    assert!(created_schedule.id.to_string().len() > 0);
+    assert!(!created_schedule.id.to_string().is_empty());
 }
 
 #[tokio::test]

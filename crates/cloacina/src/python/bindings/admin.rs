@@ -199,3 +199,76 @@ impl PyDatabaseAdmin {
         "DatabaseAdmin()".to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tenant_config_new() {
+        let config = PyTenantConfig::new(
+            "test_schema".to_string(),
+            "test_user".to_string(),
+            Some("test_pass".to_string()),
+        );
+        assert_eq!(config.schema_name(), "test_schema");
+        assert_eq!(config.username(), "test_user");
+        assert_eq!(config.password(), "test_pass");
+    }
+
+    #[test]
+    fn test_tenant_config_default_password() {
+        let config = PyTenantConfig::new("schema".to_string(), "user".to_string(), None);
+        assert_eq!(config.password(), "");
+    }
+
+    #[test]
+    fn test_tenant_config_repr() {
+        let config = PyTenantConfig::new(
+            "my_schema".to_string(),
+            "my_user".to_string(),
+            Some("secret".to_string()),
+        );
+        let repr = config.__repr__();
+        assert!(repr.contains("my_schema"));
+        assert!(repr.contains("my_user"));
+        assert!(repr.contains("***")); // password masked
+        assert!(!repr.contains("secret")); // actual password not shown
+    }
+
+    #[test]
+    fn test_is_postgres_url() {
+        assert!(is_postgres_url("postgres://user:pass@localhost/db"));
+        assert!(is_postgres_url("postgresql://user:pass@localhost/db"));
+        assert!(!is_postgres_url("sqlite:///tmp/test.db"));
+        assert!(!is_postgres_url("mysql://localhost/db"));
+    }
+
+    #[test]
+    fn test_database_admin_rejects_sqlite() {
+        let result = PyDatabaseAdmin::new("sqlite:///tmp/test.db".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_database_admin_rejects_invalid_url() {
+        let result = PyDatabaseAdmin::new("not a url".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_database_admin_rejects_missing_db_name() {
+        let result = PyDatabaseAdmin::new("postgres://user:pass@localhost/".to_string());
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn test_database_admin_creates_with_postgres_url() {
+        let result = PyDatabaseAdmin::new(
+            "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string(),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().__repr__(), "DatabaseAdmin()");
+    }
+}

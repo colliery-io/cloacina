@@ -14,7 +14,7 @@
  *  limitations under the License.
  */
 
-use cloacina::{task, workflow, Context, TaskError, TaskNamespace};
+use cloacina::{task, workflow, Context, TaskError};
 
 // Define test workflows using the new #[workflow] attribute macro
 

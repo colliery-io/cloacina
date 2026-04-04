@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -62,8 +62,7 @@ fn test_span_creation() {
     drop(_nested_guard);
     drop(guard);
 
-    // If we get here, span creation/dropping works
-    assert!(true);
+    // If we get here, span creation/dropping works — test passes by not panicking.
 }
 
 #[test]
@@ -78,6 +77,5 @@ fn test_event_creation() {
     // Test events with fields
     tracing::info!(field1 = "value", field2 = 123, "Event with fields");
 
-    // If we get here without panicking, event creation works
-    assert!(true);
+    // If we get here without panicking, event creation works — test passes by not panicking.
 }

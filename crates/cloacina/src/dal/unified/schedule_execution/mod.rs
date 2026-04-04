@@ -171,3 +171,418 @@ impl<'a> ScheduleExecutionDAL<'a> {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::universal_types::UniversalTimestamp;
+    use crate::database::Database;
+    use crate::models::schedule::{NewSchedule, NewScheduleExecution};
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/sched_exec_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    /// Helper: create a cron schedule and return its ID.
+    #[cfg(feature = "sqlite")]
+    async fn create_schedule(dal: &DAL) -> UniversalUuid {
+        let next_run = UniversalTimestamp::now();
+        let schedule = dal
+            .schedule()
+            .create(NewSchedule::cron("test_wf", "0 * * * *", next_run))
+            .await
+            .unwrap();
+        schedule.id
+    }
+
+    /// Helper: build a NewScheduleExecution for a given schedule.
+    #[cfg(feature = "sqlite")]
+    fn new_exec(schedule_id: UniversalUuid) -> NewScheduleExecution {
+        NewScheduleExecution {
+            schedule_id,
+            pipeline_execution_id: None,
+            scheduled_time: Some(UniversalTimestamp::now()),
+            claimed_at: Some(UniversalTimestamp::now()),
+            context_hash: Some(uuid::Uuid::new_v4().to_string()),
+        }
+    }
+
+    // ── create + get_by_id ──────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_execution() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        assert_eq!(exec.schedule_id, sched_id);
+        assert!(exec.pipeline_execution_id.is_none());
+        assert!(exec.completed_at.is_none());
+        assert!(exec.scheduled_time.is_some());
+        assert!(exec.context_hash.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_by_id() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let created = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        let fetched = dal
+            .schedule_execution()
+            .get_by_id(created.id)
+            .await
+            .unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.schedule_id, sched_id);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_by_id_not_found() {
+        let dal = unique_dal().await;
+        let result = dal
+            .schedule_execution()
+            .get_by_id(UniversalUuid::new_v4())
+            .await;
+        assert!(result.is_err());
+    }
+
+    // ── list_by_schedule ────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_by_schedule() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let other_sched_id = create_schedule(&dal).await;
+
+        // Create 3 executions for sched_id, 1 for other
+        for _ in 0..3 {
+            dal.schedule_execution()
+                .create(new_exec(sched_id))
+                .await
+                .unwrap();
+        }
+        dal.schedule_execution()
+            .create(new_exec(other_sched_id))
+            .await
+            .unwrap();
+
+        let list = dal
+            .schedule_execution()
+            .list_by_schedule(sched_id, 100, 0)
+            .await
+            .unwrap();
+        assert_eq!(list.len(), 3);
+
+        // With limit
+        let limited = dal
+            .schedule_execution()
+            .list_by_schedule(sched_id, 2, 0)
+            .await
+            .unwrap();
+        assert_eq!(limited.len(), 2);
+
+        // With offset
+        let offset = dal
+            .schedule_execution()
+            .list_by_schedule(sched_id, 100, 2)
+            .await
+            .unwrap();
+        assert_eq!(offset.len(), 1);
+    }
+
+    // ── complete ────────────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_complete_execution() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        assert!(exec.completed_at.is_none());
+
+        let completed_at = Utc::now();
+        dal.schedule_execution()
+            .complete(exec.id, completed_at)
+            .await
+            .unwrap();
+
+        let updated = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert!(updated.completed_at.is_some());
+    }
+
+    // ── has_active_execution ────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_has_active_execution() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        // No executions yet
+        let active = dal
+            .schedule_execution()
+            .has_active_execution(sched_id, "hash1")
+            .await
+            .unwrap();
+        assert!(!active);
+
+        // Create an uncompleted execution
+        let mut ne = new_exec(sched_id);
+        ne.context_hash = Some("hash1".to_string());
+        dal.schedule_execution().create(ne).await.unwrap();
+
+        let active = dal
+            .schedule_execution()
+            .has_active_execution(sched_id, "hash1")
+            .await
+            .unwrap();
+        assert!(active);
+
+        // Different hash should not match
+        let active_other = dal
+            .schedule_execution()
+            .has_active_execution(sched_id, "hash_other")
+            .await
+            .unwrap();
+        assert!(!active_other);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_has_active_execution_completed_not_active() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        let mut ne = new_exec(sched_id);
+        ne.context_hash = Some("hash_done".to_string());
+        let exec = dal.schedule_execution().create(ne).await.unwrap();
+
+        // Complete it
+        dal.schedule_execution()
+            .complete(exec.id, Utc::now())
+            .await
+            .unwrap();
+
+        let active = dal
+            .schedule_execution()
+            .has_active_execution(sched_id, "hash_done")
+            .await
+            .unwrap();
+        assert!(!active);
+    }
+
+    // ── update_pipeline_execution_id ────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_update_pipeline_execution_id() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        assert!(exec.pipeline_execution_id.is_none());
+
+        // Create a real pipeline so the FK constraint is satisfied
+        use crate::models::pipeline_execution::NewPipelineExecution;
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "fk-test".to_string(),
+                pipeline_version: "1.0".to_string(),
+                status: "Running".to_string(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        dal.schedule_execution()
+            .update_pipeline_execution_id(exec.id, pipeline.id)
+            .await
+            .unwrap();
+
+        let updated = dal.schedule_execution().get_by_id(exec.id).await.unwrap();
+        assert_eq!(updated.pipeline_execution_id, Some(pipeline.id));
+    }
+
+    // ── get_latest_by_schedule ──────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_latest_by_schedule() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        // No executions => None
+        let latest = dal
+            .schedule_execution()
+            .get_latest_by_schedule(sched_id)
+            .await
+            .unwrap();
+        assert!(latest.is_none());
+
+        // Create two executions; the second is "latest" by created_at
+        let _first = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        let second = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        let latest = dal
+            .schedule_execution()
+            .get_latest_by_schedule(sched_id)
+            .await
+            .unwrap();
+        assert!(latest.is_some());
+        assert_eq!(latest.unwrap().id, second.id);
+    }
+
+    // ── find_lost_executions ────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_lost_executions_none_lost() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        // Create a fresh (just-started) execution — not lost yet
+        dal.schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        // Looking for executions older than 60 minutes — our fresh one should not appear
+        let lost = dal
+            .schedule_execution()
+            .find_lost_executions(60)
+            .await
+            .unwrap();
+        assert!(lost.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_lost_executions_completed_not_lost() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+
+        let exec = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        // Complete it so it should never be considered "lost"
+        dal.schedule_execution()
+            .complete(exec.id, Utc::now())
+            .await
+            .unwrap();
+
+        let lost = dal
+            .schedule_execution()
+            .find_lost_executions(0)
+            .await
+            .unwrap();
+        assert!(lost.is_empty());
+    }
+
+    // ── get_execution_stats ─────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_execution_stats_empty() {
+        let dal = unique_dal().await;
+        let since = Utc::now() - chrono::Duration::hours(1);
+
+        let stats = dal
+            .schedule_execution()
+            .get_execution_stats(since)
+            .await
+            .unwrap();
+
+        assert_eq!(stats.total_executions, 0);
+        assert_eq!(stats.successful_executions, 0);
+        assert_eq!(stats.lost_executions, 0);
+        assert_eq!(stats.success_rate, 0.0);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_execution_stats_with_data() {
+        let dal = unique_dal().await;
+        let sched_id = create_schedule(&dal).await;
+        let since = Utc::now() - chrono::Duration::hours(1);
+
+        // Create two executions
+        let exec1 = dal
+            .schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+        dal.schedule_execution()
+            .create(new_exec(sched_id))
+            .await
+            .unwrap();
+
+        // Link one to a real pipeline (FK constraint requires it to exist)
+        use crate::models::pipeline_execution::NewPipelineExecution;
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "stats-test".to_string(),
+                pipeline_version: "1.0".to_string(),
+                status: "Completed".to_string(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+        dal.schedule_execution()
+            .update_pipeline_execution_id(exec1.id, pipeline.id)
+            .await
+            .unwrap();
+
+        let stats = dal
+            .schedule_execution()
+            .get_execution_stats(since)
+            .await
+            .unwrap();
+
+        assert_eq!(stats.total_executions, 2);
+        assert_eq!(stats.successful_executions, 1);
+        assert_eq!(stats.success_rate, 50.0);
+    }
+}

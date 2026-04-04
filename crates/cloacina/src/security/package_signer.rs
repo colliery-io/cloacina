@@ -309,9 +309,8 @@ impl PackageSigner for DbPackageSigner {
         // Sign the package
         let signature = self
             .sign_package_with_raw_key(package_path, &private_key, &public_key)
-            .map_err(|e| {
+            .inspect_err(|e| {
                 audit::log_package_sign_failed(&path_str, &e.to_string());
-                e
             })?;
 
         // Audit log: package signed successfully
@@ -871,5 +870,384 @@ mod tests {
         let result =
             crate::crypto::verify_signature(&tampered_bytes, &signature, &keypair.public_key);
         assert!(result.is_err());
+    }
+
+    // ── Database-backed PackageSigner tests ──────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    mod db_tests {
+        use super::*;
+        use crate::dal::unified::DAL;
+        use crate::database::Database;
+        use crate::security::db_key_manager::DbKeyManager;
+        use crate::security::key_manager::KeyManager;
+
+        async fn unique_dal() -> DAL {
+            let url = format!(
+                "sqlite:///tmp/pkgsign_test_{}.db?mode=rwc",
+                uuid::Uuid::new_v4()
+            );
+            let db = Database::new(&url, "", 5);
+            db.run_migrations()
+                .await
+                .expect("migrations should succeed");
+            DAL::new(db)
+        }
+
+        fn master_key() -> [u8; 32] {
+            [0u8; 32]
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_data_with_raw_key() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let data = b"package binary content";
+            let sig_info = signer
+                .sign_package_data(data, &keypair.private_key, &keypair.public_key)
+                .unwrap();
+
+            assert!(!sig_info.package_hash.is_empty());
+            assert_eq!(sig_info.signature.len(), 64);
+            assert!(!sig_info.key_fingerprint.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_with_raw_key_file() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"file based content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_raw_key(
+                    temp_file.path(),
+                    &keypair.private_key,
+                    &keypair.public_key,
+                )
+                .unwrap();
+
+            assert!(!sig_info.package_hash.is_empty());
+            assert_eq!(sig_info.signature.len(), 64);
+        }
+
+        #[tokio::test]
+        async fn test_store_and_find_signature() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let data = b"storable package";
+            let sig_info = signer
+                .sign_package_data(data, &keypair.private_key, &keypair.public_key)
+                .unwrap();
+
+            let _sig_id = signer.store_signature(&sig_info).await.unwrap();
+
+            let found = signer.find_signature(&sig_info.package_hash).await.unwrap();
+            assert!(found.is_some());
+            let found = found.unwrap();
+            assert_eq!(found.package_hash, sig_info.package_hash);
+            assert_eq!(found.key_fingerprint, sig_info.key_fingerprint);
+        }
+
+        #[tokio::test]
+        async fn test_find_signature_not_found() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+
+            let found = signer.find_signature("nonexistent_hash").await.unwrap();
+            assert!(found.is_none());
+        }
+
+        #[tokio::test]
+        async fn test_find_signatures_multiple() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let kp1 = generate_signing_keypair();
+            let kp2 = generate_signing_keypair();
+
+            let data = b"multi-signed package";
+            let sig1 = signer
+                .sign_package_data(data, &kp1.private_key, &kp1.public_key)
+                .unwrap();
+            let sig2 = signer
+                .sign_package_data(data, &kp2.private_key, &kp2.public_key)
+                .unwrap();
+
+            signer.store_signature(&sig1).await.unwrap();
+            signer.store_signature(&sig2).await.unwrap();
+
+            let sigs = signer.find_signatures(&sig1.package_hash).await.unwrap();
+            assert_eq!(sigs.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_with_db_key() {
+            let dal = unique_dal().await;
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let org_id = UniversalUuid::new_v4();
+            let mk = master_key();
+
+            let key_info = km
+                .create_signing_key(org_id, "signer-key", &mk)
+                .await
+                .unwrap();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"db-key-signed package").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, false)
+                .await
+                .unwrap();
+
+            assert!(!sig_info.package_hash.is_empty());
+            assert_eq!(sig_info.signature.len(), 64);
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_with_db_key_and_store() {
+            let dal = unique_dal().await;
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let org_id = UniversalUuid::new_v4();
+            let mk = master_key();
+
+            let key_info = km
+                .create_signing_key(org_id, "store-key", &mk)
+                .await
+                .unwrap();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"stored signature content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, true)
+                .await
+                .unwrap();
+
+            // Verify the signature was stored
+            let found = signer.find_signature(&sig_info.package_hash).await.unwrap();
+            assert!(found.is_some());
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_with_db_key_revoked_fails() {
+            let dal = unique_dal().await;
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let org_id = UniversalUuid::new_v4();
+            let mk = master_key();
+
+            let key_info = km
+                .create_signing_key(org_id, "revoked-signer", &mk)
+                .await
+                .unwrap();
+            km.revoke_signing_key(key_info.id).await.unwrap();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"content").unwrap();
+
+            let result = signer
+                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, false)
+                .await;
+            assert!(matches!(result, Err(PackageSignError::KeyRevoked)));
+        }
+
+        #[tokio::test]
+        async fn test_sign_package_with_db_key_not_found() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"content").unwrap();
+
+            let result = signer
+                .sign_package_with_db_key(
+                    temp_file.path(),
+                    UniversalUuid::new_v4(),
+                    &[0u8; 32],
+                    false,
+                )
+                .await;
+            assert!(matches!(result, Err(PackageSignError::KeyNotFound(_))));
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_with_detached_signature() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            let content = b"detached-sig verification content";
+            std::fs::write(temp_file.path(), content).unwrap();
+
+            let sig_info = signer
+                .sign_package_with_raw_key(
+                    temp_file.path(),
+                    &keypair.private_key,
+                    &keypair.public_key,
+                )
+                .unwrap();
+
+            let detached = DetachedSignature::from_signature_info(&sig_info);
+
+            let result = signer.verify_package_with_detached_signature(
+                temp_file.path(),
+                &detached,
+                &keypair.public_key,
+            );
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_detached_tampered_fails() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"original content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_raw_key(
+                    temp_file.path(),
+                    &keypair.private_key,
+                    &keypair.public_key,
+                )
+                .unwrap();
+
+            let detached = DetachedSignature::from_signature_info(&sig_info);
+
+            // Tamper with the file
+            std::fs::write(temp_file.path(), b"tampered content").unwrap();
+
+            let result = signer.verify_package_with_detached_signature(
+                temp_file.path(),
+                &detached,
+                &keypair.public_key,
+            );
+            assert!(matches!(
+                result,
+                Err(PackageSignError::VerificationFailed(_))
+            ));
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_detached_wrong_key_fails() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair1 = generate_signing_keypair();
+            let keypair2 = generate_signing_keypair();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"signed content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_raw_key(
+                    temp_file.path(),
+                    &keypair1.private_key,
+                    &keypair1.public_key,
+                )
+                .unwrap();
+            let detached = DetachedSignature::from_signature_info(&sig_info);
+
+            let result = signer.verify_package_with_detached_signature(
+                temp_file.path(),
+                &detached,
+                &keypair2.public_key,
+            );
+            assert!(matches!(
+                result,
+                Err(PackageSignError::VerificationFailed(_))
+            ));
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_detached_wrong_algorithm() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let keypair = generate_signing_keypair();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_raw_key(
+                    temp_file.path(),
+                    &keypair.private_key,
+                    &keypair.public_key,
+                )
+                .unwrap();
+            let mut detached = DetachedSignature::from_signature_info(&sig_info);
+            detached.algorithm = "rsa".to_string();
+
+            let result = signer.verify_package_with_detached_signature(
+                temp_file.path(),
+                &detached,
+                &keypair.public_key,
+            );
+            assert!(matches!(
+                result,
+                Err(PackageSignError::InvalidSignatureFile(_))
+            ));
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_trusted_key() {
+            let dal = unique_dal().await;
+            let km = DbKeyManager::new(dal.clone());
+            let signer = DbPackageSigner::new(dal);
+            let org_id = UniversalUuid::new_v4();
+            let mk = master_key();
+
+            // Create a signing key and sign a package
+            let key_info = km
+                .create_signing_key(org_id, "verify-key", &mk)
+                .await
+                .unwrap();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"verifiable content").unwrap();
+
+            let sig_info = signer
+                .sign_package_with_db_key(temp_file.path(), key_info.id, &mk, true)
+                .await
+                .unwrap();
+
+            // Trust the signing key's public key for verification
+            km.trust_public_key(org_id, &key_info.public_key, Some("self-trust"))
+                .await
+                .unwrap();
+
+            // Verify the package
+            let result = signer.verify_package(temp_file.path(), org_id).await;
+            assert!(result.is_ok());
+            let verified = result.unwrap();
+            assert_eq!(verified.package_hash, sig_info.package_hash);
+        }
+
+        #[tokio::test]
+        async fn test_verify_package_no_signature_fails() {
+            let dal = unique_dal().await;
+            let signer = DbPackageSigner::new(dal);
+            let org_id = UniversalUuid::new_v4();
+
+            let temp_file = NamedTempFile::new().unwrap();
+            std::fs::write(temp_file.path(), b"unsigned content").unwrap();
+
+            let result = signer.verify_package(temp_file.path(), org_id).await;
+            assert!(matches!(
+                result,
+                Err(PackageSignError::SignatureNotFound(_))
+            ));
+        }
     }
 }

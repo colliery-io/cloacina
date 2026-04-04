@@ -368,4 +368,170 @@ mod tests {
         assert!(events::KEY_SIGNING_CREATED.starts_with("key."));
         assert!(events::VERIFICATION_SUCCESS.starts_with("verification."));
     }
+
+    #[test]
+    fn test_log_signing_key_create_failed() {
+        let output = with_captured_logs(|| {
+            log_signing_key_create_failed(UniversalUuid::new_v4(), "bad-key", "encryption error");
+        });
+        assert!(output.contains(events::KEY_SIGNING_CREATE_FAILED));
+        assert!(output.contains("bad-key"));
+        assert!(output.contains("encryption error"));
+    }
+
+    #[test]
+    fn test_log_signing_key_revoked() {
+        let output = with_captured_logs(|| {
+            log_signing_key_revoked(
+                UniversalUuid::new_v4(),
+                UniversalUuid::new_v4(),
+                "fp_abc",
+                Some("my-key"),
+            );
+        });
+        assert!(output.contains(events::KEY_SIGNING_REVOKED));
+        assert!(output.contains("fp_abc"));
+        assert!(output.contains("my-key"));
+    }
+
+    #[test]
+    fn test_log_signing_key_revoked_no_name() {
+        let output = with_captured_logs(|| {
+            log_signing_key_revoked(
+                UniversalUuid::new_v4(),
+                UniversalUuid::new_v4(),
+                "fp_xyz",
+                None,
+            );
+        });
+        assert!(output.contains(events::KEY_SIGNING_REVOKED));
+        assert!(output.contains("<unknown>"));
+    }
+
+    #[test]
+    fn test_log_key_exported() {
+        let output = with_captured_logs(|| {
+            log_key_exported(UniversalUuid::new_v4(), "fp_export_123");
+        });
+        assert!(output.contains(events::KEY_EXPORTED));
+        assert!(output.contains("fp_export_123"));
+    }
+
+    #[test]
+    fn test_log_trusted_key_added() {
+        let output = with_captured_logs(|| {
+            log_trusted_key_added(
+                UniversalUuid::new_v4(),
+                UniversalUuid::new_v4(),
+                "trusted_fp",
+                Some("vendor-key"),
+            );
+        });
+        assert!(output.contains(events::KEY_TRUSTED_ADDED));
+        assert!(output.contains("trusted_fp"));
+        assert!(output.contains("vendor-key"));
+    }
+
+    #[test]
+    fn test_log_trusted_key_added_no_name() {
+        let output = with_captured_logs(|| {
+            log_trusted_key_added(
+                UniversalUuid::new_v4(),
+                UniversalUuid::new_v4(),
+                "trusted_fp2",
+                None,
+            );
+        });
+        assert!(output.contains(events::KEY_TRUSTED_ADDED));
+        assert!(output.contains("<unnamed>"));
+    }
+
+    #[test]
+    fn test_log_trusted_key_revoked() {
+        let output = with_captured_logs(|| {
+            log_trusted_key_revoked(UniversalUuid::new_v4());
+        });
+        assert!(output.contains(events::KEY_TRUSTED_REVOKED));
+    }
+
+    #[test]
+    fn test_log_trust_acl_revoked() {
+        let output = with_captured_logs(|| {
+            log_trust_acl_revoked(UniversalUuid::new_v4(), UniversalUuid::new_v4());
+        });
+        assert!(output.contains(events::KEY_TRUST_ACL_REVOKED));
+        assert!(output.contains("parent_org_id"));
+        assert!(output.contains("child_org_id"));
+    }
+
+    #[test]
+    fn test_log_package_signed() {
+        let output = with_captured_logs(|| {
+            log_package_signed("/tmp/pkg.tar.gz", "hash_abc", "fp_signer");
+        });
+        assert!(output.contains(events::PACKAGE_SIGNED));
+        assert!(output.contains("/tmp/pkg.tar.gz"));
+        assert!(output.contains("hash_abc"));
+        assert!(output.contains("fp_signer"));
+    }
+
+    #[test]
+    fn test_log_package_sign_failed() {
+        let output = with_captured_logs(|| {
+            log_package_sign_failed("/tmp/bad.tar.gz", "key not found");
+        });
+        assert!(output.contains(events::PACKAGE_SIGN_FAILURE));
+        assert!(output.contains("/tmp/bad.tar.gz"));
+        assert!(output.contains("key not found"));
+    }
+
+    #[test]
+    fn test_log_package_load_failure() {
+        let output = with_captured_logs(|| {
+            log_package_load_failure(
+                UniversalUuid::new_v4(),
+                "/path/to/bad.so",
+                "hash mismatch",
+                "tampered",
+            );
+        });
+        assert!(output.contains(events::PACKAGE_LOAD_FAILURE));
+        assert!(output.contains("/path/to/bad.so"));
+        assert!(output.contains("hash mismatch"));
+        assert!(output.contains("tampered"));
+    }
+
+    #[test]
+    fn test_log_verification_success() {
+        let output = with_captured_logs(|| {
+            log_verification_success(
+                UniversalUuid::new_v4(),
+                "pkg_hash_ok",
+                "signer_fp_ok",
+                Some("trusted-vendor"),
+            );
+        });
+        assert!(output.contains(events::VERIFICATION_SUCCESS));
+        assert!(output.contains("pkg_hash_ok"));
+        assert!(output.contains("signer_fp_ok"));
+        assert!(output.contains("trusted-vendor"));
+    }
+
+    #[test]
+    fn test_log_verification_success_no_name() {
+        let output = with_captured_logs(|| {
+            log_verification_success(UniversalUuid::new_v4(), "pkg_hash", "signer_fp", None);
+        });
+        assert!(output.contains(events::VERIFICATION_SUCCESS));
+        assert!(output.contains("<unknown>"));
+    }
+
+    #[test]
+    fn test_log_verification_failure_no_fingerprint() {
+        let output = with_captured_logs(|| {
+            log_verification_failure(UniversalUuid::new_v4(), "pkg_hash", "no matching key", None);
+        });
+        assert!(output.contains(events::VERIFICATION_FAILURE));
+        assert!(output.contains("<unknown>"));
+    }
 }

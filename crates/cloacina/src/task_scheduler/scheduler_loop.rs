@@ -147,7 +147,7 @@ impl<'a> SchedulerLoop<'a> {
         for task in all_pending_tasks {
             tasks_by_pipeline
                 .entry(task.pipeline_execution_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(task);
         }
 

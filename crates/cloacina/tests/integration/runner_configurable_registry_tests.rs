@@ -20,17 +20,18 @@
 //! registry storage backends (filesystem, sqlite, postgres) and that they work
 //! correctly in end-to-end scenarios.
 
+#[allow(unused_imports)]
 use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use std::time::Duration;
 use tempfile::TempDir;
-use uuid::Uuid;
 
 use crate::fixtures::get_or_init_fixture;
 
 use serial_test::serial;
 
 /// Helper to create a minimal test package (.cloacina file)
+#[allow(dead_code)]
 fn create_test_package() -> Vec<u8> {
     // Create a minimal test package with proper structure
     let mut data = Vec::new();
@@ -231,7 +232,7 @@ mod current_backend_tests {
 
         DefaultRunner::with_config(&db_url, config)
             .await
-            .expect(&format!("Failed to create {} runner", backend))
+            .unwrap_or_else(|_| panic!("Failed to create {} runner", backend))
     }
 
     async fn get_current_backend() -> String {
@@ -284,7 +285,7 @@ mod current_backend_tests {
         // Create runner with database registry
         let runner = DefaultRunner::with_config(&db_url, config)
             .await
-            .expect(&format!("Failed to create {} runner", backend));
+            .unwrap_or_else(|_| panic!("Failed to create {} runner", backend));
 
         // Verify the registry is available
         let registry = runner.get_workflow_registry().await;
@@ -397,7 +398,7 @@ mod integration_tests {
         let current_backend_config = create_test_config(current_backend, None);
         let current_backend_runner = DefaultRunner::with_config(&db_url, current_backend_config)
             .await
-            .expect(&format!("Failed to create {} runner", current_backend));
+            .unwrap_or_else(|_| panic!("Failed to create {} runner", current_backend));
 
         // Both runners should have registries available
         let fs_registry = filesystem_runner.get_workflow_registry().await;
@@ -423,10 +424,7 @@ mod integration_tests {
             .unwrap()
             .list_workflows()
             .await
-            .expect(&format!(
-                "{} registry should list workflows",
-                current_backend
-            ));
+            .unwrap_or_else(|_| panic!("{} registry should list workflows", current_backend));
 
         println!("Filesystem registry: {} workflows", fs_workflows.len());
         println!(
@@ -443,9 +441,9 @@ mod integration_tests {
             .shutdown()
             .await
             .expect("Filesystem runner should shut down cleanly");
-        current_backend_runner.shutdown().await.expect(&format!(
-            "{} runner should shut down cleanly",
-            current_backend
-        ));
+        current_backend_runner
+            .shutdown()
+            .await
+            .unwrap_or_else(|_| panic!("{} runner should shut down cleanly", current_backend));
     }
 }

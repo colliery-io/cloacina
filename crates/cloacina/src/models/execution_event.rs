@@ -172,6 +172,7 @@ impl ExecutionEventType {
     }
 
     /// Parses an event type from its string representation.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "task_created" => Some(ExecutionEventType::TaskCreated),

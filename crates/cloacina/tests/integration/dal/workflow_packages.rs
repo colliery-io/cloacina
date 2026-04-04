@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ async fn test_store_and_get_package_metadata() {
 
     // Store the package metadata
     let storage_type = workflow_registry_storage.storage_type();
-    let package_id = workflow_packages_dal
+    let _package_id = workflow_packages_dal
         .store_package_metadata(&registry_id, &test_metadata, storage_type)
         .await
         .expect("Failed to store package metadata");
@@ -477,7 +477,7 @@ async fn test_package_versioning() {
         workflow_packages_dal
             .store_package_metadata(&registry_id, &test_metadata, storage_type)
             .await
-            .expect(&format!("Failed to store version {}", version));
+            .unwrap_or_else(|_| panic!("Failed to store version {}", version));
     }
 
     // Verify we can retrieve each version individually

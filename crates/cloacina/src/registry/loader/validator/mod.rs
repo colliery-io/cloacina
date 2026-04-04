@@ -240,10 +240,7 @@ mod tests {
             .map(|i| TaskMetadata {
                 index: i as u32,
                 local_id: format!("task_{}", i),
-                namespaced_id_template: format!(
-                    "{{tenant_id}}/{{package_name}}/{}",
-                    format!("task_{}", i)
-                ),
+                namespaced_id_template: format!("{{tenant_id}}/{{package_name}}/task_{i}"),
                 dependencies: Vec::new(),
                 description: format!("Test task {}", i),
                 source_location: "test.rs:1".to_string(),
@@ -369,7 +366,7 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_valid); // Will fail due to missing symbols, but also check security
-        assert!(result.warnings.len() > 0); // Should have security warnings
+        assert!(!result.warnings.is_empty()); // Should have security warnings
         assert!(matches!(
             result.security_level,
             SecurityLevel::Warning | SecurityLevel::Dangerous
@@ -502,7 +499,7 @@ mod tests {
 
         // Should have warnings but might still be considered valid in permissive mode
         // (though will fail due to symbol issues)
-        assert!(result.warnings.len() > 0 || result.errors.len() > 0);
+        assert!(!result.warnings.is_empty() || !result.errors.is_empty());
     }
 
     #[tokio::test]

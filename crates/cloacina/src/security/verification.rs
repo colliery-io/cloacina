@@ -32,7 +32,7 @@ use super::package_signer::{DbPackageSigner, DetachedSignature, PackageSigner};
 use super::{DbKeyManager, KeyManager};
 
 /// Security configuration for package verification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SecurityConfig {
     /// Whether package signatures are required (default: false).
     ///
@@ -47,15 +47,6 @@ pub struct SecurityConfig {
     /// Only needed if using database-stored signing keys for signing operations.
     /// For verification-only scenarios (loading packages), this is not required.
     pub key_encryption_key: Option<[u8; 32]>,
-}
-
-impl Default for SecurityConfig {
-    fn default() -> Self {
-        Self {
-            require_signatures: false,
-            key_encryption_key: None,
-        }
-    }
 }
 
 impl SecurityConfig {
@@ -139,7 +130,7 @@ pub enum VerificationError {
 }
 
 /// Where to find the signature for a package.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum SignatureSource {
     /// Load signature from database by package hash.
     Database,
@@ -151,13 +142,8 @@ pub enum SignatureSource {
     },
 
     /// Try detached file first (package_path + ".sig"), then database.
+    #[default]
     Auto,
-}
-
-impl Default for SignatureSource {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Result of successful verification.
@@ -279,7 +265,7 @@ pub async fn verify_package<P: AsRef<Path>>(
         VerificationError::InvalidSignature
     })?;
 
-    if let Err(_) = verify_signature(&hash_bytes, &sig_bytes, &trusted_key.public_key) {
+    if verify_signature(&hash_bytes, &sig_bytes, &trusted_key.public_key).is_err() {
         audit::log_verification_failure(
             org_id,
             &package_hash,
@@ -454,7 +440,7 @@ mod tests {
             algorithm: "ed25519".to_string(),
             package_hash: "wrong_hash".to_string(),
             key_fingerprint: keypair.fingerprint.clone(),
-            signature: base64::engine::general_purpose::STANDARD.encode(&[0u8; 64]),
+            signature: base64::engine::general_purpose::STANDARD.encode([0u8; 64]),
             signed_at: chrono::Utc::now().to_rfc3339(),
         };
 

@@ -138,8 +138,8 @@ impl CloacinaConfig {
             .directories
             .iter()
             .map(|d| {
-                if d.starts_with("~/") {
-                    home.join(&d[2..])
+                if let Some(stripped) = d.strip_prefix("~/") {
+                    home.join(stripped)
                 } else {
                     PathBuf::from(d)
                 }
@@ -437,8 +437,10 @@ directories = ["/extra/dir1", "~/workflows"]
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
 
-        let mut config = CloacinaConfig::default();
-        config.database_url = Some("postgres://test".to_string());
+        let mut config = CloacinaConfig {
+            database_url: Some("postgres://test".to_string()),
+            ..CloacinaConfig::default()
+        };
         config.daemon.poll_interval_ms = 2000;
         config.watch.directories = vec!["/dir1".to_string()];
         config.save(&path).unwrap();

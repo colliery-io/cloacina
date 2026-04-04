@@ -498,6 +498,7 @@ impl TaskDecorator {
     on_success = None,
     on_failure = None
 ))]
+#[allow(clippy::too_many_arguments)]
 pub fn task(
     id: Option<String>,
     dependencies: Option<Vec<PyObject>>,

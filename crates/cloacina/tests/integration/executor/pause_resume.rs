@@ -64,12 +64,14 @@ async fn wait_for_terminal(
 
 // Simple task for workflow construction
 #[derive(Debug)]
+#[allow(dead_code)]
 struct WorkflowTask {
     id: String,
     dependencies: Vec<TaskNamespace>,
 }
 
 impl WorkflowTask {
+    #[allow(dead_code)]
     fn new(id: &str, deps: Vec<&str>) -> Self {
         Self {
             id: id.to_string(),

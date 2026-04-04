@@ -367,7 +367,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                 });
             }
-            let _ = context.insert(&format!("{}_checked", self.expected_key), json!(true));
+            let _ = context.insert(format!("{}_checked", self.expected_key), json!(true));
             Ok(context)
         }
         fn id(&self) -> &str {

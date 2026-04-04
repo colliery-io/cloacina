@@ -23,8 +23,7 @@ use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::info;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -604,7 +603,7 @@ mod tests {
 
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(&format!("/auth/keys/{}", info2.id))
+            .uri(format!("/auth/keys/{}", info2.id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -624,7 +623,7 @@ mod tests {
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(&format!("/auth/keys/{}", fake_id))
+            .uri(format!("/auth/keys/{}", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -753,7 +752,7 @@ mod tests {
         let app = build_router(state);
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(&format!("/tenants/{}", schema))
+            .uri(format!("/tenants/{}", schema))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -901,7 +900,7 @@ mod tests {
         let app = build_router(state.clone());
         let req = axum::http::Request::builder()
             .method("DELETE")
-            .uri(&format!("/tenants/default/workflows/{}/{}", name, version))
+            .uri(format!("/tenants/default/workflows/{}/{}", name, version))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1039,7 +1038,7 @@ mod tests {
 
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(&format!("/tenants/default/executions/{}", fake_id))
+            .uri(format!("/tenants/default/executions/{}", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();
@@ -1095,7 +1094,7 @@ mod tests {
         // an empty events list (the DAL returns Ok([]) for missing pipelines)
         let fake_id = uuid::Uuid::new_v4();
         let req = axum::http::Request::builder()
-            .uri(&format!("/tenants/default/executions/{}/events", fake_id))
+            .uri(format!("/tenants/default/executions/{}/events", fake_id))
             .header("Authorization", format!("Bearer {}", token))
             .body(Body::empty())
             .unwrap();

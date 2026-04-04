@@ -485,4 +485,121 @@ mod tests {
         assert!(status.package_details[0].has_workflow);
         assert!(!status.package_details[1].has_workflow);
     }
+
+    #[test]
+    fn test_reconciler_config_custom_values() {
+        let config = ReconcilerConfig {
+            reconcile_interval: Duration::from_secs(60),
+            enable_startup_reconciliation: false,
+            package_operation_timeout: Duration::from_secs(120),
+            continue_on_package_error: false,
+            default_tenant_id: "tenant-42".to_string(),
+        };
+
+        assert_eq!(config.reconcile_interval, Duration::from_secs(60));
+        assert!(!config.enable_startup_reconciliation);
+        assert_eq!(config.package_operation_timeout, Duration::from_secs(120));
+        assert!(!config.continue_on_package_error);
+        assert_eq!(config.default_tenant_id, "tenant-42");
+    }
+
+    #[test]
+    fn test_reconcile_result_no_changes_no_failures() {
+        let result = ReconcileResult {
+            packages_loaded: vec![],
+            packages_unloaded: vec![],
+            packages_failed: vec![],
+            total_packages_tracked: 5,
+            reconciliation_duration: Duration::from_millis(10),
+        };
+
+        assert!(!result.has_changes());
+        assert!(!result.has_failures());
+        assert_eq!(result.total_packages_tracked, 5);
+    }
+
+    #[test]
+    fn test_reconcile_result_unloaded_counts_as_change() {
+        let result = ReconcileResult {
+            packages_loaded: vec![],
+            packages_unloaded: vec![Uuid::new_v4()],
+            packages_failed: vec![],
+            total_packages_tracked: 0,
+            reconciliation_duration: Duration::from_millis(20),
+        };
+
+        assert!(result.has_changes());
+        assert!(!result.has_failures());
+    }
+
+    #[test]
+    fn test_reconcile_result_both_loaded_and_unloaded() {
+        let result = ReconcileResult {
+            packages_loaded: vec![Uuid::new_v4(), Uuid::new_v4()],
+            packages_unloaded: vec![Uuid::new_v4()],
+            packages_failed: vec![(Uuid::new_v4(), "timeout".to_string())],
+            total_packages_tracked: 3,
+            reconciliation_duration: Duration::from_secs(2),
+        };
+
+        assert!(result.has_changes());
+        assert!(result.has_failures());
+        assert_eq!(result.packages_loaded.len(), 2);
+        assert_eq!(result.packages_unloaded.len(), 1);
+        assert_eq!(result.packages_failed.len(), 1);
+    }
+
+    #[test]
+    fn test_package_status_detail_fields() {
+        let detail = PackageStatusDetail {
+            package_name: "my-workflow".to_string(),
+            version: "2.3.1".to_string(),
+            task_count: 7,
+            has_workflow: true,
+        };
+
+        assert_eq!(detail.package_name, "my-workflow");
+        assert_eq!(detail.version, "2.3.1");
+        assert_eq!(detail.task_count, 7);
+        assert!(detail.has_workflow);
+    }
+
+    #[test]
+    fn test_reconciler_status_empty() {
+        let status = ReconcilerStatus {
+            packages_loaded: 0,
+            package_details: vec![],
+        };
+
+        assert_eq!(status.packages_loaded, 0);
+        assert!(status.package_details.is_empty());
+    }
+
+    #[test]
+    fn test_reconciler_config_clone() {
+        let config = ReconcilerConfig::default();
+        let cloned = config.clone();
+        assert_eq!(config.reconcile_interval, cloned.reconcile_interval);
+        assert_eq!(
+            config.enable_startup_reconciliation,
+            cloned.enable_startup_reconciliation
+        );
+        assert_eq!(config.default_tenant_id, cloned.default_tenant_id);
+    }
+
+    #[test]
+    fn test_reconcile_result_clone() {
+        let id = Uuid::new_v4();
+        let result = ReconcileResult {
+            packages_loaded: vec![id],
+            packages_unloaded: vec![],
+            packages_failed: vec![],
+            total_packages_tracked: 1,
+            reconciliation_duration: Duration::from_millis(50),
+        };
+
+        let cloned = result.clone();
+        assert_eq!(cloned.packages_loaded, vec![id]);
+        assert_eq!(cloned.reconciliation_duration, Duration::from_millis(50));
+    }
 }

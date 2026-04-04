@@ -655,13 +655,10 @@ async fn test_concurrent_claiming_no_duplicates() {
 
                 let mut claimed = Vec::new();
                 for _ in 0..5 {
-                    match dal.task_execution().claim_ready_task(3).await {
-                        Ok(results) => {
-                            for result in results {
-                                claimed.push((worker_id, result.id));
-                            }
+                    if let Ok(results) = dal.task_execution().claim_ready_task(3).await {
+                        for result in results {
+                            claimed.push((worker_id, result.id));
                         }
-                        Err(_) => {}
                     }
                 }
                 claimed

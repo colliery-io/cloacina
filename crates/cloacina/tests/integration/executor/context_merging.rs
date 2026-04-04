@@ -93,7 +93,7 @@ async fn merger_task(context: &mut Context<Value>) -> Result<(), TaskError> {
     // With pre-inject pattern, all dependency data is already in context
     for key in &expected_keys {
         // Get value directly from context (deps are pre-injected by executor)
-        if let Some(value) = context.get(*key) {
+        if let Some(value) = context.get(key) {
             merged_values.insert(key.to_string(), value.clone());
         } else {
             return Err(TaskError::Unknown {

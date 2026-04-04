@@ -362,3 +362,300 @@ impl<'a> TaskOutboxDAL<'a> {
         Ok(deleted as i64)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Database;
+    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::task_outbox::NewTaskOutbox;
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/outbox_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    /// Helper: create a pipeline + task, mark it ready (which inserts into outbox),
+    /// and return the task execution ID.
+    #[cfg(feature = "sqlite")]
+    async fn create_ready_task(dal: &DAL, task_name: &str) -> UniversalUuid {
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "test_pipeline".into(),
+                pipeline_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let task = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: task_name.into(),
+                status: "NotStarted".into(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        dal.task_execution().mark_ready(task.id).await.unwrap();
+
+        task.id
+    }
+
+    // ── create + list_pending ──────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_outbox_entry() {
+        let dal = unique_dal().await;
+        let task_id = create_ready_task(&dal, "task_create_test").await;
+
+        let pending = dal.task_outbox().list_pending(10).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].task_execution_id, task_id);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_pending_empty() {
+        let dal = unique_dal().await;
+        let pending = dal.task_outbox().list_pending(10).await.unwrap();
+        assert!(pending.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_pending_respects_limit() {
+        let dal = unique_dal().await;
+        create_ready_task(&dal, "task_a").await;
+        create_ready_task(&dal, "task_b").await;
+        create_ready_task(&dal, "task_c").await;
+
+        let page = dal.task_outbox().list_pending(2).await.unwrap();
+        assert_eq!(page.len(), 2);
+
+        let all = dal.task_outbox().list_pending(100).await.unwrap();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_pending_ordered_oldest_first() {
+        let dal = unique_dal().await;
+        create_ready_task(&dal, "first").await;
+        create_ready_task(&dal, "second").await;
+
+        let pending = dal.task_outbox().list_pending(10).await.unwrap();
+        assert_eq!(pending.len(), 2);
+        // Verify ordered oldest first (created_at[0] <= created_at[1])
+        let t0: chrono::DateTime<chrono::Utc> = pending[0].created_at.into();
+        let t1: chrono::DateTime<chrono::Utc> = pending[1].created_at.into();
+        assert!(t0 <= t1);
+    }
+
+    // ── count_pending ──────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_count_pending_empty() {
+        let dal = unique_dal().await;
+        let count = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_count_pending_after_inserts() {
+        let dal = unique_dal().await;
+        create_ready_task(&dal, "t1").await;
+        create_ready_task(&dal, "t2").await;
+
+        let count = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count, 2);
+    }
+
+    // ── delete_by_task ─────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_by_task() {
+        let dal = unique_dal().await;
+        let task_id = create_ready_task(&dal, "to_delete").await;
+
+        // Verify it exists
+        let count_before = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count_before, 1);
+
+        // Delete it
+        dal.task_outbox().delete_by_task(task_id).await.unwrap();
+
+        let count_after = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count_after, 0);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_by_task_nonexistent() {
+        let dal = unique_dal().await;
+        // Deleting a nonexistent entry should not error
+        let bogus = UniversalUuid::new_v4();
+        dal.task_outbox().delete_by_task(bogus).await.unwrap();
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_by_task_only_removes_target() {
+        let dal = unique_dal().await;
+        let task_a = create_ready_task(&dal, "keep_me").await;
+        let task_b = create_ready_task(&dal, "delete_me").await;
+
+        dal.task_outbox().delete_by_task(task_b).await.unwrap();
+
+        let remaining = dal.task_outbox().list_pending(10).await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].task_execution_id, task_a);
+    }
+
+    // ── delete_older_than ──────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_older_than() {
+        let dal = unique_dal().await;
+        create_ready_task(&dal, "old_task").await;
+
+        // Use a cutoff in the future so all current entries are "older than" it
+        let future_cutoff =
+            UniversalTimestamp::from(chrono::Utc::now() + chrono::Duration::hours(1));
+
+        let deleted = dal
+            .task_outbox()
+            .delete_older_than(future_cutoff)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+
+        let count = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_older_than_keeps_recent() {
+        let dal = unique_dal().await;
+        create_ready_task(&dal, "recent_task").await;
+
+        // Use a cutoff in the past so nothing is older
+        let past_cutoff = UniversalTimestamp::from(chrono::Utc::now() - chrono::Duration::hours(1));
+
+        let deleted = dal
+            .task_outbox()
+            .delete_older_than(past_cutoff)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 0);
+
+        let count = dal.task_outbox().count_pending().await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    // ── direct create (bypassing mark_ready) ───────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_direct_create() {
+        let dal = unique_dal().await;
+        // Create a pipeline + task first (FK constraint)
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "p".into(),
+                pipeline_version: "1".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+        let task = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "direct".into(),
+                status: "NotStarted".into(),
+                attempt: 1,
+                max_attempts: 1,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        let entry = dal
+            .task_outbox()
+            .create(NewTaskOutbox {
+                task_execution_id: task.id,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(entry.task_execution_id, task.id);
+        assert_eq!(dal.task_outbox().count_pending().await.unwrap(), 1);
+    }
+
+    // ── integration: mark_ready populates outbox ───────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_mark_ready_populates_outbox() {
+        let dal = unique_dal().await;
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "p".into(),
+                pipeline_version: "1".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+        let task = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "ready_test".into(),
+                status: "NotStarted".into(),
+                attempt: 1,
+                max_attempts: 1,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        // Before mark_ready: no outbox entries
+        assert_eq!(dal.task_outbox().count_pending().await.unwrap(), 0);
+
+        dal.task_execution().mark_ready(task.id).await.unwrap();
+
+        // After mark_ready: exactly one outbox entry
+        let pending = dal.task_outbox().list_pending(10).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].task_execution_id, task.id);
+    }
+}

@@ -379,7 +379,6 @@ impl CronRecoveryService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::watch;
 
     #[test]
     fn test_recovery_config_default() {

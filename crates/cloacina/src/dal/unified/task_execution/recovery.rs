@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -262,5 +262,282 @@ impl<'a> TaskExecutionDAL<'a> {
             .collect();
 
         Ok(exhausted_tasks)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dal::DAL;
+    use crate::database::universal_types::UniversalUuid;
+    use crate::database::Database;
+    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::task_execution::NewTaskExecution;
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/recovery_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    /// Helper: create a pipeline and return its ID.
+    #[cfg(feature = "sqlite")]
+    async fn create_pipeline(dal: &DAL) -> UniversalUuid {
+        dal.pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "recovery_pipeline".into(),
+                pipeline_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    /// Helper: create a task with a given status, returning its ID.
+    #[cfg(feature = "sqlite")]
+    async fn create_task(
+        dal: &DAL,
+        pipeline_id: UniversalUuid,
+        name: &str,
+        status: &str,
+        attempt: i32,
+        max_attempts: i32,
+    ) -> UniversalUuid {
+        dal.task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline_id,
+                task_name: name.into(),
+                status: status.into(),
+                attempt,
+                max_attempts,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap()
+            .id
+    }
+
+    // ── get_orphaned_tasks ─────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_orphaned_tasks_none() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        create_task(&dal, pipeline_id, "pending_task", "NotStarted", 1, 3).await;
+        create_task(&dal, pipeline_id, "ready_task", "Ready", 1, 3).await;
+
+        let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
+        assert!(orphaned.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_orphaned_tasks_finds_running() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        let running_id = create_task(&dal, pipeline_id, "stuck_task", "Running", 1, 3).await;
+        create_task(&dal, pipeline_id, "ok_task", "Completed", 1, 3).await;
+
+        let orphaned = dal.task_execution().get_orphaned_tasks().await.unwrap();
+        assert_eq!(orphaned.len(), 1);
+        assert_eq!(orphaned[0].id, running_id);
+        assert_eq!(orphaned[0].status, "Running");
+    }
+
+    // ── reset_task_for_recovery ────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_reset_task_for_recovery() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        let task_id = create_task(&dal, pipeline_id, "recover_me", "Running", 1, 3).await;
+
+        dal.task_execution()
+            .reset_task_for_recovery(task_id)
+            .await
+            .unwrap();
+
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.status, "Ready");
+        assert!(task.started_at.is_none());
+        assert_eq!(task.recovery_attempts, 1);
+        assert!(task.last_recovery_at.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_reset_task_increments_recovery_attempts() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        let task_id = create_task(&dal, pipeline_id, "multi_recover", "Running", 1, 3).await;
+
+        // First recovery
+        dal.task_execution()
+            .reset_task_for_recovery(task_id)
+            .await
+            .unwrap();
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.recovery_attempts, 1);
+
+        // Simulate it going back to Running (would normally happen via claiming)
+        // We can just reset again since the method only checks the ID
+        dal.task_execution()
+            .reset_task_for_recovery(task_id)
+            .await
+            .unwrap();
+        let task = dal.task_execution().get_by_id(task_id).await.unwrap();
+        assert_eq!(task.recovery_attempts, 2);
+    }
+
+    // ── check_pipeline_failure ─────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_check_pipeline_failure_no_abandoned() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
+
+        let failed = dal
+            .task_execution()
+            .check_pipeline_failure(pipeline_id)
+            .await
+            .unwrap();
+        assert!(!failed);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_check_pipeline_failure_with_abandoned() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        let task_id = create_task(&dal, pipeline_id, "abandoned", "NotStarted", 1, 3).await;
+
+        // Mark the task as abandoned (which sets status=Failed + error_details=ABANDONED:...)
+        dal.task_execution()
+            .mark_abandoned(task_id, "worker lost")
+            .await
+            .unwrap();
+
+        let failed = dal
+            .task_execution()
+            .check_pipeline_failure(pipeline_id)
+            .await
+            .unwrap();
+        assert!(failed);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_check_pipeline_failure_regular_failure_not_abandoned() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        let task_id = create_task(&dal, pipeline_id, "regular_fail", "NotStarted", 1, 3).await;
+
+        // A regular failure (not ABANDONED) should NOT trigger pipeline failure check
+        dal.task_execution()
+            .mark_failed(task_id, "something broke")
+            .await
+            .unwrap();
+
+        let failed = dal
+            .task_execution()
+            .check_pipeline_failure(pipeline_id)
+            .await
+            .unwrap();
+        assert!(!failed);
+    }
+
+    // ── get_retry_stats ────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_retry_stats_no_retries() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        create_task(&dal, pipeline_id, "t1", "Completed", 1, 3).await;
+        create_task(&dal, pipeline_id, "t2", "Completed", 1, 3).await;
+
+        let stats = dal
+            .task_execution()
+            .get_retry_stats(pipeline_id)
+            .await
+            .unwrap();
+        assert_eq!(stats.tasks_with_retries, 0);
+        assert_eq!(stats.total_retries, 0);
+        assert_eq!(stats.max_attempts_used, 1);
+        assert_eq!(stats.tasks_exhausted_retries, 0);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_retry_stats_with_retries() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+
+        // Task that succeeded on attempt 1
+        create_task(&dal, pipeline_id, "first_try", "Completed", 1, 3).await;
+        // Task that succeeded on attempt 3
+        create_task(&dal, pipeline_id, "third_try", "Completed", 3, 3).await;
+        // Task that exhausted retries
+        create_task(&dal, pipeline_id, "exhausted", "Failed", 3, 3).await;
+
+        let stats = dal
+            .task_execution()
+            .get_retry_stats(pipeline_id)
+            .await
+            .unwrap();
+        assert_eq!(stats.tasks_with_retries, 2); // third_try + exhausted
+        assert_eq!(stats.total_retries, 4); // (3-1) + (3-1) = 4
+        assert_eq!(stats.max_attempts_used, 3);
+        assert_eq!(stats.tasks_exhausted_retries, 1); // exhausted
+    }
+
+    // ── get_exhausted_retry_tasks ──────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_exhausted_retry_tasks() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+
+        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
+        create_task(&dal, pipeline_id, "still_trying", "Failed", 2, 3).await;
+        let exhausted_id = create_task(&dal, pipeline_id, "gave_up", "Failed", 3, 3).await;
+
+        let exhausted = dal
+            .task_execution()
+            .get_exhausted_retry_tasks(pipeline_id)
+            .await
+            .unwrap();
+        assert_eq!(exhausted.len(), 1);
+        assert_eq!(exhausted[0].id, exhausted_id);
+        assert_eq!(exhausted[0].task_name, "gave_up");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_exhausted_retry_tasks_empty() {
+        let dal = unique_dal().await;
+        let pipeline_id = create_pipeline(&dal).await;
+        create_task(&dal, pipeline_id, "ok", "Completed", 1, 3).await;
+
+        let exhausted = dal
+            .task_execution()
+            .get_exhausted_retry_tasks(pipeline_id)
+            .await
+            .unwrap();
+        assert!(exhausted.is_empty());
     }
 }

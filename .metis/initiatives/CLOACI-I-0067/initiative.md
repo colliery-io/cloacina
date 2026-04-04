@@ -4,14 +4,14 @@ level: initiative
 title: "Test Coverage Gaps — Pre-1.0 Hardening"
 short_code: "CLOACI-I-0067"
 created_at: 2026-04-03T02:34:12.057836+00:00
-updated_at: 2026-04-03T02:39:22.258760+00:00
+updated_at: 2026-04-03T12:56:26.934208+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

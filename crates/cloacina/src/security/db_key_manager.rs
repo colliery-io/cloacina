@@ -101,7 +101,7 @@ impl DbKeyManager {
             )));
         }
 
-        if &der[..ED25519_DER_PREFIX.len()] != ED25519_DER_PREFIX {
+        if der[..ED25519_DER_PREFIX.len()] != ED25519_DER_PREFIX {
             return Err(KeyError::InvalidPem(
                 "Invalid DER prefix for Ed25519 key".to_string(),
             ));
@@ -1174,6 +1174,9 @@ impl DbKeyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::Database;
+
+    // ── Pure-function unit tests ──────────────────────────────────────
 
     #[test]
     fn test_pem_roundtrip() {
@@ -1188,6 +1191,30 @@ mod tests {
     }
 
     #[test]
+    fn test_pem_roundtrip_all_zeros() {
+        let public_key = [0u8; 32];
+        let pem = DbKeyManager::encode_public_key_pem(&public_key);
+        let decoded = DbKeyManager::decode_public_key_pem(&pem).unwrap();
+        assert_eq!(decoded, public_key);
+    }
+
+    #[test]
+    fn test_pem_roundtrip_all_ones() {
+        let public_key = [0xFFu8; 32];
+        let pem = DbKeyManager::encode_public_key_pem(&public_key);
+        let decoded = DbKeyManager::decode_public_key_pem(&pem).unwrap();
+        assert_eq!(decoded, public_key);
+    }
+
+    #[test]
+    fn test_pem_roundtrip_random_key() {
+        let keypair = crate::crypto::generate_signing_keypair();
+        let pem = DbKeyManager::encode_public_key_pem(&keypair.public_key);
+        let decoded = DbKeyManager::decode_public_key_pem(&pem).unwrap();
+        assert_eq!(decoded, keypair.public_key);
+    }
+
+    #[test]
     fn test_invalid_pem() {
         let result = DbKeyManager::decode_public_key_pem("not a pem");
         assert!(result.is_err());
@@ -1196,5 +1223,613 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----",
         );
         assert!(matches!(result, Err(KeyError::InvalidPem(_))));
+    }
+
+    #[test]
+    fn test_decode_pem_wrong_length() {
+        // Valid PEM structure but wrong key size (16 bytes instead of 32)
+        let short_key = [0x42u8; 16];
+        let mut der = Vec::with_capacity(ED25519_DER_PREFIX.len() + short_key.len());
+        der.extend_from_slice(&ED25519_DER_PREFIX);
+        der.extend_from_slice(&short_key);
+        let pem = pem::Pem::new(ED25519_PEM_TAG, der);
+        let pem_str = pem::encode(&pem);
+        let result = DbKeyManager::decode_public_key_pem(&pem_str);
+        assert!(matches!(result, Err(KeyError::InvalidPem(_))));
+    }
+
+    #[test]
+    fn test_decode_pem_wrong_der_prefix() {
+        // Correct length but wrong DER prefix
+        let mut der = vec![0x00u8; ED25519_DER_PREFIX.len() + 32];
+        // Put garbage in prefix area
+        for b in der[..ED25519_DER_PREFIX.len()].iter_mut() {
+            *b = 0xFF;
+        }
+        let pem = pem::Pem::new(ED25519_PEM_TAG, der);
+        let pem_str = pem::encode(&pem);
+        let result = DbKeyManager::decode_public_key_pem(&pem_str);
+        assert!(matches!(result, Err(KeyError::InvalidPem(_))));
+    }
+
+    #[test]
+    fn test_encode_pem_contains_expected_header_footer() {
+        let pem = DbKeyManager::encode_public_key_pem(&[0u8; 32]);
+        assert!(pem.starts_with("-----BEGIN PUBLIC KEY-----"));
+        assert!(pem.trim_end().ends_with("-----END PUBLIC KEY-----"));
+    }
+
+    // ── Helper to build a fresh DAL per test ─────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/dbkm_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn master_key() -> [u8; 32] {
+        [0u8; 32]
+    }
+
+    // ── Database-backed KeyManager tests ─────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_signing_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "test-key-1", &master_key())
+            .await
+            .unwrap();
+
+        assert_eq!(info.org_id, org_id);
+        assert_eq!(info.key_name, "test-key-1");
+        assert!(info.is_active());
+        assert_eq!(info.public_key.len(), 32);
+        assert!(!info.fingerprint.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_info() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let created = km
+            .create_signing_key(org_id, "lookup-key", &master_key())
+            .await
+            .unwrap();
+
+        let fetched = km.get_signing_key_info(created.id).await.unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.key_name, "lookup-key");
+        assert_eq!(fetched.fingerprint, created.fingerprint);
+        assert_eq!(fetched.public_key, created.public_key);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_info_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+
+        let result = km.get_signing_key_info(UniversalUuid::new_v4()).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_decrypt() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "decrypt-key", &master_key())
+            .await
+            .unwrap();
+
+        let (pub_key, priv_key) = km.get_signing_key(info.id, &master_key()).await.unwrap();
+        assert_eq!(pub_key, info.public_key);
+        assert_eq!(priv_key.len(), 32);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_wrong_master_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "wrong-mk-key", &master_key())
+            .await
+            .unwrap();
+
+        let wrong_key = [1u8; 32];
+        let result = km.get_signing_key(info.id, &wrong_key).await;
+        assert!(matches!(result, Err(KeyError::Decryption(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_signing_key_revoked_fails() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "revoke-me", &master_key())
+            .await
+            .unwrap();
+
+        km.revoke_signing_key(info.id).await.unwrap();
+
+        let result = km.get_signing_key(info.id, &master_key()).await;
+        assert!(matches!(result, Err(KeyError::Revoked(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_signing_keys() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+        let other_org = UniversalUuid::new_v4();
+
+        // Empty initially
+        let keys = km.list_signing_keys(org_id).await.unwrap();
+        assert!(keys.is_empty());
+
+        km.create_signing_key(org_id, "key-a", &master_key())
+            .await
+            .unwrap();
+        km.create_signing_key(org_id, "key-b", &master_key())
+            .await
+            .unwrap();
+        km.create_signing_key(other_org, "key-other", &master_key())
+            .await
+            .unwrap();
+
+        let keys = km.list_signing_keys(org_id).await.unwrap();
+        assert_eq!(keys.len(), 2);
+
+        let other_keys = km.list_signing_keys(other_org).await.unwrap();
+        assert_eq!(other_keys.len(), 1);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_signing_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "revoke-test", &master_key())
+            .await
+            .unwrap();
+        assert!(info.is_active());
+
+        km.revoke_signing_key(info.id).await.unwrap();
+
+        let fetched = km.get_signing_key_info(info.id).await.unwrap();
+        assert!(!fetched.is_active());
+        assert!(fetched.revoked_at.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_signing_key_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+
+        let result = km.revoke_signing_key(UniversalUuid::new_v4()).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_export_public_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let info = km
+            .create_signing_key(org_id, "export-key", &master_key())
+            .await
+            .unwrap();
+
+        let export = km.export_public_key(info.id).await.unwrap();
+        assert_eq!(export.fingerprint, info.fingerprint);
+        assert_eq!(export.public_key_raw, info.public_key);
+        assert!(export.public_key_pem.contains("-----BEGIN PUBLIC KEY-----"));
+
+        // PEM should decode back to the same raw key
+        let decoded = DbKeyManager::decode_public_key_pem(&export.public_key_pem).unwrap();
+        assert_eq!(decoded, info.public_key);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_trust_public_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let keypair = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(org_id, &keypair.public_key, Some("vendor-key"))
+            .await
+            .unwrap();
+
+        assert_eq!(trusted.org_id, org_id);
+        assert_eq!(trusted.public_key, keypair.public_key);
+        assert_eq!(trusted.key_name.as_deref(), Some("vendor-key"));
+        assert!(trusted.is_active());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_trust_public_key_invalid_length() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let result = km.trust_public_key(org_id, &[0u8; 16], Some("short")).await;
+        assert!(matches!(result, Err(KeyError::InvalidFormat(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_trust_public_key_pem() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let keypair = crate::crypto::generate_signing_keypair();
+        let pem = DbKeyManager::encode_public_key_pem(&keypair.public_key);
+
+        let trusted = km
+            .trust_public_key_pem(org_id, &pem, Some("pem-key"))
+            .await
+            .unwrap();
+
+        assert_eq!(trusted.public_key, keypair.public_key);
+        assert_eq!(trusted.key_name.as_deref(), Some("pem-key"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_trust_public_key_pem_invalid() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let result = km.trust_public_key_pem(org_id, "garbage pem", None).await;
+        assert!(matches!(result, Err(KeyError::InvalidPem(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_trusted_keys() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        // Empty initially
+        let keys = km.list_trusted_keys(org_id).await.unwrap();
+        assert!(keys.is_empty());
+
+        let kp1 = crate::crypto::generate_signing_keypair();
+        let kp2 = crate::crypto::generate_signing_keypair();
+
+        km.trust_public_key(org_id, &kp1.public_key, Some("vendor-1"))
+            .await
+            .unwrap();
+        km.trust_public_key(org_id, &kp2.public_key, None)
+            .await
+            .unwrap();
+
+        let keys = km.list_trusted_keys(org_id).await.unwrap();
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trusted_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(org_id, &kp.public_key, Some("revoke-me"))
+            .await
+            .unwrap();
+
+        km.revoke_trusted_key(trusted.id).await.unwrap();
+
+        // Revoked keys should not appear in list (list filters revoked)
+        let keys = km.list_trusted_keys(org_id).await.unwrap();
+        assert!(keys.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trusted_key_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+
+        let result = km.revoke_trusted_key(UniversalUuid::new_v4()).await;
+        assert!(matches!(result, Err(KeyError::NotFound(_))));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_trusted_key_direct() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(org_id, &kp.public_key, Some("findable"))
+            .await
+            .unwrap();
+
+        let found = km
+            .find_trusted_key(org_id, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().fingerprint, trusted.fingerprint);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_trusted_key_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let found = km
+            .find_trusted_key(org_id, "nonexistent-fingerprint")
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_find_trusted_key_revoked_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        let trusted = km
+            .trust_public_key(org_id, &kp.public_key, None)
+            .await
+            .unwrap();
+
+        km.revoke_trusted_key(trusted.id).await.unwrap();
+
+        let found = km
+            .find_trusted_key(org_id, &trusted.fingerprint)
+            .await
+            .unwrap();
+        assert!(found.is_none());
+    }
+
+    // ── Trust ACL tests ──────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_grant_trust() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let parent = UniversalUuid::new_v4();
+        let child = UniversalUuid::new_v4();
+
+        km.grant_trust(parent, child).await.unwrap();
+
+        // Child's trusted keys should be visible to parent via ACL
+        let kp = crate::crypto::generate_signing_keypair();
+        km.trust_public_key(child, &kp.public_key, Some("child-key"))
+            .await
+            .unwrap();
+
+        let parent_keys = km.list_trusted_keys(parent).await.unwrap();
+        assert_eq!(parent_keys.len(), 1);
+        assert_eq!(parent_keys[0].key_name.as_deref(), Some("child-key"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_grant_trust_find_inherited_key() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let parent = UniversalUuid::new_v4();
+        let child = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        km.trust_public_key(child, &kp.public_key, None)
+            .await
+            .unwrap();
+
+        km.grant_trust(parent, child).await.unwrap();
+
+        let fingerprint = crate::crypto::compute_key_fingerprint(&kp.public_key);
+        let found = km.find_trusted_key(parent, &fingerprint).await.unwrap();
+        assert!(found.is_some());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trust() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let parent = UniversalUuid::new_v4();
+        let child = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+        km.trust_public_key(child, &kp.public_key, None)
+            .await
+            .unwrap();
+        km.grant_trust(parent, child).await.unwrap();
+
+        // Revoke the trust
+        km.revoke_trust(parent, child).await.unwrap();
+
+        // Parent should no longer see child's keys
+        let parent_keys = km.list_trusted_keys(parent).await.unwrap();
+        assert!(parent_keys.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_revoke_trust_not_found() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let parent = UniversalUuid::new_v4();
+        let child = UniversalUuid::new_v4();
+
+        let result = km.revoke_trust(parent, child).await;
+        assert!(matches!(result, Err(KeyError::TrustNotFound)));
+    }
+
+    // ── End-to-end sign/verify round-trip ────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_key_sign_and_verify_roundtrip() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+        let mk = master_key();
+
+        // Create a signing key
+        let info = km
+            .create_signing_key(org_id, "sign-verify", &mk)
+            .await
+            .unwrap();
+
+        // Decrypt the keypair
+        let (pub_key, priv_key) = km.get_signing_key(info.id, &mk).await.unwrap();
+
+        // Sign some data
+        let data = b"important payload";
+        let signature = crate::crypto::sign_package(data, &priv_key).unwrap();
+
+        // Verify
+        let result = crate::crypto::verify_signature(data, &signature, &pub_key);
+        assert!(result.is_ok());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_export_and_import_roundtrip() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_a = UniversalUuid::new_v4();
+        let org_b = UniversalUuid::new_v4();
+        let mk = master_key();
+
+        // Org A creates a key and exports it
+        let info = km
+            .create_signing_key(org_a, "exportable", &mk)
+            .await
+            .unwrap();
+        let export = km.export_public_key(info.id).await.unwrap();
+
+        // Org B imports the public key via PEM
+        let trusted = km
+            .trust_public_key_pem(org_b, &export.public_key_pem, Some("org-a-key"))
+            .await
+            .unwrap();
+
+        assert_eq!(trusted.public_key, info.public_key);
+        assert_eq!(trusted.fingerprint, info.fingerprint);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_signing_keys_includes_revoked() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_id = UniversalUuid::new_v4();
+
+        let key = km
+            .create_signing_key(org_id, "will-revoke", &master_key())
+            .await
+            .unwrap();
+        km.revoke_signing_key(key.id).await.unwrap();
+
+        // list_signing_keys returns all keys including revoked
+        let keys = km.list_signing_keys(org_id).await.unwrap();
+        assert_eq!(keys.len(), 1);
+        assert!(!keys[0].is_active());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_trusted_keys_deduplicates_across_acl() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let parent = UniversalUuid::new_v4();
+        let child = UniversalUuid::new_v4();
+
+        let kp = crate::crypto::generate_signing_keypair();
+
+        // Trust the same key in both orgs
+        km.trust_public_key(parent, &kp.public_key, Some("direct"))
+            .await
+            .unwrap();
+        km.trust_public_key(child, &kp.public_key, Some("child-copy"))
+            .await
+            .unwrap();
+
+        km.grant_trust(parent, child).await.unwrap();
+
+        // Should not have duplicates
+        let keys = km.list_trusted_keys(parent).await.unwrap();
+        assert_eq!(keys.len(), 1);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_multiple_orgs_isolated() {
+        let dal = unique_dal().await;
+        let km = DbKeyManager::new(dal);
+        let org_a = UniversalUuid::new_v4();
+        let org_b = UniversalUuid::new_v4();
+
+        km.create_signing_key(org_a, "a-key", &master_key())
+            .await
+            .unwrap();
+        km.create_signing_key(org_b, "b-key", &master_key())
+            .await
+            .unwrap();
+
+        let a_keys = km.list_signing_keys(org_a).await.unwrap();
+        let b_keys = km.list_signing_keys(org_b).await.unwrap();
+
+        assert_eq!(a_keys.len(), 1);
+        assert_eq!(b_keys.len(), 1);
+        assert_eq!(a_keys[0].key_name, "a-key");
+        assert_eq!(b_keys[0].key_name, "b-key");
     }
 }

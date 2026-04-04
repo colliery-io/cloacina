@@ -110,7 +110,6 @@ pub trait PythonTaskExecutor: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     /// A mock executor for testing without PyO3.
     struct MockPythonExecutor {

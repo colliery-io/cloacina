@@ -151,6 +151,7 @@ pub fn ensure_cloaca_module(py: Python) -> PyResult<()> {
 /// * `entry_module` — Dotted module path (e.g., `"workflow.tasks"`)
 /// * `package_name` — Package name from manifest
 /// * `tenant_id` — Tenant for namespace isolation (default: `"public"`)
+///
 /// Validate that extracted package directories don't shadow stdlib modules.
 ///
 /// Scans workflow_dir and vendor_dir for `.py` files or directories whose

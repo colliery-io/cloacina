@@ -79,6 +79,7 @@ fn rust_manifest_with_triggers() -> Manifest {
     }
 }
 
+#[allow(dead_code)]
 fn rust_manifest_no_triggers() -> Manifest {
     Manifest {
         format_version: "2".to_string(),
@@ -108,6 +109,7 @@ fn rust_manifest_no_triggers() -> Manifest {
     }
 }
 
+#[allow(dead_code)]
 fn python_manifest_with_trigger() -> Manifest {
     Manifest {
         format_version: "2".to_string(),

@@ -138,7 +138,7 @@ impl<'a> ContextManager<'a> {
             }
         } else {
             // Multiple dependencies: merge their saved contexts
-            self.merge_dependency_contexts(task_execution, &dependencies)
+            self.merge_dependency_contexts(task_execution, dependencies)
                 .await
         }
     }

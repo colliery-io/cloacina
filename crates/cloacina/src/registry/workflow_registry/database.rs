@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -637,5 +637,216 @@ impl<S: RegistryStorage> WorkflowRegistryImpl<S> {
         .map_err(|e| RegistryError::Database(format!("Database error: {}", e)))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dal::unified::workflow_registry_storage::UnifiedRegistryStorage;
+    use crate::database::Database;
+    use crate::registry::loader::package_loader::{PackageMetadata, TaskMetadata};
+
+    #[cfg(feature = "sqlite")]
+    async fn create_test_registry() -> WorkflowRegistryImpl<UnifiedRegistryStorage> {
+        let url = format!("sqlite:///tmp/wfreg_test_{}.db?mode=rwc", Uuid::new_v4());
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        let storage = UnifiedRegistryStorage::new(db.clone());
+        WorkflowRegistryImpl::new(storage, db).unwrap()
+    }
+
+    #[cfg(feature = "sqlite")]
+    fn sample_metadata(name: &str, version: &str) -> PackageMetadata {
+        PackageMetadata {
+            package_name: name.to_string(),
+            version: version.to_string(),
+            description: Some("A test package".to_string()),
+            author: Some("test-author".to_string()),
+            tasks: vec![TaskMetadata {
+                index: 0,
+                local_id: "my_task".to_string(),
+                namespaced_id_template: "{tenant}.{package}.{workflow}.my_task".to_string(),
+                dependencies: vec![],
+                description: "a task".to_string(),
+                source_location: "lib.rs:1".to_string(),
+            }],
+            graph_data: None,
+            architecture: "x86_64".to_string(),
+            symbols: vec![],
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_store_and_get_package_metadata() {
+        let registry = create_test_registry().await;
+        let registry_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("reg-pkg", "1.0.0");
+
+        let pkg_id = registry
+            .store_package_metadata(&registry_id, &meta)
+            .await
+            .unwrap();
+        assert_ne!(pkg_id, Uuid::nil());
+
+        let result = registry
+            .get_package_metadata("reg-pkg", "1.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_some());
+        let (reg_id, retrieved) = result.unwrap();
+        assert_eq!(reg_id, registry_id);
+        assert_eq!(retrieved.package_name, "reg-pkg");
+        assert_eq!(retrieved.version, "1.0.0");
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_not_found() {
+        let registry = create_test_registry().await;
+
+        let result = registry
+            .get_package_metadata("nonexistent", "0.0.0")
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_list_all_packages() {
+        let registry = create_test_registry().await;
+
+        // Initially empty
+        let list = registry.list_all_packages().await.unwrap();
+        assert!(list.is_empty());
+
+        // Store two packages
+        let reg_id = Uuid::new_v4().to_string();
+        let meta1 = sample_metadata("list-a", "1.0.0");
+        let meta2 = sample_metadata("list-b", "2.0.0");
+        registry
+            .store_package_metadata(&reg_id, &meta1)
+            .await
+            .unwrap();
+        registry
+            .store_package_metadata(&reg_id, &meta2)
+            .await
+            .unwrap();
+
+        let list = registry.list_all_packages().await.unwrap();
+        assert_eq!(list.len(), 2);
+
+        let names: Vec<&str> = list.iter().map(|w| w.package_name.as_str()).collect();
+        assert!(names.contains(&"list-a"));
+        assert!(names.contains(&"list-b"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_package_metadata() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("del-pkg", "1.0.0");
+
+        registry
+            .store_package_metadata(&reg_id, &meta)
+            .await
+            .unwrap();
+
+        // Confirm exists
+        assert!(registry
+            .get_package_metadata("del-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .is_some());
+
+        // Delete
+        registry
+            .delete_package_metadata("del-pkg", "1.0.0")
+            .await
+            .unwrap();
+
+        // Confirm gone
+        assert!(registry
+            .get_package_metadata("del-pkg", "1.0.0")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_by_id() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("by-id-pkg", "3.0.0");
+
+        let pkg_id = registry
+            .store_package_metadata(&reg_id, &meta)
+            .await
+            .unwrap();
+
+        let result = registry.get_package_metadata_by_id(pkg_id).await.unwrap();
+        assert!(result.is_some());
+        let (_, wf_meta) = result.unwrap();
+        assert_eq!(wf_meta.package_name, "by-id-pkg");
+        assert_eq!(wf_meta.version, "3.0.0");
+        assert!(wf_meta.tasks.contains(&"my_task".to_string()));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_package_metadata_by_id_not_found() {
+        let registry = create_test_registry().await;
+
+        let result = registry
+            .get_package_metadata_by_id(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_package_metadata_by_id() {
+        let registry = create_test_registry().await;
+        let reg_id = Uuid::new_v4().to_string();
+        let meta = sample_metadata("del-id-pkg", "1.0.0");
+
+        let pkg_id = registry
+            .store_package_metadata(&reg_id, &meta)
+            .await
+            .unwrap();
+
+        registry
+            .delete_package_metadata_by_id(pkg_id)
+            .await
+            .unwrap();
+
+        assert!(registry
+            .get_package_metadata_by_id(pkg_id)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_delete_nonexistent_does_not_error() {
+        let registry = create_test_registry().await;
+
+        registry
+            .delete_package_metadata("nonexistent", "0.0.0")
+            .await
+            .unwrap();
+
+        registry
+            .delete_package_metadata_by_id(Uuid::new_v4())
+            .await
+            .unwrap();
     }
 }

@@ -16,6 +16,13 @@
 
 // This file is intentionally left empty.
 // It serves as the entry point for integration tests in this directory.
+//
+// The test fixtures use Arc<Mutex<TestFixture>> with std::sync::Mutex
+// because they're shared across tests. The MutexGuard is held across
+// .await points (initialize, reset_database) which is safe here because
+// tests run serially via #[serial].
+#![allow(clippy::await_holding_lock)]
+#![allow(unexpected_cfgs)]
 
 pub mod context;
 pub mod dal;

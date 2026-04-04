@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -1366,12 +1366,353 @@ mod tests {
         );
         let removed_tag = workflow.remove_tag("env");
         assert_eq!(removed_tag, Some("test".to_string()));
-        assert!(workflow.metadata().tags.get("env").is_none());
+        assert!(!workflow.metadata().tags.contains_key("env"));
 
         // Test dependency removal (task2 should still exist but with no deps)
         let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
         workflow.remove_dependency(&ns2, &ns1);
         // We can't easily test this without exposing dependency graph methods
         // but it should not panic
+    }
+
+    #[test]
+    fn test_get_task_found() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let task = Arc::new(TestTask::new("task1", vec![]));
+        workflow.add_task(task).unwrap();
+
+        let result = workflow.get_task(&ns1);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().id(), "task1");
+    }
+
+    #[test]
+    fn test_get_task_not_found() {
+        init_test_logging();
+
+        let workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent");
+
+        let result = workflow.get_task(&ns_missing);
+        assert!(matches!(result, Err(WorkflowError::TaskNotFound(_))));
+    }
+
+    #[test]
+    fn test_get_dependencies_with_deps() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+
+        let deps = workflow.get_dependencies(&ns2).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], ns1);
+    }
+
+    #[test]
+    fn test_get_dependencies_no_deps() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        workflow.add_task(task1).unwrap();
+
+        let deps = workflow.get_dependencies(&ns1).unwrap();
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_get_dependencies_task_not_found() {
+        init_test_logging();
+
+        let workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent");
+
+        let result = workflow.get_dependencies(&ns_missing);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_task_returns_task() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        workflow.add_task(task1).unwrap();
+
+        let removed = workflow.remove_task(&ns1);
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().id(), "task1");
+
+        // Task should no longer be accessible
+        assert!(workflow.get_task(&ns1).is_err());
+    }
+
+    #[test]
+    fn test_remove_task_nonexistent_returns_none() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent");
+
+        let removed = workflow.remove_task(&ns_missing);
+        assert!(removed.is_none());
+    }
+
+    #[test]
+    fn test_remove_task_cleans_up_edges() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+
+        // Remove task1 -- task2 still exists
+        workflow.remove_task(&ns1);
+        assert!(workflow.get_task(&ns2).is_ok());
+        assert!(workflow.get_task(&ns1).is_err());
+    }
+
+    #[test]
+    fn test_remove_dependency() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+
+        workflow.remove_dependency(&ns2, &ns1);
+
+        // Both tasks should still exist
+        assert!(workflow.get_task(&ns1).is_ok());
+        assert!(workflow.get_task(&ns2).is_ok());
+    }
+
+    #[test]
+    fn test_get_roots() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![]));
+        let task3 = Arc::new(TestTask::new("task3", vec![ns1.clone(), ns2.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        workflow.add_task(task3).unwrap();
+
+        let roots = workflow.get_roots();
+        assert_eq!(roots.len(), 2);
+        assert!(roots.contains(&ns1));
+        assert!(roots.contains(&ns2));
+    }
+
+    #[test]
+    fn test_get_leaves() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        let task3 = Arc::new(TestTask::new("task3", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        workflow.add_task(task3).unwrap();
+
+        let leaves = workflow.get_leaves();
+        assert_eq!(leaves.len(), 2);
+        assert!(leaves.contains(&ns2));
+        assert!(leaves.contains(&ns3));
+    }
+
+    #[test]
+    fn test_get_roots_single_task() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "only");
+        let task = Arc::new(TestTask::new("only", vec![]));
+        workflow.add_task(task).unwrap();
+
+        let roots = workflow.get_roots();
+        assert_eq!(roots.len(), 1);
+        assert!(roots.contains(&ns1));
+    }
+
+    #[test]
+    fn test_get_leaves_single_task() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "only");
+        let task = Arc::new(TestTask::new("only", vec![]));
+        workflow.add_task(task).unwrap();
+
+        let leaves = workflow.get_leaves();
+        assert_eq!(leaves.len(), 1);
+        assert!(leaves.contains(&ns1));
+    }
+
+    #[test]
+    fn test_validate_success() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+
+        assert!(workflow.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_empty_workflow() {
+        init_test_logging();
+
+        let workflow = Workflow::new("test-workflow");
+        let result = workflow.validate();
+        assert!(matches!(result, Err(ValidationError::EmptyWorkflow)));
+    }
+
+    #[test]
+    fn test_validate_missing_dependency() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "missing");
+        let task1 = Arc::new(TestTask::new("task1", vec![ns_missing]));
+        workflow.add_task(task1).unwrap();
+
+        let result = workflow.validate();
+        assert!(matches!(
+            result,
+            Err(ValidationError::MissingDependency { .. })
+        ));
+    }
+
+    #[test]
+    fn test_get_dependents() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        let task3 = Arc::new(TestTask::new("task3", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        workflow.add_task(task3).unwrap();
+
+        let dependents = workflow.get_dependents(&ns1).unwrap();
+        assert_eq!(dependents.len(), 2);
+        assert!(dependents.contains(&ns2));
+        assert!(dependents.contains(&ns3));
+    }
+
+    #[test]
+    fn test_get_dependents_task_not_found() {
+        init_test_logging();
+
+        let workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent");
+
+        let result = workflow.get_dependents(&ns_missing);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_can_run_parallel() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![]));
+        let task3 = Arc::new(TestTask::new("task3", vec![ns1.clone()]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        workflow.add_task(task3).unwrap();
+
+        // task1 and task2 are independent
+        assert!(workflow.can_run_parallel(&ns1, &ns2));
+        // task3 depends on task1 -- cannot run in parallel
+        assert!(!workflow.can_run_parallel(&ns1, &ns3));
+        // task2 and task3 are independent
+        assert!(workflow.can_run_parallel(&ns2, &ns3));
+    }
+
+    #[test]
+    fn test_duplicate_task_rejected() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let task1a = Arc::new(TestTask::new("task1", vec![]));
+        let task1b = Arc::new(TestTask::new("task1", vec![]));
+        workflow.add_task(task1a).unwrap();
+
+        let result = workflow.add_task(task1b);
+        assert!(matches!(result, Err(WorkflowError::DuplicateTask(_))));
+    }
+
+    #[test]
+    fn test_subgraph() {
+        init_test_logging();
+
+        let mut workflow = Workflow::new("test-workflow");
+        let ns1 = TaskNamespace::new("public", "embedded", "test-workflow", "task1");
+        let ns2 = TaskNamespace::new("public", "embedded", "test-workflow", "task2");
+        let ns3 = TaskNamespace::new("public", "embedded", "test-workflow", "task3");
+        let task1 = Arc::new(TestTask::new("task1", vec![]));
+        let task2 = Arc::new(TestTask::new("task2", vec![ns1.clone()]));
+        let task3 = Arc::new(TestTask::new("task3", vec![]));
+        workflow.add_task(task1).unwrap();
+        workflow.add_task(task2).unwrap();
+        workflow.add_task(task3).unwrap();
+
+        // Subgraph of task2 should include task2 and its dependency task1, but not task3
+        let sub = workflow.subgraph(&[&ns2]).unwrap();
+        let ids = sub.get_task_ids();
+        assert_eq!(ids.len(), 2);
+        // task3 should not be in the subgraph
+        assert!(!ids.contains(&ns3));
+    }
+
+    #[test]
+    fn test_subgraph_task_not_found() {
+        init_test_logging();
+
+        let workflow = Workflow::new("test-workflow");
+        let ns_missing = TaskNamespace::new("public", "embedded", "test-workflow", "nonexistent");
+
+        let result = workflow.subgraph(&[&ns_missing]);
+        assert!(matches!(result, Err(SubgraphError::TaskNotFound(_))));
     }
 }

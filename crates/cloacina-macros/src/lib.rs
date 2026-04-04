@@ -14,6 +14,7 @@
  *  limitations under the License.
  */
 
+#![allow(unexpected_cfgs)]
 //! # Cloacina Macros
 //!
 //! Procedural macros for defining tasks and workflows in the Cloacina framework.

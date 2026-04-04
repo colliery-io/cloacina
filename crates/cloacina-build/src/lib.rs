@@ -36,9 +36,7 @@
 //! Then create a `build.rs`:
 //!
 //! ```rust,no_run
-//! fn main() {
-//!     cloacina_build::configure();
-//! }
+//! cloacina_build::configure();
 //! ```
 
 /// Configures the Python rpath and PyO3 cfg flags for the current binary crate.

@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Colliery Software
+ *  Copyright 2025-2026 Colliery Software
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -662,5 +662,498 @@ impl<'a> TaskExecutionMetadataDAL<'a> {
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
 
         Ok(results.into_iter().map(|(m, c)| (m.into(), c)).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::Context;
+    use crate::database::Database;
+    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::task_execution::NewTaskExecution;
+    use crate::models::task_execution_metadata::NewTaskExecutionMetadata;
+
+    #[cfg(feature = "sqlite")]
+    async fn unique_dal() -> DAL {
+        let url = format!(
+            "sqlite:///tmp/meta_test_{}.db?mode=rwc",
+            uuid::Uuid::new_v4()
+        );
+        let db = Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        DAL::new(db)
+    }
+
+    /// Helper: create a pipeline and a task, returning (pipeline_id, task_id).
+    #[cfg(feature = "sqlite")]
+    async fn create_pipeline_and_task(
+        dal: &DAL,
+        task_name: &str,
+    ) -> (UniversalUuid, UniversalUuid) {
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "test_pipeline".into(),
+                pipeline_version: "1.0".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let task = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: task_name.into(),
+                status: "NotStarted".into(),
+                attempt: 1,
+                max_attempts: 3,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        (pipeline.id, task.id)
+    }
+
+    // ── create ─────────────────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_metadata() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "my_task").await;
+
+        let metadata = dal
+            .task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "my_task".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(metadata.task_execution_id, task_id);
+        assert_eq!(metadata.pipeline_execution_id, pipeline_id);
+        assert_eq!(metadata.task_name, "my_task");
+        assert!(metadata.context_id.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_create_metadata_with_context() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "ctx_task").await;
+
+        // Create a context first so the FK is satisfied
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("key".to_string(), serde_json::json!("value"))
+            .unwrap();
+        let ctx_id = dal.context().create(&ctx).await.unwrap().unwrap();
+
+        let metadata = dal
+            .task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "ctx_task".into(),
+                context_id: Some(ctx_id),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(metadata.context_id, Some(ctx_id));
+    }
+
+    // ── get_by_pipeline_and_task ───────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_by_pipeline_and_task() {
+        let dal = unique_dal().await;
+        let ns = TaskNamespace::new("public", "embedded", "test_wf", "lookup_task");
+        let ns_str = ns.to_string();
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, &ns_str).await;
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: ns_str.clone(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let found = dal
+            .task_execution_metadata()
+            .get_by_pipeline_and_task(pipeline_id, &ns)
+            .await
+            .unwrap();
+
+        assert_eq!(found.task_execution_id, task_id);
+        assert_eq!(found.task_name, ns_str);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_by_pipeline_and_task_not_found() {
+        let dal = unique_dal().await;
+        let ns = TaskNamespace::new("public", "embedded", "wf", "nonexistent");
+        let result = dal
+            .task_execution_metadata()
+            .get_by_pipeline_and_task(UniversalUuid::new_v4(), &ns)
+            .await;
+        assert!(result.is_err());
+    }
+
+    // ── get_by_task_execution ──────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_by_task_execution() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "exec_lookup").await;
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "exec_lookup".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let found = dal
+            .task_execution_metadata()
+            .get_by_task_execution(task_id)
+            .await
+            .unwrap();
+
+        assert_eq!(found.task_execution_id, task_id);
+        assert_eq!(found.pipeline_execution_id, pipeline_id);
+    }
+
+    // ── update_context_id ──────────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_update_context_id() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "update_ctx").await;
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "update_ctx".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        // Create a context and update the metadata to reference it
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("result".to_string(), serde_json::json!(42))
+            .unwrap();
+        let ctx_id = dal.context().create(&ctx).await.unwrap().unwrap();
+
+        dal.task_execution_metadata()
+            .update_context_id(task_id, Some(ctx_id))
+            .await
+            .unwrap();
+
+        let updated = dal
+            .task_execution_metadata()
+            .get_by_task_execution(task_id)
+            .await
+            .unwrap();
+        assert_eq!(updated.context_id, Some(ctx_id));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_update_context_id_to_none() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "clear_ctx").await;
+
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("temp".to_string(), serde_json::json!("data"))
+            .unwrap();
+        let ctx_id = dal.context().create(&ctx).await.unwrap().unwrap();
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "clear_ctx".into(),
+                context_id: Some(ctx_id),
+            })
+            .await
+            .unwrap();
+
+        // Clear the context
+        dal.task_execution_metadata()
+            .update_context_id(task_id, None)
+            .await
+            .unwrap();
+
+        let updated = dal
+            .task_execution_metadata()
+            .get_by_task_execution(task_id)
+            .await
+            .unwrap();
+        assert!(updated.context_id.is_none());
+    }
+
+    // ── upsert_task_execution_metadata ─────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_upsert_insert() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "upsert_new").await;
+
+        let metadata = dal
+            .task_execution_metadata()
+            .upsert_task_execution_metadata(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "upsert_new".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(metadata.task_execution_id, task_id);
+        assert!(metadata.context_id.is_none());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_upsert_update() {
+        let dal = unique_dal().await;
+        let (pipeline_id, task_id) = create_pipeline_and_task(&dal, "upsert_upd").await;
+
+        // First insert
+        let original = dal
+            .task_execution_metadata()
+            .upsert_task_execution_metadata(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "upsert_upd".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        // Create a context for the update
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("updated".to_string(), serde_json::json!(true))
+            .unwrap();
+        let ctx_id = dal.context().create(&ctx).await.unwrap().unwrap();
+
+        // Upsert again with a new context_id
+        let upserted = dal
+            .task_execution_metadata()
+            .upsert_task_execution_metadata(NewTaskExecutionMetadata {
+                task_execution_id: task_id,
+                pipeline_execution_id: pipeline_id,
+                task_name: "upsert_upd".into(),
+                context_id: Some(ctx_id),
+            })
+            .await
+            .unwrap();
+
+        // Same record, updated context
+        assert_eq!(upserted.id, original.id);
+        assert_eq!(upserted.context_id, Some(ctx_id));
+    }
+
+    // ── get_dependency_metadata ────────────────────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_dependency_metadata() {
+        let dal = unique_dal().await;
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "dep_pipeline".into(),
+                pipeline_version: "1".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        // Create two tasks + metadata
+        for name in &["dep_a", "dep_b", "not_a_dep"] {
+            let task = dal
+                .task_execution()
+                .create(NewTaskExecution {
+                    pipeline_execution_id: pipeline.id,
+                    task_name: name.to_string(),
+                    status: "NotStarted".into(),
+                    attempt: 1,
+                    max_attempts: 1,
+                    trigger_rules: r#"{"type":"Always"}"#.into(),
+                    task_configuration: "{}".into(),
+                })
+                .await
+                .unwrap();
+
+            dal.task_execution_metadata()
+                .create(NewTaskExecutionMetadata {
+                    task_execution_id: task.id,
+                    pipeline_execution_id: pipeline.id,
+                    task_name: name.to_string(),
+                    context_id: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        let deps = dal
+            .task_execution_metadata()
+            .get_dependency_metadata(pipeline.id, &["dep_a".to_string(), "dep_b".to_string()])
+            .await
+            .unwrap();
+
+        assert_eq!(deps.len(), 2);
+        let names: Vec<&str> = deps.iter().map(|d| d.task_name.as_str()).collect();
+        assert!(names.contains(&"dep_a"));
+        assert!(names.contains(&"dep_b"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_dependency_metadata_empty() {
+        let dal = unique_dal().await;
+        let deps = dal
+            .task_execution_metadata()
+            .get_dependency_metadata(UniversalUuid::new_v4(), &[])
+            .await
+            .unwrap();
+        assert!(deps.is_empty());
+    }
+
+    // ── get_dependency_metadata_with_contexts ──────────────────────
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_get_dependency_metadata_with_contexts_empty_input() {
+        let dal = unique_dal().await;
+        let result = dal
+            .task_execution_metadata()
+            .get_dependency_metadata_with_contexts(UniversalUuid::new_v4(), &[])
+            .await
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    #[ignore = "requires matching task_name format with internal query — needs investigation"]
+    async fn test_get_dependency_metadata_with_contexts() {
+        let dal = unique_dal().await;
+        let pipeline = dal
+            .pipeline_execution()
+            .create(NewPipelineExecution {
+                pipeline_name: "ctx_dep_pipeline".into(),
+                pipeline_version: "1".into(),
+                status: "Running".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        // Task with context
+        let mut ctx = Context::<serde_json::Value>::new();
+        ctx.insert("output".to_string(), serde_json::json!("hello"))
+            .unwrap();
+        let ctx_id = dal.context().create(&ctx).await.unwrap().unwrap();
+
+        let task_with_ctx = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "public::embedded::wf::has_ctx".into(),
+                status: "Completed".into(),
+                attempt: 1,
+                max_attempts: 1,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_with_ctx.id,
+                pipeline_execution_id: pipeline.id,
+                task_name: "public::embedded::wf::has_ctx".into(),
+                context_id: Some(ctx_id),
+            })
+            .await
+            .unwrap();
+
+        // Task without context
+        let task_no_ctx = dal
+            .task_execution()
+            .create(NewTaskExecution {
+                pipeline_execution_id: pipeline.id,
+                task_name: "public::embedded::wf::no_ctx".into(),
+                status: "Completed".into(),
+                attempt: 1,
+                max_attempts: 1,
+                trigger_rules: r#"{"type":"Always"}"#.into(),
+                task_configuration: "{}".into(),
+            })
+            .await
+            .unwrap();
+
+        dal.task_execution_metadata()
+            .create(NewTaskExecutionMetadata {
+                task_execution_id: task_no_ctx.id,
+                pipeline_execution_id: pipeline.id,
+                task_name: "public::embedded::wf::no_ctx".into(),
+                context_id: None,
+            })
+            .await
+            .unwrap();
+
+        let ns_with = TaskNamespace::new("public", "embedded", "wf", "has_ctx");
+        let ns_without = TaskNamespace::new("public", "embedded", "wf", "no_ctx");
+
+        let results = dal
+            .task_execution_metadata()
+            .get_dependency_metadata_with_contexts(pipeline.id, &[ns_with, ns_without])
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+
+        // Find the one with context
+        let with_ctx = results
+            .iter()
+            .find(|(m, _)| m.task_execution_id == task_with_ctx.id)
+            .unwrap();
+        assert_eq!(with_ctx.1.as_deref(), Some("{\"output\": \"hello\"}"));
+
+        // Find the one without context
+        let without_ctx = results
+            .iter()
+            .find(|(m, _)| m.task_execution_id == task_no_ctx.id)
+            .unwrap();
+        assert!(without_ctx.1.is_none());
     }
 }

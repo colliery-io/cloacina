@@ -671,3 +671,298 @@ impl RegistryReconciler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::reconciler::ReconcilerConfig;
+    use crate::registry::workflow_registry::filesystem::FilesystemWorkflowRegistry;
+    use serial_test::serial;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    /// Create a minimal RegistryReconciler for testing.
+    fn make_test_reconciler() -> RegistryReconciler {
+        let registry = Arc::new(FilesystemWorkflowRegistry::new(vec![]));
+        let config = ReconcilerConfig::default();
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        RegistryReconciler::new(registry, config, rx).expect("Failed to create test reconciler")
+    }
+
+    fn make_test_metadata() -> WorkflowMetadata {
+        WorkflowMetadata {
+            id: Uuid::new_v4(),
+            registry_id: Uuid::new_v4(),
+            package_name: "test-pkg".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Test package".to_string()),
+            author: None,
+            tasks: vec![],
+            schedules: vec![],
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    fn make_cloacina_metadata_with_triggers(
+        triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
+    ) -> cloacina_workflow_plugin::CloacinaMetadata {
+        cloacina_workflow_plugin::CloacinaMetadata {
+            workflow_name: "test-workflow".to_string(),
+            language: "python".to_string(),
+            description: Some("Test".to_string()),
+            author: None,
+            requires_python: None,
+            entry_module: Some("test.tasks".to_string()),
+            triggers,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // register_package_triggers tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    #[serial]
+    async fn register_triggers_with_no_triggers_returns_empty() {
+        let reconciler = make_test_reconciler();
+        let metadata = make_test_metadata();
+        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![]);
+
+        let result = reconciler
+            .register_package_triggers(&metadata, &cloacina_meta)
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn register_triggers_tracks_registered_triggers() {
+        let reconciler = make_test_reconciler();
+        let metadata = make_test_metadata();
+
+        // Pre-register a trigger in the global registry
+        let trigger_name = format!("test-trigger-{}", Uuid::new_v4());
+        crate::trigger::registry::register_trigger_constructor(trigger_name.clone(), || {
+            // Minimal trigger for testing — just need it in the registry
+            Arc::new(DummyTrigger {
+                name: "dummy".to_string(),
+            })
+        });
+
+        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
+            cloacina_workflow_plugin::TriggerDefinition {
+                name: trigger_name.clone(),
+                workflow: "test-workflow".to_string(),
+                poll_interval: "5s".to_string(),
+                cron_expression: None,
+                allow_concurrent: false,
+            },
+        ]);
+
+        let result = reconciler
+            .register_package_triggers(&metadata, &cloacina_meta)
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], trigger_name);
+
+        // Cleanup
+        crate::trigger::deregister_trigger(&trigger_name);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn register_triggers_skips_unregistered_triggers() {
+        let reconciler = make_test_reconciler();
+        let metadata = make_test_metadata();
+
+        let trigger_name = format!("nonexistent-trigger-{}", Uuid::new_v4());
+        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
+            cloacina_workflow_plugin::TriggerDefinition {
+                name: trigger_name.clone(),
+                workflow: "test-workflow".to_string(),
+                poll_interval: "10s".to_string(),
+                cron_expression: None,
+                allow_concurrent: false,
+            },
+        ]);
+
+        let result = reconciler
+            .register_package_triggers(&metadata, &cloacina_meta)
+            .unwrap();
+        // Should be empty because the trigger is not actually registered in the global registry
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn register_triggers_mixed_registered_and_missing() {
+        let reconciler = make_test_reconciler();
+        let metadata = make_test_metadata();
+
+        // Register one trigger, leave the other unregistered
+        let registered_name = format!("registered-trigger-{}", Uuid::new_v4());
+        let missing_name = format!("missing-trigger-{}", Uuid::new_v4());
+
+        crate::trigger::registry::register_trigger_constructor(registered_name.clone(), || {
+            Arc::new(DummyTrigger {
+                name: "dummy".to_string(),
+            })
+        });
+
+        let cloacina_meta = make_cloacina_metadata_with_triggers(vec![
+            cloacina_workflow_plugin::TriggerDefinition {
+                name: registered_name.clone(),
+                workflow: "wf1".to_string(),
+                poll_interval: "5s".to_string(),
+                cron_expression: None,
+                allow_concurrent: false,
+            },
+            cloacina_workflow_plugin::TriggerDefinition {
+                name: missing_name.clone(),
+                workflow: "wf2".to_string(),
+                poll_interval: "10s".to_string(),
+                cron_expression: None,
+                allow_concurrent: false,
+            },
+        ]);
+
+        let result = reconciler
+            .register_package_triggers(&metadata, &cloacina_meta)
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], registered_name);
+
+        // Cleanup
+        crate::trigger::deregister_trigger(&registered_name);
+    }
+
+    // -----------------------------------------------------------------------
+    // unregister_package_triggers tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    #[serial]
+    async fn unregister_triggers_removes_from_global_registry() {
+        let reconciler = make_test_reconciler();
+
+        let trigger_name = format!("unregister-test-{}", Uuid::new_v4());
+        crate::trigger::registry::register_trigger_constructor(trigger_name.clone(), || {
+            Arc::new(DummyTrigger {
+                name: "dummy".to_string(),
+            })
+        });
+
+        assert!(crate::trigger::registry::is_trigger_registered(
+            &trigger_name
+        ));
+
+        reconciler.unregister_package_triggers(std::slice::from_ref(&trigger_name));
+
+        assert!(!crate::trigger::registry::is_trigger_registered(
+            &trigger_name
+        ));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn unregister_triggers_handles_already_removed() {
+        let reconciler = make_test_reconciler();
+
+        let trigger_name = format!("already-gone-{}", Uuid::new_v4());
+        // Don't register it — just try to unregister
+        // Should not panic, just log a warning
+        reconciler.unregister_package_triggers(&[trigger_name]);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn unregister_triggers_empty_list_is_noop() {
+        let reconciler = make_test_reconciler();
+        reconciler.unregister_package_triggers(&[]);
+    }
+
+    // -----------------------------------------------------------------------
+    // unregister_package_workflow tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    #[serial]
+    async fn unregister_workflow_removes_from_global_registry() {
+        let reconciler = make_test_reconciler();
+
+        let workflow_name = format!("test-wf-{}", Uuid::new_v4());
+
+        // Register a workflow constructor
+        {
+            let registry = global_workflow_registry();
+            let mut reg = registry.write();
+            let wf_name = workflow_name.clone();
+            reg.insert(
+                workflow_name.clone(),
+                Box::new(move || crate::workflow::Workflow::new(&wf_name)),
+            );
+        }
+
+        // Verify it's there
+        {
+            let registry = global_workflow_registry();
+            let reg = registry.read();
+            assert!(reg.contains_key(&workflow_name));
+        }
+
+        // Unregister
+        reconciler
+            .unregister_package_workflow(&workflow_name)
+            .await
+            .unwrap();
+
+        // Verify it's gone
+        {
+            let registry = global_workflow_registry();
+            let reg = registry.read();
+            assert!(!reg.contains_key(&workflow_name));
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn unregister_workflow_nonexistent_is_ok() {
+        let reconciler = make_test_reconciler();
+        // Should succeed even if workflow doesn't exist
+        let result = reconciler
+            .unregister_package_workflow("does-not-exist")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Dummy trigger for testing
+    // -----------------------------------------------------------------------
+
+    #[derive(Debug, Clone)]
+    struct DummyTrigger {
+        name: String,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::trigger::Trigger for DummyTrigger {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn poll_interval(&self) -> std::time::Duration {
+            std::time::Duration::from_secs(60)
+        }
+
+        fn allow_concurrent(&self) -> bool {
+            false
+        }
+
+        async fn poll(
+            &self,
+        ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError> {
+            Ok(crate::trigger::TriggerResult::Skip)
+        }
+    }
+}

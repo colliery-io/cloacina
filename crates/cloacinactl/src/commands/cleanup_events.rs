@@ -70,7 +70,7 @@ fn parse_duration(s: &str) -> Result<Duration> {
                 _ => return Err(anyhow!("Unknown duration unit: '{}'. Use d, h, m, or s", c)),
             };
 
-            total = total + duration;
+            total += duration;
         }
     }
 

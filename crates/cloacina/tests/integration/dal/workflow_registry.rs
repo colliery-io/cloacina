@@ -33,7 +33,7 @@ static MOCK_PACKAGE: OnceLock<Vec<u8>> = OnceLock::new();
 /// example source directory — no cargo subprocess is spawned.
 /// Run `angreal cloacina integration` to set up the environment before tests.
 fn get_mock_package() -> Vec<u8> {
-    MOCK_PACKAGE.get_or_init(|| create_source_package()).clone()
+    MOCK_PACKAGE.get_or_init(create_source_package).clone()
 }
 
 /// Create a fidius source package from the packaged-workflows example directory.
@@ -120,6 +120,7 @@ async fn test_register_and_get_workflow_package_with_db_storage() {
     assert_eq!(binary_data, package_data);
 }
 
+#[allow(dead_code)]
 async fn test_register_and_get_workflow_package_with_fs_storage() {
     // IMPORTANT: Get mock package BEFORE initializing database to avoid SIGSEGV
     let package_data = get_mock_package();
@@ -573,7 +574,7 @@ async fn test_register_duplicate_package_with_db_storage() {
     match result.unwrap_err() {
         RegistryError::PackageExists {
             package_name,
-            version,
+            version: _,
         } => {
             assert_eq!(package_name, "packaged-workflow-example");
             // Version will be the real fingerprint from the package
@@ -610,7 +611,7 @@ async fn test_register_duplicate_package_with_fs_storage() {
     match result.unwrap_err() {
         RegistryError::PackageExists {
             package_name,
-            version,
+            version: _,
         } => {
             assert_eq!(package_name, "packaged-workflow-example");
             // Version will be the real fingerprint from the package

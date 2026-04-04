@@ -206,3 +206,174 @@ pub struct ClaimedTask {
     /// Current attempt number for this task execution
     pub attempt: i32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // ExecutionScope tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_execution_scope_full() {
+        let pipeline_id = UniversalUuid::new_v4();
+        let task_id = UniversalUuid::new_v4();
+        let scope = ExecutionScope {
+            pipeline_execution_id: pipeline_id,
+            task_execution_id: Some(task_id),
+            task_name: Some("my_task".to_string()),
+        };
+        assert_eq!(scope.pipeline_execution_id, pipeline_id);
+        assert_eq!(scope.task_execution_id, Some(task_id));
+        assert_eq!(scope.task_name.as_deref(), Some("my_task"));
+    }
+
+    #[test]
+    fn test_execution_scope_minimal() {
+        let pipeline_id = UniversalUuid::new_v4();
+        let scope = ExecutionScope {
+            pipeline_execution_id: pipeline_id,
+            task_execution_id: None,
+            task_name: None,
+        };
+        assert!(scope.task_execution_id.is_none());
+        assert!(scope.task_name.is_none());
+    }
+
+    #[test]
+    fn test_execution_scope_clone() {
+        let scope = ExecutionScope {
+            pipeline_execution_id: UniversalUuid::new_v4(),
+            task_execution_id: Some(UniversalUuid::new_v4()),
+            task_name: Some("cloned_task".to_string()),
+        };
+        let cloned = scope.clone();
+        assert_eq!(cloned.pipeline_execution_id, scope.pipeline_execution_id);
+        assert_eq!(cloned.task_execution_id, scope.task_execution_id);
+        assert_eq!(cloned.task_name, scope.task_name);
+    }
+
+    #[test]
+    fn test_execution_scope_debug() {
+        let scope = ExecutionScope {
+            pipeline_execution_id: UniversalUuid::new_v4(),
+            task_execution_id: None,
+            task_name: Some("debug_task".to_string()),
+        };
+        let debug_str = format!("{:?}", scope);
+        assert!(debug_str.contains("ExecutionScope"));
+        assert!(debug_str.contains("debug_task"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ExecutorConfig tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_executor_config_default() {
+        let config = ExecutorConfig::default();
+        assert_eq!(config.max_concurrent_tasks, 4);
+        assert_eq!(config.task_timeout, std::time::Duration::from_secs(300));
+        assert!(config.enable_claiming);
+        assert_eq!(
+            config.heartbeat_interval,
+            std::time::Duration::from_secs(10)
+        );
+    }
+
+    #[test]
+    fn test_executor_config_custom() {
+        let config = ExecutorConfig {
+            max_concurrent_tasks: 16,
+            task_timeout: std::time::Duration::from_secs(60),
+            enable_claiming: false,
+            heartbeat_interval: std::time::Duration::from_secs(5),
+        };
+        assert_eq!(config.max_concurrent_tasks, 16);
+        assert_eq!(config.task_timeout, std::time::Duration::from_secs(60));
+        assert!(!config.enable_claiming);
+        assert_eq!(config.heartbeat_interval, std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_executor_config_clone() {
+        let config = ExecutorConfig {
+            max_concurrent_tasks: 8,
+            task_timeout: std::time::Duration::from_secs(120),
+            enable_claiming: true,
+            heartbeat_interval: std::time::Duration::from_secs(15),
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.max_concurrent_tasks, config.max_concurrent_tasks);
+        assert_eq!(cloned.task_timeout, config.task_timeout);
+        assert_eq!(cloned.enable_claiming, config.enable_claiming);
+        assert_eq!(cloned.heartbeat_interval, config.heartbeat_interval);
+    }
+
+    #[test]
+    fn test_executor_config_debug() {
+        let config = ExecutorConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ExecutorConfig"));
+        assert!(debug_str.contains("max_concurrent_tasks"));
+        assert!(debug_str.contains("4"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ClaimedTask tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_claimed_task_construction() {
+        let task_exec_id = UniversalUuid::new_v4();
+        let pipeline_exec_id = UniversalUuid::new_v4();
+        let task = ClaimedTask {
+            task_execution_id: task_exec_id,
+            pipeline_execution_id: pipeline_exec_id,
+            task_name: "tenant::pkg::wf::my_task".to_string(),
+            attempt: 1,
+        };
+        assert_eq!(task.task_execution_id, task_exec_id);
+        assert_eq!(task.pipeline_execution_id, pipeline_exec_id);
+        assert_eq!(task.task_name, "tenant::pkg::wf::my_task");
+        assert_eq!(task.attempt, 1);
+    }
+
+    #[test]
+    fn test_claimed_task_retry_attempt() {
+        let task = ClaimedTask {
+            task_execution_id: UniversalUuid::new_v4(),
+            pipeline_execution_id: UniversalUuid::new_v4(),
+            task_name: "t::p::w::task".to_string(),
+            attempt: 3,
+        };
+        assert_eq!(task.attempt, 3);
+    }
+
+    #[test]
+    fn test_claimed_task_debug() {
+        let task = ClaimedTask {
+            task_execution_id: UniversalUuid::new_v4(),
+            pipeline_execution_id: UniversalUuid::new_v4(),
+            task_name: "t::p::w::debug_task".to_string(),
+            attempt: 0,
+        };
+        let debug_str = format!("{:?}", task);
+        assert!(debug_str.contains("ClaimedTask"));
+        assert!(debug_str.contains("debug_task"));
+    }
+
+    // -----------------------------------------------------------------------
+    // DependencyLoader tests (constructor only — load methods need DB)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_dependency_loader_debug() {
+        // DependencyLoader requires a Database, which needs a URL.
+        // We can at least verify the struct derives Debug by checking
+        // that the type is Send + Sync (required for async usage).
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<DependencyLoader>();
+    }
+}

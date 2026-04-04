@@ -17,6 +17,7 @@
 //! Unit tests for packaging functionality
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use super::super::*;
     use std::path::PathBuf;
