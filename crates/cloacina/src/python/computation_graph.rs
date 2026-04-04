@@ -16,27 +16,80 @@
 
 //! Python computation graph bindings.
 //!
-//! Provides the `@computation_graph` decorator that takes a Python class with
-//! async methods and a dict-based topology, and produces a callable executor
-//! matching the same `async fn(&InputCache) -> GraphResult` interface as
-//! Rust-compiled graphs.
+//! Mirrors the WorkflowBuilder + @task pattern:
+//! ```python
+//! with cloaca.ComputationGraphBuilder("market_maker",
+//!     react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+//!     graph={
+//!         "decision": {"inputs": ["alpha", "beta"], "routes": {
+//!             "Signal": "signal_handler",
+//!             "NoAction": "audit_logger",
+//!         }},
+//!         "signal_handler": {},
+//!         "audit_logger": {},
+//!     }
+//! ) as builder:
+//!
+//!     @cloaca.node
+//!     def decision(alpha, beta):
+//!         if alpha["value"] + beta["estimate"] > 10:
+//!             return ("Signal", {"output": alpha["value"] + beta["estimate"]})
+//!         return ("NoAction", {"reason": "below threshold"})
+//!
+//!     @cloaca.node
+//!     def signal_handler(signal):
+//!         return {"published": True}
+//!
+//!     @cloaca.node
+//!     def audit_logger(reason):
+//!         return {"logged": True}
+//! ```
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
+use once_cell::sync::Lazy;
+use pyo3::exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
-use crate::computation_graph::types::{self, GraphError, GraphResult, InputCache};
+use crate::computation_graph::types::{GraphError, GraphResult};
 
-/// Parsed topology from the Python dict declaration.
-#[derive(Debug, Clone)]
-struct PyGraphTopology {
-    react_mode: String,
-    accumulators: Vec<String>,
-    nodes: Vec<PyNodeDecl>,
+// ---------------------------------------------------------------------------
+// Global node registry (scoped by active builder context)
+// ---------------------------------------------------------------------------
+
+static NODE_REGISTRY: Lazy<Mutex<HashMap<String, PyObject>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_GRAPH_CONTEXT: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+fn push_graph_context(name: String) {
+    let mut ctx = ACTIVE_GRAPH_CONTEXT.lock().unwrap();
+    *ctx = Some(name);
 }
 
-/// A node declaration from the Python topology dict.
+fn pop_graph_context() {
+    let mut ctx = ACTIVE_GRAPH_CONTEXT.lock().unwrap();
+    *ctx = None;
+}
+
+fn current_graph_context() -> Option<String> {
+    ACTIVE_GRAPH_CONTEXT.lock().unwrap().clone()
+}
+
+fn register_node(name: String, func: PyObject) {
+    NODE_REGISTRY.lock().unwrap().insert(name, func);
+}
+
+fn drain_nodes() -> HashMap<String, PyObject> {
+    let mut registry = NODE_REGISTRY.lock().unwrap();
+    std::mem::take(&mut *registry)
+}
+
+// ---------------------------------------------------------------------------
+// Topology types
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone)]
 struct PyNodeDecl {
     name: String,
@@ -44,71 +97,229 @@ struct PyNodeDecl {
     edge: PyEdgeDecl,
 }
 
-/// Edge type for a Python node.
 #[derive(Debug, Clone)]
 enum PyEdgeDecl {
-    /// Linear: "next" -> target
     Linear { target: String },
-    /// Routing: "routes" -> { "Variant": "target" }
     Routing { variants: Vec<(String, String)> },
-    /// Terminal: no downstream
     Terminal,
 }
 
-/// The Python graph executor. Holds a reference to the Python class instance
-/// and the parsed topology. Executes the graph by calling methods on the class
-/// via spawn_blocking + GIL.
-#[pyclass]
-pub struct PythonGraphExecutor {
-    /// The Python class instance (the decorated class, instantiated)
-    instance: PyObject,
-    /// Parsed topology
-    topology: PyGraphTopology,
-    /// Sorted node execution order (topological)
-    execution_order: Vec<String>,
-    /// Node lookup
-    node_map: HashMap<String, PyNodeDecl>,
+// ---------------------------------------------------------------------------
+// @cloaca.node decorator
+// ---------------------------------------------------------------------------
+
+/// The `@cloaca.node` decorator. Registers a function as a node in the
+/// current ComputationGraphBuilder context.
+#[pyfunction]
+pub fn node(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
+    let ctx = current_graph_context().ok_or_else(|| {
+        PyValueError::new_err(
+            "@cloaca.node must be used inside a ComputationGraphBuilder context manager",
+        )
+    })?;
+
+    let func_name: String = func.getattr(py, "__name__")?.extract(py)?;
+    register_node(func_name, func.clone_ref(py));
+
+    // Return the function unchanged (transparent decorator)
+    Ok(func)
 }
 
-// SAFETY: PythonGraphExecutor holds PyObject which is not Send/Sync.
-// All access goes through Python::with_gil() inside spawn_blocking.
+// ---------------------------------------------------------------------------
+// ComputationGraphBuilder context manager
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ComputationGraphBuilder")]
+pub struct PyComputationGraphBuilder {
+    name: String,
+    react_mode: String,
+    accumulators: Vec<String>,
+    nodes_decl: Vec<PyNodeDecl>,
+}
+
+#[pymethods]
+impl PyComputationGraphBuilder {
+    #[new]
+    #[pyo3(signature = (name, *, react, graph))]
+    pub fn new(
+        _py: Python<'_>,
+        name: &str,
+        react: &Bound<'_, PyDict>,
+        graph: &Bound<'_, PyDict>,
+    ) -> PyResult<Self> {
+        let react_mode: String = react
+            .get_item("mode")?
+            .ok_or_else(|| PyKeyError::new_err("react dict missing 'mode'"))?
+            .extract()?;
+
+        let accumulators: Vec<String> = react
+            .get_item("accumulators")?
+            .ok_or_else(|| PyKeyError::new_err("react dict missing 'accumulators'"))?
+            .downcast::<PyList>()
+            .map_err(|_| PyTypeError::new_err("'accumulators' must be a list"))?
+            .iter()
+            .map(|item| item.extract::<String>())
+            .collect::<PyResult<_>>()?;
+
+        let nodes_decl = parse_graph_dict(graph)?;
+
+        Ok(PyComputationGraphBuilder {
+            name: name.to_string(),
+            react_mode,
+            accumulators,
+            nodes_decl,
+        })
+    }
+
+    /// Context manager entry — establish graph context for @node decorators
+    pub fn __enter__(slf: PyRef<Self>) -> PyRef<Self> {
+        push_graph_context(slf.name.clone());
+        slf
+    }
+
+    /// Context manager exit — validate nodes against topology, build executor
+    pub fn __exit__(
+        &self,
+        py: Python,
+        _exc_type: Option<&Bound<PyAny>>,
+        _exc_value: Option<&Bound<PyAny>>,
+        _traceback: Option<&Bound<PyAny>>,
+    ) -> PyResult<bool> {
+        pop_graph_context();
+
+        let registered_nodes = drain_nodes();
+
+        // Validate: every node in topology must have a registered function
+        for decl in &self.nodes_decl {
+            if !registered_nodes.contains_key(&decl.name) {
+                return Err(PyAttributeError::new_err(format!(
+                    "computation graph '{}' topology references node '{}' but no @cloaca.node function with that name was defined",
+                    self.name, decl.name
+                )));
+            }
+        }
+
+        // Validate: every registered function must appear in topology
+        for fn_name in registered_nodes.keys() {
+            if !self.nodes_decl.iter().any(|d| d.name == *fn_name) {
+                return Err(PyValueError::new_err(format!(
+                    "function '{}' was decorated with @cloaca.node but does not appear in the graph topology",
+                    fn_name
+                )));
+            }
+        }
+
+        // Build the executor
+        let node_map: HashMap<String, PyNodeDecl> = self
+            .nodes_decl
+            .iter()
+            .cloned()
+            .map(|n| (n.name.clone(), n))
+            .collect();
+        let execution_order = compute_execution_order(&self.nodes_decl);
+
+        let executor = PythonGraphExecutor {
+            name: self.name.clone(),
+            node_functions: registered_nodes,
+            node_map,
+            execution_order,
+            react_mode: self.react_mode.clone(),
+            accumulators: self.accumulators.clone(),
+        };
+
+        // Register the executor globally (similar to workflow registration)
+        register_graph_executor(self.name.clone(), executor, py)?;
+
+        Ok(false)
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!(
+            "ComputationGraphBuilder(name='{}', nodes={})",
+            self.name,
+            self.nodes_decl.len()
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Graph executor
+// ---------------------------------------------------------------------------
+
+/// Global registry of graph executors.
+static GRAPH_EXECUTORS: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn register_graph_executor(
+    name: String,
+    executor: PythonGraphExecutor,
+    _py: Python<'_>,
+) -> PyResult<()> {
+    GRAPH_EXECUTORS.lock().unwrap().insert(name, executor);
+    Ok(())
+}
+
+/// Get a registered graph executor by name (for testing / reactor use).
+pub fn get_graph_executor(name: &str) -> Option<PythonGraphExecutor> {
+    GRAPH_EXECUTORS.lock().unwrap().get(name).cloned()
+}
+
+#[pyclass]
+pub struct PythonGraphExecutor {
+    pub name: String,
+    node_functions: HashMap<String, PyObject>,
+    node_map: HashMap<String, PyNodeDecl>,
+    execution_order: Vec<String>,
+    react_mode: String,
+    accumulators: Vec<String>,
+}
+
+// SAFETY: All PyObject access goes through Python::with_gil() inside spawn_blocking.
 unsafe impl Send for PythonGraphExecutor {}
 unsafe impl Sync for PythonGraphExecutor {}
 
-impl PythonGraphExecutor {
-    /// Clone for testing — requires the GIL to clone the PyObject.
-    #[cfg(test)]
-    pub fn clone_for_test(&self, py: Python<'_>) -> Self {
-        Self {
-            instance: self.instance.clone_ref(py),
-            topology: self.topology.clone(),
-            execution_order: self.execution_order.clone(),
+impl Clone for PythonGraphExecutor {
+    fn clone(&self) -> Self {
+        Python::with_gil(|py| Self {
+            name: self.name.clone(),
+            node_functions: self
+                .node_functions
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
             node_map: self.node_map.clone(),
-        }
+            execution_order: self.execution_order.clone(),
+            react_mode: self.react_mode.clone(),
+            accumulators: self.accumulators.clone(),
+        })
     }
 }
 
 impl PythonGraphExecutor {
     /// Execute the graph with the given input cache.
-    pub async fn execute(&self, cache: &InputCache) -> GraphResult {
-        // Clone what we need for the blocking closure
-        let instance = Python::with_gil(|py| self.instance.clone_ref(py));
-        let execution_order = self.execution_order.clone();
-        let node_map = self.node_map.clone();
-        let topology = self.topology.clone();
+    pub async fn execute(
+        &self,
+        cache: &crate::computation_graph::types::InputCache,
+    ) -> GraphResult {
+        let executor = self.clone();
 
-        // Deserialize cache inputs into a HashMap<String, serde_json::Value>
+        // Deserialize cache inputs
         let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
-        for acc_name in &topology.accumulators {
+        for acc_name in &executor.accumulators {
             if let Some(Ok(val)) = cache.get::<serde_json::Value>(acc_name) {
                 cache_values.insert(acc_name.clone(), val);
             }
         }
 
-        // Run the entire graph execution in spawn_blocking + GIL
         let result = tokio::task::spawn_blocking(move || {
             Python::with_gil(|py| {
-                execute_graph_sync(py, &instance, &execution_order, &node_map, &cache_values)
+                execute_graph_sync(
+                    py,
+                    &executor.node_functions,
+                    &executor.execution_order,
+                    &executor.node_map,
+                    &cache_values,
+                )
             })
         })
         .await;
@@ -124,10 +335,13 @@ impl PythonGraphExecutor {
     }
 }
 
-/// Execute the graph synchronously inside the GIL.
+// ---------------------------------------------------------------------------
+// Graph execution (synchronous, inside GIL)
+// ---------------------------------------------------------------------------
+
 fn execute_graph_sync(
     py: Python<'_>,
-    instance: &PyObject,
+    node_functions: &HashMap<String, PyObject>,
     execution_order: &[String],
     node_map: &HashMap<String, PyNodeDecl>,
     cache_values: &HashMap<String, serde_json::Value>,
@@ -135,7 +349,7 @@ fn execute_graph_sync(
     let mut terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
     let mut node_results: HashMap<String, PyObject> = HashMap::new();
 
-    // Build incoming edge map: target_node -> [(source_node, variant_or_none)]
+    // Build incoming edge map
     let mut incoming: HashMap<String, Vec<(String, Option<String>)>> = HashMap::new();
     for node in node_map.values() {
         match &node.edge {
@@ -157,7 +371,6 @@ fn execute_graph_sync(
         }
     }
 
-    // Track which nodes should be skipped (on non-taken routing branches)
     let mut skipped_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for node_name in execution_order {
@@ -169,12 +382,11 @@ fn execute_graph_sync(
             GraphError::Execution(format!("node '{}' not found in topology", node_name))
         })?;
 
-        // Check if this node depends on a routing edge that wasn't taken
+        // Check if this node depends on a routing variant that wasn't taken
         if let Some(sources) = incoming.get(node_name) {
             let mut should_skip = false;
             for (from_node, variant) in sources {
                 if let Some(v) = variant {
-                    // This node depends on a specific routing variant
                     let selected_key = format!("{}:__selected_variant", from_node);
                     if let Some(selected) = node_results.get(&selected_key) {
                         let selected_str: String = selected.extract(py).unwrap_or_default();
@@ -190,7 +402,7 @@ fn execute_graph_sync(
             }
         }
 
-        // Build arguments for this node
+        // Build arguments
         let args = build_node_args(
             py,
             node_name,
@@ -200,28 +412,31 @@ fn execute_graph_sync(
             &incoming,
         )?;
 
-        // Call the method on the instance
-        let method = instance.getattr(py, node_name.as_str()).map_err(|e| {
-            GraphError::NodeExecution(format!("method '{}' not found: {}", node_name, e))
+        // Call the function
+        let func = node_functions.get(node_name).ok_or_else(|| {
+            GraphError::NodeExecution(format!("function '{}' not registered", node_name))
         })?;
 
-        let result = method.call(py, args, None).map_err(|e| {
+        let result = func.call1(py, args).map_err(|e| {
             GraphError::NodeExecution(format!("node '{}' failed: {}", node_name, e))
         })?;
 
-        // Handle routing
+        // Handle edge type
         match &node_decl.edge {
             PyEdgeDecl::Terminal => {
-                // Terminal node — collect output
-                let json_val = pythonize_to_json(py, &result)?;
-                terminal_results.push(Box::new(json_val));
+                let json_val: serde_json::Value =
+                    pythonize::depythonize(result.bind(py)).map_err(|e| {
+                        GraphError::Serialization(format!(
+                            "terminal '{}' result conversion failed: {}",
+                            node_name, e
+                        ))
+                    })?;
+                terminal_results.push(Box::new(json_val) as Box<dyn std::any::Any + Send>);
             }
             PyEdgeDecl::Linear { .. } => {
-                // Linear — store result for downstream
                 node_results.insert(node_name.clone(), result);
             }
-            PyEdgeDecl::Routing { variants } => {
-                // Routing — result should be a ("VariantName", value) tuple
+            PyEdgeDecl::Routing { .. } => {
                 let tuple = result.downcast_bound::<PyTuple>(py).map_err(|_| {
                     GraphError::NodeExecution(format!(
                         "routing node '{}' must return a (variant_name, value) tuple",
@@ -243,32 +458,19 @@ fn execute_graph_sync(
                     .downcast::<PyString>()
                     .map_err(|_| {
                         GraphError::NodeExecution(format!(
-                            "routing node '{}': first tuple element must be a string (variant name)",
+                            "routing node '{}': first element must be a string",
                             node_name
                         ))
                     })?
                     .to_string();
+
                 let variant_value = tuple
                     .get_item(1)
                     .map_err(|e| GraphError::NodeExecution(format!("tuple index error: {}", e)))?
                     .unbind();
 
-                // Find the target for this variant
-                let target = variants
-                    .iter()
-                    .find(|(v, _)| v == &variant_name)
-                    .map(|(_, t)| t.clone())
-                    .ok_or_else(|| {
-                        GraphError::NodeExecution(format!(
-                            "routing node '{}' returned variant '{}' which is not in the topology",
-                            node_name, variant_name
-                        ))
-                    })?;
-
-                // Store the variant value keyed by "from_node:VariantName" for downstream lookup
                 node_results.insert(format!("{}:{}", node_name, variant_name), variant_value);
 
-                // Mark which variant was taken — skip non-matching downstream nodes
                 let variant_py = PyString::new(py, &variant_name);
                 node_results.insert(
                     format!("{}:__selected_variant", node_name),
@@ -281,7 +483,6 @@ fn execute_graph_sync(
     Ok(terminal_results)
 }
 
-/// Build the argument tuple for a Python node call.
 fn build_node_args<'py>(
     py: Python<'py>,
     node_name: &str,
@@ -292,12 +493,12 @@ fn build_node_args<'py>(
 ) -> Result<Bound<'py, PyTuple>, GraphError> {
     let mut args: Vec<PyObject> = Vec::new();
 
-    // Cache inputs (from accumulators)
+    // Cache inputs
     for input_name in &node_decl.cache_inputs {
         if let Some(val) = cache_values.get(input_name) {
             let py_val = pythonize::pythonize(py, val).map_err(|e| {
                 GraphError::Deserialization(format!(
-                    "failed to convert cache input '{}' to Python: {}",
+                    "cache input '{}' conversion failed: {}",
                     input_name, e
                 ))
             })?;
@@ -307,14 +508,12 @@ fn build_node_args<'py>(
         }
     }
 
-    // Upstream node outputs — look up results from incoming edges
+    // Upstream node outputs
     if let Some(sources) = incoming.get(node_name) {
         for (from_node, variant) in sources {
             let key = if let Some(v) = variant {
-                // From a routing edge — look up "from_node:Variant"
                 format!("{}:{}", from_node, v)
             } else {
-                // From a linear edge — look up "from_node"
                 from_node.clone()
             };
             if let Some(result) = node_results.get(&key) {
@@ -324,59 +523,26 @@ fn build_node_args<'py>(
     }
 
     PyTuple::new(py, &args)
-        .map_err(|e| GraphError::NodeExecution(format!("failed to build args tuple: {}", e)))
+        .map_err(|e| GraphError::NodeExecution(format!("args tuple creation failed: {}", e)))
 }
 
-/// Convert a Python object to serde_json::Value.
-fn pythonize_to_json(py: Python<'_>, obj: &PyObject) -> Result<serde_json::Value, GraphError> {
-    pythonize::depythonize(obj.bind(py)).map_err(|e| {
-        GraphError::Serialization(format!("failed to convert Python result to JSON: {}", e))
-    })
-}
+// ---------------------------------------------------------------------------
+// Topology parsing
+// ---------------------------------------------------------------------------
 
-/// Parse a Python dict topology into our internal representation.
-fn parse_topology(
-    _py: Python<'_>,
-    react: &Bound<'_, PyDict>,
-    graph: &Bound<'_, PyDict>,
-) -> PyResult<PyGraphTopology> {
-    // Parse react
-    let mode: String = react
-        .get_item("mode")?
-        .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyKeyError, _>("react dict missing 'mode'"))?
-        .extract()?;
-    let accumulators: Vec<String> = react
-        .get_item("accumulators")?
-        .ok_or_else(|| {
-            PyErr::new::<pyo3::exceptions::PyKeyError, _>("react dict missing 'accumulators'")
-        })?
-        .downcast::<PyList>()
-        .map_err(|_| {
-            PyErr::new::<pyo3::exceptions::PyTypeError, _>("'accumulators' must be a list")
-        })?
-        .iter()
-        .map(|item| item.extract::<String>())
-        .collect::<PyResult<_>>()?;
-
-    // Parse graph nodes
+fn parse_graph_dict(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>> {
     let mut nodes = Vec::new();
     for (key, value) in graph.iter() {
         let name: String = key.extract()?;
-        let node_dict = value.downcast::<PyDict>().map_err(|_| {
-            PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                "graph['{}'] must be a dict",
-                name
-            ))
-        })?;
+        let node_dict = value
+            .downcast::<PyDict>()
+            .map_err(|_| PyTypeError::new_err(format!("graph['{}'] must be a dict", name)))?;
 
         let cache_inputs: Vec<String> = if let Some(inputs) = node_dict.get_item("inputs")? {
             inputs
                 .downcast::<PyList>()
                 .map_err(|_| {
-                    PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                        "graph['{}']['inputs'] must be a list",
-                        name
-                    ))
+                    PyTypeError::new_err(format!("graph['{}']['inputs'] must be a list", name))
                 })?
                 .iter()
                 .map(|item| item.extract::<String>())
@@ -387,10 +553,7 @@ fn parse_topology(
 
         let edge = if let Some(routes) = node_dict.get_item("routes")? {
             let routes_dict = routes.downcast::<PyDict>().map_err(|_| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-                    "graph['{}']['routes'] must be a dict",
-                    name
-                ))
+                PyTypeError::new_err(format!("graph['{}']['routes'] must be a dict", name))
             })?;
             let mut variants = Vec::new();
             for (v_key, v_val) in routes_dict.iter() {
@@ -411,24 +574,13 @@ fn parse_topology(
             edge,
         });
     }
-
-    Ok(PyGraphTopology {
-        react_mode: mode,
-        accumulators,
-        nodes,
-    })
+    Ok(nodes)
 }
 
-/// Compute a simple topological order from the node declarations.
 fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
-    // Build adjacency: target -> sources
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
-    let mut all_names: Vec<String> = Vec::new();
-
     for node in nodes {
-        all_names.push(node.name.clone());
         incoming.entry(node.name.clone()).or_default();
-
         match &node.edge {
             PyEdgeDecl::Linear { target } => {
                 incoming
@@ -448,7 +600,6 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
         }
     }
 
-    // Kahn's algorithm
     let mut in_degree: HashMap<String, usize> = HashMap::new();
     for (name, sources) in &incoming {
         in_degree.insert(name.clone(), sources.len());
@@ -464,8 +615,6 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
     let mut sorted = Vec::new();
     while let Some(name) = queue.pop() {
         sorted.push(name.clone());
-
-        // Find nodes that depend on this one
         if let Some(node) = nodes.iter().find(|n| n.name == name) {
             let targets: Vec<String> = match &node.edge {
                 PyEdgeDecl::Linear { target } => vec![target.clone()],
@@ -474,7 +623,6 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
                 }
                 PyEdgeDecl::Terminal => vec![],
             };
-
             for target in targets {
                 if let Some(deg) = in_degree.get_mut(&target) {
                     *deg -= 1;
@@ -488,89 +636,4 @@ fn compute_execution_order(nodes: &[PyNodeDecl]) -> Vec<String> {
     }
 
     sorted
-}
-
-/// The `@computation_graph` decorator function.
-///
-/// Usage:
-/// ```python
-/// @cloaca.computation_graph(
-///     react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
-///     graph={
-///         "decision": {"inputs": ["alpha", "beta"], "routes": {"Signal": "handler_a", "NoAction": "handler_b"}},
-///     }
-/// )
-/// class MyStrategy:
-///     def decision(self, alpha, beta):
-///         ...
-/// ```
-#[pyfunction]
-#[pyo3(signature = (react, graph))]
-pub fn computation_graph(
-    py: Python<'_>,
-    react: &Bound<'_, PyDict>,
-    graph: &Bound<'_, PyDict>,
-) -> PyResult<PyObject> {
-    // Parse the topology at decoration time
-    let topology = parse_topology(py, react, graph)?;
-    let execution_order = compute_execution_order(&topology.nodes);
-
-    let node_map: HashMap<String, PyNodeDecl> = topology
-        .nodes
-        .iter()
-        .cloned()
-        .map(|n| (n.name.clone(), n))
-        .collect();
-
-    // Validate: every node in topology must be a method on the class
-    // (validated lazily when the class is passed in)
-
-    // Return a decorator that takes the class
-    let topo = topology.clone();
-    let order = execution_order.clone();
-    let nmap = node_map.clone();
-
-    // Create a closure-like object that accepts the class
-    let decorator = PythonGraphDecorator {
-        topology: topo,
-        execution_order: order,
-        node_map: nmap,
-    };
-
-    Ok(decorator.into_pyobject(py)?.unbind().into())
-}
-
-/// Intermediate decorator object — called with the class to produce the executor.
-#[pyclass]
-pub struct PythonGraphDecorator {
-    topology: PyGraphTopology,
-    execution_order: Vec<String>,
-    node_map: HashMap<String, PyNodeDecl>,
-}
-
-#[pymethods]
-impl PythonGraphDecorator {
-    fn __call__(&self, py: Python<'_>, cls: PyObject) -> PyResult<PythonGraphExecutor> {
-        // Instantiate the class
-        let instance = cls.call0(py)?;
-
-        // Validate: every node in the topology must be a method on the instance
-        for node_name in self.node_map.keys() {
-            if !instance.getattr(py, node_name.as_str()).is_ok() {
-                return Err(PyErr::new::<pyo3::exceptions::PyAttributeError, _>(
-                    format!(
-                        "computation_graph topology references '{}' but class has no such method",
-                        node_name
-                    ),
-                ));
-            }
-        }
-
-        Ok(PythonGraphExecutor {
-            instance,
-            topology: self.topology.clone(),
-            execution_order: self.execution_order.clone(),
-            node_map: self.node_map.clone(),
-        })
-    }
 }

@@ -15,421 +15,343 @@
  */
 
 //! Tests for the Python computation graph bindings.
+//!
+//! Tests use the builder + @node decorator pattern matching the existing
+//! WorkflowBuilder + @task pattern.
 
 #[cfg(test)]
 mod tests {
     use pyo3::ffi::c_str;
     use pyo3::prelude::*;
-    use pyo3::types::PyDict;
 
-    use crate::python::computation_graph::computation_graph;
+    use crate::python::computation_graph;
 
-    #[test]
-    fn test_linear_topology_parses() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha"]}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
+    /// Helper: run a Python script that defines a computation graph using the
+    /// builder + @node pattern, then return the registered executor.
+    fn define_graph_and_get_executor(
+        py: Python<'_>,
+        graph_name: &str,
+        python_code: &std::ffi::CStr,
+    ) {
+        // Make our node decorator and builder available to the Python code
+        let globals = py.import("builtins").unwrap().dict();
+        let locals = pyo3::types::PyDict::new(py);
 
-            let graph_dict = py
-                .eval(
-                    c_str!(r#"{"entry": {"inputs": ["alpha"], "next": "output"}, "output": {}}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let result = computation_graph(py, &react_dict, &graph_dict);
-            assert!(
-                result.is_ok(),
-                "linear topology parse failed: {:?}",
-                result.err()
-            );
-        });
-    }
-
-    #[test]
-    fn test_routing_topology_parses() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha", "beta"]}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(
-                    c_str!(
-                        r#"{
-                            "decision": {
-                                "inputs": ["alpha", "beta"],
-                                "routes": {"Signal": "handler_a", "NoAction": "handler_b"}
-                            },
-                            "handler_a": {},
-                            "handler_b": {}
-                        }"#
-                    ),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let result = computation_graph(py, &react_dict, &graph_dict);
-            assert!(
-                result.is_ok(),
-                "routing topology parse failed: {:?}",
-                result.err()
-            );
-        });
-    }
-
-    #[test]
-    fn test_when_all_mode_parses() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_all", "accumulators": ["a", "b", "c"]}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(
-                    c_str!(r#"{"entry": {"inputs": ["a", "b", "c"]}}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let result = computation_graph(py, &react_dict, &graph_dict);
-            assert!(result.is_ok(), "when_all parse failed: {:?}", result.err());
-        });
-    }
-
-    #[test]
-    fn test_missing_mode_errors() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(c_str!(r#"{"accumulators": ["alpha"]}"#), None, None)
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(c_str!(r#"{"entry": {"inputs": ["alpha"]}}"#), None, None)
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let result = computation_graph(py, &react_dict, &graph_dict);
-            assert!(result.is_err(), "should error on missing mode");
-        });
-    }
-
-    #[test]
-    fn test_missing_accumulators_errors() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(c_str!(r#"{"mode": "when_any"}"#), None, None)
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(c_str!(r#"{"entry": {"inputs": ["alpha"]}}"#), None, None)
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let result = computation_graph(py, &react_dict, &graph_dict);
-            assert!(result.is_err(), "should error on missing accumulators");
-        });
-    }
-
-    #[test]
-    fn test_decorator_applies_to_class_with_methods() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha"]}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(
-                    c_str!(r#"{"entry": {"inputs": ["alpha"], "next": "output"}, "output": {}}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let decorator_obj = computation_graph(py, &react_dict, &graph_dict).unwrap();
-
-            // Define a Python class with the required methods
-            let locals = PyDict::new(py);
-            py.run(
-                c_str!(
-                    r#"
-class Strategy:
-    def entry(self, alpha):
-        return {"value": 1.0}
-    def output(self, data):
-        return {"done": True}
-"#
-                ),
-                None,
-                Some(&locals),
+        // Register our functions in locals so Python can call them
+        locals
+            .set_item(
+                "node",
+                pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
+            )
+            .unwrap();
+        locals
+            .set_item(
+                "ComputationGraphBuilder",
+                py.get_type::<computation_graph::PyComputationGraphBuilder>(),
             )
             .unwrap();
 
-            let cls = locals.get_item("Strategy").unwrap().unwrap();
+        py.run(python_code, Some(&globals), Some(&locals)).unwrap();
+    }
 
-            // Call the decorator with the class — should succeed
-            let result = decorator_obj.call1(py, (cls,));
-            assert!(result.is_ok(), "decorator call failed: {:?}", result.err());
+    #[test]
+    fn test_linear_graph_via_builder() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            define_graph_and_get_executor(
+                py,
+                "linear_test",
+                c_str!(
+                    r#"
+with ComputationGraphBuilder("linear_test",
+    react={"mode": "when_any", "accumulators": ["alpha"]},
+    graph={
+        "entry": {"inputs": ["alpha"], "next": "output"},
+        "output": {},
+    }
+) as builder:
+
+    @node
+    def entry(alpha):
+        if alpha is None:
+            return {"value": 0.0}
+        return {"value": alpha["value"] * 2.0}
+
+    @node
+    def output(data):
+        return {"result": data["value"] + 10.0, "done": True}
+"#
+                ),
+            );
+
+            // Verify executor was registered
+            let executor = computation_graph::get_graph_executor("linear_test");
+            assert!(executor.is_some(), "executor should be registered");
         });
     }
 
     #[test]
-    fn test_decorator_rejects_class_missing_methods() {
+    fn test_routing_graph_via_builder() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha"]}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let graph_dict = py
-                .eval(
-                    c_str!(r#"{"entry": {"inputs": ["alpha"], "next": "output"}, "output": {}}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let decorator_obj = computation_graph(py, &react_dict, &graph_dict).unwrap();
-
-            // Define a class MISSING the "output" method
-            let locals = PyDict::new(py);
-            py.run(
+            define_graph_and_get_executor(
+                py,
+                "routing_test",
                 c_str!(
                     r#"
-class BadStrategy:
-    def entry(self, alpha):
-        return {"value": 1.0}
+with ComputationGraphBuilder("routing_test",
+    react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+    graph={
+        "decision": {"inputs": ["alpha", "beta"], "routes": {
+            "Signal": "signal_handler",
+            "NoAction": "audit_logger",
+        }},
+        "signal_handler": {},
+        "audit_logger": {},
+    }
+) as builder:
+
+    @node
+    def decision(alpha, beta):
+        a = alpha["value"] if alpha else 0.0
+        b = beta["estimate"] if beta else 0.0
+        if a + b > 10.0:
+            return ("Signal", {"output": a + b})
+        return ("NoAction", {"reason": "below threshold"})
+
+    @node
+    def signal_handler(signal):
+        return {"published": True, "value": signal["output"]}
+
+    @node
+    def audit_logger(reason):
+        return {"logged": True}
 "#
                 ),
-                None,
-                Some(&locals),
-            )
-            .unwrap();
-
-            let cls = locals.get_item("BadStrategy").unwrap().unwrap();
-
-            // Call the decorator — should error
-            let result = decorator_obj.call1(py, (cls,));
-            assert!(
-                result.is_err(),
-                "should reject class missing 'output' method"
             );
+
+            let executor = computation_graph::get_graph_executor("routing_test");
+            assert!(executor.is_some(), "routing executor should be registered");
+        });
+    }
+
+    #[test]
+    fn test_missing_node_errors() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = pyo3::types::PyDict::new(py);
+            locals
+                .set_item(
+                    "node",
+                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
+                )
+                .unwrap();
+            locals
+                .set_item(
+                    "ComputationGraphBuilder",
+                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
+                )
+                .unwrap();
+
+            // Define graph topology referencing "output" but don't define the function
+            let result = py.run(
+                c_str!(
+                    r#"
+with ComputationGraphBuilder("missing_test",
+    react={"mode": "when_any", "accumulators": ["alpha"]},
+    graph={
+        "entry": {"inputs": ["alpha"], "next": "output"},
+        "output": {},
+    }
+) as builder:
+
+    @node
+    def entry(alpha):
+        return {"value": 1.0}
+    # Missing: @node def output(data): ...
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "should error on missing 'output' node");
+        });
+    }
+
+    #[test]
+    fn test_orphan_node_errors() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = pyo3::types::PyDict::new(py);
+            locals
+                .set_item(
+                    "node",
+                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
+                )
+                .unwrap();
+            locals
+                .set_item(
+                    "ComputationGraphBuilder",
+                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
+                )
+                .unwrap();
+
+            // Define a node function not referenced in topology
+            let result = py.run(
+                c_str!(
+                    r#"
+with ComputationGraphBuilder("orphan_test",
+    react={"mode": "when_any", "accumulators": ["alpha"]},
+    graph={
+        "entry": {"inputs": ["alpha"]},
+    }
+) as builder:
+
+    @node
+    def entry(alpha):
+        return {"value": 1.0}
+
+    @node
+    def orphan_func(data):
+        return {"should": "error"}
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            );
+
+            assert!(result.is_err(), "should error on orphan node function");
         });
     }
 
     #[tokio::test]
-    async fn test_python_linear_graph_executes() {
+    async fn test_linear_graph_executes() {
         pyo3::prepare_freethreaded_python();
 
-        // Build the executor inside the GIL
-        let executor = Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha"]}"#),
-                    None,
-                    None,
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = pyo3::types::PyDict::new(py);
+            locals
+                .set_item(
+                    "node",
+                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
                 )
-                .unwrap()
-                .downcast_into::<PyDict>()
+                .unwrap();
+            locals
+                .set_item(
+                    "ComputationGraphBuilder",
+                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
+                )
                 .unwrap();
 
-            let graph_dict = py
-                .eval(
-                    c_str!(r#"{"entry": {"inputs": ["alpha"], "next": "output"}, "output": {}}"#),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let decorator_obj = computation_graph(py, &react_dict, &graph_dict).unwrap();
-
-            // Define a Python class with real computation
-            let locals = PyDict::new(py);
             py.run(
                 c_str!(
                     r#"
-class Strategy:
-    def entry(self, alpha):
+with ComputationGraphBuilder("exec_linear",
+    react={"mode": "when_any", "accumulators": ["alpha"]},
+    graph={
+        "entry": {"inputs": ["alpha"], "next": "output"},
+        "output": {},
+    }
+) as builder:
+
+    @node
+    def entry(alpha):
         if alpha is None:
             return {"value": 0.0}
         return {"value": alpha["value"] * 2.0}
-    def output(self, data):
+
+    @node
+    def output(data):
         return {"result": data["value"] + 10.0, "done": True}
 "#
                 ),
-                None,
+                Some(&globals),
                 Some(&locals),
             )
             .unwrap();
-
-            let cls = locals.get_item("Strategy").unwrap().unwrap();
-            // Call decorator to get executor, then extract the inner PythonGraphExecutor
-            // We use the public build_executor_from_class helper
-            let decorator_obj_bound = decorator_obj.bind(py);
-            let executor_pyobj = decorator_obj_bound.call1((cls,)).unwrap();
-            // Get the Rust struct out of the pyclass
-            let executor_ref = executor_pyobj
-                .downcast::<crate::python::computation_graph::PythonGraphExecutor>()
-                .unwrap();
-            // We need to take ownership — use a helper that clones the inner data
-            crate::python::computation_graph::PythonGraphExecutor::clone_for_test(
-                &executor_ref.borrow(),
-                py,
-            )
         });
 
-        // Build an InputCache with test data
+        let executor = computation_graph::get_graph_executor("exec_linear").unwrap();
+
         let mut cache = crate::computation_graph::types::InputCache::new();
         cache.update(
             crate::computation_graph::types::SourceName::new("alpha"),
             crate::computation_graph::types::serialize(&serde_json::json!({"value": 5.0})).unwrap(),
         );
 
-        // Execute the graph — this calls Python via spawn_blocking
         let result = executor.execute(&cache).await;
         match &result {
-            crate::computation_graph::GraphResult::Error(e) => {
-                panic!("graph execution failed: {:?}", e);
-            }
+            crate::computation_graph::GraphResult::Error(e) => panic!("execution failed: {:?}", e),
             _ => {}
         }
-        assert!(result.is_completed(), "graph should complete successfully");
+        assert!(result.is_completed(), "linear graph should complete");
     }
 
     #[tokio::test]
-    async fn test_python_routing_graph_executes() {
+    async fn test_routing_graph_executes_signal_path() {
         pyo3::prepare_freethreaded_python();
 
-        let executor = Python::with_gil(|py| {
-            let react_dict = py
-                .eval(
-                    c_str!(r#"{"mode": "when_any", "accumulators": ["alpha", "beta"]}"#),
-                    None,
-                    None,
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = pyo3::types::PyDict::new(py);
+            locals
+                .set_item(
+                    "node",
+                    pyo3::wrap_pyfunction!(computation_graph::node, py).unwrap(),
                 )
-                .unwrap()
-                .downcast_into::<PyDict>()
+                .unwrap();
+            locals
+                .set_item(
+                    "ComputationGraphBuilder",
+                    py.get_type::<computation_graph::PyComputationGraphBuilder>(),
+                )
                 .unwrap();
 
-            let graph_dict = py
-                .eval(
-                    c_str!(
-                        r#"{
-                            "decision": {
-                                "inputs": ["alpha", "beta"],
-                                "routes": {"Signal": "signal_handler", "NoAction": "audit_logger"}
-                            },
-                            "signal_handler": {},
-                            "audit_logger": {}
-                        }"#
-                    ),
-                    None,
-                    None,
-                )
-                .unwrap()
-                .downcast_into::<PyDict>()
-                .unwrap();
-
-            let decorator_obj = computation_graph(py, &react_dict, &graph_dict).unwrap();
-
-            let locals = PyDict::new(py);
             py.run(
                 c_str!(
                     r#"
-class RoutingStrategy:
-    def decision(self, alpha, beta):
+with ComputationGraphBuilder("exec_routing",
+    react={"mode": "when_any", "accumulators": ["alpha", "beta"]},
+    graph={
+        "decision": {"inputs": ["alpha", "beta"], "routes": {
+            "Signal": "signal_handler",
+            "NoAction": "audit_logger",
+        }},
+        "signal_handler": {},
+        "audit_logger": {},
+    }
+) as builder:
+
+    @node
+    def decision(alpha, beta):
         a = alpha["value"] if alpha else 0.0
         b = beta["estimate"] if beta else 0.0
         if a + b > 10.0:
             return ("Signal", {"output": a + b})
-        else:
-            return ("NoAction", {"reason": "below threshold"})
-    def signal_handler(self, signal):
+        return ("NoAction", {"reason": "below threshold"})
+
+    @node
+    def signal_handler(signal):
         return {"published": True, "value": signal["output"]}
-    def audit_logger(self, reason):
+
+    @node
+    def audit_logger(reason):
         return {"logged": True}
 "#
                 ),
-                None,
+                Some(&globals),
                 Some(&locals),
             )
             .unwrap();
-
-            let cls = locals.get_item("RoutingStrategy").unwrap().unwrap();
-            // Call decorator to get executor, then extract the inner PythonGraphExecutor
-            // We use the public build_executor_from_class helper
-            let decorator_obj_bound = decorator_obj.bind(py);
-            let executor_pyobj = decorator_obj_bound.call1((cls,)).unwrap();
-            // Get the Rust struct out of the pyclass
-            let executor_ref = executor_pyobj
-                .downcast::<crate::python::computation_graph::PythonGraphExecutor>()
-                .unwrap();
-            // We need to take ownership — use a helper that clones the inner data
-            crate::python::computation_graph::PythonGraphExecutor::clone_for_test(
-                &executor_ref.borrow(),
-                py,
-            )
         });
 
-        // Test Signal path: 8 + 5 = 13 > 10
+        let executor = computation_graph::get_graph_executor("exec_routing").unwrap();
+
+        // Signal path: 8 + 5 = 13 > 10
         let mut cache = crate::computation_graph::types::InputCache::new();
         cache.update(
             crate::computation_graph::types::SourceName::new("alpha"),
@@ -444,13 +366,10 @@ class RoutingStrategy:
         let result = executor.execute(&cache).await;
         match &result {
             crate::computation_graph::GraphResult::Error(e) => {
-                panic!("routing graph execution failed: {:?}", e);
+                panic!("routing execution failed: {:?}", e)
             }
             _ => {}
         }
-        assert!(
-            result.is_completed(),
-            "routing graph should complete on Signal path"
-        );
+        assert!(result.is_completed(), "routing graph should complete");
     }
 }

@@ -601,11 +601,9 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<python::bindings::value_objects::PyBackoffStrategy>()?;
     m.add_class::<python::bindings::value_objects::PyRetryCondition>()?;
 
-    // Computation graph decorator
-    m.add_function(wrap_pyfunction!(
-        python::computation_graph::computation_graph,
-        m
-    )?)?;
+    // Computation graph builder + node decorator
+    m.add_class::<python::computation_graph::PyComputationGraphBuilder>()?;
+    m.add_function(wrap_pyfunction!(python::computation_graph::node, m)?)?;
 
     // Admin classes (postgres only)
     #[cfg(feature = "postgres")]

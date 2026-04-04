@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-04T21:37:03Z | 392 files | JavaScript, Python, Rust
+> Generated: 2026-04-04T22:37:33Z | 392 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2694,26 +2694,28 @@
 #### crates/cloacina/src/python/computation_graph.rs
 
 - pub `PythonGraphExecutor` struct L62-71 — `{ instance: PyObject, topology: PyGraphTopology, execution_order: Vec<String>, n...` — The Python graph executor.
-- pub `execute` function L80-111 — `(&self, cache: &InputCache) -> GraphResult` — Execute the graph with the given input cache.
-- pub `computation_graph` function L428-460 — `( py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> PyR...` — The `@computation_graph` decorator function.
-- pub `PythonGraphDecorator` struct L464-468 — `{ topology: PyGraphTopology, execution_order: Vec<String>, node_map: HashMap<Str...` — Intermediate decorator object — called with the class to produce the executor.
+- pub `clone_for_test` function L81-88 — `(&self, py: Python<'_>) -> Self` — Clone for testing — requires the GIL to clone the PyObject.
+- pub `execute` function L93-124 — `(&self, cache: &InputCache) -> GraphResult` — Execute the graph with the given input cache.
+- pub `computation_graph` function L509-541 — `( py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> PyR...` — The `@computation_graph` decorator function.
+- pub `PythonGraphDecorator` struct L545-549 — `{ topology: PyGraphTopology, execution_order: Vec<String>, node_map: HashMap<Str...` — Intermediate decorator object — called with the class to produce the executor.
 -  `PyGraphTopology` struct L33-37 — `{ react_mode: String, accumulators: Vec<String>, nodes: Vec<PyNodeDecl> }` — Parsed topology from the Python dict declaration.
 -  `PyNodeDecl` struct L41-45 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — A node declaration from the Python topology dict.
 -  `PyEdgeDecl` enum L49-56 — `Linear | Routing | Terminal` — Edge type for a Python node.
 -  `PythonGraphExecutor` type L75 — `impl Send for PythonGraphExecutor` — Rust-compiled graphs.
 -  `PythonGraphExecutor` type L76 — `impl Sync for PythonGraphExecutor` — Rust-compiled graphs.
--  `PythonGraphExecutor` type L78-112 — `= PythonGraphExecutor` — Rust-compiled graphs.
--  `execute_graph_sync` function L115-212 — `( py: Python<'_>, instance: &PyObject, execution_order: &[String], node_map: &Ha...` — Execute the graph synchronously inside the GIL.
--  `build_node_args` function L215-247 — `( py: Python<'py>, node_decl: &PyNodeDecl, cache_values: &HashMap<String, serde_...` — Build the argument tuple for a Python node call.
--  `pythonize_to_json` function L250-254 — `(py: Python<'_>, obj: &PyObject) -> Result<serde_json::Value, GraphError>` — Convert a Python object to serde_json::Value.
--  `parse_topology` function L257-339 — `( _py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> Py...` — Parse a Python dict topology into our internal representation.
--  `compute_execution_order` function L342-410 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — Compute a simple topological order from the node declarations.
--  `PythonGraphDecorator` type L471-495 — `= PythonGraphDecorator` — Rust-compiled graphs.
--  `__call__` function L472-494 — `(&self, py: Python<'_>, cls: PyObject) -> PyResult<PythonGraphExecutor>` — Rust-compiled graphs.
+-  `PythonGraphExecutor` type L78-89 — `= PythonGraphExecutor` — Rust-compiled graphs.
+-  `PythonGraphExecutor` type L91-125 — `= PythonGraphExecutor` — Rust-compiled graphs.
+-  `execute_graph_sync` function L128-282 — `( py: Python<'_>, instance: &PyObject, execution_order: &[String], node_map: &Ha...` — Execute the graph synchronously inside the GIL.
+-  `build_node_args` function L285-328 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — Build the argument tuple for a Python node call.
+-  `pythonize_to_json` function L331-335 — `(py: Python<'_>, obj: &PyObject) -> Result<serde_json::Value, GraphError>` — Convert a Python object to serde_json::Value.
+-  `parse_topology` function L338-420 — `( _py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> Py...` — Parse a Python dict topology into our internal representation.
+-  `compute_execution_order` function L423-491 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — Compute a simple topological order from the node declarations.
+-  `PythonGraphDecorator` type L552-576 — `= PythonGraphDecorator` — Rust-compiled graphs.
+-  `__call__` function L553-575 — `(&self, py: Python<'_>, cls: PyObject) -> PyResult<PythonGraphExecutor>` — Rust-compiled graphs.
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
--  `tests` module L20-275 — `-` — Tests for the Python computation graph bindings.
+-  `tests` module L20-456 — `-` — Tests for the Python computation graph bindings.
 -  `test_linear_topology_parses` function L28-58 — `()` — Tests for the Python computation graph bindings.
 -  `test_routing_topology_parses` function L61-100 — `()` — Tests for the Python computation graph bindings.
 -  `test_when_all_mode_parses` function L103-129 — `()` — Tests for the Python computation graph bindings.
@@ -2721,6 +2723,8 @@
 -  `test_missing_accumulators_errors` function L153-171 — `()` — Tests for the Python computation graph bindings.
 -  `test_decorator_applies_to_class_with_methods` function L174-222 — `()` — Tests for the Python computation graph bindings.
 -  `test_decorator_rejects_class_missing_methods` function L225-274 — `()` — Tests for the Python computation graph bindings.
+-  `test_python_linear_graph_executes` function L277-355 — `()` — Tests for the Python computation graph bindings.
+-  `test_python_routing_graph_executes` function L358-455 — `()` — Tests for the Python computation graph bindings.
 
 #### crates/cloacina/src/python/context.rs
 
