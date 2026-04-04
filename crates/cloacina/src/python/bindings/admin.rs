@@ -261,14 +261,4 @@ mod tests {
         let result = PyDatabaseAdmin::new("postgres://user:pass@localhost/".to_string());
         assert!(result.is_err());
     }
-
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn test_database_admin_creates_with_postgres_url() {
-        let result = PyDatabaseAdmin::new(
-            "postgres://cloacina:cloacina@localhost:5432/cloacina".to_string(),
-        );
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().__repr__(), "DatabaseAdmin()");
-    }
 }

@@ -1072,136 +1072,137 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // is_transient_error tests
+    // Tests requiring SQLite (executor construction uses in-memory SQLite)
     // -----------------------------------------------------------------------
+    #[cfg(feature = "sqlite")]
+    mod sqlite_tests {
+        use super::*;
 
-    /// Helper to create a minimal ThreadTaskExecutor for testing non-async methods.
-    /// Uses a dummy in-memory database URL that won't actually connect.
-    fn test_executor() -> ThreadTaskExecutor {
-        let db = Database::new("sqlite://:memory:", "", 1);
-        let registry = Arc::new(TaskRegistry::new());
-        let config = ExecutorConfig::default();
-        ThreadTaskExecutor::new(db, registry, config)
-    }
+        fn test_executor() -> ThreadTaskExecutor {
+            let db = Database::new("sqlite://:memory:", "", 1);
+            let registry = Arc::new(TaskRegistry::new());
+            let config = ExecutorConfig::default();
+            ThreadTaskExecutor::new(db, registry, config)
+        }
 
-    #[test]
-    fn test_is_transient_timeout() {
-        let exec = test_executor();
-        assert!(exec.is_transient_error(&ExecutorError::TaskTimeout));
-    }
+        #[test]
+        fn test_is_transient_timeout() {
+            let exec = test_executor();
+            assert!(exec.is_transient_error(&ExecutorError::TaskTimeout));
+        }
 
-    #[test]
-    fn test_is_transient_task_not_found() {
-        let exec = test_executor();
-        assert!(!exec.is_transient_error(&ExecutorError::TaskNotFound("missing".to_string())));
-    }
+        #[test]
+        fn test_is_transient_task_not_found() {
+            let exec = test_executor();
+            assert!(!exec.is_transient_error(&ExecutorError::TaskNotFound("missing".to_string())));
+        }
 
-    #[test]
-    fn test_is_transient_connection_pool() {
-        let exec = test_executor();
-        assert!(
-            exec.is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string()))
-        );
-    }
+        #[test]
+        fn test_is_transient_connection_pool() {
+            let exec = test_executor();
+            assert!(exec
+                .is_transient_error(&ExecutorError::ConnectionPool("pool exhausted".to_string())));
+        }
 
-    #[test]
-    fn test_is_transient_task_execution_with_timeout_msg() {
-        let exec = test_executor();
-        let task_err = crate::error::TaskError::ExecutionFailed {
-            message: "connection timeout while waiting".to_string(),
-            task_id: "test".to_string(),
-            timestamp: chrono::Utc::now(),
-        };
-        let err = ExecutorError::TaskExecution(task_err);
-        assert!(exec.is_transient_error(&err));
-    }
+        #[test]
+        fn test_is_transient_task_execution_with_timeout_msg() {
+            let exec = test_executor();
+            let task_err = crate::error::TaskError::ExecutionFailed {
+                message: "connection timeout while waiting".to_string(),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+            let err = ExecutorError::TaskExecution(task_err);
+            assert!(exec.is_transient_error(&err));
+        }
 
-    #[test]
-    fn test_is_transient_task_execution_permanent() {
-        let exec = test_executor();
-        let task_err = crate::error::TaskError::ExecutionFailed {
-            message: "invalid input data".to_string(),
-            task_id: "test".to_string(),
-            timestamp: chrono::Utc::now(),
-        };
-        let err = ExecutorError::TaskExecution(task_err);
-        assert!(!exec.is_transient_error(&err));
-    }
+        #[test]
+        fn test_is_transient_task_execution_permanent() {
+            let exec = test_executor();
+            let task_err = crate::error::TaskError::ExecutionFailed {
+                message: "invalid input data".to_string(),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+            let err = ExecutorError::TaskExecution(task_err);
+            assert!(!exec.is_transient_error(&err));
+        }
 
-    #[test]
-    fn test_is_transient_task_execution_network() {
-        let exec = test_executor();
-        let task_err = crate::error::TaskError::ExecutionFailed {
-            message: "network unreachable".to_string(),
-            task_id: "test".to_string(),
-            timestamp: chrono::Utc::now(),
-        };
-        let err = ExecutorError::TaskExecution(task_err);
-        assert!(exec.is_transient_error(&err));
-    }
+        #[test]
+        fn test_is_transient_task_execution_network() {
+            let exec = test_executor();
+            let task_err = crate::error::TaskError::ExecutionFailed {
+                message: "network unreachable".to_string(),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+            let err = ExecutorError::TaskExecution(task_err);
+            assert!(exec.is_transient_error(&err));
+        }
 
-    #[test]
-    fn test_is_transient_task_execution_unavailable() {
-        let exec = test_executor();
-        let task_err = crate::error::TaskError::ExecutionFailed {
-            message: "service temporarily unavailable".to_string(),
-            task_id: "test".to_string(),
-            timestamp: chrono::Utc::now(),
-        };
-        let err = ExecutorError::TaskExecution(task_err);
-        assert!(exec.is_transient_error(&err));
-    }
+        #[test]
+        fn test_is_transient_task_execution_unavailable() {
+            let exec = test_executor();
+            let task_err = crate::error::TaskError::ExecutionFailed {
+                message: "service temporarily unavailable".to_string(),
+                task_id: "test".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+            let err = ExecutorError::TaskExecution(task_err);
+            assert!(exec.is_transient_error(&err));
+        }
 
-    // -----------------------------------------------------------------------
-    // ThreadTaskExecutor construction and metrics tests
-    // -----------------------------------------------------------------------
+        // -----------------------------------------------------------------------
+        // ThreadTaskExecutor construction and metrics tests
+        // -----------------------------------------------------------------------
 
-    #[test]
-    fn test_executor_has_capacity_initially() {
-        let exec = test_executor();
-        assert!(exec.has_capacity());
-    }
+        #[test]
+        fn test_executor_has_capacity_initially() {
+            let exec = test_executor();
+            assert!(exec.has_capacity());
+        }
 
-    #[test]
-    fn test_executor_metrics_initial() {
-        let exec = test_executor();
-        let metrics = exec.metrics();
-        assert_eq!(metrics.active_tasks, 0);
-        assert_eq!(metrics.max_concurrent, 4);
-        assert_eq!(metrics.total_executed, 0);
-        assert_eq!(metrics.total_failed, 0);
-    }
+        #[test]
+        fn test_executor_metrics_initial() {
+            let exec = test_executor();
+            let metrics = exec.metrics();
+            assert_eq!(metrics.active_tasks, 0);
+            assert_eq!(metrics.max_concurrent, 4);
+            assert_eq!(metrics.total_executed, 0);
+            assert_eq!(metrics.total_failed, 0);
+        }
 
-    #[test]
-    fn test_executor_name() {
-        let exec = test_executor();
-        assert_eq!(exec.name(), "ThreadTaskExecutor");
-    }
+        #[test]
+        fn test_executor_name() {
+            let exec = test_executor();
+            assert_eq!(exec.name(), "ThreadTaskExecutor");
+        }
 
-    #[test]
-    fn test_executor_clone_shares_semaphore() {
-        let exec = test_executor();
-        let cloned = exec.clone();
-        // Both should share the same semaphore, so available permits should match
-        assert_eq!(
-            exec.semaphore().available_permits(),
-            cloned.semaphore().available_permits()
-        );
-    }
+        #[test]
+        fn test_executor_clone_shares_semaphore() {
+            let exec = test_executor();
+            let cloned = exec.clone();
+            // Both should share the same semaphore, so available permits should match
+            assert_eq!(
+                exec.semaphore().available_permits(),
+                cloned.semaphore().available_permits()
+            );
+        }
 
-    #[test]
-    fn test_executor_custom_config() {
-        let db = Database::new("sqlite://:memory:", "", 1);
-        let registry = Arc::new(TaskRegistry::new());
-        let config = ExecutorConfig {
-            max_concurrent_tasks: 8,
-            task_timeout: std::time::Duration::from_secs(60),
-            enable_claiming: false,
-            heartbeat_interval: std::time::Duration::from_secs(5),
-        };
-        let exec = ThreadTaskExecutor::new(db, registry, config);
-        let metrics = exec.metrics();
-        assert_eq!(metrics.max_concurrent, 8);
-        assert_eq!(exec.semaphore().available_permits(), 8);
-    }
+        #[test]
+        fn test_executor_custom_config() {
+            let db = Database::new("sqlite://:memory:", "", 1);
+            let registry = Arc::new(TaskRegistry::new());
+            let config = ExecutorConfig {
+                max_concurrent_tasks: 8,
+                task_timeout: std::time::Duration::from_secs(60),
+                enable_claiming: false,
+                heartbeat_interval: std::time::Duration::from_secs(5),
+            };
+            let exec = ThreadTaskExecutor::new(db, registry, config);
+            let metrics = exec.metrics();
+            assert_eq!(metrics.max_concurrent, 8);
+            assert_eq!(exec.semaphore().available_permits(), 8);
+        }
+    } // mod sqlite_tests
 }

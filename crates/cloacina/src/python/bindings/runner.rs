@@ -2398,16 +2398,6 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn test_runner_postgres_construction_and_shutdown() {
-        pyo3::prepare_freethreaded_python();
-        let runner = PyDefaultRunner::new(TEST_PG_URL).expect("Failed to create runner");
-        Python::with_gil(|py| {
-            runner.shutdown(py).expect("Shutdown should succeed");
-        });
-    }
-
     #[test]
     fn test_runner_register_cron_workflow() {
         pyo3::prepare_freethreaded_python();
@@ -2851,55 +2841,6 @@ mod tests {
             "tenant;DROP TABLE",
         );
         assert!(result.is_err());
-    }
-
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn test_with_schema_postgres_creates_and_shuts_down() {
-        pyo3::prepare_freethreaded_python();
-        let schema = format!(
-            "test_{}",
-            uuid::Uuid::new_v4().to_string().replace('-', "_")
-        );
-        let runner =
-            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
-        Python::with_gil(|py| {
-            // Verify cron list works through the schema runner
-            let schedules = runner
-                .list_cron_schedules(None, None, None, py)
-                .expect("list should work");
-            assert!(schedules.is_empty());
-
-            runner.shutdown(py).unwrap();
-        });
-    }
-
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn test_with_schema_register_and_list_cron() {
-        pyo3::prepare_freethreaded_python();
-        let schema = format!(
-            "test_{}",
-            uuid::Uuid::new_v4().to_string().replace('-', "_")
-        );
-        let runner =
-            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
-        Python::with_gil(|py| {
-            let id = runner
-                .register_cron_workflow(
-                    "schema-cron-test".to_string(),
-                    "0 0 * * *".to_string(),
-                    "UTC".to_string(),
-                    py,
-                )
-                .unwrap();
-            assert!(!id.is_empty());
-
-            let schedules = runner.list_cron_schedules(None, None, None, py).unwrap();
-            assert_eq!(schedules.len(), 1);
-
-            runner.shutdown(py).unwrap();
-        });
     }
 
     #[test]

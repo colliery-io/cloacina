@@ -316,7 +316,7 @@
     "examples/features/python-workflow/data_pipeline/tasks.py": "dde8f1fa94d9736e6a8e120e71e257991f832629d4d8d5f61f2be7daa88c9cf2",
     "examples/features/python-workflow/run_pipeline.py": "6632773bd561bbd09954466fe156809db40addb56f2fd461cad6b0273997e587",
     "examples/features/registry-execution/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
-    "examples/features/registry-execution/src/main.rs": "b2e0aee9c5f99b6e02484799b01bb923a876b272697e6ea2e7f2529a4d7699c0",
+    "examples/features/registry-execution/src/main.rs": "e682b65dce11ffda8394c72004be70dcce1eba85c9d2f629db7d8458f0ef9f9f",
     "examples/features/simple-packaged/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "examples/features/simple-packaged/src/lib.rs": "9802188d70dd46f7275ca0479b8ab875c122caa4a26a41014452b37507686dec",
     "examples/features/simple-packaged/tests/ffi_tests.rs": "71bb022d18e9326d3d1e82b943bb6925bb10815ed517208786906b9ce55d05ba",

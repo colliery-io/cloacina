@@ -355,3 +355,82 @@ fn python_e2e_pack_extract_load_register() {
     assert_eq!(task_instance.id(), "e2e-task");
     assert!(task_instance.dependencies().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Tests — PyDefaultRunner + PyDatabaseAdmin with real Postgres
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "postgres")]
+mod postgres_bindings {
+    use cloacina::python::bindings::admin::PyDatabaseAdmin;
+    use cloacina::python::bindings::runner::PyDefaultRunner;
+    use pyo3::prelude::*;
+    use serial_test::serial;
+
+    const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
+
+    #[test]
+    #[serial]
+    fn test_runner_postgres_construction_and_shutdown() {
+        pyo3::prepare_freethreaded_python();
+        let runner = PyDefaultRunner::new(TEST_PG_URL).expect("Failed to create runner");
+        Python::with_gil(|py| {
+            runner.shutdown(py).expect("Shutdown should succeed");
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_with_schema_postgres_creates_and_shuts_down() {
+        pyo3::prepare_freethreaded_python();
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let runner =
+            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        Python::with_gil(|py| {
+            let schedules = runner
+                .list_cron_schedules(None, None, None, py)
+                .expect("list should work");
+            assert!(schedules.is_empty());
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_with_schema_register_and_list_cron() {
+        pyo3::prepare_freethreaded_python();
+        let schema = format!(
+            "test_{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "_")
+        );
+        let runner =
+            PyDefaultRunner::with_schema(TEST_PG_URL, &schema).expect("with_schema should succeed");
+        Python::with_gil(|py| {
+            let id = runner
+                .register_cron_workflow(
+                    "schema-cron-test".to_string(),
+                    "0 0 * * *".to_string(),
+                    "UTC".to_string(),
+                    py,
+                )
+                .unwrap();
+            assert!(!id.is_empty());
+
+            let schedules = runner.list_cron_schedules(None, None, None, py).unwrap();
+            assert_eq!(schedules.len(), 1);
+
+            runner.shutdown(py).unwrap();
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn test_database_admin_creates_with_postgres_url() {
+        let result = PyDatabaseAdmin::new(TEST_PG_URL.to_string());
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().__repr__(), "DatabaseAdmin()");
+    }
+}
