@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-04T22:37:33Z | 392 files | JavaScript, Python, Rust
+> Generated: 2026-04-04T22:47:28Z | 392 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -740,7 +740,7 @@
 - pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L571-619 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L571-617 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -2693,38 +2693,47 @@
 
 #### crates/cloacina/src/python/computation_graph.rs
 
-- pub `PythonGraphExecutor` struct L62-71 — `{ instance: PyObject, topology: PyGraphTopology, execution_order: Vec<String>, n...` — The Python graph executor.
-- pub `clone_for_test` function L81-88 — `(&self, py: Python<'_>) -> Self` — Clone for testing — requires the GIL to clone the PyObject.
-- pub `execute` function L93-124 — `(&self, cache: &InputCache) -> GraphResult` — Execute the graph with the given input cache.
-- pub `computation_graph` function L509-541 — `( py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> PyR...` — The `@computation_graph` decorator function.
-- pub `PythonGraphDecorator` struct L545-549 — `{ topology: PyGraphTopology, execution_order: Vec<String>, node_map: HashMap<Str...` — Intermediate decorator object — called with the class to produce the executor.
--  `PyGraphTopology` struct L33-37 — `{ react_mode: String, accumulators: Vec<String>, nodes: Vec<PyNodeDecl> }` — Parsed topology from the Python dict declaration.
--  `PyNodeDecl` struct L41-45 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — A node declaration from the Python topology dict.
--  `PyEdgeDecl` enum L49-56 — `Linear | Routing | Terminal` — Edge type for a Python node.
--  `PythonGraphExecutor` type L75 — `impl Send for PythonGraphExecutor` — Rust-compiled graphs.
--  `PythonGraphExecutor` type L76 — `impl Sync for PythonGraphExecutor` — Rust-compiled graphs.
--  `PythonGraphExecutor` type L78-89 — `= PythonGraphExecutor` — Rust-compiled graphs.
--  `PythonGraphExecutor` type L91-125 — `= PythonGraphExecutor` — Rust-compiled graphs.
--  `execute_graph_sync` function L128-282 — `( py: Python<'_>, instance: &PyObject, execution_order: &[String], node_map: &Ha...` — Execute the graph synchronously inside the GIL.
--  `build_node_args` function L285-328 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — Build the argument tuple for a Python node call.
--  `pythonize_to_json` function L331-335 — `(py: Python<'_>, obj: &PyObject) -> Result<serde_json::Value, GraphError>` — Convert a Python object to serde_json::Value.
--  `parse_topology` function L338-420 — `( _py: Python<'_>, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDict>, ) -> Py...` — Parse a Python dict topology into our internal representation.
--  `compute_execution_order` function L423-491 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — Compute a simple topological order from the node declarations.
--  `PythonGraphDecorator` type L552-576 — `= PythonGraphDecorator` — Rust-compiled graphs.
--  `__call__` function L553-575 — `(&self, py: Python<'_>, cls: PyObject) -> PyResult<PythonGraphExecutor>` — Rust-compiled graphs.
+- pub `node` function L114-126 — `(py: Python<'_>, func: PyObject) -> PyResult<PyObject>` — The `@cloaca.node` decorator.
+- pub `PyComputationGraphBuilder` struct L133-138 — `{ name: String, react_mode: String, accumulators: Vec<String>, nodes_decl: Vec<P...` — ```
+- pub `new` function L144-172 — `( _py: Python<'_>, name: &str, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDi...` — ```
+- pub `__enter__` function L175-178 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry — establish graph context for @node decorators
+- pub `__exit__` function L181-234 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit — validate nodes against topology, build executor
+- pub `__repr__` function L236-242 — `(&self) -> String` — ```
+- pub `get_graph_executor` function L263-265 — `(name: &str) -> Option<PythonGraphExecutor>` — Get a registered graph executor by name (for testing / reactor use).
+- pub `PythonGraphExecutor` struct L268-275 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
+- pub `execute` function L300-335 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
+-  `NODE_REGISTRY` variable L62-63 — `: Lazy<Mutex<HashMap<String, PyObject>>>` — ```
+-  `ACTIVE_GRAPH_CONTEXT` variable L64 — `: Lazy<Mutex<Option<String>>>` — ```
+-  `push_graph_context` function L66-69 — `(name: String)` — ```
+-  `pop_graph_context` function L71-74 — `()` — ```
+-  `current_graph_context` function L76-78 — `() -> Option<String>` — ```
+-  `register_node` function L80-82 — `(name: String, func: PyObject)` — ```
+-  `drain_nodes` function L84-87 — `() -> HashMap<String, PyObject>` — ```
+-  `PyNodeDecl` struct L94-98 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — ```
+-  `PyEdgeDecl` enum L101-105 — `Linear | Routing | Terminal` — ```
+-  `PyComputationGraphBuilder` type L141-243 — `= PyComputationGraphBuilder` — ```
+-  `GRAPH_EXECUTORS` variable L250-251 — `: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>>` — Global registry of graph executors.
+-  `register_graph_executor` function L253-260 — `( name: String, executor: PythonGraphExecutor, _py: Python<'_>, ) -> PyResult<()...` — ```
+-  `PythonGraphExecutor` type L278 — `impl Send for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L279 — `impl Sync for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L281-296 — `impl Clone for PythonGraphExecutor` — ```
+-  `clone` function L282-295 — `(&self) -> Self` — ```
+-  `PythonGraphExecutor` type L298-336 — `= PythonGraphExecutor` — ```
+-  `execute_graph_sync` function L342-484 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
+-  `build_node_args` function L486-527 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
+-  `parse_graph_dict` function L533-578 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
+-  `compute_execution_order` function L580-639 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
--  `tests` module L20-456 — `-` — Tests for the Python computation graph bindings.
--  `test_linear_topology_parses` function L28-58 — `()` — Tests for the Python computation graph bindings.
--  `test_routing_topology_parses` function L61-100 — `()` — Tests for the Python computation graph bindings.
--  `test_when_all_mode_parses` function L103-129 — `()` — Tests for the Python computation graph bindings.
--  `test_missing_mode_errors` function L132-150 — `()` — Tests for the Python computation graph bindings.
--  `test_missing_accumulators_errors` function L153-171 — `()` — Tests for the Python computation graph bindings.
--  `test_decorator_applies_to_class_with_methods` function L174-222 — `()` — Tests for the Python computation graph bindings.
--  `test_decorator_rejects_class_missing_methods` function L225-274 — `()` — Tests for the Python computation graph bindings.
--  `test_python_linear_graph_executes` function L277-355 — `()` — Tests for the Python computation graph bindings.
--  `test_python_routing_graph_executes` function L358-455 — `()` — Tests for the Python computation graph bindings.
+-  `tests` module L23-375 — `-` — Tests for the Python computation graph bindings.
+-  `define_graph_and_get_executor` function L31-55 — `( py: Python<'_>, graph_name: &str, python_code: &std::ffi::CStr, )` — Helper: run a Python script that defines a computation graph using the
+-  `test_linear_graph_via_builder` function L58-91 — `()` — WorkflowBuilder + @task pattern.
+-  `test_routing_graph_via_builder` function L94-136 — `()` — WorkflowBuilder + @task pattern.
+-  `test_missing_node_errors` function L139-181 — `()` — WorkflowBuilder + @task pattern.
+-  `test_orphan_node_errors` function L184-228 — `()` — WorkflowBuilder + @task pattern.
+-  `test_linear_graph_executes` function L231-292 — `()` — WorkflowBuilder + @task pattern.
+-  `test_routing_graph_executes_signal_path` function L295-374 — `()` — WorkflowBuilder + @task pattern.
 
 #### crates/cloacina/src/python/context.rs
 

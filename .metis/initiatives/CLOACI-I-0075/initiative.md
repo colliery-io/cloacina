@@ -4,14 +4,14 @@ level: initiative
 title: "Python Computation Graph Bindings"
 short_code: "CLOACI-I-0075"
 created_at: 2026-04-04T17:57:34.795756+00:00
-updated_at: 2026-04-04T20:47:33.229936+00:00
+updated_at: 2026-04-04T22:51:22.865639+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -49,6 +49,10 @@ Spec: CLOACI-S-0007 Section 3 (Python Bindings).
 - Python-specific topology syntax beyond dict-based declaration
 - Python-authored custom `StreamBackend` implementations
 - Performance parity with Rust graphs (Python is for DX/prototyping, Rust is for production latency)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
