@@ -159,7 +159,7 @@ jobs:
 
   notify-failure:
     name: Notify on Failure
-    needs: [cloacina-tests, examples-docs, performance, coverage, macos-integration]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -223,7 +223,7 @@ jobs:
 
   close-resolved:
     name: Close Resolved Issues
-    needs: [cloacina-tests, examples-docs, performance, coverage, macos-integration]
+    needs: [cloacina-tests, examples-docs, coverage, macos-integration]
     if: success()
     runs-on: ubuntu-latest
     permissions:
