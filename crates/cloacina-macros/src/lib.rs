@@ -135,3 +135,39 @@ pub fn trigger(args: TokenStream, input: TokenStream) -> TokenStream {
 pub fn computation_graph(args: TokenStream, input: TokenStream) -> TokenStream {
     computation_graph::computation_graph_attr(args, input)
 }
+
+/// Define a passthrough accumulator (socket-only, no event loop).
+///
+/// ```rust,ignore
+/// #[passthrough_accumulator]
+/// fn beta(event: PricingUpdate) -> BetaData {
+///     BetaData { estimate: event.mid_price }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn passthrough_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::passthrough_accumulator_impl(
+        args.into(),
+        input.into(),
+    ) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Define a stream-backed accumulator.
+///
+/// ```rust,ignore
+/// #[stream_accumulator(type = "kafka", topic = "market.orderbook")]
+/// fn alpha(event: OrderBookUpdate) -> AlphaData {
+///     AlphaData { top_high: event.best_ask, top_low: event.best_bid }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn stream_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::stream_accumulator_impl(args.into(), input.into())
+    {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}

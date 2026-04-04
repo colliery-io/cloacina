@@ -19,6 +19,7 @@
 //! Parses the topology declaration from the macro attribute, builds a graph IR,
 //! validates it, and generates a compiled async function.
 
+pub(crate) mod accumulator_macros;
 mod codegen;
 pub(crate) mod graph_ir;
 mod parser;

@@ -4,14 +4,14 @@ level: task
 title: "StreamBackend trait, mock backend, and accumulator macros"
 short_code: "CLOACI-T-0368"
 created_at: 2026-04-04T22:54:47.730216+00:00
-updated_at: 2026-04-04T22:54:47.730216+00:00
+updated_at: 2026-04-04T23:03:47.426930+00:00
 parent: CLOACI-I-0074
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0074
 Implement the `StreamBackend` trait for pluggable broker backends, a mock backend for testing (no real Kafka needed in CI), the `StreamBackendRegistry` factory, and the `#[stream_accumulator]` and `#[passthrough_accumulator]` proc macros.
 
 Spec: CLOACI-S-0004.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
