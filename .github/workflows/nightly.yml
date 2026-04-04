@@ -133,6 +133,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install angreal
 
+      - name: Start PostgreSQL
+        uses: ikalnytskyi/action-setup-postgres@v7
+        with:
+          username: cloacina
+          password: cloacina
+          database: cloacina
+          port: 5432
+
       - name: Install libpq
         run: |
           brew install libpq
