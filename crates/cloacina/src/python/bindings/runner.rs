@@ -2294,6 +2294,7 @@ impl PyPipelineResult {
 }
 
 #[cfg(test)]
+#[cfg(feature = "sqlite")]
 mod tests {
     use super::*;
 
