@@ -4,14 +4,14 @@ level: task
 title: "Code generator and compile-time validation"
 short_code: "CLOACI-T-0361"
 created_at: 2026-04-04T19:51:02.449706+00:00
-updated_at: 2026-04-04T19:51:02.449706+00:00
+updated_at: 2026-04-04T20:15:48.334877+00:00
 parent: CLOACI-I-0070
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -23,6 +23,10 @@ initiative_id: CLOACI-I-0070
 ## Objective
 
 The core of the macro — take the Graph IR from T-0360, validate it, and emit the compiled async function as a `TokenStream`. This is the most complex task: it generates the nested match arms, wires cache deserialization, handles `Option<T>` branch short-circuiting, and `#[node(blocking)]` wrapping.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -52,4 +56,14 @@ T-0359 (parser), T-0360 (Graph IR + topological sort)
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-04-04**: Completed.
+- Created `codegen.rs` (~280 lines): `generate()`, `extract_functions()`, `has_blocking_attr()`, `generate_compiled_function()`, `generate_cache_reads()`, `generate_node_execution()`, `generate_call_args()`, `generate_routing_match()`, `generate_terminal_collection()`
+- Macro fully wired: parse → build IR → validate → generate compiled async function
+- Validation: orphan functions in module → compile error, dangling graph references → compile error
+- `#[node(blocking)]` detection: scans function attrs, wraps call in `spawn_blocking`
+- Cache reads generated at function entry for all accumulator inputs
+- Routing: generates nested `match` arms from Graph IR routing variants
+- Terminal outputs collected into `GraphResult::completed(vec![...])`
+- Generated function signature: `async fn {module}_compiled(cache: &InputCache) -> GraphResult`
+- All 22 existing tests still pass, workspace compiles clean
+- Note: `Option<T>` branch short-circuiting and enum variant coverage validation deferred to T-0363 tests — the codegen generates the match arms but the Option handling needs end-to-end testing to verify correct behavior. Type safety is enforced by rustc on the generated code (proc macros can't resolve types).

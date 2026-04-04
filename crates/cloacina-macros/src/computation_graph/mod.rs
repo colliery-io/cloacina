@@ -19,6 +19,7 @@
 //! Parses the topology declaration from the macro attribute, builds a graph IR,
 //! validates it, and generates a compiled async function.
 
+mod codegen;
 pub(crate) mod graph_ir;
 mod parser;
 
@@ -43,15 +44,16 @@ fn computation_graph_impl(
     args: proc_macro2::TokenStream,
     input: proc_macro2::TokenStream,
 ) -> syn::Result<proc_macro2::TokenStream> {
-    // Parse the attribute arguments (react + graph topology)
+    // Step 1: Parse the attribute arguments (react + graph topology)
     let topology = syn::parse2::<parser::ParsedTopology>(args)?;
 
-    // Parse the module
+    // Step 2: Parse the module
     let module = syn::parse2::<syn::ItemMod>(input)?;
 
-    // For now, just pass through the module unchanged (skeleton)
-    // T-0360 and T-0361 will add graph IR building and code generation
-    let _ = topology; // suppress unused warning
+    // Step 3: Build Graph IR from parsed topology
+    let ir = graph_ir::GraphIR::from_parsed(topology)
+        .map_err(|e| syn::Error::new(proc_macro2::Span::call_site(), e.to_string()))?;
 
-    Ok(quote::quote! { #module })
+    // Step 4: Validate and generate the compiled function
+    codegen::generate(&ir, &module)
 }
