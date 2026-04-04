@@ -24,6 +24,7 @@
 //! - [`SourceName`] — identifies an accumulator source
 
 pub mod accumulator;
+pub mod reactor;
 pub mod stream_backend;
 pub mod types;
 

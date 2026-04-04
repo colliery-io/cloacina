@@ -4,14 +4,14 @@ level: task
 title: "Reactor — receiver, strategy, executor"
 short_code: "CLOACI-T-0369"
 created_at: 2026-04-04T22:54:48.937061+00:00
-updated_at: 2026-04-04T22:54:48.937061+00:00
+updated_at: 2026-04-04T23:09:37.775927+00:00
 parent: CLOACI-I-0074
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -25,6 +25,8 @@ initiative_id: CLOACI-I-0074
 Implement the Reactor — the long-lived process that receives boundaries from accumulators, maintains cache + dirty flags, evaluates reaction criteria, and calls the compiled graph function.
 
 Spec: CLOACI-S-0005.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
