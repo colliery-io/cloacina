@@ -142,10 +142,10 @@ jobs:
           shared-key: "cloacina-nightly-macos"
 
       - name: Build workspace
-        run: cargo build --features "sqlite,macros"
+        run: cargo build --no-default-features --features "sqlite,macros"
 
       - name: Run unit tests (SQLite)
-        run: angreal cloacina unit
+        run: cargo test -p cloacina --lib --no-default-features --features "sqlite,macros"
 
   # -----------------------------------------------------------------------
   # Failure notification — auto-create GitHub issue

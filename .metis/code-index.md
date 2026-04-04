@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-04T00:16:04Z | 383 files | JavaScript, Python, Rust
+> Generated: 2026-04-04T00:56:18Z | 383 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -578,11 +578,11 @@
 -  `CronRecoveryService` type L96-377 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
 -  `check_and_recover_lost_executions` function L163-195 — `(&self) -> Result<(), PipelineError>` — Checks for lost executions and attempts to recover them.
 -  `recover_execution` function L198-357 — `(&self, execution: &ScheduleExecution) -> Result<(), PipelineError>` — Attempts to recover a single lost execution.
--  `tests` module L380-428 — `-` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_default` function L385-392 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_custom` function L395-409 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_clone` function L412-418 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_default_recovery_window` function L421-427 — `()` — - The execution is too old (beyond recovery window)
+-  `tests` module L380-427 — `-` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default` function L384-391 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_custom` function L394-408 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_clone` function L411-417 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default_recovery_window` function L420-426 — `()` — - The execution is too old (beyond recovery window)
 
 #### crates/cloacina/src/error.rs
 
@@ -2670,15 +2670,15 @@
 - pub `PythonExecutionError` enum L28-56 — `EnvironmentSetup | TaskNotFound | TaskException | SerializationError | ImportErr...` — Errors that can occur during Python task execution.
 - pub `PythonTaskResult` struct L60-65 — `{ task_id: String, output_json: String }` — Result of executing a Python task.
 - pub `PythonTaskExecutor` interface L79-108 — `{ fn execute_task(), fn discover_tasks() }` — Trait for executing Python tasks from extracted packages.
--  `tests` module L111-210 — `-` — crate provides the concrete implementation.
--  `MockPythonExecutor` struct L116-118 — `{ task_ids: Vec<String> }` — A mock executor for testing without PyO3.
--  `MockPythonExecutor` type L121-150 — `impl PythonTaskExecutor for MockPythonExecutor` — crate provides the concrete implementation.
--  `execute_task` function L122-140 — `( &self, _workflow_dir: &Path, _vendor_dir: &Path, _entry_module: &str, task_id:...` — crate provides the concrete implementation.
--  `discover_tasks` function L142-149 — `( &self, _workflow_dir: &Path, _vendor_dir: &Path, _entry_module: &str, ) -> Res...` — crate provides the concrete implementation.
--  `test_mock_executor_discover` function L153-162 — `()` — crate provides the concrete implementation.
--  `test_mock_executor_execute` function L165-181 — `()` — crate provides the concrete implementation.
--  `test_mock_executor_task_not_found` function L184-197 — `()` — crate provides the concrete implementation.
--  `test_error_display` function L200-209 — `()` — crate provides the concrete implementation.
+-  `tests` module L111-209 — `-` — crate provides the concrete implementation.
+-  `MockPythonExecutor` struct L115-117 — `{ task_ids: Vec<String> }` — A mock executor for testing without PyO3.
+-  `MockPythonExecutor` type L120-149 — `impl PythonTaskExecutor for MockPythonExecutor` — crate provides the concrete implementation.
+-  `execute_task` function L121-139 — `( &self, _workflow_dir: &Path, _vendor_dir: &Path, _entry_module: &str, task_id:...` — crate provides the concrete implementation.
+-  `discover_tasks` function L141-148 — `( &self, _workflow_dir: &Path, _vendor_dir: &Path, _entry_module: &str, ) -> Res...` — crate provides the concrete implementation.
+-  `test_mock_executor_discover` function L152-161 — `()` — crate provides the concrete implementation.
+-  `test_mock_executor_execute` function L164-180 — `()` — crate provides the concrete implementation.
+-  `test_mock_executor_task_not_found` function L183-196 — `()` — crate provides the concrete implementation.
+-  `test_error_display` function L199-208 — `()` — crate provides the concrete implementation.
 
 #### crates/cloacina/src/python/loader.rs
 
@@ -3055,37 +3055,37 @@
 -  `PackageValidator` type L52-176 — `= PackageValidator` — metadata verification, and compatibility testing.
 -  `PackageValidator` type L178-183 — `impl Default for PackageValidator` — metadata verification, and compatibility testing.
 -  `default` function L179-182 — `() -> Self` — metadata verification, and compatibility testing.
--  `tests` module L186-654 — `-` — metadata verification, and compatibility testing.
+-  `tests` module L186-652 — `-` — metadata verification, and compatibility testing.
 -  `create_valid_elf_header` function L191-219 — `() -> Vec<u8>` — Helper to create a valid ELF header for testing
 -  `create_invalid_binary` function L222-224 — `() -> Vec<u8>` — Helper to create invalid binary data
 -  `create_suspicious_binary` function L227-235 — `() -> Vec<u8>` — Helper to create binary with suspicious content
--  `create_mock_metadata` function L238-262 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata
--  `test_validator_creation` function L265-271 — `()` — metadata verification, and compatibility testing.
--  `test_validator_default` function L274-278 — `()` — metadata verification, and compatibility testing.
--  `test_strict_validator` function L281-284 — `()` — metadata verification, and compatibility testing.
--  `test_validator_with_custom_max_size` function L287-291 — `()` — metadata verification, and compatibility testing.
--  `test_validator_with_required_symbols` function L294-301 — `()` — metadata verification, and compatibility testing.
--  `test_validate_empty_package` function L304-313 — `()` — metadata verification, and compatibility testing.
--  `test_validate_oversized_package` function L316-325 — `()` — metadata verification, and compatibility testing.
--  `test_validate_invalid_elf` function L328-342 — `()` — metadata verification, and compatibility testing.
--  `test_validate_valid_elf_header` function L345-358 — `()` — metadata verification, and compatibility testing.
--  `test_validate_suspicious_content` function L361-376 — `()` — metadata verification, and compatibility testing.
--  `test_validate_with_metadata` function L379-399 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_invalid_package_name` function L402-418 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_special_characters` function L421-436 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_duplicate_task_ids` function L439-457 — `()` — metadata verification, and compatibility testing.
--  `test_validate_metadata_with_no_tasks` function L460-475 — `()` — metadata verification, and compatibility testing.
--  `test_strict_mode_validation` function L478-490 — `()` — metadata verification, and compatibility testing.
--  `test_permissive_mode_with_warnings` function L493-505 — `()` — metadata verification, and compatibility testing.
--  `test_security_assessment_levels` function L508-526 — `()` — metadata verification, and compatibility testing.
--  `test_compatibility_info` function L529-543 — `()` — metadata verification, and compatibility testing.
--  `test_concurrent_validation` function L546-573 — `()` — metadata verification, and compatibility testing.
--  `test_memory_safety_with_large_packages` function L576-591 — `()` — metadata verification, and compatibility testing.
--  `test_temp_directory_isolation` function L594-602 — `()` — metadata verification, and compatibility testing.
--  `test_validation_result_serialization` function L605-615 — `()` — metadata verification, and compatibility testing.
--  `test_error_message_quality` function L618-635 — `()` — metadata verification, and compatibility testing.
--  `test_security_level_equality` function L638-643 — `()` — metadata verification, and compatibility testing.
--  `test_validator_sync_creation` function L646-653 — `()` — metadata verification, and compatibility testing.
+-  `create_mock_metadata` function L238-260 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata
+-  `test_validator_creation` function L263-269 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_default` function L272-276 — `()` — metadata verification, and compatibility testing.
+-  `test_strict_validator` function L279-282 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_with_custom_max_size` function L285-289 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_with_required_symbols` function L292-299 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_empty_package` function L302-311 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_oversized_package` function L314-323 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_invalid_elf` function L326-340 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_valid_elf_header` function L343-356 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_suspicious_content` function L359-374 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_with_metadata` function L377-397 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_invalid_package_name` function L400-416 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_special_characters` function L419-434 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_duplicate_task_ids` function L437-455 — `()` — metadata verification, and compatibility testing.
+-  `test_validate_metadata_with_no_tasks` function L458-473 — `()` — metadata verification, and compatibility testing.
+-  `test_strict_mode_validation` function L476-488 — `()` — metadata verification, and compatibility testing.
+-  `test_permissive_mode_with_warnings` function L491-503 — `()` — metadata verification, and compatibility testing.
+-  `test_security_assessment_levels` function L506-524 — `()` — metadata verification, and compatibility testing.
+-  `test_compatibility_info` function L527-541 — `()` — metadata verification, and compatibility testing.
+-  `test_concurrent_validation` function L544-571 — `()` — metadata verification, and compatibility testing.
+-  `test_memory_safety_with_large_packages` function L574-589 — `()` — metadata verification, and compatibility testing.
+-  `test_temp_directory_isolation` function L592-600 — `()` — metadata verification, and compatibility testing.
+-  `test_validation_result_serialization` function L603-613 — `()` — metadata verification, and compatibility testing.
+-  `test_error_message_quality` function L616-633 — `()` — metadata verification, and compatibility testing.
+-  `test_security_level_equality` function L636-641 — `()` — metadata verification, and compatibility testing.
+-  `test_validator_sync_creation` function L644-651 — `()` — metadata verification, and compatibility testing.
 
 #### crates/cloacina/src/registry/loader/validator/security.rs
 
@@ -3730,32 +3730,32 @@
 
 #### crates/cloacina/src/security/verification.rs
 
-- pub `SecurityConfig` struct L37-51 — `{ require_signatures: bool, key_encryption_key: Option<[u8; 32]> }` — Security configuration for package verification.
-- pub `require_signatures` function L56-61 — `() -> Self` — Create a security config that requires signatures.
-- pub `development` function L64-66 — `() -> Self` — Create a security config with no signature requirements (for development).
-- pub `with_encryption_key` function L69-72 — `(mut self, key: [u8; 32]) -> Self` — Set the key encryption key for signing operations.
-- pub `VerificationError` enum L79-132 — `TamperedPackage | UntrustedSigner | InvalidSignature | SignatureNotFound | Malfo...` — Errors that occur during package verification.
-- pub `SignatureSource` enum L137-150 — `Database | DetachedFile | Auto` — Where to find the signature for a package.
-- pub `VerificationResult` struct L155-162 — `{ package_hash: String, signer_fingerprint: String, signer_name: Option<String> ...` — Result of successful verification.
-- pub `verify_package` function L183-295 — `( package_path: P, org_id: UniversalUuid, signature_source: SignatureSource, pac...` — Verify a package signature.
-- pub `verify_package_offline` function L310-369 — `( package_path: P, signature_path: S, public_key: &[u8], ) -> Result<Verificatio...` — Verify a package using only a detached signature and public key (offline mode).
--  `SecurityConfig` type L54-73 — `= SecurityConfig` — - [`verify_and_load_package`] for verified package loading
--  `compute_package_hash` function L372-378 — `(data: &[u8]) -> Result<String, VerificationError>` — Compute SHA256 hash of package data.
--  `load_signature_from_db` function L381-396 — `( package_hash: &str, package_signer: &DbPackageSigner, ) -> Result<DetachedSign...` — Load signature from database.
--  `load_signature_from_file` function L399-403 — `(path: &Path) -> Result<DetachedSignature, VerificationError>` — Load signature from file.
--  `tests` module L406-652 — `-` — - [`verify_and_load_package`] for verified package loading
--  `test_security_config_default` function L413-417 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_security_config_require_signatures` function L420-423 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_security_config_with_encryption_key` function L426-430 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_with_invalid_signature` function L433-462 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_signature_source_default` function L465-468 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_valid_signature` function L471-506 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_tampered_content` function L509-546 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_wrong_key` function L549-584 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_nonexistent_package` function L587-607 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_verify_package_offline_nonexistent_signature` function L610-621 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_load_signature_from_file_valid` function L624-639 — `()` — - [`verify_and_load_package`] for verified package loading
--  `test_load_signature_from_file_invalid` function L642-651 — `()` — - [`verify_and_load_package`] for verified package loading
+- pub `SecurityConfig` struct L36-50 — `{ require_signatures: bool, key_encryption_key: Option<[u8; 32]> }` — Security configuration for package verification.
+- pub `require_signatures` function L54-59 — `() -> Self` — Create a security config that requires signatures.
+- pub `development` function L62-64 — `() -> Self` — Create a security config with no signature requirements (for development).
+- pub `with_encryption_key` function L67-70 — `(mut self, key: [u8; 32]) -> Self` — Set the key encryption key for signing operations.
+- pub `VerificationError` enum L77-130 — `TamperedPackage | UntrustedSigner | InvalidSignature | SignatureNotFound | Malfo...` — Errors that occur during package verification.
+- pub `SignatureSource` enum L134-147 — `Database | DetachedFile | Auto` — Where to find the signature for a package.
+- pub `VerificationResult` struct L151-158 — `{ package_hash: String, signer_fingerprint: String, signer_name: Option<String> ...` — Result of successful verification.
+- pub `verify_package` function L179-291 — `( package_path: P, org_id: UniversalUuid, signature_source: SignatureSource, pac...` — Verify a package signature.
+- pub `verify_package_offline` function L306-365 — `( package_path: P, signature_path: S, public_key: &[u8], ) -> Result<Verificatio...` — Verify a package using only a detached signature and public key (offline mode).
+-  `SecurityConfig` type L52-71 — `= SecurityConfig` — - [`verify_and_load_package`] for verified package loading
+-  `compute_package_hash` function L368-374 — `(data: &[u8]) -> Result<String, VerificationError>` — Compute SHA256 hash of package data.
+-  `load_signature_from_db` function L377-392 — `( package_hash: &str, package_signer: &DbPackageSigner, ) -> Result<DetachedSign...` — Load signature from database.
+-  `load_signature_from_file` function L395-399 — `(path: &Path) -> Result<DetachedSignature, VerificationError>` — Load signature from file.
+-  `tests` module L402-648 — `-` — - [`verify_and_load_package`] for verified package loading
+-  `test_security_config_default` function L409-413 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_security_config_require_signatures` function L416-419 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_security_config_with_encryption_key` function L422-426 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_with_invalid_signature` function L429-458 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_signature_source_default` function L461-464 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_valid_signature` function L467-502 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_tampered_content` function L505-542 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_wrong_key` function L545-580 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_nonexistent_package` function L583-603 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_verify_package_offline_nonexistent_signature` function L606-617 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_load_signature_from_file_valid` function L620-635 — `()` — - [`verify_and_load_package`] for verified package loading
+-  `test_load_signature_from_file_invalid` function L638-647 — `()` — - [`verify_and_load_package`] for verified package loading
 
 ### crates/cloacina/src/task_scheduler
 
@@ -4191,23 +4191,23 @@
 -  `dependencies` function L47-49 — `(&self) -> &[TaskNamespace]` — Tests that invalid inputs produce the correct errors (not panics).
 -  `test_empty_workflow_returns_error` function L55-63 — `()` — Tests that invalid inputs produce the correct errors (not panics).
 -  `test_duplicate_task_returns_error` function L66-88 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_missing_dependency_returns_error` function L91-113 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_cyclic_dependency_returns_error` function L116-141 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_invalid_trigger_rule_json` function L146-149 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_unknown_trigger_rule_type` function L152-155 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_trigger_rule_all_missing_conditions` function L158-161 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_trigger_rule_conditions_wrong_type` function L164-168 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_unknown_condition_type` function L171-175 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_context_value_condition_missing_fields` function L178-181 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_unknown_value_operator` function L184-187 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_context_duplicate_insert_returns_error` function L192-198 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_context_update_missing_key_returns_error` function L201-205 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_context_get_missing_key_returns_none` function L208-211 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_cron_invalid_expression_error` function L216-220 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_cron_invalid_timezone_error` function L223-227 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_cron_empty_expression_error` function L230-234 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_manifest_parse_duration_invalid` function L239-245 — `()` — Tests that invalid inputs produce the correct errors (not panics).
--  `test_manifest_parse_duration_valid` function L248-266 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_missing_dependency_returns_error` function L91-112 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cyclic_dependency_returns_error` function L115-139 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_invalid_trigger_rule_json` function L144-147 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_trigger_rule_type` function L150-153 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_trigger_rule_all_missing_conditions` function L156-159 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_trigger_rule_conditions_wrong_type` function L162-166 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_condition_type` function L169-173 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_value_condition_missing_fields` function L176-179 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_unknown_value_operator` function L182-185 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_duplicate_insert_returns_error` function L190-196 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_update_missing_key_returns_error` function L199-203 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_context_get_missing_key_returns_none` function L206-209 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_invalid_expression_error` function L214-218 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_invalid_timezone_error` function L221-225 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_cron_empty_expression_error` function L228-232 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_manifest_parse_duration_invalid` function L237-243 — `()` — Tests that invalid inputs produce the correct errors (not panics).
+-  `test_manifest_parse_duration_valid` function L246-264 — `()` — Tests that invalid inputs produce the correct errors (not panics).
 
 #### crates/cloacina/tests/integration/fidius_validation.rs
 
@@ -4287,19 +4287,19 @@
 
 #### crates/cloacina/tests/integration/python_package.rs
 
--  `create_python_source_dir` function L36-73 — `( dir: &std::path::Path, name: &str, version: &str, entry_module: &str, include_...` — Create a fidius source package directory for a Python workflow.
--  `create_rust_source_dir` function L76-93 — `(dir: &std::path::Path, name: &str, version: &str)` — Create a fidius source package directory for a Rust workflow.
--  `pack_to_bytes` function L96-103 — `(source_dir: &std::path::Path, output_dir: &std::path::Path) -> Vec<u8>` — Pack a source directory into a `.cloacina` archive and return the bytes.
--  `detect_package_kind_identifies_python` function L110-119 — `()` — full round-trip: pack → detect → extract → validate.
--  `detect_package_kind_identifies_rust` function L122-131 — `()` — full round-trip: pack → detect → extract → validate.
--  `extract_python_package_full_roundtrip` function L138-160 — `()` — full round-trip: pack → detect → extract → validate.
--  `extract_rejects_rust_archive` function L163-176 — `()` — full round-trip: pack → detect → extract → validate.
--  `make_python_manifest` function L182-220 — `() -> Manifest` — full round-trip: pack → detect → extract → validate.
--  `manifest_validates_task_dependency_references` function L223-232 — `()` — full round-trip: pack → detect → extract → validate.
--  `manifest_validates_duplicate_task_ids` function L235-244 — `()` — full round-trip: pack → detect → extract → validate.
--  `manifest_validates_python_function_path_format` function L247-256 — `()` — full round-trip: pack → detect → extract → validate.
--  `create_python_e2e_source_dir` function L263-302 — `(dir: &std::path::Path, name: &str)` — Create a Python workflow source dir with a task that sets a context key.
--  `python_e2e_pack_extract_load_register` function L305-358 — `()` — full round-trip: pack → detect → extract → validate.
+-  `create_python_source_dir` function L35-72 — `( dir: &std::path::Path, name: &str, version: &str, entry_module: &str, include_...` — Create a fidius source package directory for a Python workflow.
+-  `create_rust_source_dir` function L75-92 — `(dir: &std::path::Path, name: &str, version: &str)` — Create a fidius source package directory for a Rust workflow.
+-  `pack_to_bytes` function L95-102 — `(source_dir: &std::path::Path, output_dir: &std::path::Path) -> Vec<u8>` — Pack a source directory into a `.cloacina` archive and return the bytes.
+-  `detect_package_kind_identifies_python` function L109-118 — `()` — full round-trip: pack → detect → extract → validate.
+-  `detect_package_kind_identifies_rust` function L121-130 — `()` — full round-trip: pack → detect → extract → validate.
+-  `extract_python_package_full_roundtrip` function L137-159 — `()` — full round-trip: pack → detect → extract → validate.
+-  `extract_rejects_rust_archive` function L162-175 — `()` — full round-trip: pack → detect → extract → validate.
+-  `make_python_manifest` function L181-219 — `() -> Manifest` — full round-trip: pack → detect → extract → validate.
+-  `manifest_validates_task_dependency_references` function L222-231 — `()` — full round-trip: pack → detect → extract → validate.
+-  `manifest_validates_duplicate_task_ids` function L234-243 — `()` — full round-trip: pack → detect → extract → validate.
+-  `manifest_validates_python_function_path_format` function L246-255 — `()` — full round-trip: pack → detect → extract → validate.
+-  `create_python_e2e_source_dir` function L262-301 — `(dir: &std::path::Path, name: &str)` — Create a Python workflow source dir with a task that sets a context key.
+-  `python_e2e_pack_extract_load_register` function L304-357 — `()` — full round-trip: pack → detect → extract → validate.
 
 #### crates/cloacina/tests/integration/registry_simple_functional_test.rs
 
@@ -4394,8 +4394,8 @@
 -  `error_tests` module L308-371 — `-` — correctly in end-to-end scenarios.
 -  `test_invalid_storage_backend` function L312-340 — `()` — correctly in end-to-end scenarios.
 -  `test_registry_disabled` function L343-370 — `()` — correctly in end-to-end scenarios.
--  `integration_tests` module L374-448 — `-` — correctly in end-to-end scenarios.
--  `test_filesystem_and_current_backend_runners` function L379-447 — `()` — correctly in end-to-end scenarios.
+-  `integration_tests` module L374-449 — `-` — correctly in end-to-end scenarios.
+-  `test_filesystem_and_current_backend_runners` function L379-448 — `()` — correctly in end-to-end scenarios.
 
 #### crates/cloacina/tests/integration/test_dlopen_packaged.rs
 
@@ -4823,13 +4823,13 @@
 
 -  `test_tampered_package_rejected` function L31-57 — `()` — Test that a tampered package is rejected.
 -  `test_untrusted_signer_rejected` function L61-88 — `()` — Test that a package signed by untrusted key is rejected.
--  `test_invalid_signature_rejected` function L92-131 — `()` — Test that an invalid signature (wrong bytes) is rejected.
--  `test_wrong_hash_in_signature_rejected` function L135-163 — `()` — Test that a signature with wrong hash is rejected.
--  `test_malformed_signature_file_rejected` function L167-183 — `()` — Test that malformed signature JSON is rejected.
--  `test_missing_signature_file` function L187-196 — `()` — Test that missing signature file is handled.
--  `test_empty_package` function L200-213 — `()` — Test that empty package is handled correctly.
--  `test_revoked_key_rejected` function L220-229 — `()` — Database-based tests for revoked key rejection.
--  `sign_package_helper` function L232-258 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package.
+-  `test_invalid_signature_rejected` function L92-128 — `()` — Test that an invalid signature (wrong bytes) is rejected.
+-  `test_wrong_hash_in_signature_rejected` function L132-160 — `()` — Test that a signature with wrong hash is rejected.
+-  `test_malformed_signature_file_rejected` function L164-180 — `()` — Test that malformed signature JSON is rejected.
+-  `test_missing_signature_file` function L184-193 — `()` — Test that missing signature file is handled.
+-  `test_empty_package` function L197-210 — `()` — Test that empty package is handled correctly.
+-  `test_revoked_key_rejected` function L217-226 — `()` — Database-based tests for revoked key rejection.
+-  `sign_package_helper` function L229-255 — `( package_path: &std::path::Path, keypair: &cloacina::crypto::GeneratedKeypair, ...` — Helper function to sign a package.
 
 #### crates/cloacina/tests/integration/signing/sign_and_verify.rs
 
@@ -5068,11 +5068,11 @@
 - pub `workflow_attr` function L114-133 — `(args: TokenStream, input: TokenStream) -> TokenStream` — Entry point for the `#[workflow]` attribute macro.
 -  `UnifiedWorkflowAttributes` type L56-111 — `impl Parse for UnifiedWorkflowAttributes` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
 -  `parse` function L57-110 — `(input: ParseStream) -> SynResult<Self>` — - With `packaged` feature: generates FFI exports (packaged mode) — added in T-0303
--  `generate_workflow_attr` function L141-271 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
--  `validate_dependencies` function L274-328 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
--  `generate_embedded_registration` function L335-571 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
--  `generate_trigger_rules_rewrite` function L574-617 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L624-756 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_workflow_attr` function L141-268 — `(attrs: UnifiedWorkflowAttributes, input: ItemMod) -> TokenStream2` — Generate the unified workflow implementation.
+-  `validate_dependencies` function L271-325 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
+-  `generate_embedded_registration` function L332-568 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
+-  `generate_trigger_rules_rewrite` function L571-614 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
+-  `generate_packaged_registration` function L621-753 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 

@@ -168,22 +168,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("⏳ Waiting for registry reconciler to load workflow...");
     let workflow_name = "data_processing"; // Use the workflow name from simple-packaged-demo
 
-    // Give the reconciler some time to complete startup reconciliation and register tasks
-    println!("   Waiting for reconciler startup and task registration (10 seconds)...");
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-
-    // Test if workflow is available before trying to execute
-    println!("🔍 Checking if workflow is available for execution...");
-    let mut test_context = Context::new();
-    test_context.insert("test", serde_json::json!("availability_check"))?;
-
-    match runner.execute(workflow_name, test_context).await {
-        Ok(_) => println!("✅ Workflow is available for execution"),
-        Err(e) => {
-            println!("❌ Workflow still not available: {}", e);
-            println!("   This indicates an issue with the reconciler → task registry integration");
-            return Err(e.into());
+    // Poll until the reconciler has loaded the workflow (up to 60s on slow CI)
+    println!("   Waiting for reconciler startup and task registration...");
+    let mut workflow_available = false;
+    for attempt in 1..=30 {
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        let mut test_context = Context::new();
+        test_context.insert("test", serde_json::json!("availability_check"))?;
+        match runner.execute(workflow_name, test_context).await {
+            Ok(_) => {
+                println!("✅ Workflow available after {}s", attempt * 2);
+                workflow_available = true;
+                break;
+            }
+            Err(_) if attempt < 30 => {
+                if attempt % 5 == 0 {
+                    println!("   Still waiting... ({}s)", attempt * 2);
+                }
+            }
+            Err(e) => {
+                println!("❌ Workflow still not available after 60s: {}", e);
+                println!(
+                    "   This indicates an issue with the reconciler → task registry integration"
+                );
+                return Err(e.into());
+            }
         }
+    }
+    if !workflow_available {
+        anyhow::bail!("Workflow not available after 60s");
     }
 
     // Step 8: Execute the workflow from the registry
