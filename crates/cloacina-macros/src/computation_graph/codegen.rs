@@ -89,6 +89,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Generate the compiled function name
     let compiled_fn_name = format_ident!("{}_compiled", mod_name);
 
+    // Collect return types from routing nodes so we can `use Type::*` for variant patterns
+    let routing_use_stmts = generate_routing_use_stmts(ir, &functions, mod_name);
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_name {
@@ -98,7 +101,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         #vis async fn #compiled_fn_name(
             cache: &cloacina::computation_graph::InputCache,
         ) -> cloacina::computation_graph::GraphResult {
+            #[allow(unused_imports)]
             use #mod_name::*;
+            #(#routing_use_stmts)*
             #compiled_fn
         }
     })
@@ -159,7 +164,8 @@ fn generate_compiled_function(
     let cache_reads = generate_cache_reads(ir);
 
     // Generate the execution code starting from entry nodes
-    // For multiple entry nodes, they execute sequentially in topological order
+    // Terminal nodes push into __terminal_results instead of being collected at the end.
+    // This handles the scoping issue where terminals live inside match arms.
     let mut exec_stmts = Vec::new();
     let mut generated_nodes: HashSet<String> = HashSet::new();
 
@@ -173,13 +179,11 @@ fn generate_compiled_function(
         exec_stmts.push(stmt);
     }
 
-    // Collect terminal outputs
-    let terminal_outputs = generate_terminal_collection(ir);
-
     Ok(quote! {
+        let mut __terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
         #cache_reads
         #(#exec_stmts)*
-        #terminal_outputs
+        cloacina::computation_graph::GraphResult::completed(__terminal_results)
     })
 }
 
@@ -242,14 +246,15 @@ fn generate_node_execution(
 
     // Generate downstream handling based on edge type
     if node.edges_out.is_empty() {
-        // Terminal node — just call and store result
-        Ok(call)
+        // Terminal node — call and push result into __terminal_results
+        Ok(quote! {
+            #call
+            __terminal_results.push(Box::new(#result_var) as Box<dyn std::any::Any + Send>);
+        })
     } else if node.edges_out.len() == 1 {
         match &node.edges_out[0] {
-            GraphEdge::Linear { target } => {
-                // Linear: call node, pass result to downstream
-                let target_ident = format_ident!("__result_{}", node.name);
-                let _ = target_ident; // result is already named
+            GraphEdge::Linear { .. } => {
+                // Linear: call node, result available for downstream
                 Ok(call)
             }
             GraphEdge::Routing { variants } => {
@@ -270,7 +275,7 @@ fn generate_node_execution(
         }
     } else {
         // Multiple outgoing edges (fan-out, all linear)
-        // Call once, pass to all downstream
+        // Call once, result available for all downstream
         Ok(call)
     }
 }
@@ -349,23 +354,34 @@ fn generate_routing_match(
     })
 }
 
-/// Generate the terminal output collection.
-fn generate_terminal_collection(ir: &GraphIR) -> TokenStream {
-    let terminal_names: Vec<_> = ir
-        .terminal_nodes()
-        .iter()
-        .map(|n| format_ident!("__result_{}", n.name))
-        .collect();
+/// Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
+/// patterns resolve in match arms.
+fn generate_routing_use_stmts(
+    ir: &GraphIR,
+    functions: &HashMap<String, ItemFn>,
+    mod_name: &Ident,
+) -> Vec<TokenStream> {
+    let mut stmts = Vec::new();
 
-    if terminal_names.is_empty() {
-        quote! {
-            cloacina::computation_graph::GraphResult::completed_empty()
+    for node in ir.nodes.values() {
+        let has_routing = node
+            .edges_out
+            .iter()
+            .any(|e| matches!(e, GraphEdge::Routing { .. }));
+        if !has_routing {
+            continue;
         }
-    } else {
-        quote! {
-            cloacina::computation_graph::GraphResult::completed(vec![
-                #(Box::new(#terminal_names) as Box<dyn std::any::Any + Send>),*
-            ])
+
+        if let Some(func) = functions.get(&node.name) {
+            // Extract the return type and generate `use mod_name::ReturnType::*;`
+            if let syn::ReturnType::Type(_, ty) = &func.sig.output {
+                stmts.push(quote! {
+                    #[allow(unused_imports)]
+                    use #mod_name::#ty::*;
+                });
+            }
         }
     }
+
+    stmts
 }
