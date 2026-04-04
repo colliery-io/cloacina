@@ -21,7 +21,7 @@ sqlite = ["cloacina/sqlite"]
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }
-cloacina-workflow-plugin = { version = "0.3.2", path = "../cloacina-workflow-plugin" }
+cloacina-workflow-plugin = { version = "0.4.0", path = "../cloacina-workflow-plugin" }
 clap.workspace = true
 anyhow.workspace = true
 fidius-core = "0.0.5"
