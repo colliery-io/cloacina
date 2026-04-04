@@ -1,8 +1,9 @@
 {
   "files": {
     "crates/cloacina-build/src/lib.rs": "ce3026f9287c1be2e393764cddd3956a6e0954cadf22118a5ebbeadcbbce8007",
+    "crates/cloacina-macros/src/computation_graph/codegen.rs": "c4d6c6e9c65e8ff939426690b19304b359c74360703b90a612227775bec9b559",
     "crates/cloacina-macros/src/computation_graph/graph_ir.rs": "15a082a54b376ed4595c10245e4aa3a0faad07f299696728b0376521873cdea4",
-    "crates/cloacina-macros/src/computation_graph/mod.rs": "13603f222bc017e2519e3aa7b51ce4b24088a15f03ee900aa605f20a92976b63",
+    "crates/cloacina-macros/src/computation_graph/mod.rs": "7f48bd183e131da42e31fbd24e2b053cefc70e836439026a1d1a62109e7ffe57",
     "crates/cloacina-macros/src/computation_graph/parser.rs": "ff7f46e881573999fdc6dcd7bd2fb501208c59ecd649786794e62b3c012a883e",
     "crates/cloacina-macros/src/lib.rs": "abf8402816e73bd85770c48bfa4144adb10ac50b17cfc1074da710bc24e988d1",
     "crates/cloacina-macros/src/packaged_workflow.rs": "e4ef56d4f0f1a79ac31c2dc30f9702eba0eaddf663a9fab127665b2dafe649cc",
@@ -181,6 +182,7 @@
     "crates/cloacina/src/workflow/mod.rs": "91ce13ec10a686fbce123e0c51910df75aa6413df71eadef17c97aed89f4a545",
     "crates/cloacina/src/workflow/registry.rs": "ddcdda6f8856c72b1645723db47542483fa82b5d1f1c69f3f8faa5d43f10e4c5",
     "crates/cloacina/tests/fixtures.rs": "4dd18960cc1f7c6a56a79b9c9251eb287785748653ce8d0800c5784904f5967c",
+    "crates/cloacina/tests/integration/computation_graph.rs": "8fc8b5be967952b42e9874ee7ab5d8e3d482f28b0d93872440075928318c8d6e",
     "crates/cloacina/tests/integration/context.rs": "7ab7a2e0da3ba790345f7fde2072e1505b995ffd87d99a5c3fb1a26d2a00bd3a",
     "crates/cloacina/tests/integration/dal/api_keys.rs": "d974516701ab6e8096276954bcf1015d1c4e5780bba648be6d000f3e39be5944",
     "crates/cloacina/tests/integration/dal/context.rs": "e1962efd43fac75a35d29ffbf31977e3ee378ec41f5396591c3a293efdc28e99",
@@ -204,7 +206,7 @@
     "crates/cloacina/tests/integration/executor/task_execution.rs": "9ee7156854fa047e9145458dcfb4da6ae72c449317be08705d99dd34580e31ec",
     "crates/cloacina/tests/integration/fidius_validation.rs": "e6bf8e37753ed0dd135cd5c60b30a88b27f4abcf66092cf45c8640e07ecbd766",
     "crates/cloacina/tests/integration/logging.rs": "f31f97b184568e9ec3ce49f3f8a969ea9c9aee7896a3e0def5f1b4f83fc4ea05",
-    "crates/cloacina/tests/integration/main.rs": "2d9843ecf42e93583805422241c2677861a4e001e5e75877b605259083760044",
+    "crates/cloacina/tests/integration/main.rs": "2101b5af27f6a9909c26d000c1d2fc3c2ed8ed7ab942f3b18d27f3f8f0abfa45",
     "crates/cloacina/tests/integration/models/context.rs": "79ccbb6ce484cc1e35374c75c295b76f1e9d3a2ebc01562706a7f9368420016e",
     "crates/cloacina/tests/integration/models/mod.rs": "c9a6c0864616377e74b2f0e0a6a731283cc61fc35b60a5613647df0fb9da48d3",
     "crates/cloacina/tests/integration/packaging.rs": "26ba249714a7b03b0e2d2813744e792d90eb3989482e4ae2764abcae1afc3764",
