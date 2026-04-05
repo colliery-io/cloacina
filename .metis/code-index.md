@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T15:25:08Z | 409 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T15:49:13Z | 412 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -478,6 +478,10 @@
 │       │           └── src/
 │       │               └── main.rs
 │       ├── python/
+│       │   ├── computation-graphs/
+│       │   │   ├── 09_computation_graph.py
+│       │   │   ├── 10_accumulators.py
+│       │   │   └── 11_routing.py
 │       │   └── workflows/
 │       │       ├── 01_first_workflow.py
 │       │       ├── 02_context_handling.py
@@ -1005,7 +1009,7 @@
 - pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L578-624 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L578-640 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -2958,15 +2962,22 @@
 
 #### crates/cloacina/src/python/computation_graph.rs
 
-- pub `node` function L114-126 — `(py: Python<'_>, func: PyObject) -> PyResult<PyObject>` — The `@cloaca.node` decorator.
-- pub `PyComputationGraphBuilder` struct L133-138 — `{ name: String, react_mode: String, accumulators: Vec<String>, nodes_decl: Vec<P...` — ```
-- pub `new` function L144-172 — `( _py: Python<'_>, name: &str, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDi...` — ```
-- pub `__enter__` function L175-178 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry — establish graph context for @node decorators
-- pub `__exit__` function L181-234 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit — validate nodes against topology, build executor
-- pub `__repr__` function L236-242 — `(&self) -> String` — ```
-- pub `get_graph_executor` function L263-265 — `(name: &str) -> Option<PythonGraphExecutor>` — Get a registered graph executor by name (for testing / reactor use).
-- pub `PythonGraphExecutor` struct L268-275 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
-- pub `execute` function L300-335 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
+- pub `PyAccumulatorRegistration` struct L95-99 — `{ name: String, accumulator_type: String, config: HashMap<String, String> }` — Metadata for a registered Python accumulator.
+- pub `get_registered_accumulators` function L112-119 — `() -> Vec<PyAccumulatorRegistration>` — Get all registered accumulators (for testing/inspection).
+- pub `drain_accumulators` function L122-125 — `() -> HashMap<String, (PyObject, PyAccumulatorRegistration)>` — Drain all registered accumulators (used by builder on __exit__).
+- pub `passthrough_accumulator_decorator` function L135-144 — `(py: Python<'_>, func: PyObject) -> PyResult<PyObject>` — The `@cloaca.passthrough_accumulator` decorator.
+- pub `stream_accumulator_decorator` function L154-194 — `( py: Python<'_>, r#type: String, topic: String, group: Option<String>, ) -> PyR...` — Factory for `@cloaca.stream_accumulator(type=..., topic=...)`.
+- pub `polling_accumulator_decorator` function L203-231 — `(py: Python<'_>, interval: String) -> PyResult<PyObject>` — Factory for `@cloaca.polling_accumulator(interval=...)`.
+- pub `batch_accumulator_decorator` function L240-276 — `( py: Python<'_>, flush_interval: String, max_buffer_size: Option<usize>, ) -> P...` — Factory for `@cloaca.batch_accumulator(flush_interval=..., max_buffer_size=...)`.
+- pub `node` function L303-315 — `(py: Python<'_>, func: PyObject) -> PyResult<PyObject>` — The `@cloaca.node` decorator.
+- pub `PyComputationGraphBuilder` struct L322-327 — `{ name: String, react_mode: String, accumulators: Vec<String>, nodes_decl: Vec<P...` — ```
+- pub `new` function L333-361 — `( _py: Python<'_>, name: &str, react: &Bound<'_, PyDict>, graph: &Bound<'_, PyDi...` — ```
+- pub `__enter__` function L364-367 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry — establish graph context for @node decorators
+- pub `__exit__` function L370-423 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit — validate nodes against topology, build executor
+- pub `__repr__` function L425-431 — `(&self) -> String` — ```
+- pub `get_graph_executor` function L452-454 — `(name: &str) -> Option<PythonGraphExecutor>` — Get a registered graph executor by name (for testing / reactor use).
+- pub `PythonGraphExecutor` struct L457-464 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
+- pub `execute` function L489-524 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
 -  `NODE_REGISTRY` variable L62-63 — `: Lazy<Mutex<HashMap<String, PyObject>>>` — ```
 -  `ACTIVE_GRAPH_CONTEXT` variable L64 — `: Lazy<Mutex<Option<String>>>` — ```
 -  `push_graph_context` function L66-69 — `(name: String)` — ```
@@ -2974,24 +2985,26 @@
 -  `current_graph_context` function L76-78 — `() -> Option<String>` — ```
 -  `register_node` function L80-82 — `(name: String, func: PyObject)` — ```
 -  `drain_nodes` function L84-87 — `() -> HashMap<String, PyObject>` — ```
--  `PyNodeDecl` struct L94-98 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — ```
--  `PyEdgeDecl` enum L101-105 — `Linear | Routing | Terminal` — ```
--  `PyComputationGraphBuilder` type L141-243 — `= PyComputationGraphBuilder` — ```
--  `GRAPH_EXECUTORS` variable L250-251 — `: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>>` — Global registry of graph executors.
--  `register_graph_executor` function L253-260 — `( name: String, executor: PythonGraphExecutor, _py: Python<'_>, ) -> PyResult<()...` — ```
--  `PythonGraphExecutor` type L278 — `impl Send for PythonGraphExecutor` — ```
--  `PythonGraphExecutor` type L279 — `impl Sync for PythonGraphExecutor` — ```
--  `PythonGraphExecutor` type L281-296 — `impl Clone for PythonGraphExecutor` — ```
--  `clone` function L282-295 — `(&self) -> Self` — ```
--  `PythonGraphExecutor` type L298-336 — `= PythonGraphExecutor` — ```
--  `execute_graph_sync` function L342-484 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
--  `build_node_args` function L486-527 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
--  `parse_graph_dict` function L533-578 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
--  `compute_execution_order` function L580-639 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
+-  `ACCUMULATOR_REGISTRY` variable L101-102 — `: Lazy<Mutex<HashMap<String, (PyObject, PyAccumulatorRegistration)>>>` — ```
+-  `register_accumulator` function L104-109 — `(name: String, func: PyObject, reg: PyAccumulatorRegistration)` — ```
+-  `PyNodeDecl` struct L283-287 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — ```
+-  `PyEdgeDecl` enum L290-294 — `Linear | Routing | Terminal` — ```
+-  `PyComputationGraphBuilder` type L330-432 — `= PyComputationGraphBuilder` — ```
+-  `GRAPH_EXECUTORS` variable L439-440 — `: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>>` — Global registry of graph executors.
+-  `register_graph_executor` function L442-449 — `( name: String, executor: PythonGraphExecutor, _py: Python<'_>, ) -> PyResult<()...` — ```
+-  `PythonGraphExecutor` type L467 — `impl Send for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L468 — `impl Sync for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L470-485 — `impl Clone for PythonGraphExecutor` — ```
+-  `clone` function L471-484 — `(&self) -> Self` — ```
+-  `PythonGraphExecutor` type L487-525 — `= PythonGraphExecutor` — ```
+-  `execute_graph_sync` function L531-673 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
+-  `build_node_args` function L675-716 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
+-  `parse_graph_dict` function L722-767 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
+-  `compute_execution_order` function L769-828 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
--  `tests` module L23-375 — `-` — Tests for the Python computation graph bindings.
+-  `tests` module L23-549 — `-` — Tests for the Python computation graph bindings.
 -  `define_graph_and_get_executor` function L31-55 — `( py: Python<'_>, graph_name: &str, python_code: &std::ffi::CStr, )` — Helper: run a Python script that defines a computation graph using the
 -  `test_linear_graph_via_builder` function L58-91 — `()` — WorkflowBuilder + @task pattern.
 -  `test_routing_graph_via_builder` function L94-136 — `()` — WorkflowBuilder + @task pattern.
@@ -2999,6 +3012,11 @@
 -  `test_orphan_node_errors` function L184-228 — `()` — WorkflowBuilder + @task pattern.
 -  `test_linear_graph_executes` function L231-292 — `()` — WorkflowBuilder + @task pattern.
 -  `test_routing_graph_executes_signal_path` function L295-374 — `()` — WorkflowBuilder + @task pattern.
+-  `setup_accumulator_env` function L381-413 — `(py: Python<'_>) -> Bound<'_, pyo3::types::PyDict>` — Helper: set up Python environment with accumulator decorators available.
+-  `test_passthrough_accumulator_decorator` function L416-448 — `()` — WorkflowBuilder + @task pattern.
+-  `test_stream_accumulator_decorator` function L451-482 — `()` — WorkflowBuilder + @task pattern.
+-  `test_polling_accumulator_decorator` function L485-512 — `()` — WorkflowBuilder + @task pattern.
+-  `test_batch_accumulator_decorator` function L515-548 — `()` — WorkflowBuilder + @task pattern.
 
 #### crates/cloacina/src/python/context.rs
 

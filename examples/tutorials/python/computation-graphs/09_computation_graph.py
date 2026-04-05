@@ -26,10 +26,10 @@ with cloaca.ComputationGraphBuilder(
     graph={
         "ingest": {
             "inputs": ["orderbook"],
-            "target": "compute_spread",
+            "next": "compute_spread",
         },
         "compute_spread": {
-            "target": "format_output",
+            "next": "format_output",
         },
         "format_output": {},
     },

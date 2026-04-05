@@ -32,10 +32,10 @@ with cloaca.ComputationGraphBuilder(
     graph={
         "ingest": {
             "inputs": ["pricing"],
-            "target": "analyze",
+            "next": "analyze",
         },
         "analyze": {
-            "target": "format_signal",
+            "next": "format_signal",
         },
         "format_signal": {},
     },

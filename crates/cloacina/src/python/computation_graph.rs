@@ -429,6 +429,30 @@ impl PyComputationGraphBuilder {
             self.nodes_decl.len()
         )
     }
+
+    /// Execute the computation graph with the given input cache.
+    ///
+    /// `inputs` is a dict mapping source names to their data dicts.
+    /// Returns the terminal node's output dict.
+    pub fn execute(&self, py: Python<'_>, inputs: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let executor = get_graph_executor(&self.name).ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "graph '{}' not built yet — call execute after the 'with' block exits",
+                self.name
+            ))
+        })?;
+
+        // Convert Python dict inputs → HashMap<String, PyObject>
+        let mut cache: HashMap<String, PyObject> = HashMap::new();
+        for (key, value) in inputs.iter() {
+            let key_str: String = key.extract()?;
+            cache.insert(key_str, value.unbind());
+        }
+
+        // Execute synchronously (this is a simplified path for tutorials)
+        let result = executor.execute_sync(py, &cache)?;
+        Ok(result)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +509,52 @@ impl Clone for PythonGraphExecutor {
 }
 
 impl PythonGraphExecutor {
+    /// Execute the graph synchronously from Python with dict inputs.
+    ///
+    /// Used by `ComputationGraphBuilder.execute()` for tutorials.
+    pub fn execute_sync(
+        &self,
+        py: Python<'_>,
+        inputs: &HashMap<String, PyObject>,
+    ) -> PyResult<PyObject> {
+        // Convert PyObject inputs to serde_json::Value for the executor
+        let mut cache_values: HashMap<String, serde_json::Value> = HashMap::new();
+        for (name, obj) in inputs {
+            let val = pythonize::depythonize::<serde_json::Value>(&obj.bind(py))?;
+            cache_values.insert(name.clone(), val);
+        }
+
+        let result = execute_graph_sync(
+            py,
+            &self.node_functions,
+            &self.execution_order,
+            &self.node_map,
+            &cache_values,
+        );
+
+        match result {
+            Ok(outputs) => {
+                // Terminal results are Box<dyn Any + Send> containing serde_json::Value
+                if let Some(last) = outputs.last() {
+                    if let Some(json_val) = last.downcast_ref::<serde_json::Value>() {
+                        let py_obj = pythonize::pythonize(py, json_val).map_err(|e| {
+                            PyValueError::new_err(format!("result conversion failed: {}", e))
+                        })?;
+                        Ok(py_obj.unbind())
+                    } else {
+                        Ok(py.None().into())
+                    }
+                } else {
+                    Ok(py.None().into())
+                }
+            }
+            Err(e) => Err(PyValueError::new_err(format!(
+                "graph execution failed: {}",
+                e
+            ))),
+        }
+    }
+
     /// Execute the graph with the given input cache.
     pub async fn execute(
         &self,
