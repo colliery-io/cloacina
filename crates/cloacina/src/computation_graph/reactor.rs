@@ -24,7 +24,7 @@
 //!
 //! See CLOACI-S-0005 for the full specification.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -256,12 +256,19 @@ impl Reactor {
             )))
         };
         let paused = self.paused.clone();
+        let input_strategy = self._input_strategy.clone();
+
+        // Sequential queue — only used when InputStrategy::Sequential
+        let seq_queue: Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>> =
+            Arc::new(RwLock::new(VecDeque::new()));
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
 
         // Spawn receiver task
         let cache_recv = cache.clone();
         let dirty_recv = dirty.clone();
+        let seq_queue_recv = seq_queue.clone();
+        let input_strategy_recv = input_strategy.clone();
         let mut shutdown_recv = self.shutdown.clone();
         let mut accumulator_rx = self.accumulator_rx;
         let mut manual_rx = self.manual_rx;
@@ -271,8 +278,16 @@ impl Reactor {
             loop {
                 tokio::select! {
                     Some((source, bytes)) = accumulator_rx.recv() => {
-                        cache_recv.write().await.update(source.clone(), bytes);
-                        dirty_recv.write().await.set(source, true);
+                        match input_strategy_recv {
+                            InputStrategy::Latest => {
+                                cache_recv.write().await.update(source.clone(), bytes);
+                                dirty_recv.write().await.set(source, true);
+                            }
+                            InputStrategy::Sequential => {
+                                // Queue the boundary — don't update cache yet
+                                seq_queue_recv.write().await.push_back((source, bytes));
+                            }
+                        }
                         let _ = strategy_tx_recv.send(StrategySignal::BoundaryReceived).await;
                     }
                     Some(cmd) = manual_rx.recv() => {
@@ -297,6 +312,7 @@ impl Reactor {
         // Executor runs on current task
         let cache_exec = cache.clone();
         let dirty_exec = dirty.clone();
+        let seq_queue_exec = seq_queue.clone();
         let mut shutdown_exec = self.shutdown.clone();
         let graph = self.graph.clone();
         let criteria = self.criteria.clone();
@@ -304,31 +320,56 @@ impl Reactor {
         loop {
             tokio::select! {
                 Some(signal) = strategy_rx.recv() => {
-                    let should_run = match signal {
-                        StrategySignal::BoundaryReceived => {
-                            let d = dirty_exec.read().await;
-                            match &criteria {
-                                ReactionCriteria::WhenAny => d.any_set(),
-                                ReactionCriteria::WhenAll => d.all_set(),
+                    match input_strategy {
+                        InputStrategy::Latest => {
+                            let should_run = match signal {
+                                StrategySignal::BoundaryReceived => {
+                                    let d = dirty_exec.read().await;
+                                    match &criteria {
+                                        ReactionCriteria::WhenAny => d.any_set(),
+                                        ReactionCriteria::WhenAll => d.all_set(),
+                                    }
+                                }
+                                StrategySignal::ForceFire => true,
+                            };
+
+                            if should_run && !paused.load(Ordering::SeqCst) {
+                                let snapshot = cache_exec.read().await.snapshot();
+                                dirty_exec.write().await.clear_all();
+                                let result = (graph)(snapshot).await;
+                                match &result {
+                                    GraphResult::Completed { .. } => {
+                                        tracing::debug!("graph execution completed");
+                                    }
+                                    GraphResult::Error(e) => {
+                                        tracing::error!("graph execution failed: {}", e);
+                                    }
+                                }
                             }
                         }
-                        StrategySignal::ForceFire => true,
-                    };
-
-                    if should_run && !paused.load(Ordering::SeqCst) {
-                        // Snapshot cache and clear dirty flags
-                        let snapshot = cache_exec.read().await.snapshot();
-                        dirty_exec.write().await.clear_all();
-
-                        // Execute the compiled graph
-                        let result = (graph)(snapshot).await;
-
-                        match &result {
-                            GraphResult::Completed { .. } => {
-                                tracing::debug!("graph execution completed");
+                        InputStrategy::Sequential => {
+                            if paused.load(Ordering::SeqCst) {
+                                continue;
                             }
-                            GraphResult::Error(e) => {
-                                tracing::error!("graph execution failed: {}", e);
+                            // Drain the queue — one execution per queued boundary
+                            loop {
+                                let item = seq_queue_exec.write().await.pop_front();
+                                match item {
+                                    Some((source, bytes)) => {
+                                        cache_exec.write().await.update(source, bytes);
+                                        let snapshot = cache_exec.read().await.snapshot();
+                                        let result = (graph)(snapshot).await;
+                                        match &result {
+                                            GraphResult::Completed { .. } => {
+                                                tracing::debug!("graph execution completed (sequential)");
+                                            }
+                                            GraphResult::Error(e) => {
+                                                tracing::error!("graph execution failed: {}", e);
+                                            }
+                                        }
+                                    }
+                                    None => break,
+                                }
                             }
                         }
                     }

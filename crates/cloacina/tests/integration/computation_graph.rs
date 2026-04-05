@@ -808,3 +808,91 @@ async fn test_when_all_waits_for_both_sources() {
 
     shutdown_tx.send(true).unwrap();
 }
+
+// =============================================================================
+// Test 9: Sequential input strategy — every boundary fires separately
+// =============================================================================
+
+#[tokio::test]
+async fn test_sequential_input_strategy() {
+    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(32);
+    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
+    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let acc_sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
+    let acc_ctx = AccumulatorContext {
+        output: acc_sender,
+        name: "alpha".to_string(),
+        shutdown: shutdown_rx.clone(),
+    };
+
+    let _acc_handle = tokio::spawn(accumulator_runtime(
+        TestPassthroughAccumulator,
+        acc_ctx,
+        socket_rx,
+        AccumulatorRuntimeConfig::default(),
+    ));
+
+    // Track each execution's output value
+    let output_values: Arc<tokio::sync::Mutex<Vec<f64>>> =
+        Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let ov = output_values.clone();
+
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let ov = ov.clone();
+        Box::pin(async move {
+            let result = linear_chain_compiled(&cache).await;
+            let captured = if let GraphResult::Completed { ref outputs } = result {
+                outputs
+                    .iter()
+                    .find_map(|o| o.downcast_ref::<OutputConfirmation>().map(|c| c.value))
+            } else {
+                None
+            };
+            if let Some(val) = captured {
+                ov.lock().await.push(val);
+            }
+            result
+        })
+    });
+
+    let reactor = Reactor::new(
+        graph_fn,
+        ReactionCriteria::WhenAny,
+        InputStrategy::Sequential,
+        boundary_rx,
+        manual_rx,
+        shutdown_rx,
+    );
+    let _reactor_handle = tokio::spawn(reactor.run());
+
+    // Push 5 events rapidly — with Sequential, each should fire separately
+    for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
+        socket_tx
+            .send(serialize(&AlphaData { value: v }).unwrap())
+            .await
+            .unwrap();
+    }
+
+    // Wait for all 5 to process
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let results = output_values.lock().await;
+    assert_eq!(
+        results.len(),
+        5,
+        "Sequential should fire 5 times for 5 boundaries, got {}",
+        results.len()
+    );
+
+    // Verify order preserved: entry doubles, process adds 10
+    // 1.0 → 2.0 → 12.0, 2.0 → 4.0 → 14.0, etc.
+    assert_eq!(results[0], 12.0);
+    assert_eq!(results[1], 14.0);
+    assert_eq!(results[2], 16.0);
+    assert_eq!(results[3], 18.0);
+    assert_eq!(results[4], 20.0);
+
+    shutdown_tx.send(true).unwrap();
+}
