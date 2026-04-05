@@ -25,6 +25,7 @@
 
 pub mod accumulator;
 pub mod reactor;
+pub mod registry;
 pub mod stream_backend;
 pub mod types;
 
