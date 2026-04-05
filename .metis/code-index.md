@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T15:08:08Z | 409 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T15:25:08Z | 409 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -654,37 +654,39 @@
 - pub `InputStrategy` enum L49-54 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
 - pub `DirtyFlags` struct L58-60 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
 - pub `new` function L63-67 — `() -> Self` — See CLOACI-S-0005 for the full specification.
-- pub `set` function L69-71 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
-- pub `any_set` function L73-75 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `all_set` function L77-79 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `clear_all` function L81-85 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
-- pub `StrategySignal` enum L96-101 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
-- pub `ManualCommand` enum L105-110 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `ReactorCommand` enum L115-121 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
-- pub `ReactorResponse` enum L126-132 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
-- pub `ReactorHandle` struct L138-143 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
-- pub `get_state` function L147-150 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
-- pub `is_paused` function L153-155 — `(&self) -> bool` — Check if the reactor is paused.
-- pub `pause` function L158-160 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
-- pub `resume` function L163-165 — `(&self)` — Resume the reactor.
-- pub `CompiledGraphFn` type L169-170 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
-- pub `Reactor` struct L173-190 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
-- pub `new` function L193-211 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `handle` function L217-222 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L225-315 — `(self)` — Run the reactor.
--  `DirtyFlags` type L62-86 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `DirtyFlags` type L88-92 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `default` function L89-91 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `ReactorHandle` type L145-166 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L192-316 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `tests` module L319-497 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L323-332 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L335-343 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L346-354 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L357-361 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L364-406 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L409-445 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L448-496 — `()` — See CLOACI-S-0005 for the full specification.
+- pub `with_sources` function L73-79 — `(sources: &[SourceName]) -> Self` — Create dirty flags pre-seeded with expected source names (all initially false).
+- pub `set` function L81-83 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
+- pub `any_set` function L85-87 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `all_set` function L89-91 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `clear_all` function L93-97 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+- pub `StrategySignal` enum L108-113 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
+- pub `ManualCommand` enum L117-122 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
+- pub `ReactorCommand` enum L127-133 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
+- pub `ReactorResponse` enum L138-144 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
+- pub `ReactorHandle` struct L150-155 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `get_state` function L159-162 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `is_paused` function L165-167 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L170-172 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L175-177 — `(&self)` — Resume the reactor.
+- pub `CompiledGraphFn` type L181-182 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
+- pub `Reactor` struct L185-204 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
+- pub `new` function L207-226 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_expected_sources` function L232-235 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `handle` function L241-246 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L249-386 — `(self)` — Run the reactor.
+-  `DirtyFlags` type L62-98 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L100-104 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `default` function L101-103 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L157-178 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L206-387 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L390-568 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L394-403 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L406-414 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L417-425 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L428-432 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L435-477 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L480-516 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L519-567 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -4562,6 +4564,9 @@
 - pub `decision` function L132-142 — `(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> DecisionOutcome` — graph, and generates a callable async function that routes data correctly.
 - pub `signal_handler` function L144-149 — `(signal: &SignalData) -> OutputConfirmation` — graph, and generates a callable async function that routes data correctly.
 - pub `audit_logger` function L151-155 — `(reason: &NoActionReason) -> AuditRecord` — graph, and generates a callable async function that routes data correctly.
+- pub `when_all_graph` module L676-691 — `-` — graph, and generates a callable async function that routes data correctly.
+- pub `combine` function L679-683 — `(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> ProcessedData` — graph, and generates a callable async function that routes data correctly.
+- pub `output` function L685-690 — `(input: &ProcessedData) -> OutputConfirmation` — graph, and generates a callable async function that routes data correctly.
 -  `test_linear_chain` function L79-88 — `()` — graph, and generates a callable async function that routes data correctly.
 -  `test_routing_signal_path` function L159-172 — `()` — graph, and generates a callable async function that routes data correctly.
 -  `test_routing_no_action_path` function L175-188 — `()` — graph, and generates a callable async function that routes data correctly.
@@ -4592,6 +4597,13 @@
 -  `Output` type L566 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process_batch` function L568-571 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
 -  `test_batch_accumulator_to_reactor` function L575-664 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_when_all_waits_for_both_sources` function L694-810 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `BetaPassthrough` struct L715 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `BetaPassthrough` type L717-723 — `= BetaPassthrough` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L718 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L719 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L720-722 — `(&mut self, event: BetaData) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_sequential_input_strategy` function L817-898 — `()` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 

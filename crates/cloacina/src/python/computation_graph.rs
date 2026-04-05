@@ -51,7 +51,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use pyo3::exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use pyo3::types::{PyCFunction, PyDict, PyList, PyString, PyTuple};
 
 use crate::computation_graph::types::{GraphError, GraphResult};
 
@@ -84,6 +84,195 @@ fn register_node(name: String, func: PyObject) {
 fn drain_nodes() -> HashMap<String, PyObject> {
     let mut registry = NODE_REGISTRY.lock().unwrap();
     std::mem::take(&mut *registry)
+}
+
+// ---------------------------------------------------------------------------
+// Global accumulator registry
+// ---------------------------------------------------------------------------
+
+/// Metadata for a registered Python accumulator.
+#[derive(Debug, Clone)]
+pub struct PyAccumulatorRegistration {
+    pub name: String,
+    pub accumulator_type: String, // "passthrough", "stream", "polling", "batch"
+    pub config: HashMap<String, String>,
+}
+
+static ACCUMULATOR_REGISTRY: Lazy<Mutex<HashMap<String, (PyObject, PyAccumulatorRegistration)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn register_accumulator(name: String, func: PyObject, reg: PyAccumulatorRegistration) {
+    ACCUMULATOR_REGISTRY
+        .lock()
+        .unwrap()
+        .insert(name, (func, reg));
+}
+
+/// Get all registered accumulators (for testing/inspection).
+pub fn get_registered_accumulators() -> Vec<PyAccumulatorRegistration> {
+    ACCUMULATOR_REGISTRY
+        .lock()
+        .unwrap()
+        .values()
+        .map(|(_, reg)| reg.clone())
+        .collect()
+}
+
+/// Drain all registered accumulators (used by builder on __exit__).
+pub fn drain_accumulators() -> HashMap<String, (PyObject, PyAccumulatorRegistration)> {
+    let mut registry = ACCUMULATOR_REGISTRY.lock().unwrap();
+    std::mem::take(&mut *registry)
+}
+
+// ---------------------------------------------------------------------------
+// @cloaca.passthrough_accumulator decorator
+// ---------------------------------------------------------------------------
+
+/// The `@cloaca.passthrough_accumulator` decorator.
+/// Registers a function as a passthrough accumulator (Event → Output, no buffering).
+#[pyfunction]
+#[pyo3(name = "passthrough_accumulator")]
+pub fn passthrough_accumulator_decorator(py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
+    let func_name: String = func.getattr(py, "__name__")?.extract(py)?;
+    let reg = PyAccumulatorRegistration {
+        name: func_name.clone(),
+        accumulator_type: "passthrough".to_string(),
+        config: HashMap::new(),
+    };
+    register_accumulator(func_name, func.clone_ref(py), reg);
+    Ok(func)
+}
+
+// ---------------------------------------------------------------------------
+// @cloaca.stream_accumulator(type=..., topic=...) decorator
+// ---------------------------------------------------------------------------
+
+/// Factory for `@cloaca.stream_accumulator(type=..., topic=...)`.
+/// Returns a decorator function that registers the target with stream config.
+#[pyfunction]
+#[pyo3(name = "stream_accumulator", signature = (*, r#type, topic, group=None))]
+pub fn stream_accumulator_decorator(
+    py: Python<'_>,
+    r#type: String,
+    topic: String,
+    group: Option<String>,
+) -> PyResult<PyObject> {
+    let config_type = r#type;
+    let config_topic = topic;
+    let config_group = group;
+
+    // Return a decorator function
+    let decorator = PyCFunction::new_closure(
+        py,
+        None,
+        None,
+        move |args: &Bound<'_, PyTuple>,
+              _kwargs: Option<&Bound<'_, PyDict>>|
+              -> PyResult<PyObject> {
+            let py = args.py();
+            let func = args.get_item(0)?;
+            let func_name: String = func.getattr("__name__")?.extract()?;
+
+            let mut config = HashMap::new();
+            config.insert("type".to_string(), config_type.clone());
+            config.insert("topic".to_string(), config_topic.clone());
+            if let Some(ref g) = config_group {
+                config.insert("group".to_string(), g.clone());
+            }
+
+            let reg = PyAccumulatorRegistration {
+                name: func_name.clone(),
+                accumulator_type: "stream".to_string(),
+                config,
+            };
+            register_accumulator(func_name, func.clone().unbind(), reg);
+            Ok(func.clone().unbind())
+        },
+    )?;
+
+    Ok(decorator.into())
+}
+
+// ---------------------------------------------------------------------------
+// @cloaca.polling_accumulator(interval=...) decorator
+// ---------------------------------------------------------------------------
+
+/// Factory for `@cloaca.polling_accumulator(interval=...)`.
+#[pyfunction]
+#[pyo3(name = "polling_accumulator", signature = (*, interval))]
+pub fn polling_accumulator_decorator(py: Python<'_>, interval: String) -> PyResult<PyObject> {
+    let config_interval = interval;
+
+    let decorator = PyCFunction::new_closure(
+        py,
+        None,
+        None,
+        move |args: &Bound<'_, PyTuple>,
+              _kwargs: Option<&Bound<'_, PyDict>>|
+              -> PyResult<PyObject> {
+            let py = args.py();
+            let func = args.get_item(0)?;
+            let func_name: String = func.getattr("__name__")?.extract()?;
+
+            let mut config = HashMap::new();
+            config.insert("interval".to_string(), config_interval.clone());
+
+            let reg = PyAccumulatorRegistration {
+                name: func_name.clone(),
+                accumulator_type: "polling".to_string(),
+                config,
+            };
+            register_accumulator(func_name, func.clone().unbind(), reg);
+            Ok(func.clone().unbind())
+        },
+    )?;
+
+    Ok(decorator.into())
+}
+
+// ---------------------------------------------------------------------------
+// @cloaca.batch_accumulator(flush_interval=..., max_buffer_size=...) decorator
+// ---------------------------------------------------------------------------
+
+/// Factory for `@cloaca.batch_accumulator(flush_interval=..., max_buffer_size=...)`.
+#[pyfunction]
+#[pyo3(name = "batch_accumulator", signature = (*, flush_interval, max_buffer_size=None))]
+pub fn batch_accumulator_decorator(
+    py: Python<'_>,
+    flush_interval: String,
+    max_buffer_size: Option<usize>,
+) -> PyResult<PyObject> {
+    let config_interval = flush_interval;
+    let config_max = max_buffer_size;
+
+    let decorator = PyCFunction::new_closure(
+        py,
+        None,
+        None,
+        move |args: &Bound<'_, PyTuple>,
+              _kwargs: Option<&Bound<'_, PyDict>>|
+              -> PyResult<PyObject> {
+            let py = args.py();
+            let func = args.get_item(0)?;
+            let func_name: String = func.getattr("__name__")?.extract()?;
+
+            let mut config = HashMap::new();
+            config.insert("flush_interval".to_string(), config_interval.clone());
+            if let Some(max) = config_max {
+                config.insert("max_buffer_size".to_string(), max.to_string());
+            }
+
+            let reg = PyAccumulatorRegistration {
+                name: func_name.clone(),
+                accumulator_type: "batch".to_string(),
+                config,
+            };
+            register_accumulator(func_name, func.clone().unbind(), reg);
+            Ok(func.clone().unbind())
+        },
+    )?;
+
+    Ok(decorator.into())
 }
 
 // ---------------------------------------------------------------------------
