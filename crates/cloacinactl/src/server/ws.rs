@@ -91,6 +91,21 @@ pub async fn accumulator_ws(
         Err(resp) => return resp.into_response(),
     };
 
+    // Per-endpoint authorization check
+    if let Err(_e) = state
+        .endpoint_registry
+        .check_accumulator_auth(&name, &auth.key_id)
+        .await
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({"error": format!("not authorized for accumulator '{}'", name)}),
+            ),
+        )
+            .into_response();
+    }
+
     info!(
         accumulator = %name,
         key = %auth.name,
@@ -128,6 +143,19 @@ pub async fn reactor_ws(
         Ok(a) => a,
         Err(resp) => return resp.into_response(),
     };
+
+    // Per-endpoint authorization check
+    if let Err(_e) = state
+        .endpoint_registry
+        .check_reactor_auth(&name, &auth.key_id)
+        .await
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": format!("not authorized for reactor '{}'", name)})),
+        )
+            .into_response();
+    }
 
     info!(
         reactor = %name,

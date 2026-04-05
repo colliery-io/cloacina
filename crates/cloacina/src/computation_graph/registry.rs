@@ -24,6 +24,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
+use serde::{Deserialize, Serialize};
+
 use super::reactor::{ManualCommand, ReactorHandle};
 
 /// Errors from registry operations.
@@ -40,6 +42,72 @@ pub enum RegistryError {
 
     #[error("failed to send to reactor '{name}': channel closed")]
     ReactorSendFailed { name: String },
+
+    #[error("not authorized for accumulator '{0}'")]
+    AccumulatorUnauthorized(String),
+
+    #[error("not authorized for reactor '{0}'")]
+    ReactorUnauthorized(String),
+
+    #[error("operation '{op}' not permitted on reactor '{name}'")]
+    OperationNotPermitted { name: String, op: String },
+}
+
+/// Operations that can be performed on a reactor via WebSocket.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReactorOp {
+    ForceFire,
+    FireWith,
+    GetState,
+    Pause,
+    Resume,
+    GetHealth,
+}
+
+/// Authorization policy for an accumulator endpoint.
+#[derive(Debug, Clone, Default)]
+pub struct AccumulatorAuthPolicy {
+    /// PAK key IDs authorized to push to this accumulator.
+    /// Empty = deny all.
+    pub allowed_producers: Vec<uuid::Uuid>,
+}
+
+/// Authorization policy for a reactor endpoint.
+#[derive(Debug, Clone, Default)]
+pub struct ReactorAuthPolicy {
+    /// PAK key IDs authorized to connect.
+    /// Empty = deny all.
+    pub allowed_operators: Vec<uuid::Uuid>,
+    /// Per-key operation restrictions. If a key is in allowed_operators
+    /// but not in this map, all operations are permitted.
+    pub operation_permissions: HashMap<uuid::Uuid, Vec<ReactorOp>>,
+}
+
+impl AccumulatorAuthPolicy {
+    /// Check if a key is authorized.
+    pub fn is_authorized(&self, key_id: &uuid::Uuid) -> bool {
+        self.allowed_producers.contains(key_id)
+    }
+}
+
+impl ReactorAuthPolicy {
+    /// Check if a key is authorized to connect.
+    pub fn is_authorized(&self, key_id: &uuid::Uuid) -> bool {
+        self.allowed_operators.contains(key_id)
+    }
+
+    /// Check if a key is authorized for a specific operation.
+    pub fn is_operation_permitted(&self, key_id: &uuid::Uuid, op: &ReactorOp) -> bool {
+        if !self.is_authorized(key_id) {
+            return false;
+        }
+        // If no per-key restrictions, all ops are allowed
+        match self.operation_permissions.get(key_id) {
+            None => true,
+            Some(permitted) => permitted.contains(op),
+        }
+    }
 }
 
 /// Registry mapping endpoint names to channel senders.
@@ -58,6 +126,10 @@ struct RegistryInner {
     reactors: HashMap<String, mpsc::Sender<ManualCommand>>,
     /// Reactor name → shared handle for GetState/Pause/Resume.
     reactor_handles: HashMap<String, ReactorHandle>,
+    /// Accumulator name → auth policy.
+    accumulator_policies: HashMap<String, AccumulatorAuthPolicy>,
+    /// Reactor name → auth policy.
+    reactor_policies: HashMap<String, ReactorAuthPolicy>,
 }
 
 impl EndpointRegistry {
@@ -67,6 +139,8 @@ impl EndpointRegistry {
                 accumulators: HashMap::new(),
                 reactors: HashMap::new(),
                 reactor_handles: HashMap::new(),
+                accumulator_policies: HashMap::new(),
+                reactor_policies: HashMap::new(),
             })),
         }
     }
@@ -113,6 +187,82 @@ impl EndpointRegistry {
     pub async fn get_reactor_handle(&self, name: &str) -> Option<ReactorHandle> {
         let inner = self.inner.read().await;
         inner.reactor_handles.get(name).cloned()
+    }
+
+    /// Set the auth policy for an accumulator endpoint.
+    pub async fn set_accumulator_policy(&self, name: String, policy: AccumulatorAuthPolicy) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_policies.insert(name, policy);
+    }
+
+    /// Set the auth policy for a reactor endpoint.
+    pub async fn set_reactor_policy(&self, name: String, policy: ReactorAuthPolicy) {
+        let mut inner = self.inner.write().await;
+        inner.reactor_policies.insert(name, policy);
+    }
+
+    /// Check if a key is authorized for an accumulator endpoint.
+    ///
+    /// Returns Ok(()) if authorized, Err if denied.
+    /// Deny by default: no policy = no access.
+    pub async fn check_accumulator_auth(
+        &self,
+        name: &str,
+        key_id: &uuid::Uuid,
+    ) -> Result<(), RegistryError> {
+        let inner = self.inner.read().await;
+        match inner.accumulator_policies.get(name) {
+            None => Err(RegistryError::AccumulatorUnauthorized(name.to_string())),
+            Some(policy) => {
+                if policy.is_authorized(key_id) {
+                    Ok(())
+                } else {
+                    Err(RegistryError::AccumulatorUnauthorized(name.to_string()))
+                }
+            }
+        }
+    }
+
+    /// Check if a key is authorized for a reactor endpoint.
+    pub async fn check_reactor_auth(
+        &self,
+        name: &str,
+        key_id: &uuid::Uuid,
+    ) -> Result<(), RegistryError> {
+        let inner = self.inner.read().await;
+        match inner.reactor_policies.get(name) {
+            None => Err(RegistryError::ReactorUnauthorized(name.to_string())),
+            Some(policy) => {
+                if policy.is_authorized(key_id) {
+                    Ok(())
+                } else {
+                    Err(RegistryError::ReactorUnauthorized(name.to_string()))
+                }
+            }
+        }
+    }
+
+    /// Check if a key is authorized for a specific reactor operation.
+    pub async fn check_reactor_op_auth(
+        &self,
+        name: &str,
+        key_id: &uuid::Uuid,
+        op: &ReactorOp,
+    ) -> Result<(), RegistryError> {
+        let inner = self.inner.read().await;
+        match inner.reactor_policies.get(name) {
+            None => Err(RegistryError::ReactorUnauthorized(name.to_string())),
+            Some(policy) => {
+                if policy.is_operation_permitted(key_id, op) {
+                    Ok(())
+                } else {
+                    Err(RegistryError::OperationNotPermitted {
+                        name: name.to_string(),
+                        op: format!("{:?}", op),
+                    })
+                }
+            }
+        }
     }
 
     /// Send bytes to all accumulators registered under `name`.
@@ -367,5 +517,82 @@ mod tests {
 
         let reactors = registry.list_reactors().await;
         assert_eq!(reactors, vec!["market_maker"]);
+    }
+
+    #[tokio::test]
+    async fn test_accumulator_auth_deny_by_default() {
+        let registry = EndpointRegistry::new();
+        let key_id = uuid::Uuid::new_v4();
+        // No policy set → deny
+        let err = registry
+            .check_accumulator_auth("alpha", &key_id)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RegistryError::AccumulatorUnauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn test_accumulator_auth_authorized_key() {
+        let registry = EndpointRegistry::new();
+        let key_id = uuid::Uuid::new_v4();
+
+        registry
+            .set_accumulator_policy(
+                "alpha".to_string(),
+                AccumulatorAuthPolicy {
+                    allowed_producers: vec![key_id],
+                },
+            )
+            .await;
+
+        // Authorized key succeeds
+        registry
+            .check_accumulator_auth("alpha", &key_id)
+            .await
+            .unwrap();
+
+        // Different key is denied
+        let other_key = uuid::Uuid::new_v4();
+        let err = registry
+            .check_accumulator_auth("alpha", &other_key)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RegistryError::AccumulatorUnauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn test_reactor_auth_with_operation_permissions() {
+        let registry = EndpointRegistry::new();
+        let key_id = uuid::Uuid::new_v4();
+
+        let mut op_perms = HashMap::new();
+        op_perms.insert(key_id, vec![ReactorOp::ForceFire, ReactorOp::GetState]);
+
+        registry
+            .set_reactor_policy(
+                "mm".to_string(),
+                ReactorAuthPolicy {
+                    allowed_operators: vec![key_id],
+                    operation_permissions: op_perms,
+                },
+            )
+            .await;
+
+        // Authorized ops succeed
+        registry
+            .check_reactor_op_auth("mm", &key_id, &ReactorOp::ForceFire)
+            .await
+            .unwrap();
+        registry
+            .check_reactor_op_auth("mm", &key_id, &ReactorOp::GetState)
+            .await
+            .unwrap();
+
+        // Unauthorized op denied
+        let err = registry
+            .check_reactor_op_auth("mm", &key_id, &ReactorOp::Pause)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RegistryError::OperationNotPermitted { .. }));
     }
 }
