@@ -66,6 +66,18 @@ impl DirtyFlags {
         }
     }
 
+    /// Create dirty flags pre-seeded with expected source names (all initially false).
+    ///
+    /// Required for `WhenAll` — ensures `all_set()` returns false until
+    /// every expected source has emitted, not just the sources seen so far.
+    pub fn with_sources(sources: &[SourceName]) -> Self {
+        let mut flags = HashMap::new();
+        for source in sources {
+            flags.insert(source.clone(), false);
+        }
+        Self { flags }
+    }
+
     pub fn set(&mut self, source: SourceName, dirty: bool) {
         self.flags.insert(source, dirty);
     }
@@ -187,6 +199,8 @@ pub struct Reactor {
     cache: Arc<RwLock<InputCache>>,
     /// Pause flag (also accessible via ReactorHandle).
     paused: Arc<AtomicBool>,
+    /// Expected source names (used to seed DirtyFlags for WhenAll).
+    expected_sources: Vec<SourceName>,
 }
 
 impl Reactor {
@@ -207,7 +221,17 @@ impl Reactor {
             shutdown,
             cache: Arc::new(RwLock::new(InputCache::new())),
             paused: Arc::new(AtomicBool::new(false)),
+            expected_sources: Vec::new(),
         }
+    }
+
+    /// Set the expected source names for WhenAll criteria.
+    ///
+    /// Seeds DirtyFlags so `all_set()` correctly requires all sources to emit
+    /// before firing, not just the sources seen so far.
+    pub fn with_expected_sources(mut self, sources: Vec<SourceName>) -> Self {
+        self.expected_sources = sources;
+        self
     }
 
     /// Get a handle to this reactor's shared state.
@@ -224,7 +248,13 @@ impl Reactor {
     /// Run the reactor. Spawns receiver + executor tasks.
     pub async fn run(self) {
         let cache = self.cache.clone();
-        let dirty = Arc::new(RwLock::new(DirtyFlags::new()));
+        let dirty = if self.expected_sources.is_empty() {
+            Arc::new(RwLock::new(DirtyFlags::new()))
+        } else {
+            Arc::new(RwLock::new(DirtyFlags::with_sources(
+                &self.expected_sources,
+            )))
+        };
         let paused = self.paused.clone();
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);

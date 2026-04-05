@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T15:01:11Z | 409 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T15:08:08Z | 409 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -577,8 +577,9 @@
 - pub `PollingAccumulator` interface L243-253 — `{ fn poll(), fn interval() }` — A polling accumulator periodically calls an async poll function to query
 - pub `polling_accumulator_runtime` function L259-300 — `( mut poller: P, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, )` — Run a polling accumulator as a timer-based loop.
 - pub `BatchAccumulator` interface L314-324 — `{ fn process_batch() }` — A batch accumulator buffers incoming events and processes them all at once
-- pub `BatchAccumulatorConfig` struct L327-332 — `{ flush_interval: std::time::Duration, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
-- pub `batch_accumulator_runtime` function L344-387 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, confi...` — Run a batch accumulator that buffers events and flushes on timer or size threshold.
+- pub `BatchAccumulatorConfig` struct L327-332 — `{ flush_interval: Option<std::time::Duration>, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
+- pub `flush_signal` function L347-349 — `() -> (mpsc::Sender<()>, mpsc::Receiver<()>)` — Create a flush signal pair for batch accumulators.
+- pub `batch_accumulator_runtime` function L356-411 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, mut f...` — Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
 -  `run` function L64-71 — `( &mut self, _ctx: &AccumulatorContext, _events: mpsc::Sender<Self::Event>, ) ->...` — Optional: active event loop that pulls from a source and pushes
 -  `init` function L75-77 — `(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError>` — Called on startup before `run()` or first receive.
 -  `BoundarySender` type L99-122 — `= BoundarySender` — See CLOACI-S-0004 for the full specification.
@@ -586,42 +587,43 @@
 -  `default` function L131-135 — `() -> Self` — See CLOACI-S-0004 for the full specification.
 -  `BatchAccumulatorConfig` type L334-341 — `impl Default for BatchAccumulatorConfig` — See CLOACI-S-0004 for the full specification.
 -  `default` function L335-340 — `() -> Self` — See CLOACI-S-0004 for the full specification.
--  `flush_batch` function L390-407 — `( acc: &mut B, buffer: &mut Vec<B::Event>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
--  `tests` module L410-922 — `-` — See CLOACI-S-0004 for the full specification.
--  `TestEvent` struct L415-417 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
--  `TestBoundary` struct L420-422 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` struct L424 — `-` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` type L427-436 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L428 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L429 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L431-435 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_boundary_sender_round_trip` function L439-451 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_processes_socket_events` function L454-490 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_multiple_events` function L493-527 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_shutdown` function L530-557 — `()` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` struct L561-564 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` type L567-584 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
--  `Output` type L568 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `poll` function L570-579 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `interval` function L581-583 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_emits_on_some` function L587-622 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_skips_on_none` function L625-652 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_shutdown` function L655-677 — `()` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` struct L681 — `-` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` type L684-692 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L685 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L686 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process_batch` function L688-691 — `(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_timer` function L695-737 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_empty_flush_skips` function L740-772 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_max_buffer_size` function L775-816 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_shutdown_drains` function L819-861 — `()` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` struct L863 — `-` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` type L866-880 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L867 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L868 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L870-879 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_process_returns_none` function L883-921 — `()` — See CLOACI-S-0004 for the full specification.
+-  `flush_batch` function L414-431 — `( acc: &mut B, buffer: &mut Vec<B::Event>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
+-  `tests` module L434-1001 — `-` — See CLOACI-S-0004 for the full specification.
+-  `TestEvent` struct L439-441 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `TestBoundary` struct L444-446 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` struct L448 — `-` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` type L451-460 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L452 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L453 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L455-459 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_boundary_sender_round_trip` function L463-475 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_processes_socket_events` function L478-514 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_multiple_events` function L517-551 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_shutdown` function L554-581 — `()` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` struct L585-588 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` type L591-608 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L592 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `poll` function L594-603 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `interval` function L605-607 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_emits_on_some` function L611-646 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_skips_on_none` function L649-676 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_shutdown` function L679-701 — `()` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` struct L705 — `-` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` type L708-716 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L709 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L710 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process_batch` function L712-715 — `(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_signal` function L719-766 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_timer` function L769-813 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_empty_flush_skips` function L816-850 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_max_buffer_size` function L853-896 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_shutdown_drains` function L899-940 — `()` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` struct L942 — `-` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` type L945-959 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L946 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L947 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L949-958 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_process_returns_none` function L962-1000 — `()` — See CLOACI-S-0004 for the full specification.
 
 #### crates/cloacina/src/computation_graph/global_registry.rs
 
@@ -4584,12 +4586,12 @@
 -  `poll` function L485-492 — `(&mut self) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
 -  `interval` function L494-496 — `(&self) -> std::time::Duration` — graph, and generates a callable async function that routes data correctly.
 -  `test_polling_accumulator_to_reactor` function L500-550 — `()` — graph, and generates a callable async function that routes data correctly.
--  `TestBatcher` struct L559 — `-` — graph, and generates a callable async function that routes data correctly.
--  `TestBatcher` type L562-570 — `impl BatchAccumulator for TestBatcher` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L563 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L564 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process_batch` function L566-569 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_batch_accumulator_to_reactor` function L573-659 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `TestBatcher` struct L561 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `TestBatcher` type L564-572 — `impl BatchAccumulator for TestBatcher` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L565 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L566 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process_batch` function L568-571 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_batch_accumulator_to_reactor` function L575-664 — `()` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 

@@ -662,3 +662,149 @@ async fn test_batch_accumulator_to_reactor() {
 
     shutdown_tx.send(true).unwrap();
 }
+
+// =============================================================================
+// Test 8: WhenAll reaction criteria — waits until all sources emit
+// =============================================================================
+
+#[cloacina_macros::computation_graph(
+    react = when_all(alpha, beta),
+    graph = {
+        combine(alpha, beta) -> output,
+    }
+)]
+pub mod when_all_graph {
+    use super::*;
+
+    pub async fn combine(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> ProcessedData {
+        let a = alpha.map(|a| a.value).unwrap_or(0.0);
+        let b = beta.map(|b| b.estimate).unwrap_or(0.0);
+        ProcessedData { result: a + b }
+    }
+
+    pub async fn output(input: &ProcessedData) -> OutputConfirmation {
+        OutputConfirmation {
+            published: true,
+            value: input.result,
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_when_all_waits_for_both_sources() {
+    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+    let (alpha_tx, alpha_rx) = tokio::sync::mpsc::channel(10);
+    let (beta_tx, beta_rx) = tokio::sync::mpsc::channel(10);
+    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    // Spawn alpha accumulator
+    let alpha_sender = BoundarySender::new(boundary_tx.clone(), SourceName::new("alpha"));
+    let _alpha_handle = tokio::spawn(accumulator_runtime(
+        TestPassthroughAccumulator,
+        AccumulatorContext {
+            output: alpha_sender,
+            name: "alpha".to_string(),
+            shutdown: shutdown_rx.clone(),
+        },
+        alpha_rx,
+        AccumulatorRuntimeConfig::default(),
+    ));
+
+    // Spawn beta accumulator (reuse passthrough pattern with BetaData)
+    struct BetaPassthrough;
+    #[async_trait::async_trait]
+    impl cloacina::computation_graph::Accumulator for BetaPassthrough {
+        type Event = BetaData;
+        type Output = BetaData;
+        fn process(&mut self, event: BetaData) -> Option<BetaData> {
+            Some(event)
+        }
+    }
+
+    let beta_sender = BoundarySender::new(boundary_tx, SourceName::new("beta"));
+    let _beta_handle = tokio::spawn(accumulator_runtime(
+        BetaPassthrough,
+        AccumulatorContext {
+            output: beta_sender,
+            name: "beta".to_string(),
+            shutdown: shutdown_rx.clone(),
+        },
+        beta_rx,
+        AccumulatorRuntimeConfig::default(),
+    ));
+
+    // Reactor with WhenAll + expected sources
+    let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let fc = fire_count.clone();
+
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fc.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            when_all_graph_compiled(&cache).await
+        })
+    });
+
+    let reactor = Reactor::new(
+        graph_fn,
+        ReactionCriteria::WhenAll,
+        InputStrategy::Latest,
+        boundary_rx,
+        manual_rx,
+        shutdown_rx,
+    )
+    .with_expected_sources(vec![SourceName::new("alpha"), SourceName::new("beta")]);
+
+    let _reactor_handle = tokio::spawn(reactor.run());
+
+    // Push alpha only — should NOT fire (WhenAll requires both)
+    alpha_tx
+        .send(serialize(&AlphaData { value: 10.0 }).unwrap())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "should NOT fire with only alpha"
+    );
+
+    // Push beta — now both dirty → should fire
+    beta_tx
+        .send(serialize(&BetaData { estimate: 5.0 }).unwrap())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "should fire once when both sources have emitted"
+    );
+
+    // Push alpha again — only alpha dirty → should NOT fire
+    alpha_tx
+        .send(serialize(&AlphaData { value: 20.0 }).unwrap())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "should NOT fire with only alpha dirty after clear"
+    );
+
+    // Push beta again — both dirty again → fires
+    beta_tx
+        .send(serialize(&BetaData { estimate: 15.0 }).unwrap())
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "should fire again when both sources emit again"
+    );
+
+    shutdown_tx.send(true).unwrap();
+}
