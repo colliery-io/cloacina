@@ -227,12 +227,76 @@ impl RegistryReconciler {
                 });
         };
 
+        // --- Step 7: Computation graph routing ---
+        let graph_name = if cloacina_manifest.metadata.has_computation_graph() {
+            if cloacina_manifest.metadata.language == "rust" {
+                // Re-read the library to call get_graph_metadata (method index 2)
+                let lib_path = Self::compile_source_package(&source_dir).await?;
+                let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
+                    RegistryError::RegistrationFailed {
+                        message: format!("Failed to read library for graph metadata: {}", e),
+                    }
+                })?;
+
+                match self
+                    .package_loader
+                    .extract_graph_metadata(&library_data)
+                    .await
+                {
+                    Ok(Some(graph_meta)) => {
+                        info!(
+                            "Computation graph detected: {} (accumulators: {:?})",
+                            graph_meta.graph_name,
+                            graph_meta
+                                .accumulators
+                                .iter()
+                                .map(|a| &a.name)
+                                .collect::<Vec<_>>()
+                        );
+
+                        if let Some(ref scheduler) = self.reactive_scheduler {
+                            // TODO: Bridge graph_meta to ComputationGraphDeclaration
+                            // This requires T-0401 (AccumulatorFactory bridge)
+                            info!(
+                                "ReactiveScheduler available — graph '{}' ready for loading (bridge pending T-0401)",
+                                graph_meta.graph_name
+                            );
+                        } else {
+                            warn!(
+                                "Computation graph '{}' detected but no ReactiveScheduler configured",
+                                graph_meta.graph_name
+                            );
+                        }
+
+                        Some(graph_meta.graph_name)
+                    }
+                    Ok(None) => {
+                        debug!(
+                            "Package claims computation_graph type but plugin doesn't support get_graph_metadata"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        warn!("Failed to extract graph metadata: {}", e);
+                        None
+                    }
+                }
+            } else {
+                // Python computation graph — handled differently (T-0403)
+                debug!("Python computation graph loading not yet implemented");
+                cloacina_manifest.metadata.graph_name.clone()
+            }
+        } else {
+            None
+        };
+
         // Track the loaded package state
         let package_state = PackageState {
             metadata: metadata.clone(),
             task_namespaces,
             workflow_name,
             trigger_names,
+            graph_name,
         };
 
         let mut loaded_packages = self.loaded_packages.write().await;
@@ -271,6 +335,15 @@ impl RegistryReconciler {
         // Unregister triggers from global trigger registry
         if !package_state.trigger_names.is_empty() {
             self.unregister_package_triggers(&package_state.trigger_names);
+        }
+
+        // Unload computation graph from reactive scheduler
+        if let Some(graph_name) = &package_state.graph_name {
+            if let Some(ref scheduler) = self.reactive_scheduler {
+                if let Err(e) = scheduler.unload_graph(graph_name).await {
+                    warn!("Failed to unload computation graph '{}': {}", graph_name, e);
+                }
+            }
         }
 
         info!(

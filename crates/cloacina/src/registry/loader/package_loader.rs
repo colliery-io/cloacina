@@ -254,6 +254,55 @@ impl PackageLoader {
         })
     }
 
+    /// Extract computation graph metadata from compiled library bytes.
+    ///
+    /// Calls `get_graph_metadata()` (method index 2) on the fidius plugin.
+    /// Returns `None` if the plugin doesn't support graph metadata (workflow-only packages).
+    pub async fn extract_graph_metadata(
+        &self,
+        package_data: &[u8],
+    ) -> Result<Option<cloacina_workflow_plugin::GraphPackageMetadata>, LoaderError> {
+        let library_extension = get_library_extension();
+        let temp_path = self
+            .temp_dir
+            .path()
+            .join(format!("graph_package.{}", library_extension));
+        fs::write(&temp_path, package_data)
+            .await
+            .map_err(|e| LoaderError::FileSystem {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            })?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path).map_err(
+            |e: fidius_host::LoadError| LoaderError::LibraryLoad {
+                path: temp_path.to_string_lossy().to_string(),
+                error: e.to_string(),
+            },
+        )?;
+
+        let plugin =
+            loaded
+                .plugins
+                .into_iter()
+                .next()
+                .ok_or_else(|| LoaderError::MetadataExtraction {
+                    reason: "Plugin library contains no plugins".to_string(),
+                })?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        // Method index 2 = get_graph_metadata (zero-arg)
+        match handle.call_method::<(), cloacina_workflow_plugin::GraphPackageMetadata>(2, &()) {
+            Ok(meta) => Ok(Some(meta)),
+            Err(e) => {
+                // Plugin doesn't support graph metadata — that's OK for workflow-only packages
+                tracing::debug!("get_graph_metadata not supported by plugin: {}", e);
+                Ok(None)
+            }
+        }
+    }
+
     /// Get the temporary directory path for manual file operations.
     pub fn temp_dir(&self) -> &Path {
         self.temp_dir.path()

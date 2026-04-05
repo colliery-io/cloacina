@@ -2,7 +2,7 @@
   "files": {
     "crates/cloacina-build/src/lib.rs": "ce3026f9287c1be2e393764cddd3956a6e0954cadf22118a5ebbeadcbbce8007",
     "crates/cloacina-macros/src/computation_graph/accumulator_macros.rs": "e81ca7d77a330857d326d554b33c2034b0c323843e578d97b937625aeda8f37a",
-    "crates/cloacina-macros/src/computation_graph/codegen.rs": "338d89422b561b9d1eb032c7b29687391b138474bccb3c09248dd77aa5f1f50b",
+    "crates/cloacina-macros/src/computation_graph/codegen.rs": "dabcd7d3858e2032a330db16c29de529763822e928c6fba13c8d7e612ebad4de",
     "crates/cloacina-macros/src/computation_graph/graph_ir.rs": "15a082a54b376ed4595c10245e4aa3a0faad07f299696728b0376521873cdea4",
     "crates/cloacina-macros/src/computation_graph/mod.rs": "fc33e011c53d4886ae33672b890ede1f9e2ceb49989d3763c19a449c4df20c5d",
     "crates/cloacina-macros/src/computation_graph/parser.rs": "ff7f46e881573999fdc6dcd7bd2fb501208c59ecd649786794e62b3c012a883e",

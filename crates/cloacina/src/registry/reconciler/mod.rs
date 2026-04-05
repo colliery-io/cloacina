@@ -41,6 +41,7 @@ use tokio::sync::watch;
 use tokio::time::{interval, Interval};
 use tracing::{debug, error, info, warn};
 
+use crate::computation_graph::scheduler::ReactiveScheduler;
 use crate::registry::error::RegistryError;
 use crate::registry::loader::package_loader::PackageLoader;
 use crate::registry::loader::task_registrar::TaskRegistrar;
@@ -124,6 +125,9 @@ pub(super) struct PackageState {
 
     /// Trigger names registered for this package
     pub(super) trigger_names: Vec<String>,
+
+    /// Computation graph name loaded for this package (if any)
+    pub(super) graph_name: Option<String>,
 }
 
 /// Status information about the reconciler
@@ -174,6 +178,9 @@ pub struct RegistryReconciler {
 
     /// Reconciliation interval timer
     interval: Interval,
+
+    /// Optional reactive scheduler for computation graph packages
+    reactive_scheduler: Option<Arc<ReactiveScheduler>>,
 }
 
 impl RegistryReconciler {
@@ -197,7 +204,14 @@ impl RegistryReconciler {
             task_registrar,
             shutdown_rx,
             interval,
+            reactive_scheduler: None,
         })
+    }
+
+    /// Set the reactive scheduler for computation graph package routing.
+    pub fn with_reactive_scheduler(mut self, scheduler: Arc<ReactiveScheduler>) -> Self {
+        self.reactive_scheduler = Some(scheduler);
+        self
     }
 
     /// Start the background reconciliation loop
