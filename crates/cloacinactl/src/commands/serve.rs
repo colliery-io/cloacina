@@ -248,14 +248,31 @@ async fn health() -> impl IntoResponse {
 /// GET /ready — readiness check (verifies DB connection pool is healthy)
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     // Verify we can acquire a connection from the pool
-    let is_ready = state.database.get_postgres_connection().await.is_ok();
+    let db_ready = state.database.get_postgres_connection().await.is_ok();
 
-    if is_ready {
+    // Check if any computation graphs have crashed
+    let graphs = state.reactive_scheduler.list_graphs().await;
+    let crashed_graphs: Vec<&str> = graphs
+        .iter()
+        .filter(|g| !g.running)
+        .map(|g| g.name.as_str())
+        .collect();
+
+    if db_ready && crashed_graphs.is_empty() {
         (StatusCode::OK, Json(serde_json::json!({"status": "ready"})))
-    } else {
+    } else if !db_ready {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"status": "not ready", "reason": "database unreachable"})),
+        )
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "status": "not ready",
+                "reason": "crashed computation graphs",
+                "crashed_graphs": crashed_graphs,
+            })),
         )
     }
 }
