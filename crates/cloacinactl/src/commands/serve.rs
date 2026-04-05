@@ -27,6 +27,7 @@ use tracing::info;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use cloacina::computation_graph::registry::EndpointRegistry;
 use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
@@ -36,6 +37,7 @@ pub struct AppState {
     pub database: Database,
     pub runner: Arc<DefaultRunner>,
     pub key_cache: Arc<crate::server::auth::KeyCache>,
+    pub endpoint_registry: EndpointRegistry,
 }
 
 /// Run the API server.
@@ -89,6 +91,7 @@ pub async fn run(
         database: runner.database().clone(),
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+        endpoint_registry: EndpointRegistry::new(),
     };
 
     // Bootstrap: create initial admin key if none exist

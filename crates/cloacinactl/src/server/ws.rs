@@ -31,6 +31,8 @@ use axum::{
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
+use cloacina::computation_graph::registry::EndpointRegistry;
+
 use super::auth::{validate_token, AuthenticatedKey};
 use crate::commands::serve::AppState;
 
@@ -92,7 +94,8 @@ pub async fn accumulator_ws(
         "WebSocket upgrade accepted for accumulator"
     );
 
-    ws.on_upgrade(move |socket| handle_accumulator_socket(socket, name, auth))
+    let registry = state.endpoint_registry.clone();
+    ws.on_upgrade(move |socket| handle_accumulator_socket(socket, name, auth, registry))
 }
 
 /// WebSocket handler for reactor endpoints.
@@ -134,30 +137,65 @@ pub async fn reactor_ws(
 
 /// Handle an accepted accumulator WebSocket connection.
 ///
-/// Stub implementation — logs connection lifecycle. Real forwarding in T-0373.
+/// Reads incoming messages and forwards them to all accumulators registered
+/// under this name via the EndpointRegistry.
 async fn handle_accumulator_socket(
     mut socket: axum::extract::ws::WebSocket,
     name: String,
     auth: AuthenticatedKey,
+    registry: EndpointRegistry,
 ) {
     debug!(accumulator = %name, key = %auth.name, "accumulator WebSocket connected");
 
-    // Read messages until client disconnects
     while let Some(msg) = socket.recv().await {
         match msg {
             Ok(axum::extract::ws::Message::Binary(data)) => {
-                debug!(
-                    accumulator = %name,
-                    bytes = data.len(),
-                    "received binary message (stub — not forwarded yet)"
-                );
+                let bytes: Vec<u8> = data.into();
+                match registry.send_to_accumulator(&name, bytes).await {
+                    Ok(count) => {
+                        debug!(
+                            accumulator = %name,
+                            recipients = count,
+                            "forwarded binary message"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(accumulator = %name, error = %e, "failed to forward message");
+                        let _ = socket
+                            .send(axum::extract::ws::Message::Close(Some(
+                                axum::extract::ws::CloseFrame {
+                                    code: 4404,
+                                    reason: format!("accumulator '{}' not registered", name).into(),
+                                },
+                            )))
+                            .await;
+                        break;
+                    }
+                }
             }
             Ok(axum::extract::ws::Message::Text(text)) => {
-                debug!(
-                    accumulator = %name,
-                    len = text.len(),
-                    "received text message (stub — not forwarded yet)"
-                );
+                let bytes = text.as_bytes().to_vec();
+                match registry.send_to_accumulator(&name, bytes).await {
+                    Ok(count) => {
+                        debug!(
+                            accumulator = %name,
+                            recipients = count,
+                            "forwarded text message"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(accumulator = %name, error = %e, "failed to forward message");
+                        let _ = socket
+                            .send(axum::extract::ws::Message::Close(Some(
+                                axum::extract::ws::CloseFrame {
+                                    code: 4404,
+                                    reason: format!("accumulator '{}' not registered", name).into(),
+                                },
+                            )))
+                            .await;
+                        break;
+                    }
+                }
             }
             Ok(axum::extract::ws::Message::Close(_)) => {
                 debug!(accumulator = %name, "client sent close frame");
