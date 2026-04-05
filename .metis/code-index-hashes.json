@@ -314,6 +314,8 @@
     "docs/themes/hugo-geekdoc/static/js/mermaid-6735100e.bundle.min.js": "cf434d10b2272212e05355de71bb5d1e7cd12266033a04dcad44b8a593ffbc22",
     "docs/themes/hugo-geekdoc/static/js/search-16a110ff.bundle.min.js": "2e2e9b5c8475227f29f990d2907715a5db1e5458d96d3fb2fff072a68f404161",
     "examples/features/computation-graphs/continuous-scheduling/src/main.rs": "32e945749a56cdf0153a7cad58e3f9dcf3980d90e68a0d1201b4addfd318a798",
+    "examples/features/computation-graphs/packaged-graph/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
+    "examples/features/computation-graphs/packaged-graph/src/lib.rs": "427ab5cdd29ed8c2f522111ab4bc5d98b2ae43d585b599e0b21ad1d6af8e64c5",
     "examples/features/workflows/complex-dag/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",
     "examples/features/workflows/complex-dag/src/lib.rs": "70abad1b850c7213cfffdf082917f2d8e6208801f3ea39c4b5bc2d2b750d7830",
     "examples/features/workflows/cron-scheduling/build.rs": "b7e91297fe4dc9711ef1157dcbbfb0f37dcf39735d5dc9d6d52df537904bdf07",

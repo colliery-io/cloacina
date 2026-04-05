@@ -291,10 +291,69 @@ impl RegistryReconciler {
                         None
                     }
                 }
+            } else if cloacina_manifest.metadata.language == "python" {
+                // Python computation graph: import module, decorators register executor
+                if let (Some(ref graph_name), Some(ref entry_module)) = (
+                    &cloacina_manifest.metadata.graph_name,
+                    &cloacina_manifest.metadata.entry_module,
+                ) {
+                    let extracted = tokio::task::spawn_blocking({
+                        let archive_data = loaded_workflow.package_data.clone();
+                        let staging = work_dir.path().join("python-cg-staging");
+                        move || {
+                            std::fs::create_dir_all(&staging).map_err(|e| {
+                                RegistryError::RegistrationFailed {
+                                    message: format!("Failed to create staging dir: {}", e),
+                                }
+                            })?;
+                            crate::registry::loader::python_loader::extract_python_package(
+                                &archive_data,
+                                &staging,
+                            )
+                            .map_err(|e| {
+                                RegistryError::RegistrationFailed {
+                                    message: format!("Failed to extract Python CG package: {}", e),
+                                }
+                            })
+                        }
+                    })
+                    .await
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!(
+                            "spawn_blocking failed during Python CG extraction: {}",
+                            e
+                        ),
+                    })??;
+
+                    let gn = graph_name.clone();
+                    let em = entry_module.clone();
+                    let wd = extracted.workflow_dir.clone();
+                    let vd = extracted.vendor_dir.clone();
+
+                    tokio::task::spawn_blocking(move || {
+                        pyo3::prepare_freethreaded_python();
+                        crate::python::loader::import_python_computation_graph(&wd, &vd, &em, &gn)
+                            .map_err(|e| RegistryError::RegistrationFailed {
+                                message: format!("Python CG import failed: {}", e),
+                            })
+                    })
+                    .await
+                    .map_err(|e| RegistryError::RegistrationFailed {
+                        message: format!("spawn_blocking failed during Python CG import: {}", e),
+                    })??;
+
+                    info!(
+                        "Python computation graph '{}' imported from '{}'",
+                        graph_name, entry_module
+                    );
+                    Some(graph_name.clone())
+                } else {
+                    warn!("Python computation graph package missing graph_name or entry_module");
+                    None
+                }
             } else {
-                // Python computation graph — handled differently (T-0403)
-                debug!("Python computation graph loading not yet implemented");
-                cloacina_manifest.metadata.graph_name.clone()
+                debug!("Unsupported language for computation graph");
+                None
             }
         } else {
             None
