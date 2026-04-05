@@ -126,6 +126,27 @@ impl InputCache {
     pub fn sources(&self) -> Vec<&SourceName> {
         self.entries.keys().collect()
     }
+
+    /// Return entries as a JSON-friendly map (base64-encoded raw bytes per source).
+    ///
+    /// Used by the reactor WebSocket GetState command to return human-readable state.
+    /// In debug mode, attempts JSON deserialization first for readability.
+    pub fn entries_as_json(&self) -> std::collections::HashMap<String, String> {
+        self.entries
+            .iter()
+            .map(|(name, bytes)| {
+                let value = if cfg!(debug_assertions) {
+                    // In debug mode, try to deserialize as JSON for readability
+                    serde_json::from_slice::<serde_json::Value>(bytes)
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|_| hex_encode(bytes))
+                } else {
+                    hex_encode(bytes)
+                };
+                (name.as_str().to_string(), value)
+            })
+            .collect()
+    }
 }
 
 impl Default for InputCache {
@@ -138,6 +159,11 @@ impl Default for InputCache {
 ///
 /// - Release: bincode (fast, compact)
 /// - Debug: JSON (readable, inspectable in logs)
+/// Encode bytes as hex string (for debug display of binary cache entries).
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, GraphError> {
     #[cfg(debug_assertions)]
     {

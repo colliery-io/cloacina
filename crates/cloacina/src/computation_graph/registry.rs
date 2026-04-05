@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-use super::reactor::ManualCommand;
+use super::reactor::{ManualCommand, ReactorHandle};
 
 /// Errors from registry operations.
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +56,8 @@ struct RegistryInner {
     accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>,
     /// Reactor name → manual command sender.
     reactors: HashMap<String, mpsc::Sender<ManualCommand>>,
+    /// Reactor name → shared handle for GetState/Pause/Resume.
+    reactor_handles: HashMap<String, ReactorHandle>,
 }
 
 impl EndpointRegistry {
@@ -64,6 +66,7 @@ impl EndpointRegistry {
             inner: Arc::new(RwLock::new(RegistryInner {
                 accumulators: HashMap::new(),
                 reactors: HashMap::new(),
+                reactor_handles: HashMap::new(),
             })),
         }
     }
@@ -81,10 +84,16 @@ impl EndpointRegistry {
             .push(sender);
     }
 
-    /// Register a reactor's manual command sender.
-    pub async fn register_reactor(&self, name: String, sender: mpsc::Sender<ManualCommand>) {
+    /// Register a reactor's manual command sender and shared handle.
+    pub async fn register_reactor(
+        &self,
+        name: String,
+        sender: mpsc::Sender<ManualCommand>,
+        handle: ReactorHandle,
+    ) {
         let mut inner = self.inner.write().await;
-        inner.reactors.insert(name, sender);
+        inner.reactors.insert(name.clone(), sender);
+        inner.reactor_handles.insert(name, handle);
     }
 
     /// Deregister all accumulators under a name.
@@ -97,6 +106,13 @@ impl EndpointRegistry {
     pub async fn deregister_reactor(&self, name: &str) {
         let mut inner = self.inner.write().await;
         inner.reactors.remove(name);
+        inner.reactor_handles.remove(name);
+    }
+
+    /// Get a reactor's shared handle (for GetState/Pause/Resume).
+    pub async fn get_reactor_handle(&self, name: &str) -> Option<ReactorHandle> {
+        let inner = self.inner.read().await;
+        inner.reactor_handles.get(name).cloned()
     }
 
     /// Send bytes to all accumulators registered under `name`.
@@ -197,6 +213,14 @@ impl Default for EndpointRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    fn dummy_handle() -> ReactorHandle {
+        ReactorHandle {
+            cache: Arc::new(RwLock::new(super::super::types::InputCache::new())),
+            paused: Arc::new(AtomicBool::new(false)),
+        }
+    }
 
     #[tokio::test]
     async fn test_register_send_deregister_accumulator() {
@@ -266,7 +290,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(10);
 
         registry
-            .register_reactor("market_maker".to_string(), tx)
+            .register_reactor("market_maker".to_string(), tx, dummy_handle())
             .await;
 
         registry
@@ -335,7 +359,7 @@ mod tests {
             .register_accumulator("alpha".to_string(), tx1)
             .await;
         registry
-            .register_reactor("market_maker".to_string(), tx2)
+            .register_reactor("market_maker".to_string(), tx2, dummy_handle())
             .await;
 
         let accumulators = registry.list_accumulators().await;

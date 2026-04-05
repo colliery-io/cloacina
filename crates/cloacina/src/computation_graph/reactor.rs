@@ -27,8 +27,10 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch, RwLock};
 
 use super::types::{GraphResult, InputCache, SourceName};
@@ -107,6 +109,62 @@ pub enum ManualCommand {
     FireWith(InputCache),
 }
 
+/// Commands sent by WebSocket operators to a reactor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "command", rename_all = "snake_case")]
+pub enum ReactorCommand {
+    ForceFire,
+    FireWith { cache: HashMap<String, Vec<u8>> },
+    GetState,
+    Pause,
+    Resume,
+}
+
+/// Responses sent back to WebSocket operators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ReactorResponse {
+    Fired,
+    State { cache: HashMap<String, String> },
+    Paused,
+    Resumed,
+    Error { message: String },
+}
+
+/// Handle to a running reactor — exposes shared state for WebSocket queries.
+///
+/// Returned by `Reactor::handle()` before calling `run()`.
+#[derive(Clone)]
+pub struct ReactorHandle {
+    /// Shared cache — readable by WebSocket handlers for GetState.
+    pub cache: Arc<RwLock<InputCache>>,
+    /// Pause flag — when true, executor skips graph execution.
+    pub paused: Arc<AtomicBool>,
+}
+
+impl ReactorHandle {
+    /// Read the current cache as a JSON-friendly map.
+    pub async fn get_state(&self) -> HashMap<String, String> {
+        let cache = self.cache.read().await;
+        cache.entries_as_json()
+    }
+
+    /// Check if the reactor is paused.
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// Pause the reactor (stop executing, continue accepting boundaries).
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    /// Resume the reactor.
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Type alias for the compiled graph function.
 pub type CompiledGraphFn =
     Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + Send + Sync>;
@@ -125,6 +183,10 @@ pub struct Reactor {
     manual_rx: mpsc::Receiver<ManualCommand>,
     /// Shutdown signal.
     shutdown: watch::Receiver<bool>,
+    /// Shared cache (also accessible via ReactorHandle).
+    cache: Arc<RwLock<InputCache>>,
+    /// Pause flag (also accessible via ReactorHandle).
+    paused: Arc<AtomicBool>,
 }
 
 impl Reactor {
@@ -143,13 +205,27 @@ impl Reactor {
             accumulator_rx,
             manual_rx,
             shutdown,
+            cache: Arc::new(RwLock::new(InputCache::new())),
+            paused: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Get a handle to this reactor's shared state.
+    ///
+    /// Call before `run()` to get a handle that WebSocket handlers can use
+    /// for GetState, Pause, and Resume operations.
+    pub fn handle(&self) -> ReactorHandle {
+        ReactorHandle {
+            cache: self.cache.clone(),
+            paused: self.paused.clone(),
         }
     }
 
     /// Run the reactor. Spawns receiver + executor tasks.
     pub async fn run(self) {
-        let cache = Arc::new(RwLock::new(InputCache::new()));
+        let cache = self.cache.clone();
         let dirty = Arc::new(RwLock::new(DirtyFlags::new()));
+        let paused = self.paused.clone();
 
         let (strategy_tx, mut strategy_rx) = mpsc::channel::<StrategySignal>(64);
 
@@ -209,7 +285,7 @@ impl Reactor {
                         StrategySignal::ForceFire => true,
                     };
 
-                    if should_run {
+                    if should_run && !paused.load(Ordering::SeqCst) {
                         // Snapshot cache and clear dirty flags
                         let snapshot = cache_exec.read().await.snapshot();
                         dirty_exec.write().await.clear_all();

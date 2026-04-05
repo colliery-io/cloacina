@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T01:05:13Z | 397 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T01:09:30Z | 398 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -13,6 +13,7 @@
 │   │   │   │   ├── accumulator.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── reactor.rs
+│   │   │   │   ├── registry.rs
 │   │   │   │   ├── stream_backend.rs
 │   │   │   │   └── types.rs
 │   │   │   ├── context.rs
@@ -575,8 +576,9 @@
 
 - pub `accumulator` module L26 — `-` — # Computation Graph Runtime Types
 - pub `reactor` module L27 — `-` — - [`SourceName`] — identifies an accumulator source
-- pub `stream_backend` module L28 — `-` — - [`SourceName`] — identifies an accumulator source
-- pub `types` module L29 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `registry` module L28 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `stream_backend` module L29 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `types` module L30 — `-` — - [`SourceName`] — identifies an accumulator source
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
@@ -606,6 +608,33 @@
 -  `test_reactor_fires_on_boundary` function L288-330 — `()` — See CLOACI-S-0005 for the full specification.
 -  `test_reactor_manual_force_fire` function L333-369 — `()` — See CLOACI-S-0005 for the full specification.
 -  `test_reactor_cache_snapshot_isolation` function L372-420 — `()` — See CLOACI-S-0005 for the full specification.
+
+#### crates/cloacina/src/computation_graph/registry.rs
+
+- pub `RegistryError` enum L31-43 — `AccumulatorNotFound | ReactorNotFound | AccumulatorSendFailed | ReactorSendFaile...` — Errors from registry operations.
+- pub `EndpointRegistry` struct L50-52 — `{ inner: Arc<RwLock<RegistryInner>> }` — Registry mapping endpoint names to channel senders.
+- pub `new` function L62-69 — `() -> Self` — under the same name all receive the message.
+- pub `register_accumulator` function L75-82 — `(&self, name: String, sender: mpsc::Sender<Vec<u8>>)` — Register an accumulator's socket sender under a name.
+- pub `register_reactor` function L85-88 — `(&self, name: String, sender: mpsc::Sender<ManualCommand>)` — Register a reactor's manual command sender.
+- pub `deregister_accumulator` function L91-94 — `(&self, name: &str)` — Deregister all accumulators under a name.
+- pub `deregister_reactor` function L97-100 — `(&self, name: &str)` — Deregister a reactor by name.
+- pub `send_to_accumulator` function L106-150 — `( &self, name: &str, bytes: Vec<u8>, ) -> Result<usize, RegistryError>` — Send bytes to all accumulators registered under `name`.
+- pub `send_to_reactor` function L153-170 — `( &self, name: &str, command: ManualCommand, ) -> Result<(), RegistryError>` — Send a manual command to a reactor.
+- pub `list_accumulators` function L173-176 — `(&self) -> Vec<String>` — List all registered accumulator names.
+- pub `list_reactors` function L179-182 — `(&self) -> Vec<String>` — List all registered reactor names.
+- pub `accumulator_count` function L185-188 — `(&self, name: &str) -> usize` — Get the number of accumulators registered under a name.
+-  `RegistryInner` struct L54-59 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
+-  `EndpointRegistry` type L61-189 — `= EndpointRegistry` — under the same name all receive the message.
+-  `EndpointRegistry` type L191-195 — `impl Default for EndpointRegistry` — under the same name all receive the message.
+-  `default` function L192-194 — `() -> Self` — under the same name all receive the message.
+-  `tests` module L198-347 — `-` — under the same name all receive the message.
+-  `test_register_send_deregister_accumulator` function L202-225 — `()` — under the same name all receive the message.
+-  `test_broadcast_to_multiple_accumulators` function L228-251 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_accumulator` function L254-261 — `()` — under the same name all receive the message.
+-  `test_register_send_deregister_reactor` function L264-287 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_reactor` function L290-297 — `()` — under the same name all receive the message.
+-  `test_closed_accumulator_channel_pruned` function L300-326 — `()` — under the same name all receive the message.
+-  `test_list_accumulators_and_reactors` function L329-346 — `()` — under the same name all receive the message.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 

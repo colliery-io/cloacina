@@ -31,7 +31,10 @@ use axum::{
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
+use cloacina::computation_graph::reactor::{ManualCommand, ReactorCommand, ReactorResponse};
 use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::types::InputCache;
+use cloacina::computation_graph::SourceName;
 
 use super::auth::{validate_token, AuthenticatedKey};
 use crate::commands::serve::AppState;
@@ -132,7 +135,8 @@ pub async fn reactor_ws(
         "WebSocket upgrade accepted for reactor"
     );
 
-    ws.on_upgrade(move |socket| handle_reactor_socket(socket, name, auth))
+    let registry = state.endpoint_registry.clone();
+    ws.on_upgrade(move |socket| handle_reactor_socket(socket, name, auth, registry))
 }
 
 /// Handle an accepted accumulator WebSocket connection.
@@ -214,27 +218,43 @@ async fn handle_accumulator_socket(
 
 /// Handle an accepted reactor WebSocket connection.
 ///
-/// Stub implementation — logs connection lifecycle. Real command handling in T-0374.
+/// Receives JSON `ReactorCommand` messages, dispatches to the reactor via
+/// the EndpointRegistry (ForceFire/FireWith) or ReactorHandle (GetState/Pause/Resume),
+/// and sends back `ReactorResponse` JSON.
 async fn handle_reactor_socket(
     mut socket: axum::extract::ws::WebSocket,
     name: String,
     auth: AuthenticatedKey,
+    registry: EndpointRegistry,
 ) {
     debug!(reactor = %name, key = %auth.name, "reactor WebSocket connected");
+
+    // Get the reactor handle for GetState/Pause/Resume
+    let handle = registry.get_reactor_handle(&name).await;
 
     while let Some(msg) = socket.recv().await {
         match msg {
             Ok(axum::extract::ws::Message::Text(text)) => {
-                debug!(
-                    reactor = %name,
-                    len = text.len(),
-                    "received command (stub — not processed yet)"
-                );
-                // Stub: echo back an error response
-                let resp = serde_json::json!({"error": "reactor WebSocket not yet wired"});
-                let _ = socket
-                    .send(axum::extract::ws::Message::Text(resp.to_string().into()))
-                    .await;
+                let response = match serde_json::from_str::<ReactorCommand>(&text) {
+                    Ok(cmd) => process_reactor_command(&name, cmd, &registry, &handle).await,
+                    Err(e) => ReactorResponse::Error {
+                        message: format!("invalid command: {}", e),
+                    },
+                };
+
+                let json = serde_json::to_string(&response).unwrap_or_else(|e| {
+                    format!(
+                        "{{\"type\":\"error\",\"message\":\"serialization failed: {}\"}}",
+                        e
+                    )
+                });
+                if socket
+                    .send(axum::extract::ws::Message::Text(json.into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
             }
             Ok(axum::extract::ws::Message::Close(_)) => {
                 debug!(reactor = %name, "client sent close frame");
@@ -249,4 +269,68 @@ async fn handle_reactor_socket(
     }
 
     debug!(reactor = %name, "reactor WebSocket disconnected");
+}
+
+/// Process a single reactor command and return the response.
+async fn process_reactor_command(
+    name: &str,
+    cmd: ReactorCommand,
+    registry: &EndpointRegistry,
+    handle: &Option<cloacina::computation_graph::reactor::ReactorHandle>,
+) -> ReactorResponse {
+    match cmd {
+        ReactorCommand::ForceFire => {
+            match registry
+                .send_to_reactor(name, ManualCommand::ForceFire)
+                .await
+            {
+                Ok(()) => ReactorResponse::Fired,
+                Err(e) => ReactorResponse::Error {
+                    message: e.to_string(),
+                },
+            }
+        }
+        ReactorCommand::FireWith { cache } => {
+            let mut input_cache = InputCache::new();
+            for (k, v) in cache {
+                input_cache.update(SourceName::new(&k), v);
+            }
+            match registry
+                .send_to_reactor(name, ManualCommand::FireWith(input_cache))
+                .await
+            {
+                Ok(()) => ReactorResponse::Fired,
+                Err(e) => ReactorResponse::Error {
+                    message: e.to_string(),
+                },
+            }
+        }
+        ReactorCommand::GetState => match handle {
+            Some(h) => {
+                let state = h.get_state().await;
+                ReactorResponse::State { cache: state }
+            }
+            None => ReactorResponse::Error {
+                message: format!("no reactor handle for '{}'", name),
+            },
+        },
+        ReactorCommand::Pause => match handle {
+            Some(h) => {
+                h.pause();
+                ReactorResponse::Paused
+            }
+            None => ReactorResponse::Error {
+                message: format!("no reactor handle for '{}'", name),
+            },
+        },
+        ReactorCommand::Resume => match handle {
+            Some(h) => {
+                h.resume();
+                ReactorResponse::Resumed
+            }
+            None => ReactorResponse::Error {
+                message: format!("no reactor handle for '{}'", name),
+            },
+        },
+    }
 }
