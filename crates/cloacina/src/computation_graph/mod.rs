@@ -26,6 +26,7 @@
 pub mod accumulator;
 pub mod reactor;
 pub mod registry;
+pub mod scheduler;
 pub mod stream_backend;
 pub mod types;
 
