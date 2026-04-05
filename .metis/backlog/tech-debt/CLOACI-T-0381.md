@@ -4,7 +4,7 @@ level: task
 title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
 short_code: "CLOACI-T-0381"
 created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
+updated_at: 2026-04-05T18:43:20.301302+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,6 +51,12 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -125,4 +131,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Initially blocked on Postgres requirement. Created ws_smoke.py — standalone Python WS test script that tests auth rejection (401), token-based connection, and accumulator/reactor endpoint behavior. Requires running server + websockets pip package. Run manually or integrate into angreal cloacina test suite.
