@@ -22,3 +22,4 @@ pub mod keys;
 pub mod tenants;
 pub mod triggers;
 pub mod workflows;
+pub mod ws;

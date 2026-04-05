@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-04T23:13:39Z | 396 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T00:23:11Z | 396 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -4414,7 +4414,7 @@
 -  `Event` type L207 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `Output` type L208 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L210-212 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_end_to_end_accumulator_reactor_graph` function L216-287 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_end_to_end_accumulator_reactor_graph` function L216-321 — `()` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 

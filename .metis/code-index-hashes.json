@@ -188,7 +188,7 @@
     "crates/cloacina/src/workflow/mod.rs": "91ce13ec10a686fbce123e0c51910df75aa6413df71eadef17c97aed89f4a545",
     "crates/cloacina/src/workflow/registry.rs": "ddcdda6f8856c72b1645723db47542483fa82b5d1f1c69f3f8faa5d43f10e4c5",
     "crates/cloacina/tests/fixtures.rs": "4dd18960cc1f7c6a56a79b9c9251eb287785748653ce8d0800c5784904f5967c",
-    "crates/cloacina/tests/integration/computation_graph.rs": "4fd0deb883f7f5ba7aa9456a85a88ff77f951775e2b23ef7a86a2e9357108acb",
+    "crates/cloacina/tests/integration/computation_graph.rs": "3549f787ca675eeb5d5ea3105cc9c49b8a7a786851aded77208016eb0520ba9b",
     "crates/cloacina/tests/integration/context.rs": "7ab7a2e0da3ba790345f7fde2072e1505b995ffd87d99a5c3fb1a26d2a00bd3a",
     "crates/cloacina/tests/integration/dal/api_keys.rs": "d974516701ab6e8096276954bcf1015d1c4e5780bba648be6d000f3e39be5944",
     "crates/cloacina/tests/integration/dal/context.rs": "e1962efd43fac75a35d29ffbf31977e3ee378ec41f5396591c3a293efdc28e99",

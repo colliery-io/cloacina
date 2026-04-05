@@ -192,12 +192,21 @@ fn build_router(state: AppState) -> Router {
             crate::server::auth::require_auth,
         ));
 
+    // WebSocket routes — auth handled in the handler (before upgrade)
+    let ws_routes = Router::new()
+        .route(
+            "/v1/ws/accumulator/{name}",
+            get(crate::server::ws::accumulator_ws),
+        )
+        .route("/v1/ws/reactor/{name}", get(crate::server::ws::reactor_ws));
+
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .merge(auth_routes)
+        .merge(ws_routes)
         .fallback(fallback_404)
         .with_state(state)
 }

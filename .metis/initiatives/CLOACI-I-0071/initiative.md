@@ -4,14 +4,14 @@ level: initiative
 title: "WebSocket Integration & Reactive Scheduler"
 short_code: "CLOACI-I-0071"
 created_at: 2026-04-04T17:48:55.180684+00:00
-updated_at: 2026-04-04T17:48:55.180684+00:00
+updated_at: 2026-04-05T00:32:48.904742+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -50,6 +50,12 @@ Specs: CLOACI-S-0007 (Integration Points), CLOACI-S-0005 (Reactor — health sta
 - Accumulator health state transitions (I-0072)
 - Python bindings (I-0073)
 - Soak tests (I-0073)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -116,6 +116,54 @@ impl KeyCache {
     }
 }
 
+/// Validate a bearer token and return the authenticated key info.
+///
+/// Shared logic used by both the HTTP middleware and WebSocket handlers.
+/// Checks the LRU cache first, then falls back to the DAL.
+pub async fn validate_token(
+    state: &AppState,
+    token: &str,
+) -> Result<AuthenticatedKey, (StatusCode, Json<serde_json::Value>)> {
+    let hash = cloacina::security::api_keys::hash_api_key(token);
+
+    // Check cache first (avoids DB hit)
+    if let Some(info) = state.key_cache.get(&hash).await {
+        return Ok(AuthenticatedKey {
+            key_id: info.id,
+            name: info.name,
+            permissions: info.permissions,
+        });
+    }
+
+    // Cache miss — check DB
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal.api_keys().validate_hash(&hash).await {
+        Ok(Some(info)) => {
+            let auth = AuthenticatedKey {
+                key_id: info.id,
+                name: info.name.clone(),
+                permissions: info.permissions.clone(),
+            };
+            state.key_cache.insert(hash, info).await;
+            Ok(auth)
+        }
+        Ok(None) => {
+            warn!("API key validation failed — unknown or revoked key");
+            Err((
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "invalid or revoked API key"})),
+            ))
+        }
+        Err(e) => {
+            warn!("API key validation error: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal error during authentication"})),
+            ))
+        }
+    }
+}
+
 /// Auth middleware — validates Bearer token against cache then DAL.
 ///
 /// On success, inserts `AuthenticatedKey` into request extensions.
@@ -136,47 +184,12 @@ pub async fn require_auth(
         }
     };
 
-    let hash = cloacina::security::api_keys::hash_api_key(&token);
-
-    // Check cache first (avoids DB hit)
-    if let Some(info) = state.key_cache.get(&hash).await {
-        request.extensions_mut().insert(AuthenticatedKey {
-            key_id: info.id,
-            name: info.name,
-            permissions: info.permissions,
-        });
-        return next.run(request).await;
-    }
-
-    // Cache miss — check DB
-    let dal = cloacina::dal::DAL::new(state.database.clone());
-    match dal.api_keys().validate_hash(&hash).await {
-        Ok(Some(info)) => {
-            let auth = AuthenticatedKey {
-                key_id: info.id,
-                name: info.name.clone(),
-                permissions: info.permissions.clone(),
-            };
-            state.key_cache.insert(hash, info).await;
+    match validate_token(&state, &token).await {
+        Ok(auth) => {
             request.extensions_mut().insert(auth);
             next.run(request).await
         }
-        Ok(None) => {
-            warn!("API key validation failed — unknown or revoked key");
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "invalid or revoked API key"})),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            warn!("API key validation error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal error during authentication"})),
-            )
-                .into_response()
-        }
+        Err(resp) => resp.into_response(),
     }
 }
 
