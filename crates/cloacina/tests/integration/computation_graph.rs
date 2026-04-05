@@ -466,3 +466,194 @@ async fn test_reactive_scheduler_end_to_end() {
     assert!(registry.list_reactors().await.is_empty());
     assert_eq!(registry.accumulator_count("alpha").await, 0);
 }
+
+// =============================================================================
+// Test 6: Polling accumulator → reactor → compiled graph
+// =============================================================================
+
+use cloacina::computation_graph::accumulator::polling_accumulator_runtime;
+use cloacina::computation_graph::PollingAccumulator;
+
+struct TestPoller {
+    value: f64,
+}
+
+#[async_trait::async_trait]
+impl PollingAccumulator for TestPoller {
+    type Output = AlphaData;
+
+    async fn poll(&mut self) -> Option<AlphaData> {
+        self.value += 1.0;
+        if self.value <= 3.0 {
+            Some(AlphaData { value: self.value })
+        } else {
+            None // stop producing after 3 polls
+        }
+    }
+
+    fn interval(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(50)
+    }
+}
+
+#[tokio::test]
+async fn test_polling_accumulator_to_reactor() {
+    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+    let (_socket_tx, socket_rx) = tokio::sync::mpsc::channel(10);
+    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
+    let ctx = AccumulatorContext {
+        output: sender,
+        name: "alpha".to_string(),
+        shutdown: shutdown_rx.clone(),
+    };
+
+    let _poll_handle = tokio::spawn(polling_accumulator_runtime(
+        TestPoller { value: 0.0 },
+        ctx,
+        socket_rx,
+    ));
+
+    let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let fc = fire_count.clone();
+
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fc.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            linear_chain_compiled(&cache).await
+        })
+    });
+
+    let reactor = Reactor::new(
+        graph_fn,
+        ReactionCriteria::WhenAny,
+        InputStrategy::Latest,
+        boundary_rx,
+        manual_rx,
+        shutdown_rx,
+    );
+    let _reactor_handle = tokio::spawn(reactor.run());
+
+    // Wait for 3 polls (50ms each + first tick skip = ~200ms)
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    assert!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst) >= 3,
+        "polling accumulator should have fired graph at least 3 times, got {}",
+        fire_count.load(std::sync::atomic::Ordering::SeqCst)
+    );
+
+    shutdown_tx.send(true).unwrap();
+}
+
+// =============================================================================
+// Test 7: Batch accumulator → reactor → compiled graph
+// =============================================================================
+
+use cloacina::computation_graph::accumulator::{batch_accumulator_runtime, BatchAccumulatorConfig};
+use cloacina::computation_graph::BatchAccumulator;
+
+struct TestBatcher;
+
+#[async_trait::async_trait]
+impl BatchAccumulator for TestBatcher {
+    type Event = AlphaData;
+    type Output = AlphaData;
+
+    fn process_batch(&mut self, events: Vec<AlphaData>) -> Option<AlphaData> {
+        let sum: f64 = events.iter().map(|e| e.value).sum();
+        Some(AlphaData { value: sum })
+    }
+}
+
+#[tokio::test]
+async fn test_batch_accumulator_to_reactor() {
+    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(10);
+    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+    let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+    let sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
+    let ctx = AccumulatorContext {
+        output: sender,
+        name: "alpha".to_string(),
+        shutdown: shutdown_rx.clone(),
+    };
+
+    let config = BatchAccumulatorConfig {
+        flush_interval: std::time::Duration::from_millis(100),
+        max_buffer_size: None,
+    };
+
+    let _batch_handle = tokio::spawn(batch_accumulator_runtime(
+        TestBatcher,
+        ctx,
+        socket_rx,
+        config,
+    ));
+
+    let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let fc = fire_count.clone();
+
+    let last_output: Arc<tokio::sync::Mutex<Option<OutputConfirmation>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let lo = last_output.clone();
+
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fc.clone();
+        let lo = lo.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let result = linear_chain_compiled(&cache).await;
+            let captured = if let GraphResult::Completed { outputs } = &result {
+                outputs
+                    .iter()
+                    .find_map(|o| o.downcast_ref::<OutputConfirmation>().cloned())
+            } else {
+                None
+            };
+            if let Some(c) = captured {
+                *lo.lock().await = Some(c);
+            }
+            result
+        })
+    });
+
+    let reactor = Reactor::new(
+        graph_fn,
+        ReactionCriteria::WhenAny,
+        InputStrategy::Latest,
+        boundary_rx,
+        manual_rx,
+        shutdown_rx,
+    );
+    let _reactor_handle = tokio::spawn(reactor.run());
+
+    // Push 5 events quickly (before flush timer)
+    for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
+        socket_tx
+            .send(serialize(&AlphaData { value: v }).unwrap())
+            .await
+            .unwrap();
+    }
+
+    // Wait for flush (100ms) + processing
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // Batch sums to 15.0 → entry doubles to 30.0 → process adds 10 → 40.0
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "batch should produce exactly one boundary → one fire"
+    );
+
+    let output = last_output.lock().await;
+    let confirm = output.as_ref().expect("should have terminal output");
+    assert!(confirm.published);
+    assert_eq!(confirm.value, 40.0); // (15.0 * 2) + 10 = 40.0
+
+    shutdown_tx.send(true).unwrap();
+}
