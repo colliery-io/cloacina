@@ -27,6 +27,7 @@ use quote::{format_ident, quote};
 use syn::{Ident, ItemFn, ItemMod};
 
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
+use super::parser::ReactionMode;
 
 /// Validate the graph against the module's functions and generate the compiled output.
 pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
@@ -92,6 +93,21 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Collect return types from routing nodes so we can `use Type::*` for variant patterns
     let routing_use_stmts = generate_routing_use_stmts(ir, &functions, mod_name);
 
+    // Generate #[ctor] registration for global registry
+    let mod_name_str = mod_name.to_string();
+    let auto_register_name = format_ident!("_auto_register_graph_{}", mod_name);
+
+    let accumulator_names: Vec<String> = ir
+        .react
+        .accumulators
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+    let reaction_mode_str = match ir.react.mode {
+        ReactionMode::WhenAny => "when_any",
+        ReactionMode::WhenAll => "when_all",
+    };
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_name {
@@ -105,6 +121,25 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             use #mod_name::*;
             #(#routing_use_stmts)*
             #compiled_fn
+        }
+
+        #[cfg(not(test))]
+        #[ctor::ctor]
+        fn #auto_register_name() {
+            cloacina::register_computation_graph_constructor(
+                #mod_name_str.to_string(),
+                || {
+                    cloacina::ComputationGraphRegistration {
+                        graph_fn: std::sync::Arc::new(|cache: cloacina::computation_graph::InputCache| {
+                            Box::pin(async move {
+                                #compiled_fn_name(&cache).await
+                            })
+                        }),
+                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
+                        reaction_mode: #reaction_mode_str.to_string(),
+                    }
+                },
+            );
         }
     })
 }

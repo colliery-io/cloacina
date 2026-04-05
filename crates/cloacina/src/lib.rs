@@ -519,6 +519,10 @@ pub fn setup_test() {
 pub use database::connection::Database;
 
 // Re-export key types for convenience
+pub use computation_graph::{
+    global_computation_graph_registry, register_computation_graph_constructor,
+    ComputationGraphRegistration,
+};
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};

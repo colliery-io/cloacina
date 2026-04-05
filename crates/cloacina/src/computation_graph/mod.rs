@@ -24,6 +24,7 @@
 //! - [`SourceName`] — identifies an accumulator source
 
 pub mod accumulator;
+pub mod global_registry;
 pub mod reactor;
 pub mod registry;
 pub mod scheduler;
@@ -33,5 +34,9 @@ pub mod types;
 pub use accumulator::{
     accumulator_runtime, shutdown_signal, Accumulator, AccumulatorContext, AccumulatorError,
     AccumulatorRuntimeConfig, BoundarySender,
+};
+pub use global_registry::{
+    deregister_computation_graph, global_computation_graph_registry, list_registered_graphs,
+    register_computation_graph_constructor, ComputationGraphRegistration,
 };
 pub use types::{GraphError, GraphResult, InputCache, SourceName};
