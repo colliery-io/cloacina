@@ -255,12 +255,22 @@ impl RegistryReconciler {
                         );
 
                         if let Some(ref scheduler) = self.reactive_scheduler {
-                            // TODO: Bridge graph_meta to ComputationGraphDeclaration
-                            // This requires T-0401 (AccumulatorFactory bridge)
-                            info!(
-                                "ReactiveScheduler available — graph '{}' ready for loading (bridge pending T-0401)",
-                                graph_meta.graph_name
-                            );
+                            let decl =
+                                crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
+                                    &graph_meta,
+                                    library_data.clone(),
+                                );
+                            if let Err(e) = scheduler.load_graph(decl).await {
+                                warn!(
+                                    "Failed to load computation graph '{}': {}",
+                                    graph_meta.graph_name, e
+                                );
+                            } else {
+                                info!(
+                                    "Computation graph '{}' loaded into ReactiveScheduler",
+                                    graph_meta.graph_name
+                                );
+                            }
                         } else {
                             warn!(
                                 "Computation graph '{}' detected but no ReactiveScheduler configured",
@@ -781,13 +791,17 @@ mod tests {
         triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>,
     ) -> cloacina_workflow_plugin::CloacinaMetadata {
         cloacina_workflow_plugin::CloacinaMetadata {
-            workflow_name: "test-workflow".to_string(),
+            package_type: vec!["workflow".to_string()],
+            workflow_name: Some("test-workflow".to_string()),
+            graph_name: None,
             language: "python".to_string(),
             description: Some("Test".to_string()),
             author: None,
             requires_python: None,
             entry_module: Some("test.tasks".to_string()),
             triggers,
+            reaction_mode: None,
+            input_strategy: None,
         }
     }
 

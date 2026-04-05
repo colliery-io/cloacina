@@ -187,10 +187,24 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                             .expect("Failed to create cdylib tokio runtime for computation graph")
                     });
 
-                    // Build InputCache from the JSON request
+                    // Build InputCache from the JSON request.
+                    // The FFI boundary always uses JSON strings. We parse each
+                    // into serde_json::Value and re-serialize using the
+                    // computation graph's serialize() (JSON in debug, bincode in release).
                     let mut cache = cloacina::computation_graph::InputCache::new();
-                    for (source_name, json_value) in &request.cache {
-                        let bytes = json_value.as_bytes().to_vec();
+                    for (source_name, json_str) in &request.cache {
+                        let value: serde_json::Value = serde_json::from_str(json_str)
+                            .map_err(|e| cloacina_workflow_plugin::PluginError {
+                                code: "DESERIALIZATION_ERROR".to_string(),
+                                message: format!("Failed to parse cache entry '{}': {}", source_name, e),
+                                details: None,
+                            })?;
+                        let bytes = cloacina::computation_graph::types::serialize(&value)
+                            .map_err(|e| cloacina_workflow_plugin::PluginError {
+                                code: "SERIALIZATION_ERROR".to_string(),
+                                message: format!("Failed to serialize cache entry '{}': {}", source_name, e),
+                                details: None,
+                            })?;
                         cache.update(
                             cloacina::computation_graph::SourceName::new(source_name),
                             bytes,

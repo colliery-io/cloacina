@@ -25,6 +25,7 @@
 
 pub mod accumulator;
 pub mod global_registry;
+pub mod packaging_bridge;
 pub mod reactor;
 pub mod registry;
 pub mod scheduler;

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T17:37:59Z | 412 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T17:45:10Z | 412 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3320,32 +3320,33 @@
 - pub `PackageLoader` struct L79-81 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files.
 - pub `new` function L85-91 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations.
 - pub `extract_metadata` function L142-159 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from compiled library bytes.
-- pub `temp_dir` function L258-260 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
-- pub `validate_package_symbols` function L266-292 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
--  `PackageLoader` type L83-293 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
+- pub `extract_graph_metadata` function L261-304 — `( &self, package_data: &[u8], ) -> Result<Option<cloacina_workflow_plugin::Graph...` — Extract computation graph metadata from compiled library bytes.
+- pub `temp_dir` function L307-309 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
+- pub `validate_package_symbols` function L315-341 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
+-  `PackageLoader` type L83-342 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
 -  `generate_graph_data_from_tasks` function L94-128 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies.
 -  `extract_metadata_from_so` function L162-193 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using the fidius-host plugin API.
 -  `convert_plugin_metadata_to_rust` function L197-255 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
--  `PackageLoader` type L295-299 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
--  `default` function L296-298 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
--  `tests` module L302-522 — `-` — via the fidius-host plugin API and extract package metadata.
--  `create_invalid_binary_data` function L306-308 — `() -> Vec<u8>` — Helper to create invalid binary data
--  `create_mock_elf_data` function L311-327 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
--  `test_package_loader_creation` function L330-334 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_default` function L337-340 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_invalid_elf` function L343-358 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_empty_data` function L361-372 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_large_invalid_data` function L375-386 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_invalid_data` function L389-400 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_empty_data` function L403-410 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_dir_isolation` function L413-420 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_concurrent_package_loading` function L423-447 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_file_system_operations` function L450-459 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_error_types_and_messages` function L462-480 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_memory_safety` function L483-489 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_directory_cleanup` function L492-499 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_sync_creation` function L502-508 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_get_library_extension` function L511-521 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `PackageLoader` type L344-348 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
+-  `default` function L345-347 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
+-  `tests` module L351-571 — `-` — via the fidius-host plugin API and extract package metadata.
+-  `create_invalid_binary_data` function L355-357 — `() -> Vec<u8>` — Helper to create invalid binary data
+-  `create_mock_elf_data` function L360-376 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
+-  `test_package_loader_creation` function L379-383 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_default` function L386-389 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_invalid_elf` function L392-407 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_empty_data` function L410-421 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_large_invalid_data` function L424-435 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_invalid_data` function L438-449 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_empty_data` function L452-459 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_dir_isolation` function L462-469 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_concurrent_package_loading` function L472-496 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_file_system_operations` function L499-508 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_error_types_and_messages` function L511-529 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_memory_safety` function L532-538 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_directory_cleanup` function L541-548 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_sync_creation` function L551-557 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_get_library_extension` function L560-570 — `()` — via the fidius-host plugin API and extract package metadata.
 
 #### crates/cloacina/src/registry/loader/python_loader.rs
 
@@ -3540,70 +3541,71 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-673 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-242 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L245-282 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L285-326 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L329-470 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L473-521 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L524-571 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L574-597 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L600-611 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L619-661 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L664-672 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L676-968 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L685-690 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L692-705 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L707-719 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L727-736 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L740-771 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L775-795 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L799-838 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L846-865 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L869-876 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L880-883 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L891-926 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L930-937 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L944-946 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L949-967 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L950-952 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L954-956 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L958-960 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L962-966 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-746 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-306 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L309-355 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L358-399 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L402-543 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L546-594 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L597-644 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L647-670 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L673-684 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L692-734 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L737-745 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L749-1041 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L758-763 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L765-778 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L780-792 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L800-809 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L813-844 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L848-868 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L872-911 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L919-938 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L942-949 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L953-956 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L964-999 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1003-1010 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1017-1019 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1022-1040 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1023-1025 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1027-1029 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1031-1033 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1035-1039 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
-- pub `ReconcilerConfig` struct L53-68 — `{ reconcile_interval: Duration, enable_startup_reconciliation: bool, package_ope...` — Configuration for the Registry Reconciler
-- pub `ReconcileResult` struct L84-99 — `{ packages_loaded: Vec<WorkflowPackageId>, packages_unloaded: Vec<WorkflowPackag...` — Result of a reconciliation operation
-- pub `has_changes` function L103-105 — `(&self) -> bool` — Check if the reconciliation had any changes
-- pub `has_failures` function L108-110 — `(&self) -> bool` — Check if the reconciliation had any failures
-- pub `ReconcilerStatus` struct L131-137 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
-- pub `PackageStatusDetail` struct L141-153 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
-- pub `RegistryReconciler` struct L156-177 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
-- pub `new` function L181-201 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
-- pub `start_reconciliation_loop` function L204-277 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
-- pub `reconcile` function L280-377 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
-- pub `get_status` function L403-418 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
+- pub `ReconcilerConfig` struct L54-69 — `{ reconcile_interval: Duration, enable_startup_reconciliation: bool, package_ope...` — Configuration for the Registry Reconciler
+- pub `ReconcileResult` struct L85-100 — `{ packages_loaded: Vec<WorkflowPackageId>, packages_unloaded: Vec<WorkflowPackag...` — Result of a reconciliation operation
+- pub `has_changes` function L104-106 — `(&self) -> bool` — Check if the reconciliation had any changes
+- pub `has_failures` function L109-111 — `(&self) -> bool` — Check if the reconciliation had any failures
+- pub `ReconcilerStatus` struct L135-141 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
+- pub `PackageStatusDetail` struct L145-157 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
+- pub `RegistryReconciler` struct L160-184 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
+- pub `new` function L188-209 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
+- pub `with_reactive_scheduler` function L212-215 — `(mut self, scheduler: Arc<ReactiveScheduler>) -> Self` — Set the reactive scheduler for computation graph package routing.
+- pub `start_reconciliation_loop` function L218-291 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
+- pub `reconcile` function L294-391 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
+- pub `get_status` function L417-432 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
 -  `extraction` module L34 — `-` — # Registry Reconciler
 -  `loading` module L35 — `-` — - `PackageState`: Tracking loaded package state
--  `ReconcilerConfig` type L70-80 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
--  `default` function L71-79 — `() -> Self` — - `PackageState`: Tracking loaded package state
--  `ReconcileResult` type L101-111 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
--  `PackageState` struct L115-127 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
--  `RegistryReconciler` type L179-419 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
--  `shutdown_cleanup` function L380-400 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
--  `tests` module L422-605 — `-` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_default` function L428-435 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_methods` function L438-460 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status` function L463-487 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_custom_values` function L490-504 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_no_changes_no_failures` function L507-519 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_unloaded_counts_as_change` function L522-533 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_both_loaded_and_unloaded` function L536-550 — `()` — - `PackageState`: Tracking loaded package state
--  `test_package_status_detail_fields` function L553-565 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status_empty` function L568-576 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_clone` function L579-588 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_clone` function L591-604 — `()` — - `PackageState`: Tracking loaded package state
+-  `ReconcilerConfig` type L71-81 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
+-  `default` function L72-80 — `() -> Self` — - `PackageState`: Tracking loaded package state
+-  `ReconcileResult` type L102-112 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
+-  `PackageState` struct L116-131 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
+-  `RegistryReconciler` type L186-433 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
+-  `shutdown_cleanup` function L394-414 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
+-  `tests` module L436-619 — `-` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_default` function L442-449 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_methods` function L452-474 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status` function L477-501 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_custom_values` function L504-518 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_no_changes_no_failures` function L521-533 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_unloaded_counts_as_change` function L536-547 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_both_loaded_and_unloaded` function L550-564 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_package_status_detail_fields` function L567-579 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status_empty` function L582-590 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_clone` function L593-602 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_clone` function L605-618 — `()` — - `PackageState`: Tracking loaded package state
 
 ### crates/cloacina/src/registry/workflow_registry
 
