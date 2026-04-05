@@ -28,6 +28,7 @@ use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::scheduler::ReactiveScheduler;
 use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 
@@ -38,6 +39,7 @@ pub struct AppState {
     pub runner: Arc<DefaultRunner>,
     pub key_cache: Arc<crate::server::auth::KeyCache>,
     pub endpoint_registry: EndpointRegistry,
+    pub reactive_scheduler: Arc<ReactiveScheduler>,
 }
 
 /// Run the API server.
@@ -87,11 +89,15 @@ pub async fn run(
 
     info!("Connected to Postgres, migrations applied");
 
+    let endpoint_registry = EndpointRegistry::new();
+    let reactive_scheduler = Arc::new(ReactiveScheduler::new(endpoint_registry.clone()));
+
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
-        endpoint_registry: EndpointRegistry::new(),
+        endpoint_registry,
+        reactive_scheduler,
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -195,6 +201,25 @@ fn build_router(state: AppState) -> Router {
             crate::server::auth::require_auth,
         ));
 
+    // Reactive health routes — behind auth
+    let reactive_health_routes = Router::new()
+        .route(
+            "/v1/health/accumulators",
+            get(crate::server::health_reactive::list_accumulators),
+        )
+        .route(
+            "/v1/health/reactors",
+            get(crate::server::health_reactive::list_reactors),
+        )
+        .route(
+            "/v1/health/reactors/{name}",
+            get(crate::server::health_reactive::get_reactor),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::server::auth::require_auth,
+        ));
+
     // WebSocket routes — auth handled in the handler (before upgrade)
     let ws_routes = Router::new()
         .route(
@@ -209,6 +234,7 @@ fn build_router(state: AppState) -> Router {
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
         .merge(auth_routes)
+        .merge(reactive_health_routes)
         .merge(ws_routes)
         .fallback(fallback_404)
         .with_state(state)

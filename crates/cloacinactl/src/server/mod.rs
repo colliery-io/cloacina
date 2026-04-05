@@ -18,6 +18,7 @@
 
 pub mod auth;
 pub mod executions;
+pub mod health_reactive;
 pub mod keys;
 pub mod tenants;
 pub mod triggers;
