@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T18:38:22Z | 417 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T18:45:30Z | 418 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -271,12 +271,13 @@
 │   │           ├── test_registry_dynamic_loading_simple.rs
 │   │           ├── trigger_packaging.rs
 │   │           ├── unified_workflow.rs
-│   │           └── workflow/
-│   │               ├── basic.rs
-│   │               ├── callback_test.rs
-│   │               ├── macro_test.rs
-│   │               ├── mod.rs
-│   │               └── subgraph.rs
+│   │           ├── workflow/
+│   │           │   ├── basic.rs
+│   │           │   ├── callback_test.rs
+│   │           │   ├── macro_test.rs
+│   │           │   ├── mod.rs
+│   │           │   └── subgraph.rs
+│   │           └── ws_smoke.py
 │   ├── cloacina-build/
 │   │   └── src/
 │   │       └── lib.rs
@@ -4951,6 +4952,16 @@
 -  `frequent_check` function L134 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
 -  `test_cron_trigger_custom_name` function L137-142 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
 -  `test_cron_trigger_poll_returns_result` function L145-155 — `()` — Integration test for the unified #[workflow] macro (embedded mode).
+
+#### crates/cloacina/tests/integration/ws_smoke.py
+
+- pub `get_bootstrap_key` function L20-26 — `def get_bootstrap_key()` — Read the bootstrap key from ~/.cloacina/bootstrap-key.
+- pub `api_request` function L29-49 — `def api_request(url, token=None, method="GET", data=None)` — Simple HTTP request helper.
+- pub `test_ws_accumulator_auth_required` function L52-72 — `def test_ws_accumulator_auth_required(base_url)` — Test that WS accumulator endpoint rejects unauthenticated connections.
+- pub `test_ws_accumulator_with_token` function L75-110 — `def test_ws_accumulator_with_token(base_url, token)` — Test that WS accumulator endpoint accepts authenticated connections.
+- pub `test_ws_reactor_auth_required` function L113-131 — `def test_ws_reactor_auth_required(base_url)` — Test that WS reactor endpoint rejects unauthenticated connections.
+- pub `run_tests` function L134-147 — `def run_tests(base_url, token)` — Run all WS smoke tests.
+- pub `main` function L150-181 — `def main()`
 
 ### crates/cloacina/tests/integration/dal
 
