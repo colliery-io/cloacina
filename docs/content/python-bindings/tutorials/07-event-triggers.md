@@ -525,10 +525,10 @@ In this tutorial, you learned:
 
 ## Related Resources
 
-- [Explanation: Trigger Rules]({{< ref "/explanation/trigger-rules/" >}}) - Deep dive into trigger architecture
+- [Explanation: Trigger Rules]({{< ref "/explanation/workflows/trigger-rules/" >}}) - Deep dive into trigger architecture
 - [Tutorial 05: Cron Scheduling]({{< ref "/python-bindings/tutorials/05-cron-scheduling/" >}}) - Time-based scheduling
 - [API Reference: Task Decorator]({{< ref "/python-bindings/api-reference/task/" >}}) - Complete task options
 
 {{< hint type="info" title="Reference Implementation" >}}
-This tutorial is based on the example at [`examples/tutorials/python/07_event_triggers.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/python/07_event_triggers.py).
+This tutorial is based on the example at [`examples/tutorials/python/workflows/07_event_triggers.py`](https://github.com/colliery-io/cloacina/tree/main/examples/tutorials/python/workflows/07_event_triggers.py).
 {{< /hint >}}

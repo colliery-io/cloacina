@@ -197,5 +197,5 @@ The server uses `DefaultRunnerConfig::builder().registry_storage_backend("databa
 ## See Also
 
 - [CLI Reference]({{< ref "cli" >}}) -- config.toml schema and `config get/set/list` commands
-- [Cron Scheduling Architecture]({{< ref "/explanation/cron-scheduling" >}}) -- how cron config affects scheduling behavior
+- [Cron Scheduling Architecture]({{< ref "/explanation/workflows/cron-scheduling" >}}) -- how cron config affects scheduling behavior
 - [DatabaseAdmin API]({{< ref "database-admin" >}}) -- multi-tenant database setup

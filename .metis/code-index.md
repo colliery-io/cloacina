@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T01:09:30Z | 398 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T01:58:42Z | 401 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -11,9 +11,11 @@
 │   │   ├── src/
 │   │   │   ├── computation_graph/
 │   │   │   │   ├── accumulator.rs
+│   │   │   │   ├── global_registry.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── reactor.rs
 │   │   │   │   ├── registry.rs
+│   │   │   │   ├── scheduler.rs
 │   │   │   │   ├── stream_backend.rs
 │   │   │   │   └── types.rs
 │   │   │   ├── context.rs
@@ -326,6 +328,7 @@
 │           └── server/
 │               ├── auth.rs
 │               ├── executions.rs
+│               ├── health_reactive.rs
 │               ├── keys.rs
 │               ├── mod.rs
 │               ├── tenants.rs
@@ -572,69 +575,140 @@
 -  `process` function L391-400 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
 -  `test_accumulator_process_returns_none` function L404-442 — `()` — See CLOACI-S-0004 for the full specification.
 
+#### crates/cloacina/src/computation_graph/global_registry.rs
+
+- pub `ComputationGraphRegistration` struct L30-37 — `{ graph_fn: CompiledGraphFn, accumulator_names: Vec<String>, reaction_mode: Stri...` — Metadata about a registered computation graph.
+- pub `ComputationGraphConstructor` type L39 — `= Box<dyn Fn() -> ComputationGraphRegistration + Send + Sync>` — Mirrors the global workflow/task registries used by the reconciler.
+- pub `GlobalComputationGraphRegistry` type L40 — `= Arc<RwLock<HashMap<String, ComputationGraphConstructor>>>` — Mirrors the global workflow/task registries used by the reconciler.
+- pub `register_computation_graph_constructor` function L48-55 — `(graph_name: String, constructor: F)` — Register a computation graph constructor in the global registry.
+- pub `global_computation_graph_registry` function L58-60 — `() -> GlobalComputationGraphRegistry` — Get a reference to the global computation graph registry.
+- pub `list_registered_graphs` function L63-66 — `() -> Vec<String>` — List all registered computation graph names.
+- pub `deregister_computation_graph` function L69-73 — `(graph_name: &str)` — Remove a computation graph from the global registry.
+-  `GLOBAL_COMPUTATION_GRAPH_REGISTRY` variable L42-43 — `: Lazy<GlobalComputationGraphRegistry>` — Mirrors the global workflow/task registries used by the reconciler.
+-  `tests` module L76-95 — `-` — Mirrors the global workflow/task registries used by the reconciler.
+-  `test_register_and_list` function L81-94 — `()` — Mirrors the global workflow/task registries used by the reconciler.
+
 #### crates/cloacina/src/computation_graph/mod.rs
 
 - pub `accumulator` module L26 — `-` — # Computation Graph Runtime Types
-- pub `reactor` module L27 — `-` — - [`SourceName`] — identifies an accumulator source
-- pub `registry` module L28 — `-` — - [`SourceName`] — identifies an accumulator source
-- pub `stream_backend` module L29 — `-` — - [`SourceName`] — identifies an accumulator source
-- pub `types` module L30 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `global_registry` module L27 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `reactor` module L28 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `registry` module L29 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `scheduler` module L30 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `stream_backend` module L31 — `-` — - [`SourceName`] — identifies an accumulator source
+- pub `types` module L32 — `-` — - [`SourceName`] — identifies an accumulator source
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
-- pub `ReactionCriteria` enum L38-43 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
-- pub `InputStrategy` enum L47-52 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
-- pub `DirtyFlags` struct L56-58 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
-- pub `new` function L61-65 — `() -> Self` — See CLOACI-S-0005 for the full specification.
-- pub `set` function L67-69 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
-- pub `any_set` function L71-73 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `all_set` function L75-77 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `clear_all` function L79-83 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
-- pub `StrategySignal` enum L94-99 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
-- pub `ManualCommand` enum L103-108 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `CompiledGraphFn` type L111-112 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
-- pub `Reactor` struct L115-128 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
-- pub `new` function L131-147 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `run` function L150-239 — `(self)` — Run the reactor.
--  `DirtyFlags` type L60-84 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `DirtyFlags` type L86-90 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `default` function L87-89 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L130-240 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `tests` module L243-421 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L247-256 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L259-267 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L270-278 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L281-285 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L288-330 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L333-369 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L372-420 — `()` — See CLOACI-S-0005 for the full specification.
+- pub `ReactionCriteria` enum L40-45 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
+- pub `InputStrategy` enum L49-54 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
+- pub `DirtyFlags` struct L58-60 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
+- pub `new` function L63-67 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+- pub `set` function L69-71 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
+- pub `any_set` function L73-75 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `all_set` function L77-79 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `clear_all` function L81-85 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+- pub `StrategySignal` enum L96-101 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
+- pub `ManualCommand` enum L105-110 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
+- pub `ReactorCommand` enum L115-121 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
+- pub `ReactorResponse` enum L126-132 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
+- pub `ReactorHandle` struct L138-143 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `get_state` function L147-150 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `is_paused` function L153-155 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L158-160 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L163-165 — `(&self)` — Resume the reactor.
+- pub `CompiledGraphFn` type L169-170 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
+- pub `Reactor` struct L173-190 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
+- pub `new` function L193-211 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `handle` function L217-222 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L225-315 — `(self)` — Run the reactor.
+-  `DirtyFlags` type L62-86 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L88-92 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `default` function L89-91 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L145-166 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L192-316 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `tests` module L319-497 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L323-332 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L335-343 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L346-354 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L357-361 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L364-406 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L409-445 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L448-496 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
-- pub `RegistryError` enum L31-43 — `AccumulatorNotFound | ReactorNotFound | AccumulatorSendFailed | ReactorSendFaile...` — Errors from registry operations.
-- pub `EndpointRegistry` struct L50-52 — `{ inner: Arc<RwLock<RegistryInner>> }` — Registry mapping endpoint names to channel senders.
-- pub `new` function L62-69 — `() -> Self` — under the same name all receive the message.
-- pub `register_accumulator` function L75-82 — `(&self, name: String, sender: mpsc::Sender<Vec<u8>>)` — Register an accumulator's socket sender under a name.
-- pub `register_reactor` function L85-88 — `(&self, name: String, sender: mpsc::Sender<ManualCommand>)` — Register a reactor's manual command sender.
-- pub `deregister_accumulator` function L91-94 — `(&self, name: &str)` — Deregister all accumulators under a name.
-- pub `deregister_reactor` function L97-100 — `(&self, name: &str)` — Deregister a reactor by name.
-- pub `send_to_accumulator` function L106-150 — `( &self, name: &str, bytes: Vec<u8>, ) -> Result<usize, RegistryError>` — Send bytes to all accumulators registered under `name`.
-- pub `send_to_reactor` function L153-170 — `( &self, name: &str, command: ManualCommand, ) -> Result<(), RegistryError>` — Send a manual command to a reactor.
-- pub `list_accumulators` function L173-176 — `(&self) -> Vec<String>` — List all registered accumulator names.
-- pub `list_reactors` function L179-182 — `(&self) -> Vec<String>` — List all registered reactor names.
-- pub `accumulator_count` function L185-188 — `(&self, name: &str) -> usize` — Get the number of accumulators registered under a name.
--  `RegistryInner` struct L54-59 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
--  `EndpointRegistry` type L61-189 — `= EndpointRegistry` — under the same name all receive the message.
--  `EndpointRegistry` type L191-195 — `impl Default for EndpointRegistry` — under the same name all receive the message.
--  `default` function L192-194 — `() -> Self` — under the same name all receive the message.
--  `tests` module L198-347 — `-` — under the same name all receive the message.
--  `test_register_send_deregister_accumulator` function L202-225 — `()` — under the same name all receive the message.
--  `test_broadcast_to_multiple_accumulators` function L228-251 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_accumulator` function L254-261 — `()` — under the same name all receive the message.
--  `test_register_send_deregister_reactor` function L264-287 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_reactor` function L290-297 — `()` — under the same name all receive the message.
--  `test_closed_accumulator_channel_pruned` function L300-326 — `()` — under the same name all receive the message.
--  `test_list_accumulators_and_reactors` function L329-346 — `()` — under the same name all receive the message.
+- pub `RegistryError` enum L33-54 — `AccumulatorNotFound | ReactorNotFound | AccumulatorSendFailed | ReactorSendFaile...` — Errors from registry operations.
+- pub `ReactorOp` enum L59-66 — `ForceFire | FireWith | GetState | Pause | Resume | GetHealth` — Operations that can be performed on a reactor via WebSocket.
+- pub `AccumulatorAuthPolicy` struct L70-74 — `{ allowed_producers: Vec<uuid::Uuid> }` — Authorization policy for an accumulator endpoint.
+- pub `ReactorAuthPolicy` struct L78-85 — `{ allowed_operators: Vec<uuid::Uuid>, operation_permissions: HashMap<uuid::Uuid,...` — Authorization policy for a reactor endpoint.
+- pub `is_authorized` function L89-91 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized.
+- pub `is_authorized` function L96-98 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized to connect.
+- pub `is_operation_permitted` function L101-110 — `(&self, key_id: &uuid::Uuid, op: &ReactorOp) -> bool` — Check if a key is authorized for a specific operation.
+- pub `EndpointRegistry` struct L118-120 — `{ inner: Arc<RwLock<RegistryInner>> }` — Registry mapping endpoint names to channel senders.
+- pub `new` function L136-146 — `() -> Self` — under the same name all receive the message.
+- pub `register_accumulator` function L152-159 — `(&self, name: String, sender: mpsc::Sender<Vec<u8>>)` — Register an accumulator's socket sender under a name.
+- pub `register_reactor` function L162-171 — `( &self, name: String, sender: mpsc::Sender<ManualCommand>, handle: ReactorHandl...` — Register a reactor's manual command sender and shared handle.
+- pub `deregister_accumulator` function L174-177 — `(&self, name: &str)` — Deregister all accumulators under a name.
+- pub `deregister_reactor` function L180-184 — `(&self, name: &str)` — Deregister a reactor by name.
+- pub `get_reactor_handle` function L187-190 — `(&self, name: &str) -> Option<ReactorHandle>` — Get a reactor's shared handle (for GetState/Pause/Resume).
+- pub `set_accumulator_policy` function L193-196 — `(&self, name: String, policy: AccumulatorAuthPolicy)` — Set the auth policy for an accumulator endpoint.
+- pub `set_reactor_policy` function L199-202 — `(&self, name: String, policy: ReactorAuthPolicy)` — Set the auth policy for a reactor endpoint.
+- pub `check_accumulator_auth` function L208-224 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for an accumulator endpoint.
+- pub `check_reactor_auth` function L227-243 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for a reactor endpoint.
+- pub `check_reactor_op_auth` function L246-266 — `( &self, name: &str, key_id: &uuid::Uuid, op: &ReactorOp, ) -> Result<(), Regist...` — Check if a key is authorized for a specific reactor operation.
+- pub `send_to_accumulator` function L272-316 — `( &self, name: &str, bytes: Vec<u8>, ) -> Result<usize, RegistryError>` — Send bytes to all accumulators registered under `name`.
+- pub `send_to_reactor` function L319-336 — `( &self, name: &str, command: ManualCommand, ) -> Result<(), RegistryError>` — Send a manual command to a reactor.
+- pub `list_accumulators` function L339-342 — `(&self) -> Vec<String>` — List all registered accumulator names.
+- pub `list_reactors` function L345-348 — `(&self) -> Vec<String>` — List all registered reactor names.
+- pub `accumulator_count` function L351-354 — `(&self, name: &str) -> usize` — Get the number of accumulators registered under a name.
+-  `AccumulatorAuthPolicy` type L87-92 — `= AccumulatorAuthPolicy` — under the same name all receive the message.
+-  `ReactorAuthPolicy` type L94-111 — `= ReactorAuthPolicy` — under the same name all receive the message.
+-  `RegistryInner` struct L122-133 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
+-  `EndpointRegistry` type L135-355 — `= EndpointRegistry` — under the same name all receive the message.
+-  `EndpointRegistry` type L357-361 — `impl Default for EndpointRegistry` — under the same name all receive the message.
+-  `default` function L358-360 — `() -> Self` — under the same name all receive the message.
+-  `tests` module L364-598 — `-` — under the same name all receive the message.
+-  `dummy_handle` function L368-373 — `() -> ReactorHandle` — under the same name all receive the message.
+-  `test_register_send_deregister_accumulator` function L376-399 — `()` — under the same name all receive the message.
+-  `test_broadcast_to_multiple_accumulators` function L402-425 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_accumulator` function L428-435 — `()` — under the same name all receive the message.
+-  `test_register_send_deregister_reactor` function L438-461 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_reactor` function L464-471 — `()` — under the same name all receive the message.
+-  `test_closed_accumulator_channel_pruned` function L474-500 — `()` — under the same name all receive the message.
+-  `test_list_accumulators_and_reactors` function L503-520 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_deny_by_default` function L523-532 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_authorized_key` function L535-561 — `()` — under the same name all receive the message.
+-  `test_reactor_auth_with_operation_permissions` function L564-597 — `()` — under the same name all receive the message.
+
+#### crates/cloacina/src/computation_graph/scheduler.rs
+
+- pub `ComputationGraphDeclaration` struct L40-47 — `{ name: String, accumulators: Vec<AccumulatorDeclaration>, reactor: ReactorDecla...` — Declaration of a computation graph to be loaded by the Reactive Scheduler.
+- pub `AccumulatorDeclaration` struct L51-56 — `{ name: String, factory: Arc<dyn AccumulatorFactory> }` — Declaration for a single accumulator.
+- pub `AccumulatorFactory` interface L61-74 — `{ fn spawn() }` — Factory trait for creating accumulator instances.
+- pub `ReactorDeclaration` struct L78-85 — `{ criteria: ReactionCriteria, strategy: InputStrategy, graph_fn: CompiledGraphFn...` — Declaration for the reactor.
+- pub `GraphStatus` struct L89-94 — `{ name: String, accumulators: Vec<String>, reactor_paused: bool, running: bool }` — Status of a managed computation graph.
+- pub `ReactiveScheduler` struct L111-116 — `{ registry: EndpointRegistry, graphs: Arc<RwLock<HashMap<String, RunningGraph>>>...` — The Reactive Scheduler.
+- pub `new` function L119-124 — `(registry: EndpointRegistry) -> Self` — and restarts tasks on panic.
+- pub `load_graph` function L127-194 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
+- pub `unload_graph` function L197-223 — `(&self, name: &str) -> Result<(), String>` — Unload and shut down a computation graph.
+- pub `list_graphs` function L226-241 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
+- pub `shutdown_all` function L244-255 — `(&self)` — Graceful shutdown of all graphs.
+-  `RunningGraph` struct L97-108 — `{ shutdown_tx: watch::Sender<bool>, accumulator_handles: Vec<(String, JoinHandle...` — State for a running computation graph.
+-  `ReactiveScheduler` type L118-256 — `= ReactiveScheduler` — and restarts tasks on panic.
+-  `tests` module L259-422 — `-` — and restarts tasks on panic.
+-  `TestEvent` struct L266-268 — `{ value: f64 }` — and restarts tasks on panic.
+-  `TestAccumulatorFactory` struct L271 — `-` — A simple passthrough accumulator for testing.
+-  `TestAccumulatorFactory` type L273-309 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
+-  `spawn` function L274-308 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
+-  `Passthrough` struct L282 — `-` — and restarts tasks on panic.
+-  `Passthrough` type L285-291 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
+-  `Event` type L286 — `= TestEvent` — and restarts tasks on panic.
+-  `Output` type L287 — `= TestEvent` — and restarts tasks on panic.
+-  `process` function L288-290 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L312-358 — `()` — and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L361-396 — `()` — and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L399-421 — `()` — and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -687,15 +761,16 @@
 - pub `is_empty` function L116-118 — `(&self) -> bool` — Whether the cache is empty.
 - pub `replace_all` function L121-123 — `(&mut self, other: InputCache)` — Replace all entries (used for manual fire-with-state).
 - pub `sources` function L126-128 — `(&self) -> Vec<&SourceName>` — List all source names in the cache.
-- pub `serialize` function L141-150 — `(value: &T) -> Result<Vec<u8>, GraphError>` — Serialize a value to bytes using the build-profile-appropriate format.
-- pub `deserialize` function L153-162 — `(bytes: &[u8]) -> Result<T, GraphError>` — Deserialize bytes to a value using the build-profile-appropriate format.
-- pub `GraphResult` enum L170-175 — `Completed | Error` — Result of executing a compiled computation graph.
-- pub `completed` function L179-181 — `(outputs: Vec<Box<dyn Any + Send>>) -> Self` — Create a completed result with terminal node outputs.
-- pub `completed_empty` function L184-188 — `() -> Self` — Create a completed result with no outputs (all branches short-circuited).
-- pub `error` function L191-193 — `(err: GraphError) -> Self` — Create an error result.
-- pub `is_completed` function L196-198 — `(&self) -> bool` — Check if the graph completed successfully.
-- pub `is_error` function L201-203 — `(&self) -> bool` — Check if the graph errored.
-- pub `GraphError` enum L208-223 — `Serialization | Deserialization | MissingInput | NodeExecution | Execution` — Errors that can occur during graph execution.
+- pub `entries_as_json` function L134-149 — `(&self) -> std::collections::HashMap<String, String>` — Return entries as a JSON-friendly map (base64-encoded raw bytes per source).
+- pub `serialize` function L167-176 — `(value: &T) -> Result<Vec<u8>, GraphError>` — Core types for computation graph execution.
+- pub `deserialize` function L179-188 — `(bytes: &[u8]) -> Result<T, GraphError>` — Deserialize bytes to a value using the build-profile-appropriate format.
+- pub `GraphResult` enum L196-201 — `Completed | Error` — Result of executing a compiled computation graph.
+- pub `completed` function L205-207 — `(outputs: Vec<Box<dyn Any + Send>>) -> Self` — Create a completed result with terminal node outputs.
+- pub `completed_empty` function L210-214 — `() -> Self` — Create a completed result with no outputs (all branches short-circuited).
+- pub `error` function L217-219 — `(err: GraphError) -> Self` — Create an error result.
+- pub `is_completed` function L222-224 — `(&self) -> bool` — Check if the graph completed successfully.
+- pub `is_error` function L227-229 — `(&self) -> bool` — Check if the graph errored.
+- pub `GraphError` enum L234-249 — `Serialization | Deserialization | MissingInput | NodeExecution | Execution` — Errors that can occur during graph execution.
 -  `SourceName` type L29-37 — `= SourceName` — Core types for computation graph execution.
 -  `SourceName` type L39-43 — `= SourceName` — Core types for computation graph execution.
 -  `fmt` function L40-42 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — Core types for computation graph execution.
@@ -703,26 +778,27 @@
 -  `from` function L46-48 — `(s: &str) -> Self` — Core types for computation graph execution.
 -  `SourceName` type L51-55 — `= SourceName` — Core types for computation graph execution.
 -  `from` function L52-54 — `(s: String) -> Self` — Core types for computation graph execution.
--  `InputCache` type L72-129 — `= InputCache` — Core types for computation graph execution.
--  `InputCache` type L131-135 — `impl Default for InputCache` — Core types for computation graph execution.
--  `default` function L132-134 — `() -> Self` — Core types for computation graph execution.
--  `GraphResult` type L177-204 — `= GraphResult` — Core types for computation graph execution.
--  `tests` module L226-408 — `-` — Core types for computation graph execution.
--  `TestData` struct L231-234 — `{ value: f64, label: String }` — Core types for computation graph execution.
--  `test_input_cache_update_and_get` function L237-249 — `()` — Core types for computation graph execution.
--  `test_input_cache_missing_source` function L252-256 — `()` — Core types for computation graph execution.
--  `test_input_cache_overwrite` function L259-276 — `()` — Core types for computation graph execution.
--  `test_input_cache_snapshot` function L279-301 — `()` — Core types for computation graph execution.
--  `test_input_cache_has` function L304-311 — `()` — Core types for computation graph execution.
--  `test_input_cache_len_and_empty` function L314-325 — `()` — Core types for computation graph execution.
--  `test_serialization_round_trip` function L328-336 — `()` — Core types for computation graph execution.
--  `test_serialization_round_trip_primitives` function L339-354 — `()` — Core types for computation graph execution.
--  `test_deserialization_type_mismatch` function L357-361 — `()` — Core types for computation graph execution.
--  `test_graph_result_completed` function L364-368 — `()` — Core types for computation graph execution.
--  `test_graph_result_completed_empty` function L371-377 — `()` — Core types for computation graph execution.
--  `test_graph_result_error` function L380-384 — `()` — Core types for computation graph execution.
--  `test_source_name_equality` function L387-393 — `()` — Core types for computation graph execution.
--  `test_replace_all` function L396-407 — `()` — Core types for computation graph execution.
+-  `InputCache` type L72-150 — `= InputCache` — Core types for computation graph execution.
+-  `InputCache` type L152-156 — `impl Default for InputCache` — Core types for computation graph execution.
+-  `default` function L153-155 — `() -> Self` — Core types for computation graph execution.
+-  `hex_encode` function L163-165 — `(bytes: &[u8]) -> String` — Serialize a value to bytes using the build-profile-appropriate format.
+-  `GraphResult` type L203-230 — `= GraphResult` — Core types for computation graph execution.
+-  `tests` module L252-434 — `-` — Core types for computation graph execution.
+-  `TestData` struct L257-260 — `{ value: f64, label: String }` — Core types for computation graph execution.
+-  `test_input_cache_update_and_get` function L263-275 — `()` — Core types for computation graph execution.
+-  `test_input_cache_missing_source` function L278-282 — `()` — Core types for computation graph execution.
+-  `test_input_cache_overwrite` function L285-302 — `()` — Core types for computation graph execution.
+-  `test_input_cache_snapshot` function L305-327 — `()` — Core types for computation graph execution.
+-  `test_input_cache_has` function L330-337 — `()` — Core types for computation graph execution.
+-  `test_input_cache_len_and_empty` function L340-351 — `()` — Core types for computation graph execution.
+-  `test_serialization_round_trip` function L354-362 — `()` — Core types for computation graph execution.
+-  `test_serialization_round_trip_primitives` function L365-380 — `()` — Core types for computation graph execution.
+-  `test_deserialization_type_mismatch` function L383-387 — `()` — Core types for computation graph execution.
+-  `test_graph_result_completed` function L390-394 — `()` — Core types for computation graph execution.
+-  `test_graph_result_completed_empty` function L397-403 — `()` — Core types for computation graph execution.
+-  `test_graph_result_error` function L406-410 — `()` — Core types for computation graph execution.
+-  `test_source_name_equality` function L413-419 — `()` — Core types for computation graph execution.
+-  `test_replace_all` function L422-433 — `()` — Core types for computation graph execution.
 
 ### crates/cloacina/src
 
@@ -877,7 +953,7 @@
 - pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
 - pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L573-619 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L577-623 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -4445,6 +4521,15 @@
 -  `Output` type L208 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L210-212 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
 -  `test_end_to_end_accumulator_reactor_graph` function L216-321 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `TestAccumulatorFactory` struct L335 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `TestAccumulatorFactory` type L337-373 — `impl AccumulatorFactory for TestAccumulatorFactory` — graph, and generates a callable async function that routes data correctly.
+-  `spawn` function L338-372 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
+-  `Passthrough` struct L346 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `Passthrough` type L349-355 — `= Passthrough` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L350 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L351 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L352-354 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactive_scheduler_end_to_end` function L376-468 — `()` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 
@@ -5282,15 +5367,15 @@
 
 #### crates/cloacina-macros/src/computation_graph/codegen.rs
 
-- pub `generate` function L32-110 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
--  `extract_functions` function L113-131 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
--  `has_blocking_attr` function L134-143 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
--  `generate_compiled_function` function L149-188 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
--  `generate_cache_reads` function L191-208 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
--  `generate_node_execution` function L211-281 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
--  `generate_call_args` function L284-311 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
--  `generate_routing_match` function L314-355 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
--  `generate_routing_use_stmts` function L359-387 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
+- pub `generate` function L33-145 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
+-  `extract_functions` function L148-166 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
+-  `has_blocking_attr` function L169-178 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
+-  `generate_compiled_function` function L184-223 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
+-  `generate_cache_reads` function L226-243 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
+-  `generate_node_execution` function L246-316 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
+-  `generate_call_args` function L319-346 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
+-  `generate_routing_match` function L349-390 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
+-  `generate_routing_use_stmts` function L394-422 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
 
 #### crates/cloacina-macros/src/computation_graph/graph_ir.rs
 
@@ -5835,58 +5920,58 @@
 
 #### crates/cloacinactl/src/commands/serve.rs
 
-- pub `AppState` struct L35-39 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
-- pub `run` function L42-122 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `build_router` function L128-212 — `(state: AppState) -> Router` — Build the axum router with all routes.
--  `health` function L215-217 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L220-232 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L235-245 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L248-253 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L256-278 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L284-332 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L335-344 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L347-1171 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L355 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L358-372 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L375-383 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L386-401 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_health_returns_200` function L407-419 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L423-435 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_200` function L439-462 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L468-480 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L484-497 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L501-514 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L518-531 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L537-555 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L559-575 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L579-594 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L598-623 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L627-642 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L646-660 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L666-692 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L696-710 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L714-730 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L734-771 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L775-790 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L796-810 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L814-827 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L831-855 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L859-883 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L886-891 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L894-905 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L908-918 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L922-948 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L952-978 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L982-1002 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1008-1022 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1026-1039 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1043-1057 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1061-1074 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1078-1093 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1097-1115 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1121-1135 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1139-1152 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1158-1170 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+- pub `AppState` struct L37-43 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
+- pub `run` function L46-131 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+-  `build_router` function L137-241 — `(state: AppState) -> Router` — Build the axum router with all routes.
+-  `health` function L244-246 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L249-261 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L264-274 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L277-282 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L285-307 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L313-361 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L364-373 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L376-1200 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L384 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L387-401 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L404-412 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L415-430 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_health_returns_200` function L436-448 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L452-464 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_200` function L468-491 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L497-509 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L513-526 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L530-543 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L547-560 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L566-584 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L588-604 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L608-623 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L627-652 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L656-671 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L675-689 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L695-721 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L725-739 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L743-759 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L763-800 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L804-819 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L825-839 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L843-856 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L860-884 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L888-912 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L915-920 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L923-934 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L937-947 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L951-977 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L981-1007 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1011-1031 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1037-1051 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1055-1068 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1072-1086 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1090-1103 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1107-1122 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1126-1144 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1150-1164 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1168-1181 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1187-1199 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -5951,6 +6036,12 @@
 - pub `get_execution` function L131-159 — `( State(state): State<AppState>, Path((tenant_id, exec_id)): Path<(String, Strin...` — GET /tenants/:tenant_id/executions/:id — get execution details.
 - pub `get_execution_events` function L162-207 — `( State(state): State<AppState>, Path((tenant_id, exec_id)): Path<(String, Strin...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
 
+#### crates/cloacinactl/src/server/health_reactive.rs
+
+- pub `list_accumulators` function L33-47 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators.
+- pub `list_reactors` function L50-73 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
+- pub `get_reactor` function L76-108 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
+
 #### crates/cloacinactl/src/server/keys.rs
 
 - pub `CreateKeyRequest` struct L35-37 — `{ name: String }` — Request body for creating a new API key.
@@ -5962,11 +6053,12 @@
 
 - pub `auth` module L19 — `-` — API server route handlers and middleware.
 - pub `executions` module L20 — `-` — API server route handlers and middleware.
-- pub `keys` module L21 — `-` — API server route handlers and middleware.
-- pub `tenants` module L22 — `-` — API server route handlers and middleware.
-- pub `triggers` module L23 — `-` — API server route handlers and middleware.
-- pub `workflows` module L24 — `-` — API server route handlers and middleware.
-- pub `ws` module L25 — `-` — API server route handlers and middleware.
+- pub `health_reactive` module L21 — `-` — API server route handlers and middleware.
+- pub `keys` module L22 — `-` — API server route handlers and middleware.
+- pub `tenants` module L23 — `-` — API server route handlers and middleware.
+- pub `triggers` module L24 — `-` — API server route handlers and middleware.
+- pub `workflows` module L25 — `-` — API server route handlers and middleware.
+- pub `ws` module L26 — `-` — API server route handlers and middleware.
 
 #### crates/cloacinactl/src/server/tenants.rs
 
@@ -5990,12 +6082,13 @@
 
 #### crates/cloacinactl/src/server/ws.rs
 
-- pub `WsAuthQuery` struct L43-45 — `{ token: Option<String> }` — Query parameter for passing the auth token on WebSocket upgrade.
-- pub `accumulator_ws` function L66-96 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
-- pub `reactor_ws` function L103-133 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
--  `extract_ws_token` function L48-59 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
--  `handle_accumulator_socket` function L138-175 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
--  `handle_reactor_socket` function L180-214 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+- pub `WsAuthQuery` struct L48-50 — `{ token: Option<String> }` — Query parameter for passing the auth token on WebSocket upgrade.
+- pub `accumulator_ws` function L71-117 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
+- pub `reactor_ws` function L124-168 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
+-  `extract_ws_token` function L53-64 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
+-  `handle_accumulator_socket` function L174-245 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
+-  `handle_reactor_socket` function L252-300 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+-  `process_reactor_command` function L303-364 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
 
 ### docs/themes/hugo-geekdoc/static/js
 

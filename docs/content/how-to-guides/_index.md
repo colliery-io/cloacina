@@ -6,18 +6,14 @@ weight: 30
 
 # How-to Guides
 
-How-to guides are task-oriented recipes that walk you through accomplishing a specific goal with Cloacina. Unlike tutorials, they assume you already have a working knowledge of Cloacina's core concepts and focus on practical steps to solve real-world problems. Each guide targets a concrete outcome and provides the commands, configuration, and code needed to get there.
+Task-oriented recipes for accomplishing specific goals with Cloacina. Unlike tutorials, these assume working knowledge of core concepts.
 
-## Operations
+## [Library]({{< ref "library" >}})
 
-- **[Multi-Tenant Setup]({{< ref "multi-tenant-setup" >}})** -- Configure schema-based multi-tenancy with PostgreSQL for isolated tenant workflows
-- **[Multi-Tenant Recovery]({{< ref "multi-tenant-recovery" >}})** -- Handle recovery and migration in multi-tenant deployments
+Guides for using Cloacina as an embedded library — testing workflows, local development.
 
-## Testing
+## [Service]({{< ref "service" >}})
 
-- **[Testing Workflows]({{< ref "testing-workflows" >}})** -- Write and run tests for your workflows using the Cloacina testing crate
+Guides for deploying and operating the Cloacina API server and daemon — deployment, monitoring, multi-tenancy, security.
 
-## Security
-
-- **[Package Signing]({{< ref "security/package-signing" >}})** -- Sign and verify packaged workflow bundles for integrity and authenticity
-- **[Local Development]({{< ref "security/local-development" >}})** -- Security considerations and configuration for local development environments
+{{< toc-tree >}}

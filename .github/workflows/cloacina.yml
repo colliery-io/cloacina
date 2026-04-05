@@ -279,7 +279,7 @@ jobs:
 
           # Find and report packaged workflow example
           for ext in dylib so; do
-            lib="examples/features/packaged-workflows/target/release/libpackaged_workflow_example.$ext"
+            lib="examples/features/workflows/packaged-workflows/target/release/libpackaged_workflow_example.$ext"
             if [ -f "$lib" ]; then
               size=$(stat -f%z "$lib" 2>/dev/null || stat -c%s "$lib" 2>/dev/null)
               echo "| packaged-workflow-example | $size | $(format_size $size) |"
@@ -289,7 +289,7 @@ jobs:
 
           # Find and report simple packaged demo
           for ext in dylib so; do
-            lib="examples/features/simple-packaged/target/release/libsimple_packaged_demo.$ext"
+            lib="examples/features/workflows/simple-packaged/target/release/libsimple_packaged_demo.$ext"
             if [ -f "$lib" ]; then
               size=$(stat -f%z "$lib" 2>/dev/null || stat -c%s "$lib" 2>/dev/null)
               echo "| simple-packaged-demo | $size | $(format_size $size) |"
@@ -299,7 +299,7 @@ jobs:
 
           echo ""
           echo "=== Detailed file info ==="
-          find examples/features/*/target/release -name "*.dylib" -o -name "*.so" 2>/dev/null | while read f; do
+          find examples/features/workflows/*/target/release examples/features/computation-graphs/*/target/release -name "*.dylib" -o -name "*.so" 2>/dev/null | while read f; do
             if [ -f "$f" ]; then
               ls -lh "$f"
             fi

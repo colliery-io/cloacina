@@ -1209,9 +1209,9 @@ Or explore these resources:
 
 ## Related Resources
 
-- [Explanation: Multi-tenancy]({{< ref "/explanation/multi-tenancy/" >}}) - Deep dive into architecture
-- [How-to: Multi-tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Detailed setup guide
-- [How-to: Multi-tenant Recovery]({{< ref "/how-to-guides/multi-tenant-recovery/" >}}) - Recovery strategies
+- [Explanation: Multi-tenancy]({{< ref "/explanation/platform/multi-tenancy/" >}}) - Deep dive into architecture
+- [How-to: Multi-tenant Setup]({{< ref "/how-to-guides/service/multi-tenant-setup/" >}}) - Detailed setup guide
+- [How-to: Multi-tenant Recovery]({{< ref "/how-to-guides/service/multi-tenant-recovery/" >}}) - Recovery strategies
 
 {{< hint type="info" title="Reference Implementation" >}}
 This tutorial demonstrates patterns from the [`examples/multi_tenant/`](https://github.com/colliery-io/cloacina/tree/main/examples/multi_tenant) and [`examples/per_tenant_credentials/`](https://github.com/colliery-io/cloacina/tree/main/examples/per_tenant_credentials) directories in the Cloacina repository.

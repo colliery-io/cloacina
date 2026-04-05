@@ -1,7 +1,7 @@
 ---
 id: market-maker-reference
 level: initiative
-title: "Market Maker Reference Implementation"
+title: "Computation Graph Tutorial Series — Market Maker Walkthrough"
 short_code: "CLOACI-I-0072"
 created_at: 2026-04-04T17:48:56.100724+00:00
 updated_at: 2026-04-04T17:48:56.100724+00:00
@@ -19,66 +19,54 @@ estimated_complexity: L
 initiative_id: market-maker-reference
 ---
 
-# Market Maker Reference Implementation Initiative
+# Computation Graph Tutorial Series — Market Maker Walkthrough
 
 ## Context
 
-Third implementation initiative for CLOACI-I-0069. The full market maker example that exercises all core capabilities with real-world complexity: multiple accumulator types, routing graph with enum variants and risk checking, state accumulator for cyclic history, DAL persistence, health states, and crash recovery.
+Tutorial series that teaches the computation graph system through a market maker scenario. Follows the existing tutorial pattern (`examples/tutorials/01-basic-workflow` through `06-multi-tenancy`) — each tutorial builds on the last, explicitly showing channel plumbing and internal machinery so users understand how the pieces connect.
 
-This is the MVP proof point. If it works, the computation graph feature is shippable.
+Uses **embedded mode** — manual wiring in `main()`, no reconciler, no server, no packages. The tutorials teach the primitives: macros, accumulators, reactors, and how they wire together. Plugin-style / server-mode tutorials come later once reconciler routing (T-0380) is wired.
 
-Blocked by: CLOACI-I-0071 (WebSocket + Reactive Scheduler must be in place).
+Blocked by: nothing. All required primitives exist from I-0070, I-0074, I-0071.
 
 ## Goals & Non-Goals
 
 **Goals:**
-- Implement `#[state_accumulator]` (bounded VecDeque, DAL-backed, capacity semantics)
-- Implement DAL persistence for reactor cache snapshots
-- Implement DAL persistence for accumulator last-emitted boundary
-- Implement accumulator health states (Starting, Connecting, Live, Disconnected, SocketOnly)
-- Implement reactor health states (Starting, Warming, Live, Degraded)
-- Implement reactor startup health gate (all accumulators healthy before going live)
-- Build the market maker reference implementation as a packaged computation graph:
-  - 3 accumulators: stream (alpha — orderbook), passthrough (beta — pricing), stream with state (gamma — fills/exposure)
-  - State accumulator for previous outputs (capacity=1 for reconciliation)
-  - Computation graph with: decision engine → risk check (routing) → output handler / alert handler / audit logger
-  - Loaded via reconciler, runs in server mode
-- Integration test: full cycle including crash recovery (kill → restart → verify state restored)
-- Example runnable as `angreal demos market-maker`
+- Progressive tutorial series (3-4 tutorials) using a market maker as the narrative
+- Tutorial 07: Define a computation graph — `#[computation_graph]` macro, node functions, topology, call the compiled function directly with a hand-built `InputCache`
+- Tutorial 08: Add accumulators — `#[passthrough_accumulator]`, create `AccumulatorContext` + `BoundarySender`, spawn `accumulator_runtime`, push events via socket channel, wire boundary output to reactor
+- Tutorial 09: Full reactive pipeline — multiple accumulators, reactor with `when_any`, `InputStrategy::Latest`, push events, watch graph fire, inspect terminal outputs
+- Tutorial 10: Routing and enum dispatch — `=>` syntax for enum routing, multiple downstream paths, decision engine → signal/no-action branches, terminal nodes on each path
+- Each tutorial has its own crate in `examples/tutorials/`
+- Each tutorial runnable via `angreal demos tutorial-07` etc.
+- Angreal tasks created for each tutorial
+- Tutorials compile and run in CI (continue-on-error like existing Python tutorials)
+- Documentation pages for each tutorial in the docs site
 
 **Non-Goals:**
-- Batch accumulator (I-0073)
-- Polling accumulator (I-0073)
-- Python bindings (I-0073)
-- Soak / performance tests (I-0073)
-- `when_all` reaction criteria (I-0073)
-- `sequential` input strategy (I-0073)
+- Server mode / WebSocket / reconciler (plugin-path tutorials, later)
+- DAL persistence, health states, crash recovery (I-0073 or later)
+- State accumulator, batch accumulator, polling accumulator (I-0073)
+- Python computation graph tutorials (I-0073)
+- Packaging as `.cloacina` (requires T-0380)
 
 ## Acceptance Criteria
 
-- [ ] `#[state_accumulator]` implemented with capacity semantics (1, N, -1, omitted)
-- [ ] State accumulator persists VecDeque to DAL, loads on restart, emits to reactor
-- [ ] Reactor persists cache snapshot to DAL after each execution
-- [ ] Reactor loads cache from DAL on startup
-- [ ] Accumulator health states implemented, reported via `watch` channel to reactor
-- [ ] Reactor health states implemented (Starting → Warming → Live, Degraded on disconnect)
-- [ ] Reactor waits for all accumulators healthy before entering Live state
-- [ ] Health reported via `/v1/health/reactors/{name}` with per-accumulator detail
-- [ ] Market maker example: 3 source accumulators + 1 state accumulator → reactor → 5-node graph with enum routing
-- [ ] Decision engine routes Signal → risk_check, NoAction → audit_logger
-- [ ] Risk check routes Approved → output_handler, Blocked → alert_handler
-- [ ] State accumulator receives previous output from output_handler via WebSocket, feeds back into next execution
-- [ ] Recovery test: kill server, restart, verify reactor cache and accumulator state restored, graph resumes correctly
-- [ ] Example packaged and loaded via reconciler
+- [ ] Tutorial 07: `#[computation_graph]` macro with linear chain (3 nodes), call `_compiled()` with hand-built cache, print terminal output
+- [ ] Tutorial 08: Passthrough accumulator → boundary → reactor → compiled graph, push events via channel, print output
+- [ ] Tutorial 09: 2 accumulators (passthrough + stream via MockBackend) → reactor (when_any) → graph with 3 nodes, push events, verify fire count and output values
+- [ ] Tutorial 10: Routing graph with enum dispatch, decision engine → signal handler / audit logger, multiple terminal paths, demonstrate path selection based on input values
+- [ ] Each tutorial in `examples/tutorials/07-computation-graph` through `10-routing`
+- [ ] Each tutorial has angreal demo task
+- [ ] All tutorials compile and run successfully
 - [ ] All existing tests continue to pass
+- [ ] Docs pages for each tutorial
 
 ## Implementation Plan
 
-1. **State accumulator** — `#[state_accumulator]` macro, VecDeque with capacity, DAL persistence
-2. **DAL persistence** — reactor cache snapshot table, accumulator checkpoint table, last-emitted-boundary table
-3. **Health states** — accumulator health enum + watch channel, reactor health enum + startup gate
-4. **Health reporting** — wire health states to API server REST endpoints
-5. **Market maker graph** — accumulators, boundary types, routing enums, 5 node functions, topology declaration
-6. **Package it** — manifest metadata, reconciler loads it, reactive scheduler spawns it
-7. **Recovery test** — integration test: run → crash → restart → verify state
-8. **Angreal demo task** — `angreal demos market-maker` command
+1. **Tutorial 07** — Minimal computation graph: define 3 nodes, linear topology, call compiled function, print result. Teaches: macro syntax, node functions, topology declaration, `InputCache`, `GraphResult`.
+2. **Tutorial 08** — Add accumulator: define passthrough accumulator, create runtime, push events via socket, wire boundary to reactor, watch graph fire. Teaches: `Accumulator` trait, `accumulator_runtime`, `BoundarySender`, `AccumulatorContext`, channel plumbing.
+3. **Tutorial 09** — Full pipeline: two accumulators feeding one reactor, `when_any` criteria, `Latest` strategy, multiple pushes, inspect outputs. Teaches: multi-source graphs, reactor lifecycle, dirty flags, cache snapshots.
+4. **Tutorial 10** — Routing: `=>` syntax, enum variants, decision engine routing to signal/no-action paths, terminal nodes on each branch. Teaches: enum dispatch, conditional execution paths, `Option<T>` propagation.
+5. **Angreal tasks** — `angreal demos tutorial-07` through `tutorial-10`
+6. **Docs** — Tutorial pages mirroring the existing tutorial documentation pattern

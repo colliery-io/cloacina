@@ -8,7 +8,21 @@ review_date: "2024-03-19"
 
 # Tutorials
 
-Welcome to the Cloacina tutorials. These guides will help you get started with Cloacina by walking you through specific tasks step by step.
+Welcome to the Cloacina tutorials. Cloacina has two core capabilities, each with library (embedded) and service (server) modes:
+
+## Workflows (Unified Scheduler)
+
+DAG-based task pipelines with dependencies, retries, triggers, and cron scheduling.
+
+- **[Library Tutorials]({{< ref "workflows/library" >}})** — Define and run workflows directly in your Rust application
+- **[Service Tutorials]({{< ref "workflows/service" >}})** — Package and deploy workflows on the API server
+
+## Computation Graphs (Reactive Scheduler)
+
+Event-driven computation graphs with accumulators, reactors, and compiled graph execution.
+
+- **[Library Tutorials]({{< ref "computation-graphs/library" >}})** — Define graphs, wire accumulators and reactors in your application
+- **[Service Tutorials]({{< ref "computation-graphs/service" >}})** — Deploy graphs with WebSocket endpoints on the API server
 
 ## Prerequisites
 
@@ -18,39 +32,16 @@ Before starting any tutorial, ensure you have the following installed:
 - Docker Compose
 - Angreal (`pip install angreal`)
 
-## Available Tutorials
-
-{{< toc-tree >}}
-
-## How to Use These Tutorials
-
-Each tutorial is designed to be followed in sequence. They build upon each other to give you a complete understanding of how to use Cloacina effectively.
-
 ## Running Tutorials with Angreal
 
-To get started with a tutorial:
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/colliery-io/cloacina.git
 cd cloacina
-```
-
-2. The tutorials are stored in the `docs/content/tutorials` directory, with their corresponding implementations in the `examples` directory. Each tutorial is a separate markdown file that you can also read directly, and its implementation can be found in a matching directory under `examples`.
-
-3. Run the tutorial using angreal:
-```bash
-angreal demos tutorial-<tutorial-number>
-```
-
-For example, to run the "First Task" tutorial:
-
-```bash
 angreal demos tutorial-01
 ```
 
 {{< hint type=tip >}}
-You can run the tutorials from any directory - you don't need to be in the cloned repository. The `angreal` command will handle everything for you.
+You can run the tutorials from any directory. The `angreal` command handles everything.
 {{< /hint >}}
 
-The tutorial number corresponds to the order in the table of contents above.
+{{< toc-tree >}}

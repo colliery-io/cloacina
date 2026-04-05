@@ -804,6 +804,6 @@ With cron scheduling mastered, you're ready to:
 
 ## Related Resources
 
-- [Explanation: Cron Scheduling Architecture]({{< ref "/explanation/cron-scheduling/" >}}) - Deep dive into scheduling
-- [How-to: Multi-Tenant Setup]({{< ref "/how-to-guides/multi-tenant-setup/" >}}) - Deployment best practices
-- [Rust Tutorial: Cron Scheduling]({{< ref "/tutorials/05-cron-scheduling/" >}}) - Rust equivalent
+- [Explanation: Cron Scheduling Architecture]({{< ref "/explanation/workflows/cron-scheduling/" >}}) - Deep dive into scheduling
+- [How-to: Multi-Tenant Setup]({{< ref "/how-to-guides/service/multi-tenant-setup/" >}}) - Deployment best practices
+- [Rust Tutorial: Cron Scheduling]({{< ref "/tutorials/workflows/service/05-cron-scheduling/" >}}) - Rust equivalent
