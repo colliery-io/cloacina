@@ -223,6 +223,125 @@ pub fn stream_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Re
     }
 }
 
+/// Parsed args for `#[polling_accumulator(interval = "...")]`
+struct PollingAccumulatorArgs {
+    interval_str: String,
+}
+
+impl Parse for PollingAccumulatorArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut interval_str = None;
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match key.to_string().as_str() {
+                "interval" => {
+                    let val: LitStr = input.parse()?;
+                    interval_str = Some(val.value());
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        format!("unknown polling_accumulator argument '{}'", other),
+                    ));
+                }
+            }
+
+            let _ = input.parse::<Token![,]>();
+        }
+
+        Ok(PollingAccumulatorArgs {
+            interval_str: interval_str.ok_or_else(|| {
+                syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "missing 'interval' argument (e.g., interval = \"5s\")",
+                )
+            })?,
+        })
+    }
+}
+
+/// Parse a duration string like "5s", "100ms", "1m" into milliseconds.
+fn parse_duration_ms(s: &str) -> syn::Result<u64> {
+    let s = s.trim();
+    if let Some(val) = s.strip_suffix("ms") {
+        val.parse::<u64>()
+            .map_err(|_| syn::Error::new(proc_macro2::Span::call_site(), "invalid ms value"))
+    } else if let Some(val) = s.strip_suffix('s') {
+        val.parse::<u64>()
+            .map(|v| v * 1000)
+            .map_err(|_| syn::Error::new(proc_macro2::Span::call_site(), "invalid s value"))
+    } else if let Some(val) = s.strip_suffix('m') {
+        val.parse::<u64>()
+            .map(|v| v * 60_000)
+            .map_err(|_| syn::Error::new(proc_macro2::Span::call_site(), "invalid m value"))
+    } else {
+        Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("invalid interval '{}'. Use suffix: ms, s, or m", s),
+        ))
+    }
+}
+
+/// Generate code for `#[polling_accumulator(interval = "5s")]`.
+///
+/// Takes an async function `async fn name() -> Option<OutputType>` and generates
+/// a struct implementing `PollingAccumulator`.
+pub fn polling_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let parsed_args: PollingAccumulatorArgs = syn::parse2(args)?;
+    let func: ItemFn = syn::parse2(input)?;
+    let fn_name = &func.sig.ident;
+    let struct_name = format_ident!("{}Accumulator", pascal_case(&fn_name.to_string()));
+
+    let output = &func.sig.output;
+    let output_type = extract_return_type(output)?;
+
+    // The return type should be Option<T> — extract the inner T
+    let inner_type = extract_option_inner(&output_type)?;
+
+    let interval_ms = parse_duration_ms(&parsed_args.interval_str)?;
+
+    Ok(quote! {
+        #func
+
+        pub struct #struct_name;
+
+        #[async_trait::async_trait]
+        impl cloacina::computation_graph::PollingAccumulator for #struct_name {
+            type Output = #inner_type;
+
+            async fn poll(&mut self) -> Option<Self::Output> {
+                #fn_name().await
+            }
+
+            fn interval(&self) -> std::time::Duration {
+                std::time::Duration::from_millis(#interval_ms)
+            }
+        }
+    })
+}
+
+/// Extract the inner type T from Option<T>.
+fn extract_option_inner(ty: &Type) -> syn::Result<Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Ok(inner.clone());
+                    }
+                }
+            }
+        }
+    }
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "polling_accumulator function must return Option<T>",
+    ))
+}
+
 /// Convert snake_case to PascalCase.
 fn pascal_case(s: &str) -> String {
     s.split('_')

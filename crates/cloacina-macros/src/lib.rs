@@ -171,3 +171,21 @@ pub fn stream_accumulator(args: TokenStream, input: TokenStream) -> TokenStream 
         Err(err) => err.to_compile_error().into(),
     }
 }
+
+/// Define a polling accumulator (timer-based, queries pull-based sources).
+///
+/// ```rust,ignore
+/// #[polling_accumulator(interval = "5s")]
+/// async fn config_source() -> Option<ConfigData> {
+///     let data = fetch_config().await;
+///     if data.changed() { Some(data) } else { None }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn polling_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::polling_accumulator_impl(args.into(), input.into())
+    {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}

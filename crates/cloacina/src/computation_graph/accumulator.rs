@@ -231,6 +231,74 @@ pub fn shutdown_signal() -> (watch::Sender<bool>, watch::Receiver<bool>) {
     watch::channel(false)
 }
 
+// =============================================================================
+// Polling Accumulator
+// =============================================================================
+
+/// A polling accumulator periodically calls an async poll function to query
+/// pull-based data sources (databases, APIs, config files).
+///
+/// Returns `Option<Output>` — `Some` emits a boundary, `None` means "no change".
+#[async_trait::async_trait]
+pub trait PollingAccumulator: Send + 'static {
+    /// The typed boundary produced for the reactor.
+    type Output: Serialize + DeserializeOwned + Send + 'static;
+
+    /// Poll the data source. Called on each timer tick.
+    /// Return `Some(output)` to emit a boundary, `None` to skip.
+    async fn poll(&mut self) -> Option<Self::Output>;
+
+    /// Polling interval.
+    fn interval(&self) -> std::time::Duration;
+}
+
+/// Run a polling accumulator as a timer-based loop.
+///
+/// On each tick: calls `poll()`, if Some → serializes and sends boundary.
+/// Also accepts socket events (same as passthrough — external pushes still work).
+pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
+    mut poller: P,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+) {
+    let interval = poller.interval();
+    let mut timer = tokio::time::interval(interval);
+    // Skip the first immediate tick — we want to wait one interval before first poll
+    timer.tick().await;
+
+    let mut shutdown = ctx.shutdown.clone();
+    let mut socket_rx = socket_rx;
+
+    loop {
+        tokio::select! {
+            _ = timer.tick() => {
+                if let Some(output) = poller.poll().await {
+                    if let Err(e) = ctx.output.send(&output).await {
+                        tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
+                    }
+                }
+            }
+            Some(bytes) = socket_rx.recv() => {
+                // Socket events are deserialized as Output and sent directly
+                match types::deserialize::<P::Output>(&bytes) {
+                    Ok(output) => {
+                        if let Err(e) = ctx.output.send(&output).await {
+                            tracing::error!(name = %ctx.name, "socket boundary send failed: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(name = %ctx.name, "socket deserialize error: {}", e);
+                    }
+                }
+            }
+            _ = shutdown.changed() => {
+                tracing::debug!(name = %ctx.name, "polling accumulator shutting down");
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,6 +446,126 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(2), handle)
             .await
             .expect("runtime should shut down within 2 seconds")
+            .unwrap();
+    }
+
+    // --- Polling accumulator tests ---
+
+    struct CountingPoller {
+        count: u32,
+        max: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl PollingAccumulator for CountingPoller {
+        type Output = TestBoundary;
+
+        async fn poll(&mut self) -> Option<TestBoundary> {
+            self.count += 1;
+            if self.count <= self.max {
+                Some(TestBoundary {
+                    result: self.count as f64,
+                })
+            } else {
+                None // "no change" after max polls
+            }
+        }
+
+        fn interval(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(50)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_polling_accumulator_emits_on_some() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("poller"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "poller".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let poller = CountingPoller { count: 0, max: 3 };
+        let handle = tokio::spawn(polling_accumulator_runtime(poller, ctx, socket_rx));
+
+        // Wait for 3 polls (50ms each + first tick skipped = ~200ms)
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+        // Should have received 3 boundaries
+        let mut received = vec![];
+        while let Ok((_name, bytes)) = boundary_rx.try_recv() {
+            let b: TestBoundary = types::deserialize(&bytes).unwrap();
+            received.push(b.result);
+        }
+        assert!(
+            received.len() >= 3,
+            "expected at least 3 polls, got {}",
+            received.len()
+        );
+        assert_eq!(received[0], 1.0);
+        assert_eq!(received[1], 2.0);
+        assert_eq!(received[2], 3.0);
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_polling_accumulator_skips_on_none() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("skip_poller"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "skip_poller".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        // max=0 means poll always returns None
+        let poller = CountingPoller { count: 0, max: 0 };
+        let handle = tokio::spawn(polling_accumulator_runtime(poller, ctx, socket_rx));
+
+        // Wait for a few poll cycles
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Should have received zero boundaries
+        assert!(
+            boundary_rx.try_recv().is_err(),
+            "should not have received any boundary"
+        );
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_polling_accumulator_shutdown() {
+        let (boundary_tx, _boundary_rx) = mpsc::channel(10);
+        let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("shutdown_poller"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "shutdown_poller".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let poller = CountingPoller { count: 0, max: 100 };
+        let handle = tokio::spawn(polling_accumulator_runtime(poller, ctx, socket_rx));
+
+        // Shutdown immediately
+        shutdown_tx.send(true).unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect("polling runtime should shut down within 2 seconds")
             .unwrap();
     }
 

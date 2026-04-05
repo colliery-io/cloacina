@@ -32,8 +32,9 @@ pub mod stream_backend;
 pub mod types;
 
 pub use accumulator::{
-    accumulator_runtime, shutdown_signal, Accumulator, AccumulatorContext, AccumulatorError,
-    AccumulatorRuntimeConfig, BoundarySender,
+    accumulator_runtime, polling_accumulator_runtime, shutdown_signal, Accumulator,
+    AccumulatorContext, AccumulatorError, AccumulatorRuntimeConfig, BoundarySender,
+    PollingAccumulator,
 };
 pub use global_registry::{
     deregister_computation_graph, global_computation_graph_registry, list_registered_graphs,

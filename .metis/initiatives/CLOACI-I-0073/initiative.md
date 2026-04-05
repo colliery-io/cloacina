@@ -1,76 +1,73 @@
 ---
-id: computation-graph-depth-batch
+id: accumulator-depth-batch-and
 level: initiative
-title: "Computation Graph Depth — Batch Accumulators, Python, Soak Tests"
+title: "Accumulator Depth — Batch and Polling Accumulators"
 short_code: "CLOACI-I-0073"
 created_at: 2026-04-04T17:48:57.173883+00:00
-updated_at: 2026-04-04T17:48:57.173883+00:00
+updated_at: 2026-04-05T14:50:35.873130+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 estimated_complexity: L
-initiative_id: computation-graph-depth-batch
+initiative_id: accumulator-depth-batch-and
 ---
 
-# Computation Graph Depth — Batch Accumulators, Python, Soak Tests Initiative
+# Accumulator Depth — Batch and Polling Accumulators
 
 ## Context
 
-Fourth implementation initiative for CLOACI-I-0069. Adds depth to the computation graph feature after the MVP (I-0072) is complete: remaining accumulator types, Python bindings, additional reaction criteria and input strategies, soak tests, and performance benchmarks.
+Adds the remaining accumulator types to the computation graph system. Currently we have passthrough (socket-only) and stream (broker-backed) accumulators. This initiative adds batch and polling accumulators — two common patterns for data sources that don't have a continuous stream.
 
-This initiative may be decomposed further during planning — it's a collection of additive features that don't change the architecture.
-
-Blocked by: CLOACI-I-0072 (market maker reference implementation / MVP).
+Blocked by: nothing. All accumulator infrastructure exists from I-0074.
 
 ## Goals & Non-Goals
 
 **Goals:**
-- Implement `#[batch_accumulator]` (dormant until flush, drain source on signal, batch processing)
-- Implement `#[polling_accumulator]` (timer-based polling of databases/APIs)
-- Implement `when_all` reaction criteria
-- Implement `sequential` input strategy
-- Implement Python bindings for computation graphs (PyO3 decorators, `spawn_blocking` wrapping)
-- Implement Python accumulator decorators (`@stream_accumulator`, `@passthrough_accumulator`, etc.)
-- Soak test: market maker running 60+ seconds under sustained load, no memory growth, no accumulator backup
-- Performance benchmarks: event-to-graph-execution latency, accumulator throughput, reactor cache update speed
-- Benchmarks integrated into CI (CLOACI-I-0054 soak infrastructure)
+- Implement `#[batch_accumulator]` — dormant until flush signal, drains source, processes batch, emits one boundary. Critical for "all events since last run" reconciliation patterns.
+- Implement `#[polling_accumulator]` — timer-based async poll function that queries databases/APIs on an interval. `Option<T>` return for "no change" (don't emit boundary if nothing changed).
+- Macro support for both: `#[batch_accumulator]` and `#[polling_accumulator]` generate structs implementing the `Accumulator` trait
+- Tutorial or example demonstrating each new type
+- Unit tests for both accumulator types
 
 **Non-Goals:**
-- Mixed Rust/Python packages (one language per package)
-- Distributed computation graphs across multiple processes
-- Complex stream processing (windowed, watermarked — use external processors)
+- `when_all` / `sequential` reactor features (separate initiative)
+- Python accumulator decorators (separate initiative)
+- Soak tests / performance benchmarks (separate initiative)
+- DAL persistence for accumulator checkpoints (later)
 
 ## Acceptance Criteria
 
-- [ ] `#[batch_accumulator]` implemented — dormant, flush signal from reactor, drains source on flush, processes batch, emits one boundary
-- [ ] Batch accumulator works with stream backend (Kafka) and socket (passthrough)
-- [ ] `#[polling_accumulator]` implemented — timer-based async poll function, `Option<T>` return for "no change"
-- [ ] `when_all` reaction criteria — reactor waits until all dirty flags set before firing
-- [ ] `when_all` naturally handles initialization — graph doesn't fire until every source has emitted at least once
-- [ ] `sequential` input strategy — one boundary per execution, no collapsing, ordered processing
-- [ ] Python `@computation_graph` decorator — dict-based topology, tuple returns for routing, class-based graph
-- [ ] Python `@stream_accumulator`, `@passthrough_accumulator` decorators — all wrap in `spawn_blocking`
-- [ ] Python computation graph loaded via reconciler, runs in server mode
-- [ ] Soak test: market maker with mock Kafka producers at alpha=10ms, beta=200ms, gamma sporadic, runs 60+ seconds without memory growth
-- [ ] Performance benchmark: measure event-to-execution latency, publish baseline numbers
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] `#[batch_accumulator]` implemented — dormant until flush signal from reactor, drains source on flush, processes batch as a Vec, emits one boundary
+- [ ] Batch accumulator works with both stream backend (drain broker) and socket (drain buffered messages)
+- [ ] `#[polling_accumulator]` implemented — configurable interval, async poll function, `Option<T>` return semantics
+- [ ] Polling accumulator skips boundary emission when poll returns None
+- [ ] Macros generate correct `Accumulator` trait implementations
+- [ ] Unit tests for batch: buffer events, flush, verify single boundary emitted with batch data
+- [ ] Unit tests for polling: timer fires, poll called, boundary emitted on Some, skipped on None
+- [ ] Example or tutorial demonstrating each type
 - [ ] All existing tests continue to pass
 
 ## Implementation Plan
 
-This initiative is a collection of independent features. Order by value:
-
-1. **Batch accumulator** — enables "all events since last run" pattern, critical for reconciliation use cases
-2. **Polling accumulator** — enables database/API polling, common for config sources
-3. **`when_all` + `sequential`** — extends reaction criteria and input strategy
-4. **Soak test** — validates stability under sustained load
-5. **Performance benchmarks** — establishes baseline latency numbers
-6. **Python bindings** — opens computation graphs to Python developers
-
-Each can be implemented and shipped independently.
+1. **Batch accumulator trait extension** — extend `Accumulator` trait or create `BatchAccumulator` sub-trait with `process_batch(Vec<Event>) -> Option<Output>`
+2. **Batch accumulator runtime** — modified runtime that buffers events and drains on flush signal
+3. **`#[batch_accumulator]` macro** — generates struct + trait impl, similar to `#[passthrough_accumulator]`
+4. **Polling accumulator trait** — `PollingAccumulator` with `async fn poll() -> Option<Output>` + interval config
+5. **Polling accumulator runtime** — timer-based loop calling poll, emitting boundary on Some
+6. **`#[polling_accumulator]` macro** — generates struct + trait impl
+7. **Tests + examples**
