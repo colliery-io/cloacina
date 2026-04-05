@@ -372,4 +372,178 @@ with ComputationGraphBuilder("exec_routing",
         }
         assert!(result.is_completed(), "routing graph should complete");
     }
+
+    // =========================================================================
+    // Accumulator decorator tests
+    // =========================================================================
+
+    /// Helper: set up Python environment with accumulator decorators available.
+    fn setup_accumulator_env(py: Python<'_>) -> Bound<'_, pyo3::types::PyDict> {
+        let locals = pyo3::types::PyDict::new(py);
+
+        locals
+            .set_item(
+                "passthrough_accumulator",
+                pyo3::wrap_pyfunction!(computation_graph::passthrough_accumulator_decorator, py)
+                    .unwrap(),
+            )
+            .unwrap();
+        locals
+            .set_item(
+                "stream_accumulator",
+                pyo3::wrap_pyfunction!(computation_graph::stream_accumulator_decorator, py)
+                    .unwrap(),
+            )
+            .unwrap();
+        locals
+            .set_item(
+                "polling_accumulator",
+                pyo3::wrap_pyfunction!(computation_graph::polling_accumulator_decorator, py)
+                    .unwrap(),
+            )
+            .unwrap();
+        locals
+            .set_item(
+                "batch_accumulator",
+                pyo3::wrap_pyfunction!(computation_graph::batch_accumulator_decorator, py).unwrap(),
+            )
+            .unwrap();
+
+        locals
+    }
+
+    #[test]
+    fn test_passthrough_accumulator_decorator() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = setup_accumulator_env(py);
+
+            py.run(
+                c_str!(
+                    r#"
+@passthrough_accumulator
+def pricing(event):
+    return {"price": event["mid_price"], "change": 0.0}
+
+# Verify the function still works (transparent decorator)
+result = pricing({"mid_price": 100.5})
+assert result == {"price": 100.5, "change": 0.0}, f"unexpected result: {result}"
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            )
+            .unwrap();
+
+            // Verify it was registered
+            let accumulators = computation_graph::get_registered_accumulators();
+            let pricing_acc = accumulators
+                .iter()
+                .find(|a| a.name == "pricing")
+                .expect("pricing accumulator should be registered");
+            assert_eq!(pricing_acc.accumulator_type, "passthrough");
+            assert!(pricing_acc.config.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_stream_accumulator_decorator() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = setup_accumulator_env(py);
+
+            py.run(
+                c_str!(
+                    r#"
+@stream_accumulator(type="kafka", topic="market.orderbook")
+def orderbook(event):
+    return {"bid": event["best_bid"], "ask": event["best_ask"]}
+
+result = orderbook({"best_bid": 100.0, "best_ask": 100.1})
+assert result["bid"] == 100.0
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            )
+            .unwrap();
+
+            let accumulators = computation_graph::get_registered_accumulators();
+            let ob_acc = accumulators
+                .iter()
+                .find(|a| a.name == "orderbook")
+                .expect("orderbook accumulator should be registered");
+            assert_eq!(ob_acc.accumulator_type, "stream");
+            assert_eq!(ob_acc.config.get("type").unwrap(), "kafka");
+            assert_eq!(ob_acc.config.get("topic").unwrap(), "market.orderbook");
+        });
+    }
+
+    #[test]
+    fn test_polling_accumulator_decorator() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = setup_accumulator_env(py);
+
+            py.run(
+                c_str!(
+                    r#"
+@polling_accumulator(interval="5s")
+def config_source():
+    return {"version": 1}
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            )
+            .unwrap();
+
+            let accumulators = computation_graph::get_registered_accumulators();
+            let cfg_acc = accumulators
+                .iter()
+                .find(|a| a.name == "config_source")
+                .expect("config_source accumulator should be registered");
+            assert_eq!(cfg_acc.accumulator_type, "polling");
+            assert_eq!(cfg_acc.config.get("interval").unwrap(), "5s");
+        });
+    }
+
+    #[test]
+    fn test_batch_accumulator_decorator() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let globals = py.import("builtins").unwrap().dict();
+            let locals = setup_accumulator_env(py);
+
+            py.run(
+                c_str!(
+                    r#"
+@batch_accumulator(flush_interval="1s", max_buffer_size=100)
+def aggregate_fills(events):
+    total = sum(e["qty"] for e in events)
+    return {"total_qty": total, "count": len(events)}
+
+result = aggregate_fills([{"qty": 10}, {"qty": 20}])
+assert result["total_qty"] == 30
+assert result["count"] == 2
+"#
+                ),
+                Some(&globals),
+                Some(&locals),
+            )
+            .unwrap();
+
+            let accumulators = computation_graph::get_registered_accumulators();
+            let fill_acc = accumulators
+                .iter()
+                .find(|a| a.name == "aggregate_fills")
+                .expect("aggregate_fills accumulator should be registered");
+            assert_eq!(fill_acc.accumulator_type, "batch");
+            assert_eq!(fill_acc.config.get("flush_interval").unwrap(), "1s");
+            assert_eq!(fill_acc.config.get("max_buffer_size").unwrap(), "100");
+        });
+    }
 }
