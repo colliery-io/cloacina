@@ -319,3 +319,150 @@ async fn test_end_to_end_accumulator_reactor_graph() {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), acc_handle).await;
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), reactor_handle).await;
 }
+
+// =============================================================================
+// Test 5: ReactiveScheduler — load graph, push via registry, verify fire
+// =============================================================================
+
+use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::scheduler::{
+    AccumulatorDeclaration, AccumulatorFactory, ComputationGraphDeclaration, ReactiveScheduler,
+    ReactorDeclaration,
+};
+use tokio::sync::mpsc as tokio_mpsc;
+use tokio::task::JoinHandle;
+
+struct TestAccumulatorFactory;
+
+impl AccumulatorFactory for TestAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    ) -> (tokio_mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = tokio_mpsc::channel(64);
+
+        struct Passthrough;
+
+        #[async_trait::async_trait]
+        impl cloacina::computation_graph::Accumulator for Passthrough {
+            type Event = AlphaData;
+            type Output = AlphaData;
+            fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
+                Some(event)
+            }
+        }
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx,
+        };
+
+        let handle = tokio::spawn(accumulator_runtime(
+            Passthrough,
+            ctx,
+            socket_rx,
+            AccumulatorRuntimeConfig::default(),
+        ));
+
+        (socket_tx, handle)
+    }
+}
+
+#[tokio::test]
+async fn test_reactive_scheduler_end_to_end() {
+    let registry = EndpointRegistry::new();
+    let scheduler = ReactiveScheduler::new(registry.clone());
+
+    let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let fire_count_inner = fire_count.clone();
+
+    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+        let fc = fire_count_inner.clone();
+        Box::pin(async move {
+            fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            linear_chain_compiled(&cache).await
+        })
+    });
+
+    let decl = ComputationGraphDeclaration {
+        name: "scheduler_test".to_string(),
+        accumulators: vec![AccumulatorDeclaration {
+            name: "alpha".to_string(),
+            factory: Arc::new(TestAccumulatorFactory),
+        }],
+        reactor: ReactorDeclaration {
+            criteria: ReactionCriteria::WhenAny,
+            strategy: InputStrategy::Latest,
+            graph_fn,
+        },
+    };
+
+    scheduler.load_graph(decl).await.unwrap();
+
+    // Push event via registry (simulates WebSocket push)
+    let event = AlphaData { value: 5.0 };
+    registry
+        .send_to_accumulator("alpha", serialize(&event).unwrap())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "graph should have fired via scheduler"
+    );
+
+    // Verify reactor is listed
+    let graphs = scheduler.list_graphs().await;
+    assert_eq!(graphs.len(), 1);
+    assert_eq!(graphs[0].name, "scheduler_test");
+    assert!(!graphs[0].reactor_paused);
+
+    // Pause the reactor via handle
+    let handle = registry.get_reactor_handle("scheduler_test").await.unwrap();
+    handle.pause();
+    assert!(handle.is_paused());
+
+    // Push again — reactor is paused, should NOT fire
+    registry
+        .send_to_accumulator("alpha", serialize(&AlphaData { value: 10.0 }).unwrap())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "graph should NOT have fired while paused"
+    );
+
+    // Resume and force-fire
+    handle.resume();
+    use cloacina::computation_graph::reactor::ManualCommand;
+    registry
+        .send_to_reactor("scheduler_test", ManualCommand::ForceFire)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    assert_eq!(
+        fire_count.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "graph should have fired after resume + force-fire"
+    );
+
+    // Unload
+    scheduler.unload_graph("scheduler_test").await.unwrap();
+
+    // Registry should be empty
+    assert!(registry.list_reactors().await.is_empty());
+    assert_eq!(registry.accumulator_count("alpha").await, 0);
+}
