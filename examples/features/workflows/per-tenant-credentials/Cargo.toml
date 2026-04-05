@@ -11,12 +11,12 @@ name = "per_tenant_credentials"
 path = "src/main.rs"
 
 [dependencies]
-cloacina = { path = "../../../crates/cloacina" }
-cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
+cloacina = { path = "../../../../crates/cloacina" }
+cloacina-workflow = { path = "../../../../crates/cloacina-workflow" }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
 
 [build-dependencies]
-cloacina-build = { path = "../../../crates/cloacina-build" }
+cloacina-build = { path = "../../../../crates/cloacina-build" }

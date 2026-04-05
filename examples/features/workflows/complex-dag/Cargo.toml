@@ -22,10 +22,10 @@ packaged = []
 crate-type = ["cdylib"]
 
 [dependencies]
-cloacina = { path = "../../../crates/cloacina" }
-cloacina-workflow = { path = "../../../crates/cloacina-workflow", features = ["packaged"] }
-cloacina-workflow-plugin = { path = "../../../crates/cloacina-workflow-plugin" }
-cloacina-macros = { path = "../../../crates/cloacina-macros" }
+cloacina = { path = "../../../../crates/cloacina" }
+cloacina-workflow = { path = "../../../../crates/cloacina-workflow", features = ["packaged"] }
+cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
+cloacina-macros = { path = "../../../../crates/cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
@@ -35,4 +35,4 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 
 [build-dependencies]
-cloacina-build = { path = "../../../crates/cloacina-build" }
+cloacina-build = { path = "../../../../crates/cloacina-build" }

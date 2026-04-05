@@ -22,9 +22,9 @@ name = "missing_workflow_task"
 path = "src/missing_workflow_task.rs"
 
 [dependencies]
-cloacina = { path = "../../../crates/cloacina" }
-cloacina-workflow = { path = "../../../crates/cloacina-workflow" }
-cloacina-macros = { path = "../../../crates/cloacina-macros" }
+cloacina = { path = "../../../../crates/cloacina" }
+cloacina-workflow = { path = "../../../../crates/cloacina-workflow" }
+cloacina-macros = { path = "../../../../crates/cloacina-macros" }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 ctor = "0.2"
@@ -32,4 +32,4 @@ chrono = "0.4"
 async-trait = "0.1"
 
 [build-dependencies]
-cloacina-build = { path = "../../../crates/cloacina-build" }
+cloacina-build = { path = "../../../../crates/cloacina-build" }

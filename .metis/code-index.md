@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T01:58:42Z | 401 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T13:21:23Z | 401 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -384,65 +384,67 @@
 │                   └── search-16a110ff.bundle.min.js
 ├── examples/
 │   ├── features/
-│   │   ├── complex-dag/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── lib.rs
-│   │   ├── continuous-scheduling/
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── cron-scheduling/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── deferred-tasks/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── event-triggers/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       ├── main.rs
-│   │   │       └── triggers.rs
-│   │   ├── multi-tenant/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── packaged-triggers/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── lib.rs
-│   │   ├── packaged-workflows/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── lib.rs
-│   │   ├── per-tenant-credentials/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── python-workflow/
-│   │   │   ├── data_pipeline/
-│   │   │   │   ├── __init__.py
-│   │   │   │   └── tasks.py
-│   │   │   └── run_pipeline.py
-│   │   ├── registry-execution/
-│   │   │   ├── build.rs
-│   │   │   └── src/
-│   │   │       └── main.rs
-│   │   ├── simple-packaged/
-│   │   │   ├── build.rs
-│   │   │   ├── src/
-│   │   │   │   └── lib.rs
-│   │   │   └── tests/
-│   │   │       ├── ffi_tests.rs
-│   │   │       └── host_managed_registry_tests.rs
-│   │   └── validation-failures/
-│   │       ├── build.rs
-│   │       └── src/
-│   │           ├── circular_dependency.rs
-│   │           ├── duplicate_task_ids.rs
-│   │           ├── missing_dependency.rs
-│   │           └── missing_workflow_task.rs
+│   │   ├── computation-graphs/
+│   │   │   └── continuous-scheduling/
+│   │   │       └── src/
+│   │   │           └── main.rs
+│   │   └── workflows/
+│   │       ├── complex-dag/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── lib.rs
+│   │       ├── cron-scheduling/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── main.rs
+│   │       ├── deferred-tasks/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── main.rs
+│   │       ├── event-triggers/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       ├── main.rs
+│   │       │       └── triggers.rs
+│   │       ├── multi-tenant/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── main.rs
+│   │       ├── packaged-triggers/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── lib.rs
+│   │       ├── packaged-workflows/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── lib.rs
+│   │       ├── per-tenant-credentials/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── main.rs
+│   │       ├── python-workflow/
+│   │       │   ├── data_pipeline/
+│   │       │   │   ├── __init__.py
+│   │       │   │   └── tasks.py
+│   │       │   └── run_pipeline.py
+│   │       ├── registry-execution/
+│   │       │   ├── build.rs
+│   │       │   └── src/
+│   │       │       └── main.rs
+│   │       ├── simple-packaged/
+│   │       │   ├── build.rs
+│   │       │   ├── src/
+│   │       │   │   └── lib.rs
+│   │       │   └── tests/
+│   │       │       ├── ffi_tests.rs
+│   │       │       └── host_managed_registry_tests.rs
+│   │       └── validation-failures/
+│   │           ├── build.rs
+│   │           └── src/
+│   │               ├── circular_dependency.rs
+│   │               ├── duplicate_task_ids.rs
+│   │               ├── missing_dependency.rs
+│   │               └── missing_workflow_task.rs
 │   ├── performance/
 │   │   ├── parallel/
 │   │   │   ├── build.rs
@@ -457,41 +459,44 @@
 │   │       └── src/
 │   │           └── main.rs
 │   └── tutorials/
-│       ├── 01-basic-workflow/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       └── main.rs
-│       ├── 02-multi-task/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       ├── main.rs
-│       │       └── tasks.rs
-│       ├── 03-dependencies/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       └── main.rs
-│       ├── 04-error-handling/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       └── main.rs
-│       ├── 05-advanced/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       ├── main.rs
-│       │       └── tasks.rs
-│       ├── 06-multi-tenancy/
-│       │   ├── build.rs
-│       │   └── src/
-│       │       └── main.rs
-│       └── python/
-│           ├── 01_first_workflow.py
-│           ├── 02_context_handling.py
-│           ├── 03_complex_workflows.py
-│           ├── 04_error_handling.py
-│           ├── 05_cron_scheduling.py
-│           ├── 06_multi_tenancy.py
-│           ├── 07_event_triggers.py
-│           └── 08_packaged_triggers.py
+│       ├── python/
+│       │   └── workflows/
+│       │       ├── 01_first_workflow.py
+│       │       ├── 02_context_handling.py
+│       │       ├── 03_complex_workflows.py
+│       │       ├── 04_error_handling.py
+│       │       ├── 05_cron_scheduling.py
+│       │       ├── 06_multi_tenancy.py
+│       │       ├── 07_event_triggers.py
+│       │       └── 08_packaged_triggers.py
+│       └── workflows/
+│           └── library/
+│               ├── 01-basic-workflow/
+│               │   ├── build.rs
+│               │   └── src/
+│               │       └── main.rs
+│               ├── 02-multi-task/
+│               │   ├── build.rs
+│               │   └── src/
+│               │       ├── main.rs
+│               │       └── tasks.rs
+│               ├── 03-dependencies/
+│               │   ├── build.rs
+│               │   └── src/
+│               │       └── main.rs
+│               ├── 04-error-handling/
+│               │   ├── build.rs
+│               │   └── src/
+│               │       └── main.rs
+│               ├── 05-advanced/
+│               │   ├── build.rs
+│               │   └── src/
+│               │       ├── main.rs
+│               │       └── tasks.rs
+│               └── 06-multi-tenancy/
+│                   ├── build.rs
+│                   └── src/
+│                       └── main.rs
 └── tests/
     └── python/
         ├── conftest.py
@@ -8191,19 +8196,37 @@
 -  `y` function L2 — `function y(e)`
 -  `z` function L2 — `function z(e,t)`
 
-### examples/features/complex-dag
+### examples/features/computation-graphs/continuous-scheduling/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/complex-dag/build.rs
+#### examples/features/computation-graphs/continuous-scheduling/src/main.rs
+
+-  `AggregateHourlyTask` struct L42 — `-` — The actual continuous task that processes aggregated data.
+-  `AggregateHourlyTask` type L45-83 — `impl Task for AggregateHourlyTask` — 4.
+-  `execute` function L46-74 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — 4.
+-  `id` function L76-78 — `(&self) -> &str` — 4.
+-  `dependencies` function L80-82 — `(&self) -> &[TaskNamespace]` — 4.
+-  `SimulatedDbConnection` struct L86-88 — `{ table: String }` — Simulated database connection for the example.
+-  `SimulatedDbConnection` type L90-105 — `impl DataConnection for SimulatedDbConnection` — 4.
+-  `connect` function L91-93 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — 4.
+-  `descriptor` function L95-100 — `(&self) -> ConnectionDescriptor` — 4.
+-  `system_metadata` function L102-104 — `(&self) -> serde_json::Value` — 4.
+-  `main` function L108-268 — `()` — 4.
+
+### examples/features/workflows/complex-dag
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/features/workflows/complex-dag/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/complex-dag/src
+### examples/features/workflows/complex-dag/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/complex-dag/src/lib.rs
+#### examples/features/workflows/complex-dag/src/lib.rs
 
 -  `complex_dag_workflow` module L34-212 — `-` — - Complex branching and merging
 -  `init_config` function L42-46 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
@@ -8227,37 +8250,19 @@
 -  `send_notifications` function L200-204 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
 -  `cleanup_staging` function L207-211 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Complex branching and merging
 
-### examples/features/continuous-scheduling/src
+### examples/features/workflows/cron-scheduling
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/continuous-scheduling/src/main.rs
-
--  `AggregateHourlyTask` struct L42 — `-` — The actual continuous task that processes aggregated data.
--  `AggregateHourlyTask` type L45-83 — `impl Task for AggregateHourlyTask` — 4.
--  `execute` function L46-74 — `( &self, mut context: Context<serde_json::Value>, ) -> Result<Context<serde_json...` — 4.
--  `id` function L76-78 — `(&self) -> &str` — 4.
--  `dependencies` function L80-82 — `(&self) -> &[TaskNamespace]` — 4.
--  `SimulatedDbConnection` struct L86-88 — `{ table: String }` — Simulated database connection for the example.
--  `SimulatedDbConnection` type L90-105 — `impl DataConnection for SimulatedDbConnection` — 4.
--  `connect` function L91-93 — `(&self) -> Result<Box<dyn Any>, DataConnectionError>` — 4.
--  `descriptor` function L95-100 — `(&self) -> ConnectionDescriptor` — 4.
--  `system_metadata` function L102-104 — `(&self) -> serde_json::Value` — 4.
--  `main` function L108-268 — `()` — 4.
-
-### examples/features/cron-scheduling
-
-> *Semantic summary to be generated by AI agent.*
-
-#### examples/features/cron-scheduling/build.rs
+#### examples/features/workflows/cron-scheduling/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/cron-scheduling/src
+### examples/features/workflows/cron-scheduling/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/cron-scheduling/src/main.rs
+#### examples/features/workflows/cron-scheduling/src/main.rs
 
 - pub `data_backup_workflow` module L56-165 — `-` — - Recovery service for missed executions
 - pub `check_backup_prerequisites` function L67-80 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Recovery service for missed executions
@@ -8277,38 +8282,38 @@
 -  `create_cron_schedules` function L535-576 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
 -  `show_execution_stats` function L579-591 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
-### examples/features/deferred-tasks
+### examples/features/workflows/deferred-tasks
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/deferred-tasks/build.rs
+#### examples/features/workflows/deferred-tasks/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/deferred-tasks/src
+### examples/features/workflows/deferred-tasks/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/deferred-tasks/src/main.rs
+#### examples/features/workflows/deferred-tasks/src/main.rs
 
 - pub `deferred_pipeline` module L54-128 — `-` — ```
 - pub `wait_for_data` function L65-104 — `( context: &mut Context<serde_json::Value>, handle: &mut TaskHandle, ) -> Result...` — Simulates waiting for external data to become available.
 - pub `process_data` function L108-127 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Processes data that was fetched by the deferred task.
 -  `main` function L131-166 — `() -> Result<(), Box<dyn std::error::Error>>` — ```
 
-### examples/features/event-triggers
+### examples/features/workflows/event-triggers
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/event-triggers/build.rs
+#### examples/features/workflows/event-triggers/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/event-triggers/src
+### examples/features/workflows/event-triggers/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/event-triggers/src/main.rs
+#### examples/features/workflows/event-triggers/src/main.rs
 
 - pub `file_processing_workflow` module L62-133 — `-` — ```
 - pub `validate_file` function L67-86 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — Validates and parses an incoming file.
@@ -8328,7 +8333,7 @@
 -  `register_triggers` function L414-429 — `()` — Register triggers in the global trigger registry.
 -  `register_trigger_schedules` function L432-496 — `( runner: &DefaultRunner, ) -> Result<(), Box<dyn std::error::Error>>` — Register trigger schedules with the runner (persists configuration to DB).
 
-#### examples/features/event-triggers/src/triggers.rs
+#### examples/features/workflows/event-triggers/src/triggers.rs
 
 - pub `FileWatcherTrigger` struct L54-58 — `{ name: String, poll_interval: Duration, watch_path: String }` — A trigger that polls for new files in a simulated directory.
 - pub `new` function L62-68 — `(name: &str, watch_path: &str, poll_interval: Duration) -> Self` — Creates a new file watcher trigger.
@@ -8364,56 +8369,56 @@
 -  `allow_concurrent` function L277-280 — `(&self) -> bool` — 3.
 -  `poll` function L282-332 — `(&self) -> Result<TriggerResult, TriggerError>` — 3.
 
-### examples/features/multi-tenant
+### examples/features/workflows/multi-tenant
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/multi-tenant/build.rs
+#### examples/features/workflows/multi-tenant/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/multi-tenant/src
+### examples/features/workflows/multi-tenant/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/multi-tenant/src/main.rs
+#### examples/features/workflows/multi-tenant/src/main.rs
 
 -  `main` function L28-50 — `() -> Result<(), Box<dyn std::error::Error>>` — with PostgreSQL schema-based isolation.
 -  `demonstrate_multi_tenant_setup` function L52-82 — `(database_url: &str) -> Result<(), PipelineError>` — with PostgreSQL schema-based isolation.
 -  `demonstrate_recovery_scenarios` function L85-123 — `(database_url: &str) -> Result<(), PipelineError>` — Demonstrates recovery scenarios for multi-tenant systems
 
-### examples/features/packaged-triggers
+### examples/features/workflows/packaged-triggers
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/packaged-triggers/build.rs
+#### examples/features/workflows/packaged-triggers/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/packaged-triggers/src
+### examples/features/workflows/packaged-triggers/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/packaged-triggers/src/lib.rs
+#### examples/features/workflows/packaged-triggers/src/lib.rs
 
 - pub `file_processing` module L88-166 — `-`
 - pub `validate` function L100-118 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 - pub `transform` function L127-144 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 - pub `archive` function L153-165 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 
-### examples/features/packaged-workflows
+### examples/features/workflows/packaged-workflows
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/packaged-workflows/build.rs
+#### examples/features/workflows/packaged-workflows/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/packaged-workflows/src
+### examples/features/workflows/packaged-workflows/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/packaged-workflows/src/lib.rs
+#### examples/features/workflows/packaged-workflows/src/lib.rs
 
 - pub `analytics_workflow` module L54-284 — `-`
 - pub `extract_data` function L67-94 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
@@ -8421,64 +8426,64 @@
 - pub `transform_data` function L162-216 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
 - pub `generate_reports` function L228-283 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>`
 
-### examples/features/per-tenant-credentials
+### examples/features/workflows/per-tenant-credentials
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/per-tenant-credentials/build.rs
+#### examples/features/workflows/per-tenant-credentials/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/per-tenant-credentials/src
+### examples/features/workflows/per-tenant-credentials/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/per-tenant-credentials/src/main.rs
+#### examples/features/workflows/per-tenant-credentials/src/main.rs
 
 -  `main` function L28-50 — `() -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
 -  `demonstrate_admin_tenant_creation` function L52-122 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
 -  `demonstrate_tenant_isolation` function L124-182 — `( admin_database_url: &str, ) -> Result<(), Box<dyn std::error::Error>>` — isolated tenant users with their own database credentials and schemas.
 -  `mask_password` function L185-196 — `(connection_string: &str) -> String` — Masks passwords in connection strings for safe logging
 
-### examples/features/python-workflow
+### examples/features/workflows/python-workflow
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/python-workflow/run_pipeline.py
+#### examples/features/workflows/python-workflow/run_pipeline.py
 
 - pub `check` function L34-40 — `def check(condition: bool, msg: str) -> None`
 
-### examples/features/registry-execution
+### examples/features/workflows/registry-execution
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/registry-execution/build.rs
+#### examples/features/workflows/registry-execution/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/registry-execution/src
+### examples/features/workflows/registry-execution/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/registry-execution/src/main.rs
+#### examples/features/workflows/registry-execution/src/main.rs
 
 -  `main` function L52-271 — `() -> Result<(), Box<dyn std::error::Error>>`
 -  `build_package` function L273-285 — `() -> Result<Vec<u8>, Box<dyn std::error::Error>>`
 -  `find_workspace_root` function L287-300 — `() -> Result<PathBuf, Box<dyn std::error::Error>>`
 
-### examples/features/simple-packaged
+### examples/features/workflows/simple-packaged
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/simple-packaged/build.rs
+#### examples/features/workflows/simple-packaged/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/simple-packaged/src
+### examples/features/workflows/simple-packaged/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/simple-packaged/src/lib.rs
+#### examples/features/workflows/simple-packaged/src/lib.rs
 
 - pub `data_processing` module L53-146 — `-`
 - pub `collect_data` function L62-77 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>`
@@ -8487,56 +8492,56 @@
 -  `tests` module L149-168 — `-`
 -  `test_workflow_execution` function L153-167 — `()`
 
-### examples/features/simple-packaged/tests
+### examples/features/workflows/simple-packaged/tests
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/simple-packaged/tests/ffi_tests.rs
+#### examples/features/workflows/simple-packaged/tests/ffi_tests.rs
 
 -  `test_workflow_creation_directly` function L25-38 — `()` — Tests for the FFI functions generated by the packaged_workflow macro.
 -  `test_get_task_metadata_integration` function L41-64 — `()` — Tests for the FFI functions generated by the packaged_workflow macro.
 -  `test_metadata_functions` function L67-82 — `()` — Tests for the FFI functions generated by the packaged_workflow macro.
 
-#### examples/features/simple-packaged/tests/host_managed_registry_tests.rs
+#### examples/features/workflows/simple-packaged/tests/host_managed_registry_tests.rs
 
 -  `test_get_task_metadata_basic` function L27-56 — `()` — Tests for the new host-managed registry approach using the get_task_metadata() FFI function.
 -  `test_get_task_metadata_task_details` function L59-126 — `()` — Tests for the new host-managed registry approach using the get_task_metadata() FFI function.
 -  `test_task_metadata_memory_safety` function L129-148 — `()` — Tests for the new host-managed registry approach using the get_task_metadata() FFI function.
 
-### examples/features/validation-failures
+### examples/features/workflows/validation-failures
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/validation-failures/build.rs
+#### examples/features/workflows/validation-failures/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/features/validation-failures/src
+### examples/features/workflows/validation-failures/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/features/validation-failures/src/circular_dependency.rs
+#### examples/features/workflows/validation-failures/src/circular_dependency.rs
 
 - pub `circular_pipeline` module L25-41 — `-`
 - pub `task_a` function L30-33 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 - pub `task_b` function L37-40 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `main` function L44-48 — `() -> Result<(), Box<dyn std::error::Error>>`
 
-#### examples/features/validation-failures/src/duplicate_task_ids.rs
+#### examples/features/workflows/validation-failures/src/duplicate_task_ids.rs
 
 - pub `duplicate_pipeline` module L25-41 — `-`
 - pub `task_one` function L30-33 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 - pub `task_two` function L37-40 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `main` function L44-48 — `() -> Result<(), Box<dyn std::error::Error>>`
 
-#### examples/features/validation-failures/src/missing_dependency.rs
+#### examples/features/workflows/validation-failures/src/missing_dependency.rs
 
 - pub `missing_dep_pipeline` module L25-40 — `-`
 - pub `valid_task` function L29-32 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 - pub `invalid_task` function L36-39 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
 -  `main` function L43-47 — `() -> Result<(), Box<dyn std::error::Error>>`
 
-#### examples/features/validation-failures/src/missing_workflow_task.rs
+#### examples/features/workflows/validation-failures/src/missing_workflow_task.rs
 
 - pub `failing_pipeline` module L25-40 — `-`
 - pub `existing_task` function L29-32 — `(_context: &mut Context<Value>) -> Result<(), TaskError>`
@@ -8606,61 +8611,109 @@
 -  `Args` struct L31-39 — `{ iterations: usize, concurrency: usize }` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 -  `main` function L61-147 — `() -> Result<(), Box<dyn std::error::Error>>` — Based on tutorial-01, this measures throughput of simple single-task workflows.
 
-### examples/tutorials/01-basic-workflow
+### examples/tutorials/python/workflows
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/01-basic-workflow/build.rs
+#### examples/tutorials/python/workflows/04_error_handling.py
+
+- pub `UnreliableExternalService` class L31-56 — `{ __init__, fetch_data }` — Simulates an external service with configurable failure rates.
+- pub `__init__` method L34-36 — `def __init__(self, failure_rate=0.3)`
+- pub `fetch_data` method L38-56 — `def fetch_data(self, data_id)` — Fetch data with potential for failure.
+
+#### examples/tutorials/python/workflows/05_cron_scheduling.py
+
+- pub `get_workflow_names` function L112-116 — `def get_workflow_names()` — Get all registered workflow names.
+- pub `cron_demo` function L118-169 — `def cron_demo()` — Demonstrate advanced cron scheduling patterns.
+- pub `main` function L171-190 — `def main()` — Main tutorial demonstration.
+
+#### examples/tutorials/python/workflows/06_multi_tenancy.py
+
+- pub `TenantManager` class L165-325 — `{ __init__, provision_tenant, create_tenant_runner, get_tenant_runner, execute_f...` — Manages multi-tenant workflow execution.
+- pub `__init__` method L168-175 — `def __init__(self, admin_postgres_url: str)` — Initialize with PostgreSQL admin connection URL.
+- pub `provision_tenant` method L177-199 — `def provision_tenant(self, tenant_id: str) -> cloaca.TenantCredentials` — Provision a new tenant with dedicated schema and credentials.
+- pub `create_tenant_runner` method L201-217 — `def create_tenant_runner(self, tenant_id: str) -> cloaca.DefaultRunner` — Create a tenant-specific runner with schema isolation.
+- pub `get_tenant_runner` method L219-221 — `def get_tenant_runner(self, tenant_id: str) -> Optional[cloaca.DefaultRunner]` — Get existing runner for tenant.
+- pub `execute_for_tenant` method L223-230 — `def execute_for_tenant(self, tenant_id: str, workflow_name: str, context: cloaca...` — Execute workflow for specific tenant.
+- pub `onboard_new_tenant` method L232-262 — `def onboard_new_tenant(self, tenant_id: str, tenant_info: Dict) -> Dict` — Complete onboarding workflow for new tenant.
+- pub `process_tenant_data` method L264-292 — `def process_tenant_data(self, tenant_id: str) -> Dict` — Process data for specific tenant.
+- pub `remove_tenant` method L294-309 — `def remove_tenant(self, tenant_id: str)` — Remove tenant completely including schema and credentials.
+- pub `cleanup_tenant_resources` method L311-317 — `def cleanup_tenant_resources(self, tenant_id: str)` — Clean up runtime resources for tenant (keeps schema).
+- pub `shutdown_all` method L319-325 — `def shutdown_all(self)` — Shutdown all tenant runners.
+- pub `simulate_multi_tenant_operations` function L328-436 — `def simulate_multi_tenant_operations()` — Simulate multi-tenant SaaS operations.
+
+#### examples/tutorials/python/workflows/07_event_triggers.py
+
+- pub `on_task_success` function L23-25 — `def on_task_success(task_id, context)` — Callback called when a task completes successfully.
+- pub `on_task_failure` function L28-30 — `def on_task_failure(task_id, error, context)` — Callback called when a task fails.
+- pub `demo_callbacks` function L136-155 — `def demo_callbacks()` — Demonstrate task callbacks.
+- pub `demo_trigger_definition` function L158-191 — `def demo_trigger_definition()` — Demonstrate trigger definition and TriggerResult usage.
+- pub `demo_trigger_management` function L194-219 — `def demo_trigger_management()` — Demonstrate trigger management through Python API.
+- pub `demo_concepts` function L222-254 — `def demo_concepts()` — Explain key concepts.
+- pub `main` function L257-284 — `def main()` — Main tutorial demonstration.
+
+#### examples/tutorials/python/workflows/08_packaged_triggers.py
+
+- pub `demo_trigger_polls` function L98-112 — `def demo_trigger_polls()` — Show how trigger polling works.
+- pub `demo_workflow_execution` function L115-139 — `def demo_workflow_execution()` — Run the workflow as if triggered.
+- pub `demo_manifest_explanation` function L142-183 — `def demo_manifest_explanation()` — Explain the ManifestV2 trigger fields.
+- pub `main` function L186-205 — `def main()` — Main tutorial.
+
+### examples/tutorials/workflows/library/01-basic-workflow
+
+> *Semantic summary to be generated by AI agent.*
+
+#### examples/tutorials/workflows/library/01-basic-workflow/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/01-basic-workflow/src
+### examples/tutorials/workflows/library/01-basic-workflow/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/01-basic-workflow/src/main.rs
+#### examples/tutorials/workflows/library/01-basic-workflow/src/main.rs
 
 - pub `simple_workflow` module L32-47 — `-` — This example demonstrates the most basic usage of Cloacina with a single task.
 - pub `hello_world` function L40-46 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — This example demonstrates the most basic usage of Cloacina with a single task.
 -  `main` function L50-91 — `() -> Result<(), Box<dyn std::error::Error>>` — This example demonstrates the most basic usage of Cloacina with a single task.
 
-### examples/tutorials/02-multi-task
+### examples/tutorials/workflows/library/02-multi-task
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/02-multi-task/build.rs
+#### examples/tutorials/workflows/library/02-multi-task/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/02-multi-task/src
+### examples/tutorials/workflows/library/02-multi-task/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/02-multi-task/src/main.rs
+#### examples/tutorials/workflows/library/02-multi-task/src/main.rs
 
 -  `tasks` module L49 — `-` — - Different retry policies for different task types
 -  `main` function L52-100 — `() -> Result<(), Box<dyn std::error::Error>>` — - Different retry policies for different task types
 
-#### examples/tutorials/02-multi-task/src/tasks.rs
+#### examples/tutorials/workflows/library/02-multi-task/src/tasks.rs
 
 - pub `etl_workflow` module L32-130 — `-` — - Load: Store the transformed numbers
 - pub `extract_numbers` function L43-62 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
 - pub `transform_numbers` function L72-98 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
 - pub `load_numbers` function L108-129 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — - Load: Store the transformed numbers
 
-### examples/tutorials/03-dependencies
+### examples/tutorials/workflows/library/03-dependencies
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/03-dependencies/build.rs
+#### examples/tutorials/workflows/library/03-dependencies/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/03-dependencies/src
+### examples/tutorials/workflows/library/03-dependencies/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/03-dependencies/src/main.rs
+#### examples/tutorials/workflows/library/03-dependencies/src/main.rs
 
 - pub `parallel_processing` module L76-551 — `-` — - **Final Convergence**: All processing completes before cleanup
 - pub `generate_data` function L85-107 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - **Final Convergence**: All processing completes before cleanup
@@ -8676,19 +8729,19 @@
 -  `CategoryStats` struct L66-70 — `{ total_value: f64, total_stock: u32, product_count: u32 }` — - **Final Convergence**: All processing completes before cleanup
 -  `main` function L554-584 — `() -> Result<(), Box<dyn std::error::Error>>` — - **Final Convergence**: All processing completes before cleanup
 
-### examples/tutorials/04-error-handling
+### examples/tutorials/workflows/library/04-error-handling
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/04-error-handling/build.rs
+#### examples/tutorials/workflows/library/04-error-handling/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/04-error-handling/src
+### examples/tutorials/workflows/library/04-error-handling/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/04-error-handling/src/main.rs
+#### examples/tutorials/workflows/library/04-error-handling/src/main.rs
 
 - pub `resilient_pipeline` module L92-352 — `-` — - Monitoring task execution outcomes
 - pub `fetch_data` function L105-138 — `(context: &mut Context<serde_json::Value>) -> Result<(), TaskError>` — - Monitoring task execution outcomes
@@ -8703,26 +8756,26 @@
 -  `on_data_fetch_failure` function L75-86 — `( task_id: &str, error: &cloacina::cloacina_workflow::TaskError, _context: &Cont...` — Specific callback for critical data operations
 -  `main` function L355-424 — `() -> Result<(), Box<dyn std::error::Error>>` — - Monitoring task execution outcomes
 
-### examples/tutorials/05-advanced
+### examples/tutorials/workflows/library/05-advanced
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/05-advanced/build.rs
+#### examples/tutorials/workflows/library/05-advanced/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/05-advanced/src
+### examples/tutorials/workflows/library/05-advanced/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/05-advanced/src/main.rs
+#### examples/tutorials/workflows/library/05-advanced/src/main.rs
 
 -  `tasks` module L46 — `-` — - Recovery service for missed executions
 -  `main` function L49-108 — `() -> Result<(), Box<dyn std::error::Error>>` — - Recovery service for missed executions
 -  `create_cron_schedules` function L111-152 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Create cron schedules for our workflows
 -  `show_execution_stats` function L155-167 — `(runner: &DefaultRunner) -> Result<(), Box<dyn std::error::Error>>` — Display execution statistics
 
-#### examples/tutorials/05-advanced/src/tasks.rs
+#### examples/tutorials/workflows/library/05-advanced/src/tasks.rs
 
 - pub `data_backup_workflow` module L34-143 — `-` — on a schedule, including data backup, health checks, and reporting tasks.
 - pub `check_backup_prerequisites` function L45-58 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
@@ -8739,19 +8792,19 @@
 - pub `generate_usage_report` function L373-405 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
 - pub `send_report_notification` function L415-445 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — on a schedule, including data backup, health checks, and reporting tasks.
 
-### examples/tutorials/06-multi-tenancy
+### examples/tutorials/workflows/library/06-multi-tenancy
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/06-multi-tenancy/build.rs
+#### examples/tutorials/workflows/library/06-multi-tenancy/build.rs
 
 -  `main` function L17-19 — `()`
 
-### examples/tutorials/06-multi-tenancy/src
+### examples/tutorials/workflows/library/06-multi-tenancy/src
 
 > *Semantic summary to be generated by AI agent.*
 
-#### examples/tutorials/06-multi-tenancy/src/main.rs
+#### examples/tutorials/workflows/library/06-multi-tenancy/src/main.rs
 
 - pub `customer_processing` module L35-79 — `-` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 - pub `process_customer_data` function L42-78 — `( context: &mut Context<serde_json::Value>, ) -> Result<(), TaskError>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
@@ -8760,54 +8813,6 @@
 -  `main` function L147-175 — `() -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 -  `basic_multi_tenant_demo` function L177-229 — `(database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
 -  `advanced_admin_demo` function L231-291 — `(admin_database_url: &str) -> Result<(), Box<dyn std::error::Error>>` — using PostgreSQL schema-based multi-tenancy and the Database Admin API.
-
-### examples/tutorials/python
-
-> *Semantic summary to be generated by AI agent.*
-
-#### examples/tutorials/python/04_error_handling.py
-
-- pub `UnreliableExternalService` class L31-56 — `{ __init__, fetch_data }` — Simulates an external service with configurable failure rates.
-- pub `__init__` method L34-36 — `def __init__(self, failure_rate=0.3)`
-- pub `fetch_data` method L38-56 — `def fetch_data(self, data_id)` — Fetch data with potential for failure.
-
-#### examples/tutorials/python/05_cron_scheduling.py
-
-- pub `get_workflow_names` function L112-116 — `def get_workflow_names()` — Get all registered workflow names.
-- pub `cron_demo` function L118-169 — `def cron_demo()` — Demonstrate advanced cron scheduling patterns.
-- pub `main` function L171-190 — `def main()` — Main tutorial demonstration.
-
-#### examples/tutorials/python/06_multi_tenancy.py
-
-- pub `TenantManager` class L165-325 — `{ __init__, provision_tenant, create_tenant_runner, get_tenant_runner, execute_f...` — Manages multi-tenant workflow execution.
-- pub `__init__` method L168-175 — `def __init__(self, admin_postgres_url: str)` — Initialize with PostgreSQL admin connection URL.
-- pub `provision_tenant` method L177-199 — `def provision_tenant(self, tenant_id: str) -> cloaca.TenantCredentials` — Provision a new tenant with dedicated schema and credentials.
-- pub `create_tenant_runner` method L201-217 — `def create_tenant_runner(self, tenant_id: str) -> cloaca.DefaultRunner` — Create a tenant-specific runner with schema isolation.
-- pub `get_tenant_runner` method L219-221 — `def get_tenant_runner(self, tenant_id: str) -> Optional[cloaca.DefaultRunner]` — Get existing runner for tenant.
-- pub `execute_for_tenant` method L223-230 — `def execute_for_tenant(self, tenant_id: str, workflow_name: str, context: cloaca...` — Execute workflow for specific tenant.
-- pub `onboard_new_tenant` method L232-262 — `def onboard_new_tenant(self, tenant_id: str, tenant_info: Dict) -> Dict` — Complete onboarding workflow for new tenant.
-- pub `process_tenant_data` method L264-292 — `def process_tenant_data(self, tenant_id: str) -> Dict` — Process data for specific tenant.
-- pub `remove_tenant` method L294-309 — `def remove_tenant(self, tenant_id: str)` — Remove tenant completely including schema and credentials.
-- pub `cleanup_tenant_resources` method L311-317 — `def cleanup_tenant_resources(self, tenant_id: str)` — Clean up runtime resources for tenant (keeps schema).
-- pub `shutdown_all` method L319-325 — `def shutdown_all(self)` — Shutdown all tenant runners.
-- pub `simulate_multi_tenant_operations` function L328-436 — `def simulate_multi_tenant_operations()` — Simulate multi-tenant SaaS operations.
-
-#### examples/tutorials/python/07_event_triggers.py
-
-- pub `on_task_success` function L23-25 — `def on_task_success(task_id, context)` — Callback called when a task completes successfully.
-- pub `on_task_failure` function L28-30 — `def on_task_failure(task_id, error, context)` — Callback called when a task fails.
-- pub `demo_callbacks` function L136-155 — `def demo_callbacks()` — Demonstrate task callbacks.
-- pub `demo_trigger_definition` function L158-191 — `def demo_trigger_definition()` — Demonstrate trigger definition and TriggerResult usage.
-- pub `demo_trigger_management` function L194-219 — `def demo_trigger_management()` — Demonstrate trigger management through Python API.
-- pub `demo_concepts` function L222-254 — `def demo_concepts()` — Explain key concepts.
-- pub `main` function L257-284 — `def main()` — Main tutorial demonstration.
-
-#### examples/tutorials/python/08_packaged_triggers.py
-
-- pub `demo_trigger_polls` function L98-112 — `def demo_trigger_polls()` — Show how trigger polling works.
-- pub `demo_workflow_execution` function L115-139 — `def demo_workflow_execution()` — Run the workflow as if triggered.
-- pub `demo_manifest_explanation` function L142-183 — `def demo_manifest_explanation()` — Explain the ManifestV2 trigger fields.
-- pub `main` function L186-205 — `def main()` — Main tutorial.
 
 ### tests/python
 

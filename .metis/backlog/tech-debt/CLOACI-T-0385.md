@@ -4,7 +4,7 @@ level: task
 title: "Reorganize tutorials and docs into library/service and workflows/computation-graphs hierarchy"
 short_code: "CLOACI-T-0385"
 created_at: 2026-04-05T12:49:30.119214+00:00
-updated_at: 2026-04-05T13:06:02.634697+00:00
+updated_at: 2026-04-05T13:21:16.710919+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -185,6 +185,8 @@ how-to-guides/
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] `examples/tutorials/` restructured into `workflows/library/`, `workflows/service/`, `computation-graphs/library/`, `computation-graphs/service/`
 - [ ] `examples/features/` restructured into `workflows/`, `computation-graphs/`
 - [ ] `examples/tutorials/python/` restructured into `python/workflows/`, `python/computation-graphs/`
@@ -228,4 +230,9 @@ Current mismatches to fix during move:
 
 ## Status Updates
 
-- 2026-04-05: Phase 1 complete — examples restructured. Tutorials 01-06 moved to `tutorials/workflows/library/`. Python tutorials moved to `tutorials/python/workflows/`. All 12 workflow features moved to `features/workflows/`. Continuous-scheduling moved to `features/computation-graphs/`. Empty placeholder dirs created for computation-graphs/library, computation-graphs/service, python/computation-graphs. Starting Phase 2 — docs.
+- 2026-04-05: Phase 1 complete — examples restructured.
+- 2026-04-05: Phase 2 complete — docs restructured. Tutorial docs split into workflows/{library,service}. Explanation split into workflows/computation-graphs/platform. How-to-guides split into library/service. All _index.md files created.
+- 2026-04-05: Phase 3 complete — Hugo cross-references updated. Fixed 33+ refs. Had to undo incorrect rewrites in python-bindings section (those refs point to their own tutorials, not main tutorials).
+- 2026-04-05: Phase 4 complete — Angreal demo utils updated for hierarchical scanning. Returns (name, path) tuples. rust_demos.py and python_demos.py updated. python-workflow feature path updated.
+- 2026-04-05: Phase 5 complete — CI paths updated in cloacina.yml for packaged-workflows, simple-packaged, and find command.
+- 2026-04-05: `angreal docs build` passes clean. 177 files changed. Committed.
