@@ -264,7 +264,9 @@ async fn handle_reactor_socket(
         match msg {
             Ok(axum::extract::ws::Message::Text(text)) => {
                 let response = match serde_json::from_str::<ReactorCommand>(&text) {
-                    Ok(cmd) => process_reactor_command(&name, cmd, &registry, &handle).await,
+                    Ok(cmd) => {
+                        process_reactor_command(&name, cmd, &registry, &handle, auth.key_id).await
+                    }
                     Err(e) => ReactorResponse::Error {
                         message: format!("invalid command: {}", e),
                     },
@@ -299,13 +301,34 @@ async fn handle_reactor_socket(
     debug!(reactor = %name, "reactor WebSocket disconnected");
 }
 
+/// Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
+fn command_to_op(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp {
+    use cloacina::computation_graph::registry::ReactorOp;
+    match cmd {
+        ReactorCommand::ForceFire => ReactorOp::ForceFire,
+        ReactorCommand::FireWith { .. } => ReactorOp::FireWith,
+        ReactorCommand::GetState => ReactorOp::GetState,
+        ReactorCommand::Pause => ReactorOp::Pause,
+        ReactorCommand::Resume => ReactorOp::Resume,
+    }
+}
+
 /// Process a single reactor command and return the response.
 async fn process_reactor_command(
     name: &str,
     cmd: ReactorCommand,
     registry: &EndpointRegistry,
     handle: &Option<cloacina::computation_graph::reactor::ReactorHandle>,
+    key_id: uuid::Uuid,
 ) -> ReactorResponse {
+    // Per-command authZ check
+    let op = command_to_op(&cmd);
+    if let Err(_e) = registry.check_reactor_op_auth(name, &key_id, &op).await {
+        return ReactorResponse::Error {
+            message: format!("operation {:?} not permitted on reactor '{}'", op, name),
+        };
+    }
+
     match cmd {
         ReactorCommand::ForceFire => {
             match registry

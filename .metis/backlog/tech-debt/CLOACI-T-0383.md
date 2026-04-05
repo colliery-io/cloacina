@@ -4,15 +4,15 @@ level: task
 title: "Post-MVP: Wire /ready to return 503 when reactors have crashed"
 short_code: "CLOACI-T-0383"
 created_at: 2026-04-05T12:37:05.210900+00:00
-updated_at: 2026-04-05T12:37:05.210900+00:00
+updated_at: 2026-04-05T18:34:20.691567+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -54,6 +54,12 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

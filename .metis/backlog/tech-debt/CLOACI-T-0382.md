@@ -4,15 +4,15 @@ level: task
 title: "Post-MVP: Per-command reactor authZ in WebSocket handler"
 short_code: "CLOACI-T-0382"
 created_at: 2026-04-05T12:37:04.391388+00:00
-updated_at: 2026-04-05T12:37:04.391388+00:00
+updated_at: 2026-04-05T18:34:36.554953+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -55,6 +55,10 @@ Connection-level reactor authZ is wired (403 on upgrade if key not authorized). 
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 

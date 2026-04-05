@@ -4,7 +4,7 @@ level: task
 title: "Post-MVP: ReactiveScheduler background supervision loop (auto-restart panicked tasks)"
 short_code: "CLOACI-T-0384"
 created_at: 2026-04-05T12:37:05.929003+00:00
-updated_at: 2026-04-05T18:30:42.041948+00:00
+updated_at: 2026-04-05T18:32:54.646356+00:00
 parent:
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#tech-debt"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -55,6 +55,8 @@ initiative_id: NULL
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
