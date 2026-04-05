@@ -429,12 +429,27 @@ def server_soak():
         print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
         print("  Executing workflows + querying API concurrently...")
 
+        # Step 8c: Verify computation graph health endpoints exist
+        print_section_header("Step 8c: Verify computation graph health endpoints")
+        s, b = api_request("GET", f"{base_url}/v1/health/accumulators", token=token)
+        if s == 200:
+            print(f"  /v1/health/accumulators → {json.dumps(b)[:100]} ✓")
+        else:
+            print(f"  /v1/health/accumulators → {s} (expected 200)")
+
+        s, b = api_request("GET", f"{base_url}/v1/health/reactors", token=token)
+        if s == 200:
+            print(f"  /v1/health/reactors → {json.dumps(b)[:100]} ✓")
+        else:
+            print(f"  /v1/health/reactors → {s} (expected 200)")
+
         stats = {
             "health_ok": 0,
             "executions_triggered": 0,
             "executions_accepted": 0,
             "py_executions_triggered": 0,
             "py_executions_accepted": 0,
+            "cg_health_ok": 0,
             "list_queries": 0,
             "api_errors": 0,
             "connection_errors": 0,
@@ -512,6 +527,24 @@ def server_soak():
                 else:
                     stats["api_errors"] += 1
 
+                # Query computation graph health endpoints every 4 iterations
+                if iteration % 4 == 0:
+                    s, _ = api_request(
+                        "GET", f"{base_url}/v1/health/reactors", token=token
+                    )
+                    if s == 200:
+                        stats["cg_health_ok"] += 1
+                    else:
+                        stats["api_errors"] += 1
+
+                    s, _ = api_request(
+                        "GET", f"{base_url}/v1/health/accumulators", token=token
+                    )
+                    if s == 200:
+                        stats["cg_health_ok"] += 1
+                    else:
+                        stats["api_errors"] += 1
+
             except Exception as e:
                 if "Connection refused" in str(e) or "URLError" in str(type(e).__name__):
                     stats["connection_errors"] += 1
@@ -526,6 +559,7 @@ def server_soak():
                     f"  [{elapsed}s] health={stats['health_ok']} "
                     f"rust={stats['executions_accepted']}/{stats['executions_triggered']} "
                     f"python={stats['py_executions_accepted']}/{stats['py_executions_triggered']} "
+                    f"cg_health={stats['cg_health_ok']} "
                     f"queries={stats['list_queries']} "
                     f"errors={stats['api_errors']}"
                 )
@@ -544,6 +578,7 @@ def server_soak():
         print(f"    Rust exec accepted:   {stats['executions_accepted']}")
         print(f"    Python exec triggered:{stats['py_executions_triggered']}")
         print(f"    Python exec accepted: {stats['py_executions_accepted']}")
+        print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
         print(f"    Connection errors:    {stats['connection_errors']}")
