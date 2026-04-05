@@ -299,6 +299,113 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     }
 }
 
+// =============================================================================
+// Batch Accumulator
+// =============================================================================
+
+/// A batch accumulator buffers incoming events and processes them all at once
+/// on a flush signal. Emits a single boundary containing the batch result.
+///
+/// Flush triggers:
+/// - Timer-based flush interval
+/// - Buffer size threshold (optional)
+/// - Shutdown (drains remaining buffer)
+#[async_trait::async_trait]
+pub trait BatchAccumulator: Send + 'static {
+    /// The raw event type buffered from the source.
+    type Event: DeserializeOwned + Send + 'static;
+
+    /// The typed boundary produced from the batch.
+    type Output: Serialize + Send + 'static;
+
+    /// Process a batch of events and optionally produce a boundary.
+    /// Called when the buffer is flushed. Empty batches are never passed.
+    fn process_batch(&mut self, events: Vec<Self::Event>) -> Option<Self::Output>;
+}
+
+/// Configuration for the batch accumulator runtime.
+pub struct BatchAccumulatorConfig {
+    /// How often to flush the buffer.
+    pub flush_interval: std::time::Duration,
+    /// Optional: flush when buffer reaches this size.
+    pub max_buffer_size: Option<usize>,
+}
+
+impl Default for BatchAccumulatorConfig {
+    fn default() -> Self {
+        Self {
+            flush_interval: std::time::Duration::from_secs(5),
+            max_buffer_size: None,
+        }
+    }
+}
+
+/// Run a batch accumulator that buffers events and flushes on timer or size threshold.
+pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
+    mut acc: B,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    config: BatchAccumulatorConfig,
+) {
+    let mut timer = tokio::time::interval(config.flush_interval);
+    // Skip the first immediate tick
+    timer.tick().await;
+
+    let mut shutdown = ctx.shutdown.clone();
+    let mut socket_rx = socket_rx;
+    let mut buffer: Vec<B::Event> = Vec::new();
+
+    loop {
+        tokio::select! {
+            Some(bytes) = socket_rx.recv() => {
+                match types::deserialize::<B::Event>(&bytes) {
+                    Ok(event) => {
+                        buffer.push(event);
+                        // Check size threshold
+                        if let Some(max) = config.max_buffer_size {
+                            if buffer.len() >= max {
+                                flush_batch(&mut acc, &mut buffer, &ctx).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(name = %ctx.name, "batch deserialize error: {}", e);
+                    }
+                }
+            }
+            _ = timer.tick() => {
+                flush_batch(&mut acc, &mut buffer, &ctx).await;
+            }
+            _ = shutdown.changed() => {
+                tracing::debug!(name = %ctx.name, "batch accumulator shutting down, draining buffer");
+                // Drain remaining buffer on shutdown
+                flush_batch(&mut acc, &mut buffer, &ctx).await;
+                break;
+            }
+        }
+    }
+}
+
+/// Flush the buffer through the batch accumulator and send boundary if produced.
+async fn flush_batch<B: BatchAccumulator>(
+    acc: &mut B,
+    buffer: &mut Vec<B::Event>,
+    ctx: &AccumulatorContext,
+) {
+    if buffer.is_empty() {
+        return;
+    }
+    let batch = std::mem::take(buffer);
+    let count = batch.len();
+    if let Some(output) = acc.process_batch(batch) {
+        if let Err(e) = ctx.output.send(&output).await {
+            tracing::error!(name = %ctx.name, "batch boundary send failed: {}", e);
+        } else {
+            tracing::debug!(name = %ctx.name, events = count, "batch flushed");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,6 +674,190 @@ mod tests {
             .await
             .expect("polling runtime should shut down within 2 seconds")
             .unwrap();
+    }
+
+    // --- Batch accumulator tests ---
+
+    struct SumBatchAccumulator;
+
+    #[async_trait::async_trait]
+    impl BatchAccumulator for SumBatchAccumulator {
+        type Event = TestEvent;
+        type Output = TestBoundary;
+
+        fn process_batch(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary> {
+            let sum: f64 = events.iter().map(|e| e.value).sum();
+            Some(TestBoundary { result: sum })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_batch_accumulator_flush_on_timer() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("batch"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "batch".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let config = BatchAccumulatorConfig {
+            flush_interval: std::time::Duration::from_millis(100),
+            max_buffer_size: None,
+        };
+
+        let handle = tokio::spawn(batch_accumulator_runtime(
+            SumBatchAccumulator,
+            ctx,
+            socket_rx,
+            config,
+        ));
+
+        // Push 5 events quickly (before timer fires)
+        for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
+            socket_tx
+                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Wait for timer flush
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Should get ONE boundary with sum = 15.0
+        let (_name, bytes) = boundary_rx.recv().await.unwrap();
+        let b: TestBoundary = types::deserialize(&bytes).unwrap();
+        assert_eq!(b.result, 15.0);
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_batch_accumulator_empty_flush_skips() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("empty_batch"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "empty_batch".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let config = BatchAccumulatorConfig {
+            flush_interval: std::time::Duration::from_millis(50),
+            max_buffer_size: None,
+        };
+
+        let handle = tokio::spawn(batch_accumulator_runtime(
+            SumBatchAccumulator,
+            ctx,
+            socket_rx,
+            config,
+        ));
+
+        // Wait for a few flush cycles with no events
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Should have no boundaries
+        assert!(boundary_rx.try_recv().is_err());
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_batch_accumulator_max_buffer_size() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("size_batch"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "size_batch".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let config = BatchAccumulatorConfig {
+            flush_interval: std::time::Duration::from_secs(60), // very long — won't trigger
+            max_buffer_size: Some(3),                           // flush at 3 events
+        };
+
+        let handle = tokio::spawn(batch_accumulator_runtime(
+            SumBatchAccumulator,
+            ctx,
+            socket_rx,
+            config,
+        ));
+
+        // Push exactly 3 events — should trigger size-based flush
+        for v in [10.0, 20.0, 30.0] {
+            socket_tx
+                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Should get boundary with sum = 60.0
+        let (_name, bytes) = boundary_rx.recv().await.unwrap();
+        let b: TestBoundary = types::deserialize(&bytes).unwrap();
+        assert_eq!(b.result, 60.0);
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_batch_accumulator_shutdown_drains() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("drain_batch"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "drain_batch".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let config = BatchAccumulatorConfig {
+            flush_interval: std::time::Duration::from_secs(60), // won't trigger
+            max_buffer_size: None,
+        };
+
+        let handle = tokio::spawn(batch_accumulator_runtime(
+            SumBatchAccumulator,
+            ctx,
+            socket_rx,
+            config,
+        ));
+
+        // Push events without triggering flush
+        for v in [1.0, 2.0] {
+            socket_tx
+                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Shutdown — should drain remaining buffer
+        shutdown_tx.send(true).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+
+        // Should get one boundary from the drain
+        let (_name, bytes) = boundary_rx.recv().await.unwrap();
+        let b: TestBoundary = types::deserialize(&bytes).unwrap();
+        assert_eq!(b.result, 3.0); // 1.0 + 2.0
     }
 
     struct FilterAccumulator;

@@ -172,6 +172,23 @@ pub fn stream_accumulator(args: TokenStream, input: TokenStream) -> TokenStream 
     }
 }
 
+/// Define a batch accumulator (buffers events, flushes on timer or size threshold).
+///
+/// ```rust,ignore
+/// #[batch_accumulator(flush_interval = "1s", max_buffer_size = 100)]
+/// fn aggregate_fills(events: Vec<FillEvent>) -> Option<AggregatedFills> {
+///     if events.is_empty() { return None; }
+///     Some(AggregatedFills { total: events.len(), volume: events.iter().map(|e| e.qty).sum() })
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn batch_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::batch_accumulator_impl(args.into(), input.into()) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
 /// Define a polling accumulator (timer-based, queries pull-based sources).
 ///
 /// ```rust,ignore

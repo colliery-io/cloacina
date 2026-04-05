@@ -323,6 +323,126 @@ pub fn polling_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::R
     })
 }
 
+/// Parsed args for `#[batch_accumulator(flush_interval = "...")]`
+struct BatchAccumulatorArgs {
+    flush_interval_str: String,
+    max_buffer_size: Option<usize>,
+}
+
+impl Parse for BatchAccumulatorArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut flush_interval_str = None;
+        let mut max_buffer_size = None;
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match key.to_string().as_str() {
+                "flush_interval" => {
+                    let val: LitStr = input.parse()?;
+                    flush_interval_str = Some(val.value());
+                }
+                "max_buffer_size" => {
+                    let val: syn::LitInt = input.parse()?;
+                    max_buffer_size = Some(val.base10_parse::<usize>()?);
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        format!("unknown batch_accumulator argument '{}'", other),
+                    ));
+                }
+            }
+
+            let _ = input.parse::<Token![,]>();
+        }
+
+        Ok(BatchAccumulatorArgs {
+            flush_interval_str: flush_interval_str.ok_or_else(|| {
+                syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "missing 'flush_interval' argument",
+                )
+            })?,
+            max_buffer_size,
+        })
+    }
+}
+
+/// Generate code for `#[batch_accumulator(flush_interval = "5s")]`.
+///
+/// Takes a function `fn name(events: Vec<EventType>) -> Option<OutputType>` and generates
+/// a struct implementing `BatchAccumulator`.
+pub fn batch_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let parsed_args: BatchAccumulatorArgs = syn::parse2(args)?;
+    let func: ItemFn = syn::parse2(input)?;
+    let fn_name = &func.sig.ident;
+    let struct_name = format_ident!("{}Accumulator", pascal_case(&fn_name.to_string()));
+
+    let inputs = &func.sig.inputs;
+    let output = &func.sig.output;
+
+    let event_type = extract_first_param_type(inputs)?;
+    // Event type is Vec<T> — extract inner T
+    let inner_event_type = extract_vec_inner(&event_type)?;
+
+    let output_type = extract_return_type(output)?;
+    // Return type is Option<T> — extract inner T
+    let inner_output_type = extract_option_inner(&output_type)?;
+
+    let flush_interval_ms = parse_duration_ms(&parsed_args.flush_interval_str)?;
+
+    let max_buffer_size_expr = match parsed_args.max_buffer_size {
+        Some(size) => quote! { Some(#size) },
+        None => quote! { None },
+    };
+
+    Ok(quote! {
+        #func
+
+        pub struct #struct_name;
+
+        #[async_trait::async_trait]
+        impl cloacina::computation_graph::BatchAccumulator for #struct_name {
+            type Event = #inner_event_type;
+            type Output = #inner_output_type;
+
+            fn process_batch(&mut self, events: Vec<Self::Event>) -> Option<Self::Output> {
+                #fn_name(events)
+            }
+        }
+
+        impl #struct_name {
+            pub fn config() -> cloacina::computation_graph::BatchAccumulatorConfig {
+                cloacina::computation_graph::BatchAccumulatorConfig {
+                    flush_interval: std::time::Duration::from_millis(#flush_interval_ms),
+                    max_buffer_size: #max_buffer_size_expr,
+                }
+            }
+        }
+    })
+}
+
+/// Extract the inner type T from Vec<T>.
+fn extract_vec_inner(ty: &Type) -> syn::Result<Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Vec" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Ok(inner.clone());
+                    }
+                }
+            }
+        }
+    }
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "batch_accumulator function's first parameter must be Vec<T>",
+    ))
+}
+
 /// Extract the inner type T from Option<T>.
 fn extract_option_inner(ty: &Type) -> syn::Result<Type> {
     if let syn::Type::Path(type_path) = ty {
