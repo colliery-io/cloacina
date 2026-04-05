@@ -29,6 +29,22 @@ use syn::{Ident, ItemFn, ItemMod};
 use super::graph_ir::{GraphEdge, GraphIR, GraphNode};
 use super::parser::ReactionMode;
 
+/// Convert a snake_case Ident to PascalCase string for struct naming.
+fn pascal_case_ident(ident: &Ident) -> Ident {
+    let pascal = ident
+        .to_string()
+        .split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<String>();
+    format_ident!("{}", pascal)
+}
+
 /// Validate the graph against the module's functions and generate the compiled output.
 pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
     // Extract functions from the module
@@ -108,6 +124,120 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         ReactionMode::WhenAll => "when_all",
     };
 
+    // Generate the packaged FFI module (only when feature = "packaged")
+    let ffi_plugin_name = format_ident!("_GraphPlugin{}", pascal_case_ident(mod_name));
+    let packaged_ffi = quote! {
+        #[cfg(feature = "packaged")]
+        pub mod _ffi {
+            use cloacina_workflow_plugin::__fidius_CloacinaPlugin;
+            use cloacina_workflow_plugin::CloacinaPlugin as _;
+
+            pub struct #ffi_plugin_name;
+
+            #[cloacina_workflow_plugin::plugin_impl(CloacinaPlugin, crate = "cloacina_workflow_plugin")]
+            impl cloacina_workflow_plugin::CloacinaPlugin for #ffi_plugin_name {
+                fn get_task_metadata(&self) -> Result<cloacina_workflow_plugin::PackageTasksMetadata, cloacina_workflow_plugin::PluginError> {
+                    // Computation graph packages don't have workflow tasks
+                    Ok(cloacina_workflow_plugin::PackageTasksMetadata {
+                        workflow_name: String::new(),
+                        package_name: env!("CARGO_PKG_NAME").to_string(),
+                        package_description: None,
+                        package_author: None,
+                        workflow_fingerprint: None,
+                        graph_data_json: None,
+                        tasks: vec![],
+                    })
+                }
+
+                fn execute_task(&self, _request: cloacina_workflow_plugin::TaskExecutionRequest) -> Result<cloacina_workflow_plugin::TaskExecutionResult, cloacina_workflow_plugin::PluginError> {
+                    Err(cloacina_workflow_plugin::PluginError {
+                        code: "NOT_SUPPORTED".to_string(),
+                        message: "This is a computation graph package, not a workflow package".to_string(),
+                        details: None,
+                    })
+                }
+
+                fn get_graph_metadata(&self) -> Result<cloacina_workflow_plugin::GraphPackageMetadata, cloacina_workflow_plugin::PluginError> {
+                    Ok(cloacina_workflow_plugin::GraphPackageMetadata {
+                        graph_name: #mod_name_str.to_string(),
+                        package_name: env!("CARGO_PKG_NAME").to_string(),
+                        reaction_mode: #reaction_mode_str.to_string(),
+                        input_strategy: "latest".to_string(),
+                        accumulators: vec![
+                            #(
+                                cloacina_workflow_plugin::AccumulatorDeclarationEntry {
+                                    name: #accumulator_names.to_string(),
+                                    accumulator_type: "passthrough".to_string(),
+                                    config: std::collections::HashMap::new(),
+                                }
+                            ),*
+                        ],
+                    })
+                }
+
+                fn execute_graph(&self, request: cloacina_workflow_plugin::GraphExecutionRequest) -> Result<cloacina_workflow_plugin::GraphExecutionResult, cloacina_workflow_plugin::PluginError> {
+                    static CDYLIB_RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+
+                    let rt = CDYLIB_RUNTIME.get_or_init(|| {
+                        tokio::runtime::Builder::new_multi_thread()
+                            .enable_all()
+                            .worker_threads(2)
+                            .thread_name("cg-cdylib-worker")
+                            .build()
+                            .expect("Failed to create cdylib tokio runtime for computation graph")
+                    });
+
+                    // Build InputCache from the JSON request
+                    let mut cache = cloacina::computation_graph::InputCache::new();
+                    for (source_name, json_value) in &request.cache {
+                        let bytes = json_value.as_bytes().to_vec();
+                        cache.update(
+                            cloacina::computation_graph::SourceName::new(source_name),
+                            bytes,
+                        );
+                    }
+
+                    // Execute the compiled graph
+                    let result = rt.block_on(async {
+                        super::#compiled_fn_name(&cache).await
+                    });
+
+                    match result {
+                        cloacina::computation_graph::GraphResult::Completed { outputs } => {
+                            // Serialize terminal outputs to JSON strings
+                            let terminal_json: Vec<String> = outputs
+                                .iter()
+                                .filter_map(|o| {
+                                    // Try to downcast to common types and serialize
+                                    if let Some(val) = o.downcast_ref::<serde_json::Value>() {
+                                        Some(serde_json::to_string(val).unwrap_or_default())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+
+                            Ok(cloacina_workflow_plugin::GraphExecutionResult {
+                                success: true,
+                                terminal_outputs_json: if terminal_json.is_empty() { None } else { Some(terminal_json) },
+                                error: None,
+                            })
+                        }
+                        cloacina::computation_graph::GraphResult::Error(e) => {
+                            Ok(cloacina_workflow_plugin::GraphExecutionResult {
+                                success: false,
+                                terminal_outputs_json: None,
+                                error: Some(format!("{}", e)),
+                            })
+                        }
+                    }
+                }
+            }
+
+            cloacina_workflow_plugin::fidius_plugin_registry!();
+        }
+    };
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_name {
@@ -123,7 +253,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
             #compiled_fn
         }
 
+        // Embedded mode: #[ctor] registration for global registry
         #[cfg(not(test))]
+        #[cfg(not(feature = "packaged"))]
         #[ctor::ctor]
         fn #auto_register_name() {
             cloacina::register_computation_graph_constructor(
@@ -141,6 +273,9 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                 },
             );
         }
+
+        // Packaged mode: FFI plugin exports for fidius
+        #packaged_ffi
     })
 }
 
