@@ -82,18 +82,80 @@ pub struct TaskExecutionResult {
 }
 
 // ============================================================================
+// Computation graph plugin interface types (cross FFI boundary)
+// ============================================================================
+
+/// Metadata for a computation graph package, returned by `get_graph_metadata()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPackageMetadata {
+    /// Name of the computation graph
+    pub graph_name: String,
+    /// Cargo package name
+    pub package_name: String,
+    /// Reaction mode: "when_any" or "when_all"
+    pub reaction_mode: String,
+    /// Input strategy: "latest" or "sequential"
+    #[serde(default = "default_input_strategy")]
+    pub input_strategy: String,
+    /// Accumulator declarations
+    pub accumulators: Vec<AccumulatorDeclarationEntry>,
+}
+
+fn default_input_strategy() -> String {
+    "latest".to_string()
+}
+
+/// Declaration of an accumulator within a computation graph package.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccumulatorDeclarationEntry {
+    /// Accumulator name (used as source name and WebSocket endpoint)
+    pub name: String,
+    /// Accumulator type: "passthrough", "stream", "polling", "batch"
+    pub accumulator_type: String,
+    /// Type-specific configuration (e.g., topic, interval, flush_interval)
+    #[serde(default)]
+    pub config: std::collections::HashMap<String, String>,
+}
+
+/// Request to execute a computation graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphExecutionRequest {
+    /// Cache entries: source name → JSON-serialized boundary value
+    pub cache: std::collections::HashMap<String, String>,
+}
+
+/// Result of a computation graph execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphExecutionResult {
+    /// Whether the graph completed successfully
+    pub success: bool,
+    /// JSON-serialized terminal node outputs (on success)
+    pub terminal_outputs_json: Option<Vec<String>>,
+    /// Error message (on failure)
+    pub error: Option<String>,
+}
+
+// ============================================================================
 // Package manifest metadata (for package.toml [metadata] section)
 // ============================================================================
 
-/// Host-defined metadata schema for cloacina workflow packages.
+/// Host-defined metadata schema for cloacina packages.
 ///
 /// This struct defines what fields are required/optional in the `[metadata]`
-/// section of a workflow package's `package.toml`. Validated at load time
+/// section of a package's `package.toml`. Validated at load time
 /// via `PackageManifest<CloacinaMetadata>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloacinaMetadata {
-    /// Name of the workflow (must match `#[workflow(name = "...")]`)
-    pub workflow_name: String,
+    /// What this package contains: ["workflow"], ["computation_graph"], or both.
+    /// Defaults to ["workflow"] for backward compatibility with existing packages.
+    #[serde(default = "default_package_type")]
+    pub package_type: Vec<String>,
+    /// Name of the workflow (required if package_type includes "workflow")
+    #[serde(default)]
+    pub workflow_name: Option<String>,
+    /// Name of the computation graph (required if package_type includes "computation_graph")
+    #[serde(default)]
+    pub graph_name: Option<String>,
     /// Package language: "rust" or "python"
     pub language: String,
     /// Human-readable description
@@ -111,6 +173,35 @@ pub struct CloacinaMetadata {
     /// Trigger definitions for this package
     #[serde(default)]
     pub triggers: Vec<TriggerDefinition>,
+    /// Reaction mode for computation graphs: "when_any" or "when_all"
+    #[serde(default)]
+    pub reaction_mode: Option<String>,
+    /// Input strategy for computation graphs: "latest" or "sequential"
+    #[serde(default)]
+    pub input_strategy: Option<String>,
+}
+
+fn default_package_type() -> Vec<String> {
+    vec!["workflow".to_string()]
+}
+
+impl CloacinaMetadata {
+    /// Check if this package contains a workflow.
+    pub fn has_workflow(&self) -> bool {
+        self.package_type.iter().any(|t| t == "workflow")
+    }
+
+    /// Check if this package contains a computation graph.
+    pub fn has_computation_graph(&self) -> bool {
+        self.package_type.iter().any(|t| t == "computation_graph")
+    }
+
+    /// Get the workflow name, falling back for backward compatibility.
+    /// Old packages had `workflow_name` as required — now it's optional
+    /// but we still need it for workflow packages.
+    pub fn effective_workflow_name(&self) -> Option<&str> {
+        self.workflow_name.as_deref()
+    }
 }
 
 /// A trigger definition within a workflow package manifest.
@@ -233,7 +324,10 @@ mod tests {
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.workflow_name, "analytics_pipeline");
+        assert_eq!(
+            metadata.workflow_name.as_deref(),
+            Some("analytics_pipeline")
+        );
         assert_eq!(metadata.language, "rust");
         assert_eq!(
             metadata.description.as_deref(),
@@ -257,7 +351,7 @@ mod tests {
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.workflow_name, "etl_pipeline");
+        assert_eq!(metadata.workflow_name.as_deref(), Some("etl_pipeline"));
         assert_eq!(metadata.language, "python");
         assert_eq!(metadata.requires_python.as_deref(), Some(">=3.11"));
         assert_eq!(metadata.entry_module.as_deref(), Some("workflow.tasks"));
@@ -272,7 +366,7 @@ mod tests {
         "#;
 
         let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
-        assert_eq!(metadata.workflow_name, "simple_workflow");
+        assert_eq!(metadata.workflow_name.as_deref(), Some("simple_workflow"));
         assert_eq!(metadata.language, "rust");
         assert!(metadata.description.is_none());
         assert!(metadata.triggers.is_empty());
@@ -286,5 +380,112 @@ mod tests {
 
         let result = toml::from_str::<CloacinaMetadata>(toml_str);
         assert!(result.is_err(), "Missing language field should fail");
+    }
+
+    #[test]
+    fn test_cloacina_metadata_defaults_to_workflow_package_type() {
+        let toml_str = r#"
+            workflow_name = "legacy_workflow"
+            language = "rust"
+        "#;
+
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        assert_eq!(metadata.package_type, vec!["workflow"]);
+        assert!(metadata.has_workflow());
+        assert!(!metadata.has_computation_graph());
+    }
+
+    #[test]
+    fn test_cloacina_metadata_computation_graph_from_toml() {
+        let toml_str = r#"
+            package_type = ["computation_graph"]
+            graph_name = "market_maker"
+            language = "rust"
+            reaction_mode = "when_any"
+            input_strategy = "latest"
+        "#;
+
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        assert_eq!(metadata.package_type, vec!["computation_graph"]);
+        assert!(!metadata.has_workflow());
+        assert!(metadata.has_computation_graph());
+        assert_eq!(metadata.graph_name.as_deref(), Some("market_maker"));
+        assert_eq!(metadata.reaction_mode.as_deref(), Some("when_any"));
+        assert!(metadata.workflow_name.is_none());
+    }
+
+    #[test]
+    fn test_cloacina_metadata_both_types() {
+        let toml_str = r#"
+            package_type = ["workflow", "computation_graph"]
+            workflow_name = "analytics"
+            graph_name = "market_maker"
+            language = "rust"
+        "#;
+
+        let metadata: CloacinaMetadata = toml::from_str(toml_str).unwrap();
+        assert!(metadata.has_workflow());
+        assert!(metadata.has_computation_graph());
+    }
+
+    #[test]
+    fn test_graph_package_metadata_round_trip() {
+        let metadata = GraphPackageMetadata {
+            graph_name: "market_maker".to_string(),
+            package_name: "mm-pkg".to_string(),
+            reaction_mode: "when_any".to_string(),
+            input_strategy: "latest".to_string(),
+            accumulators: vec![
+                AccumulatorDeclarationEntry {
+                    name: "orderbook".to_string(),
+                    accumulator_type: "stream".to_string(),
+                    config: [("topic".to_string(), "market.orderbook".to_string())]
+                        .into_iter()
+                        .collect(),
+                },
+                AccumulatorDeclarationEntry {
+                    name: "pricing".to_string(),
+                    accumulator_type: "passthrough".to_string(),
+                    config: std::collections::HashMap::new(),
+                },
+            ],
+        };
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        let roundtrip: GraphPackageMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.graph_name, "market_maker");
+        assert_eq!(roundtrip.accumulators.len(), 2);
+        assert_eq!(roundtrip.accumulators[0].accumulator_type, "stream");
+        assert_eq!(
+            roundtrip.accumulators[0].config.get("topic").unwrap(),
+            "market.orderbook"
+        );
+    }
+
+    #[test]
+    fn test_graph_execution_request_round_trip() {
+        let request = GraphExecutionRequest {
+            cache: [("alpha".to_string(), r#"{"value": 42.0}"#.to_string())]
+                .into_iter()
+                .collect(),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let roundtrip: GraphExecutionRequest = serde_json::from_str(&json).unwrap();
+        assert!(roundtrip.cache.contains_key("alpha"));
+    }
+
+    #[test]
+    fn test_graph_execution_result_round_trip() {
+        let result = GraphExecutionResult {
+            success: true,
+            terminal_outputs_json: Some(vec![r#"{"published": true}"#.to_string()]),
+            error: None,
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        let roundtrip: GraphExecutionResult = serde_json::from_str(&json).unwrap();
+        assert!(roundtrip.success);
+        assert_eq!(roundtrip.terminal_outputs_json.unwrap().len(), 1);
     }
 }

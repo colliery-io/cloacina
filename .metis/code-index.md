@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T15:49:13Z | 412 files | JavaScript, Python, Rust
+> Generated: 2026-04-05T17:27:47Z | 412 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -2975,9 +2975,11 @@
 - pub `__enter__` function L364-367 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry — establish graph context for @node decorators
 - pub `__exit__` function L370-423 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit — validate nodes against topology, build executor
 - pub `__repr__` function L425-431 — `(&self) -> String` — ```
-- pub `get_graph_executor` function L452-454 — `(name: &str) -> Option<PythonGraphExecutor>` — Get a registered graph executor by name (for testing / reactor use).
-- pub `PythonGraphExecutor` struct L457-464 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
-- pub `execute` function L489-524 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
+- pub `execute` function L437-455 — `(&self, py: Python<'_>, inputs: &Bound<'_, PyDict>) -> PyResult<PyObject>` — Execute the computation graph with the given input cache.
+- pub `get_graph_executor` function L476-478 — `(name: &str) -> Option<PythonGraphExecutor>` — Get a registered graph executor by name (for testing / reactor use).
+- pub `PythonGraphExecutor` struct L481-488 — `{ name: String, node_functions: HashMap<String, PyObject>, node_map: HashMap<Str...` — ```
+- pub `execute_sync` function L515-556 — `( &self, py: Python<'_>, inputs: &HashMap<String, PyObject>, ) -> PyResult<PyObj...` — Execute the graph synchronously from Python with dict inputs.
+- pub `execute` function L559-594 — `( &self, cache: &crate::computation_graph::types::InputCache, ) -> GraphResult` — Execute the graph with the given input cache.
 -  `NODE_REGISTRY` variable L62-63 — `: Lazy<Mutex<HashMap<String, PyObject>>>` — ```
 -  `ACTIVE_GRAPH_CONTEXT` variable L64 — `: Lazy<Mutex<Option<String>>>` — ```
 -  `push_graph_context` function L66-69 — `(name: String)` — ```
@@ -2989,18 +2991,18 @@
 -  `register_accumulator` function L104-109 — `(name: String, func: PyObject, reg: PyAccumulatorRegistration)` — ```
 -  `PyNodeDecl` struct L283-287 — `{ name: String, cache_inputs: Vec<String>, edge: PyEdgeDecl }` — ```
 -  `PyEdgeDecl` enum L290-294 — `Linear | Routing | Terminal` — ```
--  `PyComputationGraphBuilder` type L330-432 — `= PyComputationGraphBuilder` — ```
--  `GRAPH_EXECUTORS` variable L439-440 — `: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>>` — Global registry of graph executors.
--  `register_graph_executor` function L442-449 — `( name: String, executor: PythonGraphExecutor, _py: Python<'_>, ) -> PyResult<()...` — ```
--  `PythonGraphExecutor` type L467 — `impl Send for PythonGraphExecutor` — ```
--  `PythonGraphExecutor` type L468 — `impl Sync for PythonGraphExecutor` — ```
--  `PythonGraphExecutor` type L470-485 — `impl Clone for PythonGraphExecutor` — ```
--  `clone` function L471-484 — `(&self) -> Self` — ```
--  `PythonGraphExecutor` type L487-525 — `= PythonGraphExecutor` — ```
--  `execute_graph_sync` function L531-673 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
--  `build_node_args` function L675-716 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
--  `parse_graph_dict` function L722-767 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
--  `compute_execution_order` function L769-828 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
+-  `PyComputationGraphBuilder` type L330-456 — `= PyComputationGraphBuilder` — ```
+-  `GRAPH_EXECUTORS` variable L463-464 — `: Lazy<Mutex<HashMap<String, PythonGraphExecutor>>>` — Global registry of graph executors.
+-  `register_graph_executor` function L466-473 — `( name: String, executor: PythonGraphExecutor, _py: Python<'_>, ) -> PyResult<()...` — ```
+-  `PythonGraphExecutor` type L491 — `impl Send for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L492 — `impl Sync for PythonGraphExecutor` — ```
+-  `PythonGraphExecutor` type L494-509 — `impl Clone for PythonGraphExecutor` — ```
+-  `clone` function L495-508 — `(&self) -> Self` — ```
+-  `PythonGraphExecutor` type L511-595 — `= PythonGraphExecutor` — ```
+-  `execute_graph_sync` function L601-743 — `( py: Python<'_>, node_functions: &HashMap<String, PyObject>, execution_order: &...` — ```
+-  `build_node_args` function L745-786 — `( py: Python<'py>, node_name: &str, node_decl: &PyNodeDecl, cache_values: &HashM...` — ```
+-  `parse_graph_dict` function L792-837 — `(graph: &Bound<'_, PyDict>) -> PyResult<Vec<PyNodeDecl>>` — ```
+-  `compute_execution_order` function L839-898 — `(nodes: &[PyNodeDecl]) -> Vec<String>` — ```
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
@@ -3349,14 +3351,14 @@
 
 - pub `ExtractedPythonPackage` struct L29-44 — `{ root_dir: PathBuf, vendor_dir: PathBuf, workflow_dir: PathBuf, entry_module: S...` — An extracted Python package ready for task execution.
 - pub `PackageKind` enum L47-60 — `Python | Rust` — Result of detecting the package language from a source archive.
-- pub `detect_package_kind` function L66-114 — `(archive_data: &[u8]) -> Result<PackageKind, LoaderError>` — Detect the package kind (Python or Rust) from a `.cloacina` source archive.
-- pub `extract_python_package` function L121-191 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` source archive.
--  `tests` module L194-316 — `-` — for task execution via PyO3.
--  `create_python_source_package` function L199-241 — `( dir: &Path, name: &str, include_workflow: bool, ) -> std::path::PathBuf` — Create a fidius source package directory for a Python workflow.
--  `test_detect_package_kind_python` function L244-253 — `()` — for task execution via PyO3.
--  `test_extract_python_package` function L256-271 — `()` — for task execution via PyO3.
--  `test_extract_missing_workflow_dir` function L274-284 — `()` — for task execution via PyO3.
--  `test_wrong_language_rejected` function L287-315 — `()` — for task execution via PyO3.
+- pub `detect_package_kind` function L66-119 — `(archive_data: &[u8]) -> Result<PackageKind, LoaderError>` — Detect the package kind (Python or Rust) from a `.cloacina` source archive.
+- pub `extract_python_package` function L126-200 — `( archive_data: &[u8], staging_dir: &Path, ) -> Result<ExtractedPythonPackage, L...` — Extract a Python workflow package from a `.cloacina` source archive.
+-  `tests` module L203-325 — `-` — for task execution via PyO3.
+-  `create_python_source_package` function L208-250 — `( dir: &Path, name: &str, include_workflow: bool, ) -> std::path::PathBuf` — Create a fidius source package directory for a Python workflow.
+-  `test_detect_package_kind_python` function L253-262 — `()` — for task execution via PyO3.
+-  `test_extract_python_package` function L265-280 — `()` — for task execution via PyO3.
+-  `test_extract_missing_workflow_dir` function L283-293 — `()` — for task execution via PyO3.
+-  `test_wrong_language_rejected` function L296-324 — `()` — for task execution via PyO3.
 
 ### crates/cloacina/src/registry/loader/task_registrar
 
@@ -5652,7 +5654,7 @@
 -  `validate_dependencies` function L271-325 — `( workflow_name: &str, detected_tasks: &HashMap<String, syn::Ident>, task_depend...` — Validate task dependencies within the module.
 -  `generate_embedded_registration` function L332-568 — `( mod_name: &syn::Ident, workflow_name: &str, tenant: &str, description: &str, a...` — Generate embedded mode registration code.
 -  `generate_trigger_rules_rewrite` function L571-614 — `(tenant: &str, workflow_name: &str) -> TokenStream2` — Generate trigger rules rewrite code (namespace task names in trigger conditions).
--  `generate_packaged_registration` function L621-753 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
+-  `generate_packaged_registration` function L621-769 — `( mod_name: &syn::Ident, workflow_name: &str, description: &str, author: &str, f...` — Generate packaged mode FFI exports.
 
 ### crates/cloacina-testing/src
 
@@ -5917,7 +5919,7 @@
 #### crates/cloacina-workflow-plugin/src/lib.rs
 
 - pub `types` module L35 — `-` — Cloacina plugin interface for the fidius plugin system.
-- pub `CloacinaPlugin` interface L76-85 — `{ fn get_task_metadata(), fn execute_task() }` — The plugin interface for cloacina workflow packages.
+- pub `CloacinaPlugin` interface L77-101 — `{ fn get_task_metadata(), fn execute_task(), fn get_graph_metadata(), fn execute...` — The plugin interface for cloacina workflow packages.
 
 #### crates/cloacina-workflow-plugin/src/types.rs
 
@@ -5925,18 +5927,34 @@
 - pub `PackageTasksMetadata` struct L47-62 — `{ workflow_name: String, package_name: String, package_description: Option<Strin...` — Complete metadata for a workflow package, returned by `get_task_metadata()`.
 - pub `TaskExecutionRequest` struct L66-71 — `{ task_name: String, context_json: String }` — Request to execute a task within a workflow package.
 - pub `TaskExecutionResult` struct L75-82 — `{ success: bool, context_json: Option<String>, error: Option<String> }` — Result of a task execution.
-- pub `CloacinaMetadata` struct L94-114 — `{ workflow_name: String, language: String, description: Option<String>, author: ...` — Host-defined metadata schema for cloacina workflow packages.
-- pub `TriggerDefinition` struct L118-131 — `{ name: String, workflow: String, poll_interval: String, cron_expression: Option...` — A trigger definition within a workflow package manifest.
--  `tests` module L134-290 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_metadata_serde_round_trip` function L138-152 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_package_tasks_metadata_serde_round_trip` function L155-177 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_request_round_trip` function L180-189 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_success` function L192-204 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_failure` function L207-218 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_rust_from_toml` function L221-247 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_python_from_toml` function L250-265 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_minimal_rust` function L268-279 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_missing_language_fails` function L282-289 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+- pub `GraphPackageMetadata` struct L90-102 — `{ graph_name: String, package_name: String, reaction_mode: String, input_strateg...` — Metadata for a computation graph package, returned by `get_graph_metadata()`.
+- pub `AccumulatorDeclarationEntry` struct L110-118 — `{ name: String, accumulator_type: String, config: std::collections::HashMap<Stri...` — Declaration of an accumulator within a computation graph package.
+- pub `GraphExecutionRequest` struct L122-125 — `{ cache: std::collections::HashMap<String, String> }` — Request to execute a computation graph.
+- pub `GraphExecutionResult` struct L129-136 — `{ success: bool, terminal_outputs_json: Option<Vec<String>>, error: Option<Strin...` — Result of a computation graph execution.
+- pub `CloacinaMetadata` struct L148-182 — `{ package_type: Vec<String>, workflow_name: Option<String>, graph_name: Option<S...` — Host-defined metadata schema for cloacina packages.
+- pub `has_workflow` function L190-192 — `(&self) -> bool` — Check if this package contains a workflow.
+- pub `has_computation_graph` function L195-197 — `(&self) -> bool` — Check if this package contains a computation graph.
+- pub `effective_workflow_name` function L202-204 — `(&self) -> Option<&str>` — Get the workflow name, falling back for backward compatibility.
+- pub `TriggerDefinition` struct L209-222 — `{ name: String, workflow: String, poll_interval: String, cron_expression: Option...` — A trigger definition within a workflow package manifest.
+-  `default_input_strategy` function L104-106 — `() -> String` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `default_package_type` function L184-186 — `() -> Vec<String>` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `CloacinaMetadata` type L188-205 — `= CloacinaMetadata` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `tests` module L225-491 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_metadata_serde_round_trip` function L229-243 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_package_tasks_metadata_serde_round_trip` function L246-268 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_request_round_trip` function L271-280 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_success` function L283-295 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_failure` function L298-309 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_rust_from_toml` function L312-341 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_python_from_toml` function L344-359 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_minimal_rust` function L362-373 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_missing_language_fails` function L376-383 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_defaults_to_workflow_package_type` function L386-396 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_computation_graph_from_toml` function L399-415 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_both_types` function L418-429 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_package_metadata_round_trip` function L432-463 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_execution_request_round_trip` function L466-476 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_execution_result_round_trip` function L479-490 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
 
 ### crates/cloacinactl
 
