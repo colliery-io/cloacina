@@ -325,8 +325,8 @@ pub trait BatchAccumulator: Send + 'static {
 
 /// Configuration for the batch accumulator runtime.
 pub struct BatchAccumulatorConfig {
-    /// How often to flush the buffer.
-    pub flush_interval: std::time::Duration,
+    /// Optional timer-based flush interval. If None, only flushes on signal or size threshold.
+    pub flush_interval: Option<std::time::Duration>,
     /// Optional: flush when buffer reaches this size.
     pub max_buffer_size: Option<usize>,
 }
@@ -334,22 +334,38 @@ pub struct BatchAccumulatorConfig {
 impl Default for BatchAccumulatorConfig {
     fn default() -> Self {
         Self {
-            flush_interval: std::time::Duration::from_secs(5),
+            flush_interval: None,
             max_buffer_size: None,
         }
     }
 }
 
-/// Run a batch accumulator that buffers events and flushes on timer or size threshold.
+/// Create a flush signal pair for batch accumulators.
+///
+/// The sender is held by the reactor (or external code) and used to trigger
+/// a flush. The receiver is passed to `batch_accumulator_runtime`.
+pub fn flush_signal() -> (mpsc::Sender<()>, mpsc::Receiver<()>) {
+    mpsc::channel(16)
+}
+
+/// Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
+///
+/// Primary flush trigger is the `flush_rx` channel — typically sent by the reactor
+/// after each graph execution ("give me everything since last run").
+/// Timer and size threshold are secondary/fallback triggers.
 pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     mut acc: B,
     ctx: AccumulatorContext,
     socket_rx: mpsc::Receiver<Vec<u8>>,
+    mut flush_rx: mpsc::Receiver<()>,
     config: BatchAccumulatorConfig,
 ) {
-    let mut timer = tokio::time::interval(config.flush_interval);
-    // Skip the first immediate tick
-    timer.tick().await;
+    // Create timer only if interval is configured
+    let mut timer = config.flush_interval.map(tokio::time::interval);
+    if let Some(ref mut t) = timer {
+        // Skip the first immediate tick
+        t.tick().await;
+    }
 
     let mut shutdown = ctx.shutdown.clone();
     let mut socket_rx = socket_rx;
@@ -373,7 +389,15 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                     }
                 }
             }
-            _ = timer.tick() => {
+            Some(()) = flush_rx.recv() => {
+                flush_batch(&mut acc, &mut buffer, &ctx).await;
+            }
+            _ = async {
+                match timer.as_mut() {
+                    Some(t) => t.tick().await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
             }
             _ = shutdown.changed() => {
@@ -692,9 +716,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_batch_accumulator_flush_on_signal() {
+        let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
+        let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (flush_tx, flush_rx) = flush_signal();
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("batch_signal"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "batch_signal".to_string(),
+            shutdown: shutdown_rx,
+        };
+
+        let config = BatchAccumulatorConfig::default(); // no timer, no size threshold
+
+        let handle = tokio::spawn(batch_accumulator_runtime(
+            SumBatchAccumulator,
+            ctx,
+            socket_rx,
+            flush_rx,
+            config,
+        ));
+
+        // Push 3 events
+        for v in [10.0, 20.0, 30.0] {
+            socket_tx
+                .send(types::serialize(&TestEvent { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // No boundary yet — no flush signal sent
+        assert!(boundary_rx.try_recv().is_err());
+
+        // Send flush signal
+        flush_tx.send(()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Should get one boundary with sum = 60.0
+        let (_name, bytes) = boundary_rx.recv().await.unwrap();
+        let b: TestBoundary = types::deserialize(&bytes).unwrap();
+        assert_eq!(b.result, 60.0);
+
+        shutdown_tx.send(true).unwrap();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
     async fn test_batch_accumulator_flush_on_timer() {
         let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
         let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (_flush_tx, flush_rx) = flush_signal();
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
         let sender = BoundarySender::new(boundary_tx, SourceName::new("batch"));
@@ -705,7 +780,7 @@ mod tests {
         };
 
         let config = BatchAccumulatorConfig {
-            flush_interval: std::time::Duration::from_millis(100),
+            flush_interval: Some(std::time::Duration::from_millis(100)),
             max_buffer_size: None,
         };
 
@@ -713,6 +788,7 @@ mod tests {
             SumBatchAccumulator,
             ctx,
             socket_rx,
+            flush_rx,
             config,
         ));
 
@@ -740,6 +816,7 @@ mod tests {
     async fn test_batch_accumulator_empty_flush_skips() {
         let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
         let (_socket_tx, socket_rx) = mpsc::channel(10);
+        let (flush_tx, flush_rx) = flush_signal();
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
         let sender = BoundarySender::new(boundary_tx, SourceName::new("empty_batch"));
@@ -749,17 +826,18 @@ mod tests {
             shutdown: shutdown_rx,
         };
 
-        let config = BatchAccumulatorConfig {
-            flush_interval: std::time::Duration::from_millis(50),
-            max_buffer_size: None,
-        };
+        let config = BatchAccumulatorConfig::default();
 
         let handle = tokio::spawn(batch_accumulator_runtime(
             SumBatchAccumulator,
             ctx,
             socket_rx,
+            flush_rx,
             config,
         ));
+
+        // Send flush with empty buffer
+        flush_tx.send(()).await.unwrap();
 
         // Wait for a few flush cycles with no events
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -775,6 +853,7 @@ mod tests {
     async fn test_batch_accumulator_max_buffer_size() {
         let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
         let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (_flush_tx, flush_rx) = flush_signal();
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
         let sender = BoundarySender::new(boundary_tx, SourceName::new("size_batch"));
@@ -785,14 +864,15 @@ mod tests {
         };
 
         let config = BatchAccumulatorConfig {
-            flush_interval: std::time::Duration::from_secs(60), // very long — won't trigger
-            max_buffer_size: Some(3),                           // flush at 3 events
+            flush_interval: None,     // no timer
+            max_buffer_size: Some(3), // flush at 3 events
         };
 
         let handle = tokio::spawn(batch_accumulator_runtime(
             SumBatchAccumulator,
             ctx,
             socket_rx,
+            flush_rx,
             config,
         ));
 
@@ -819,6 +899,7 @@ mod tests {
     async fn test_batch_accumulator_shutdown_drains() {
         let (boundary_tx, mut boundary_rx) = mpsc::channel(10);
         let (socket_tx, socket_rx) = mpsc::channel(10);
+        let (_flush_tx, flush_rx) = flush_signal();
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
         let sender = BoundarySender::new(boundary_tx, SourceName::new("drain_batch"));
@@ -828,15 +909,13 @@ mod tests {
             shutdown: shutdown_rx,
         };
 
-        let config = BatchAccumulatorConfig {
-            flush_interval: std::time::Duration::from_secs(60), // won't trigger
-            max_buffer_size: None,
-        };
+        let config = BatchAccumulatorConfig::default(); // no timer, no size
 
         let handle = tokio::spawn(batch_accumulator_runtime(
             SumBatchAccumulator,
             ctx,
             socket_rx,
+            flush_rx,
             config,
         ));
 

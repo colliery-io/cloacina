@@ -553,7 +553,9 @@ async fn test_polling_accumulator_to_reactor() {
 // Test 7: Batch accumulator → reactor → compiled graph
 // =============================================================================
 
-use cloacina::computation_graph::accumulator::{batch_accumulator_runtime, BatchAccumulatorConfig};
+use cloacina::computation_graph::accumulator::{
+    batch_accumulator_runtime, flush_signal, BatchAccumulatorConfig,
+};
 use cloacina::computation_graph::BatchAccumulator;
 
 struct TestBatcher;
@@ -573,6 +575,7 @@ impl BatchAccumulator for TestBatcher {
 async fn test_batch_accumulator_to_reactor() {
     let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
     let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(10);
+    let (flush_tx, flush_rx) = flush_signal();
     let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
     let (shutdown_tx, shutdown_rx) = shutdown_signal();
 
@@ -583,15 +586,13 @@ async fn test_batch_accumulator_to_reactor() {
         shutdown: shutdown_rx.clone(),
     };
 
-    let config = BatchAccumulatorConfig {
-        flush_interval: std::time::Duration::from_millis(100),
-        max_buffer_size: None,
-    };
+    let config = BatchAccumulatorConfig::default(); // flush via signal, not timer
 
     let _batch_handle = tokio::spawn(batch_accumulator_runtime(
         TestBatcher,
         ctx,
         socket_rx,
+        flush_rx,
         config,
     ));
 
@@ -632,7 +633,7 @@ async fn test_batch_accumulator_to_reactor() {
     );
     let _reactor_handle = tokio::spawn(reactor.run());
 
-    // Push 5 events quickly (before flush timer)
+    // Push 5 events quickly
     for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
         socket_tx
             .send(serialize(&AlphaData { value: v }).unwrap())
@@ -640,8 +641,12 @@ async fn test_batch_accumulator_to_reactor() {
             .unwrap();
     }
 
-    // Wait for flush (100ms) + processing
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    // Let events buffer, then send flush signal
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    flush_tx.send(()).await.unwrap();
+
+    // Wait for flush + processing
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     // Batch sums to 15.0 → entry doubles to 30.0 → process adds 10 → 40.0
     assert_eq!(
