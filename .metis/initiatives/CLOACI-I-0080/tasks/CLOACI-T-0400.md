@@ -1,38 +1,66 @@
 ---
-id: post-mvp-websocket-level
+id: packageloader-and-reconciler
 level: task
-title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
-short_code: "CLOACI-T-0381"
-created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
-parent:
+title: "PackageLoader and reconciler routing for computation graph packages"
+short_code: "CLOACI-T-0400"
+created_at: 2026-04-05T17:13:26.974921+00:00
+updated_at: 2026-04-05T17:45:00.719877+00:00
+parent: CLOACI-I-0080
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0080
 ---
 
-# Post-MVP: WebSocket-level integration tests (axum server + WS client)
+# PackageLoader and reconciler routing for computation graph packages
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[Parent Initiative]]
+[[CLOACI-I-0080]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Spin up the full axum server on an ephemeral port with Postgres, load a computation graph via ReactiveScheduler, and test the actual WebSocket transport layer using `tokio-tungstenite` as a client. Currently T-0378 proves the pipeline at the library level (registry → accumulator → reactor → graph), but the HTTP upgrade + WS message framing path is untested.
+Extend PackageLoader to detect computation graph packages (via `package_type` in metadata) and call the new `get_graph_metadata()` method. Wire the reconciler to route computation graph metadata to `ReactiveScheduler::load_graph()` on load and `unload_graph()` on removal. Thread `ReactiveScheduler` through `RegistryReconciler`.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] `PackageLoader::extract_metadata()` checks `package_type` list from `CloacinaMetadata`
+- [ ] If `package_type` includes "computation_graph", calls `PluginHandle::call_method` for `get_graph_metadata()`
+- [ ] Returns `GraphPackageMetadata` alongside existing `PackageTasksMetadata`
+- [ ] `RegistryReconciler` accepts optional `Arc<ReactiveScheduler>` at construction
+- [ ] After loading a package with computation graph, reconciler calls `ReactiveScheduler::load_graph()`
+- [ ] On package unload, reconciler calls `ReactiveScheduler::unload_graph()`
+- [ ] Packages with `package_type: ["workflow"]` route to Unified Scheduler only (unchanged)
+- [ ] Packages with `package_type: ["workflow", "computation_graph"]` route to both
+- [ ] Backward compatible: packages without `package_type` field default to `["workflow"]`
+
+## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+
+{Delete this section when task is assigned to an initiative}
+
+### Type
+- [ ] Bug - Production issue that needs fixing
+- [ ] Feature - New functionality or enhancement
+- [ ] Tech Debt - Code improvement or refactoring
+- [ ] Chore - Maintenance or setup work
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [ ] P0 - Critical (blocks users/revenue)
+- [ ] P1 - High (important for user experience)
+- [ ] P2 - Medium (nice to have)
+- [ ] P3 - Low (when time permits)
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
@@ -51,10 +79,6 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -125,4 +149,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Complete. PackageLoader::extract_graph_metadata() calls FFI method index 2 on plugins. RegistryReconciler gains optional Arc<ReactiveScheduler> via with_reactive_scheduler(). load_package() checks has_computation_graph(), extracts graph metadata, logs detection. unload_package() calls unload_graph(). PackageState tracks graph_name. Actual load_graph() call gated on T-0401 (AccumulatorFactory bridge). Backward compatible — default package_type is ["workflow"]. 9 integration tests pass.

@@ -1,38 +1,65 @@
 ---
-id: post-mvp-websocket-level
+id: accumulatorfactory-bridge-from-ffi
 level: task
-title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
-short_code: "CLOACI-T-0381"
-created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
-parent:
+title: "AccumulatorFactory bridge from FFI metadata to ReactiveScheduler"
+short_code: "CLOACI-T-0401"
+created_at: 2026-04-05T17:13:28.167755+00:00
+updated_at: 2026-04-05T17:56:49.526680+00:00
+parent: CLOACI-I-0080
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0080
 ---
 
-# Post-MVP: WebSocket-level integration tests (axum server + WS client)
+# AccumulatorFactory bridge from FFI metadata to ReactiveScheduler
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[Parent Initiative]]
+[[CLOACI-I-0080]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Spin up the full axum server on an ephemeral port with Postgres, load a computation graph via ReactiveScheduler, and test the actual WebSocket transport layer using `tokio-tungstenite` as a client. Currently T-0378 proves the pipeline at the library level (registry → accumulator → reactor → graph), but the HTTP upgrade + WS message framing path is untested.
+Bridge from FFI-loaded `GraphPackageMetadata` to `ComputationGraphDeclaration` + `AccumulatorFactory` implementations that the `ReactiveScheduler` can consume. The FFI metadata tells us accumulator names/types/config and the graph execution method — we need to create factories that spawn accumulator runtimes and a `CompiledGraphFn` that calls `execute_graph()` via FFI.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] `DynamicLibraryGraphExecutor` — wraps library_data, calls `execute_graph()` through fidius PluginHandle
+- [ ] `CompiledGraphFn` created from `DynamicLibraryGraphExecutor` (serialize InputCache → JSON, call FFI, deserialize result)
+- [ ] `DynamicLibraryAccumulatorFactory` — creates accumulator runtimes from FFI metadata (name, type, config)
+- [ ] Passthrough factory: spawns `accumulator_runtime` with a generic passthrough accumulator
+- [ ] Stream factory: spawns `accumulator_runtime` with stream backend config from metadata
+- [ ] Polling/batch factories for those accumulator types
+- [ ] `GraphPackageMetadata` → `ComputationGraphDeclaration` conversion function
+- [ ] Unit test: mock metadata → declaration → factories produce valid channel senders
+
+## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+
+{Delete this section when task is assigned to an initiative}
+
+### Type
+- [ ] Bug - Production issue that needs fixing
+- [ ] Feature - New functionality or enhancement
+- [ ] Tech Debt - Code improvement or refactoring
+- [ ] Chore - Maintenance or setup work
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [ ] P0 - Critical (blocks users/revenue)
+- [ ] P1 - High (important for user experience)
+- [ ] P2 - Medium (nice to have)
+- [ ] P3 - Low (when time permits)
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
@@ -51,10 +78,6 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -125,4 +148,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Complete. packaging_bridge module with build_declaration_from_ffi(), execute_graph_via_ffi(), GenericPassthroughAccumulator factory. Handles debug/release format at FFI boundary. Reconciler wired to call load_graph(). 2 unit + 9 integration tests pass.

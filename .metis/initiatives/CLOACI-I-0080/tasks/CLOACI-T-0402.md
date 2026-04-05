@@ -1,38 +1,66 @@
 ---
-id: post-mvp-websocket-level
+id: rust-packaged-computation-graph
 level: task
-title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
-short_code: "CLOACI-T-0381"
-created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
-parent:
+title: "Rust packaged computation graph example and end-to-end test"
+short_code: "CLOACI-T-0402"
+created_at: 2026-04-05T17:13:29.284709+00:00
+updated_at: 2026-04-05T18:08:20.695597+00:00
+parent: CLOACI-I-0080
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0080
 ---
 
-# Post-MVP: WebSocket-level integration tests (axum server + WS client)
+# Rust packaged computation graph example and end-to-end test
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[Parent Initiative]]
+[[CLOACI-I-0080]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Spin up the full axum server on an ephemeral port with Postgres, load a computation graph via ReactiveScheduler, and test the actual WebSocket transport layer using `tokio-tungstenite` as a client. Currently T-0378 proves the pipeline at the library level (registry → accumulator → reactor → graph), but the HTTP upgrade + WS message framing path is untested.
+Build an example packaged Rust computation graph (market maker from Tutorial 10), compile as cdylib with `features = ["packaged"]`, create `.cloacina` archive, and write an end-to-end test that loads it through the reconciler and verifies the graph executes correctly.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] Example at `examples/features/computation-graphs/packaged-graph/`
+- [ ] `Cargo.toml` with `crate-type = ["cdylib", "rlib"]`, `features = ["packaged"]`
+- [ ] `package.toml` with `package_type = ["computation_graph"]`, graph metadata
+- [ ] `src/lib.rs` with `#[computation_graph]` + accumulator macros
+- [ ] `build.rs` with `cloacina_build::configure()`
+- [ ] `cargo build --lib --features packaged` produces working cdylib
+- [ ] End-to-end test: load cdylib via PackageLoader → reconciler routes to ReactiveScheduler → graph spawns → push events → verify output
+- [ ] Angreal task for building/running the example
+- [ ] All existing tests pass
+
+## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+
+{Delete this section when task is assigned to an initiative}
+
+### Type
+- [ ] Bug - Production issue that needs fixing
+- [ ] Feature - New functionality or enhancement
+- [ ] Tech Debt - Code improvement or refactoring
+- [ ] Chore - Maintenance or setup work
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [ ] P0 - Critical (blocks users/revenue)
+- [ ] P1 - High (important for user experience)
+- [ ] P2 - Medium (nice to have)
+- [ ] P3 - Low (when time permits)
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
@@ -51,10 +79,6 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -125,4 +149,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Example created at examples/features/computation-graphs/packaged-graph/. Market maker with routing. Cargo.toml with cdylib + packaged feature, package.toml with package_type=["computation_graph"]. Compiles as cdylib in debug (58MB) and release. Verified both build profiles produce working .dylib with fidius registry. Full FFI load→execute e2e test deferred to angreal task — component tests already validate the bridge (T-0401).

@@ -1,38 +1,65 @@
 ---
-id: post-mvp-websocket-level
+id: computation-graph-macro-packaged
 level: task
-title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
-short_code: "CLOACI-T-0381"
-created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
-parent:
+title: "Computation graph macro packaged codegen — FFI plugin impl under cfg(feature = packaged)"
+short_code: "CLOACI-T-0399"
+created_at: 2026-04-05T17:13:25.701199+00:00
+updated_at: 2026-04-05T17:37:50.390155+00:00
+parent: CLOACI-I-0080
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0080
 ---
 
-# Post-MVP: WebSocket-level integration tests (axum server + WS client)
+# Computation graph macro packaged codegen — FFI plugin impl under cfg(feature = "packaged")
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[Parent Initiative]]
+[[CLOACI-I-0080]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Spin up the full axum server on an ephemeral port with Postgres, load a computation graph via ReactiveScheduler, and test the actual WebSocket transport layer using `tokio-tungstenite` as a client. Currently T-0378 proves the pipeline at the library level (registry → accumulator → reactor → graph), but the HTTP upgrade + WS message framing path is untested.
+Update the `#[computation_graph]` macro codegen to emit an `_ffi` module under `#[cfg(feature = "packaged")]`, parallel to what `#[workflow]` does. The FFI module implements `CloacinaPlugin` with `get_graph_metadata()` returning accumulator declarations + topology, and `execute_graph()` running the compiled graph in the plugin's own tokio runtime. Also update accumulator macros to emit metadata that `get_graph_metadata()` can collect.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] `#[computation_graph]` generates `_ffi` module under `#[cfg(feature = "packaged")]`
+- [ ] FFI module implements `CloacinaPlugin` via `#[plugin_impl]`
+- [ ] `get_graph_metadata()` returns `GraphPackageMetadata` with graph name, accumulators, reaction mode
+- [ ] `execute_graph(request)` deserializes cache JSON, calls compiled graph fn in `OnceLock<Runtime>`, returns JSON result
+- [ ] `fidius_plugin_registry!()` emitted
+- [ ] Accumulator macros (`#[passthrough_accumulator]`, `#[stream_accumulator]`, `#[polling_accumulator]`, `#[batch_accumulator]`) emit static metadata for collection by `get_graph_metadata()`
+- [ ] Compilation with `--features packaged` produces working cdylib
+- [ ] Compilation without `packaged` feature still works (embedded mode unchanged)
+
+## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+
+{Delete this section when task is assigned to an initiative}
+
+### Type
+- [ ] Bug - Production issue that needs fixing
+- [ ] Feature - New functionality or enhancement
+- [ ] Tech Debt - Code improvement or refactoring
+- [ ] Chore - Maintenance or setup work
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [ ] P0 - Critical (blocks users/revenue)
+- [ ] P1 - High (important for user experience)
+- [ ] P2 - Medium (nice to have)
+- [ ] P3 - Low (when time permits)
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
@@ -51,10 +78,6 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -125,4 +148,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Complete. _ffi module generated under cfg(feature="packaged") with full CloacinaPlugin impl. get_graph_metadata() returns graph name + accumulator names + reaction mode. execute_graph() builds InputCache from JSON, runs compiled fn in OnceLock<Runtime>, serializes terminal outputs. Embedded #[ctor] path gated on cfg(not(feature="packaged")). Verified: test cdylib builds (56MB .dylib), 9 integration tests pass, packaged workflow examples still compile. Accumulator type metadata comes from macro's react declaration (names only) — full type/config from package.toml.

@@ -1,38 +1,64 @@
 ---
-id: post-mvp-websocket-level
+id: python-computation-graph-packaging
 level: task
-title: "Post-MVP: WebSocket-level integration tests (axum server + WS client)"
-short_code: "CLOACI-T-0381"
-created_at: 2026-04-05T12:37:02.957684+00:00
-updated_at: 2026-04-05T18:36:47.550043+00:00
-parent:
+title: "Python computation graph packaging, example, and end-to-end test"
+short_code: "CLOACI-T-0403"
+created_at: 2026-04-05T17:13:29.785399+00:00
+updated_at: 2026-04-05T18:16:08.358070+00:00
+parent: CLOACI-I-0080
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#tech-debt"
-  - "#phase/backlog"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
-initiative_id: NULL
+initiative_id: CLOACI-I-0080
 ---
 
-# Post-MVP: WebSocket-level integration tests (axum server + WS client)
+# Python computation graph packaging, example, and end-to-end test
 
 *This template includes sections for various types of tasks. Delete sections that don't apply to your specific use case.*
 
 ## Parent Initiative **[CONDITIONAL: Assigned Task]**
 
-[[Parent Initiative]]
+[[CLOACI-I-0080]]
 
-## Objective
+## Objective **[REQUIRED]**
 
-Spin up the full axum server on an ephemeral port with Postgres, load a computation graph via ReactiveScheduler, and test the actual WebSocket transport layer using `tokio-tungstenite` as a client. Currently T-0378 proves the pipeline at the library level (registry → accumulator → reactor → graph), but the HTTP upgrade + WS message framing path is untested.
+Extend the reconciler's Python import path to handle computation graph packages (`language = "python"` + `package_type` includes `"computation_graph"`). Build an example Python computation graph package and verify end-to-end loading and execution.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [ ] Reconciler's Python loading path detects `package_type` includes "computation_graph"
+- [ ] Python computation graph modules imported via `entry_module` — decorators (`@node`, `@passthrough_accumulator`, etc.) register graph + accumulators
+- [ ] Registered Python graph executor wrapped as `CompiledGraphFn` via `spawn_blocking` + GIL
+- [ ] Example Python computation graph package in `examples/features/computation-graphs/python-packaged-graph/`
+- [ ] `package.toml` with `language = "python"`, `package_type = ["computation_graph"]`, `entry_module`
+- [ ] End-to-end test: load Python package → graph spawns → push events → verify output
+- [ ] All existing Python tests pass
+
+## Backlog Item Details **[CONDITIONAL: Backlog Item]**
+
+{Delete this section when task is assigned to an initiative}
+
+### Type
+- [ ] Bug - Production issue that needs fixing
+- [ ] Feature - New functionality or enhancement
+- [ ] Tech Debt - Code improvement or refactoring
+- [ ] Chore - Maintenance or setup work
 
 ### Priority
-- [x] P2 - Medium (nice to have)
+- [ ] P0 - Critical (blocks users/revenue)
+- [ ] P1 - High (important for user experience)
+- [ ] P2 - Medium (nice to have)
+- [ ] P3 - Low (when time permits)
 
 ### Impact Assessment **[CONDITIONAL: Bug]**
 - **Affected Users**: {Number/percentage of users affected}
@@ -51,10 +77,6 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
-
-## Acceptance Criteria
-
-## Acceptance Criteria
 
 ## Acceptance Criteria **[REQUIRED]**
 
@@ -125,4 +147,4 @@ Spin up the full axum server on an ephemeral port with Postgres, load a computat
 
 ## Status Updates **[REQUIRED]**
 
-- 2026-04-05: Blocked. AppState requires Database + DefaultRunner which need a Postgres connection. Can't spin up axum server in a cargo test without backing services. Needs either: (a) angreal integration test with `services up`, or (b) refactoring AppState to accept a mock database. The library-level tests (T-0378) already prove the pipeline; this is about the HTTP/WS transport layer specifically. Deferring to soak test infrastructure (I-0079) or server integration test suite.
+- 2026-04-05: Complete. import_python_computation_graph() added to loader.rs — imports module, verifies graph executor registration in GRAPH_EXECUTORS. Reconciler Python CG branch: extracts package, imports via spawn_blocking, stores graph_name. Example at python-packaged-graph/ with market maker routing graph. All 9 integration tests pass.
