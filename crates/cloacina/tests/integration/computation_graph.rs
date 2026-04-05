@@ -236,11 +236,27 @@ async fn test_end_to_end_accumulator_reactor_graph() {
     let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let fire_count_inner = fire_count.clone();
 
+    let last_output: Arc<tokio::sync::Mutex<Option<OutputConfirmation>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let last_output_inner = last_output.clone();
+
     let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
         let fc = fire_count_inner.clone();
+        let lo = last_output_inner.clone();
         Box::pin(async move {
             fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            linear_chain_compiled(&cache).await
+            let result = linear_chain_compiled(&cache).await;
+            let captured = if let GraphResult::Completed { outputs } = &result {
+                outputs
+                    .iter()
+                    .find_map(|o| o.downcast_ref::<OutputConfirmation>().cloned())
+            } else {
+                None
+            };
+            if let Some(c) = captured {
+                *lo.lock().await = Some(c);
+            }
+            result
         })
     });
 
@@ -267,7 +283,17 @@ async fn test_end_to_end_accumulator_reactor_graph() {
         "graph should have fired once"
     );
 
-    // Push again — fires again
+    // Verify actual output: entry(7.0) → 7.0*2=14.0, process(14.0) → 14.0+10=24.0, output → {published: true, value: 24.0}
+    {
+        let output = last_output.lock().await;
+        let confirm = output
+            .as_ref()
+            .expect("should have captured terminal output");
+        assert!(confirm.published);
+        assert_eq!(confirm.value, 24.0);
+    }
+
+    // Push again — fires again with different value
     socket_tx
         .send(serialize(&AlphaData { value: 99.0 }).unwrap())
         .await
@@ -280,6 +306,14 @@ async fn test_end_to_end_accumulator_reactor_graph() {
         2,
         "graph should have fired twice"
     );
+
+    // Verify second output: entry(99.0) → 99.0*2=198.0, process(198.0) → 198.0+10=208.0
+    {
+        let output = last_output.lock().await;
+        let confirm = output.as_ref().unwrap();
+        assert!(confirm.published);
+        assert_eq!(confirm.value, 208.0);
+    }
 
     shutdown_tx.send(true).unwrap();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), acc_handle).await;
