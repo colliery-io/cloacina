@@ -4,15 +4,15 @@ level: task
 title: "Post-MVP: Wire reconciler to ReactiveScheduler (load_graph on package load)"
 short_code: "CLOACI-T-0380"
 created_at: 2026-04-05T12:37:01.718445+00:00
-updated_at: 2026-04-05T12:37:01.718445+00:00
+updated_at: 2026-04-05T18:20:19.786860+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -32,6 +32,12 @@ The global `ComputationGraphRegistry` and `#[ctor]` codegen are in place (T-0376
 ### Key files
 - `crates/cloacina/src/registry/reconciler/loading.rs` — add graph detection after package load
 - `crates/cloacina/src/registry/reconciler/mod.rs` — add ReactiveScheduler field
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

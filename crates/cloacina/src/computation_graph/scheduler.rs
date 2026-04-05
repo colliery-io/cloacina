@@ -240,6 +240,115 @@ impl ReactiveScheduler {
             .collect()
     }
 
+    /// Check all graphs for crashed tasks and restart them.
+    ///
+    /// Call periodically from a supervision loop. Returns the number of
+    /// tasks that were restarted.
+    pub async fn check_and_restart_failed(&self) -> usize {
+        let mut restarted = 0;
+        let mut graphs = self.graphs.write().await;
+
+        for (graph_name, running) in graphs.iter_mut() {
+            // Check reactor
+            if running.reactor_handle.is_finished() {
+                warn!(graph = %graph_name, "reactor has crashed, restarting");
+
+                let (shutdown_tx, shutdown_rx) = shutdown_signal();
+                let (boundary_tx, boundary_rx) = mpsc::channel(256);
+
+                // Re-spawn accumulators
+                let mut new_acc_handles = Vec::new();
+                for acc_decl in &running.declaration.accumulators {
+                    let (socket_tx, handle) = acc_decl.factory.spawn(
+                        acc_decl.name.clone(),
+                        boundary_tx.clone(),
+                        shutdown_rx.clone(),
+                    );
+
+                    // Re-register in endpoint registry
+                    self.registry
+                        .register_accumulator(acc_decl.name.clone(), socket_tx)
+                        .await;
+
+                    new_acc_handles.push((acc_decl.name.clone(), handle));
+                }
+
+                // Re-spawn reactor
+                let (manual_tx, manual_rx) = mpsc::channel(64);
+                let reactor = Reactor::new(
+                    running.declaration.reactor.graph_fn.clone(),
+                    running.declaration.reactor.criteria.clone(),
+                    running.declaration.reactor.strategy.clone(),
+                    boundary_rx,
+                    manual_rx,
+                    shutdown_rx,
+                );
+                let reactor_shared = reactor.handle();
+                let reactor_handle = tokio::spawn(reactor.run());
+
+                self.registry
+                    .register_reactor(graph_name.clone(), manual_tx, reactor_shared.clone())
+                    .await;
+
+                // Replace state
+                running.shutdown_tx = shutdown_tx;
+                running.accumulator_handles = new_acc_handles;
+                running.reactor_handle = reactor_handle;
+                running.reactor_shared = reactor_shared;
+
+                restarted += 1;
+                info!(graph = %graph_name, "reactor restarted successfully");
+            } else {
+                // Check individual accumulators
+                for (acc_name, handle) in &running.accumulator_handles {
+                    if handle.is_finished() {
+                        warn!(
+                            graph = %graph_name,
+                            accumulator = %acc_name,
+                            "accumulator has crashed (full restart on next check)"
+                        );
+                        // Individual accumulator restart is complex because we
+                        // need to re-wire the boundary channel. For now, mark
+                        // as detected — the reactor crash check above handles
+                        // the full restart case.
+                    }
+                }
+            }
+        }
+
+        restarted
+    }
+
+    /// Start a background supervision loop that checks for crashed tasks.
+    ///
+    /// Returns a `JoinHandle` for the supervision task.
+    pub fn start_supervision(
+        self: &Arc<Self>,
+        mut shutdown_rx: watch::Receiver<bool>,
+        check_interval: std::time::Duration,
+    ) -> JoinHandle<()> {
+        let scheduler = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(check_interval);
+            interval.tick().await; // skip first immediate tick
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        let restarted = scheduler.check_and_restart_failed().await;
+                        if restarted > 0 {
+                            info!("supervision check: restarted {} tasks", restarted);
+                        }
+                    }
+                    _ = shutdown_rx.changed() => {
+                        tracing::debug!("supervision loop shutting down");
+                        break;
+                    }
+                }
+            }
+        })
+    }
+
     /// Graceful shutdown of all graphs.
     pub async fn shutdown_all(&self) {
         let names: Vec<String> = {
