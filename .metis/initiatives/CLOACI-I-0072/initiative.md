@@ -1,22 +1,22 @@
 ---
-id: market-maker-reference
+id: computation-graph-tutorial-series
 level: initiative
 title: "Computation Graph Tutorial Series — Market Maker Walkthrough"
 short_code: "CLOACI-I-0072"
 created_at: 2026-04-04T17:48:56.100724+00:00
-updated_at: 2026-04-04T17:48:56.100724+00:00
+updated_at: 2026-04-05T13:54:43.988691+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 estimated_complexity: L
-initiative_id: market-maker-reference
+initiative_id: computation-graph-tutorial-series
 ---
 
 # Computation Graph Tutorial Series — Market Maker Walkthrough
@@ -49,6 +49,14 @@ Blocked by: nothing. All required primitives exist from I-0070, I-0074, I-0071.
 - State accumulator, batch accumulator, polling accumulator (I-0073)
 - Python computation graph tutorials (I-0073)
 - Packaging as `.cloacina` (requires T-0380)
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
