@@ -1,6 +1,2 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/accumulator.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/computation_graph/accumulator_macros.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/lib.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/commands/serve.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/scheduler.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/tests/integration/computation_graph.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/computation_graph_tests.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/python/bindings/runner.rs

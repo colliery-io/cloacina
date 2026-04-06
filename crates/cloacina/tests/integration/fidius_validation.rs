@@ -33,7 +33,7 @@ fn find_packaged_workflow_dylib() -> Option<std::path::PathBuf> {
         .unwrap()
         .to_path_buf();
 
-    let project_path = workspace_root.join("examples/features/packaged-workflows");
+    let project_path = workspace_root.join("examples/features/workflows/packaged-workflows");
     let ext = if cfg!(target_os = "macos") {
         "dylib"
     } else {
@@ -253,7 +253,7 @@ fn test_plugin_info_populated() {
         "Interface version should be 1"
     );
     assert_eq!(
-        plugin.method_count, 2,
-        "Should have 2 methods (get_task_metadata, execute_task)"
+        plugin.method_count, 4,
+        "Should have 4 methods (get_task_metadata, execute_task, get_graph_metadata, execute_graph)"
     );
 }

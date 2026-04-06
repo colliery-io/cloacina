@@ -35,7 +35,8 @@ use super::accumulator::{
 };
 use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria};
 use super::scheduler::{
-    AccumulatorDeclaration, AccumulatorFactory, ComputationGraphDeclaration, ReactorDeclaration,
+    AccumulatorDeclaration, AccumulatorFactory, AccumulatorSpawnConfig,
+    ComputationGraphDeclaration, ReactorDeclaration,
 };
 use super::types::{GraphError, GraphResult, InputCache, SourceName};
 
@@ -230,16 +231,21 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
         name: String,
         boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
         shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
     ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
         let (socket_tx, socket_rx) = mpsc::channel(64);
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
 
         let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
         let ctx = AccumulatorContext {
             output: sender,
             name: name.clone(),
             shutdown: shutdown_rx,
-            checkpoint: None,
-            health: None,
+            checkpoint,
+            health: config.health_tx,
         };
 
         let handle = tokio::spawn(accumulator_runtime(

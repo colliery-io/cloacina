@@ -29,7 +29,7 @@ fn test_dlopen_packaged_workflow_library() {
         .unwrap()
         .to_path_buf();
 
-    let project_path = workspace_root.join("examples/features/packaged-workflows");
+    let project_path = workspace_root.join("examples/features/workflows/packaged-workflows");
 
     // Find .dylib or .so
     let target_dir = project_path.join("target/release");
@@ -42,7 +42,7 @@ fn test_dlopen_packaged_workflow_library() {
     if !lib_path.exists() {
         eprintln!(
             "Skipping test: pre-built library not found at {:?}. \
-            Run `cargo build --release` in examples/features/packaged-workflows first.",
+            Run `cargo build --release` in examples/features/workflows/packaged-workflows first.",
             lib_path
         );
         return;

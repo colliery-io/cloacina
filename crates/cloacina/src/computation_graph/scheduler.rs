@@ -27,11 +27,11 @@ use tokio::sync::{mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use super::accumulator::{
-    accumulator_runtime, shutdown_signal, Accumulator, AccumulatorContext,
-    AccumulatorRuntimeConfig, BoundarySender,
+use super::accumulator::{health_channel, shutdown_signal, AccumulatorHealth, CheckpointHandle};
+use super::reactor::{
+    reactor_health_channel, CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
+    ReactorHandle,
 };
-use super::reactor::{CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor, ReactorHandle};
 use super::registry::EndpointRegistry;
 use super::types::SourceName;
 
@@ -55,6 +55,16 @@ pub struct AccumulatorDeclaration {
     pub factory: Arc<dyn AccumulatorFactory>,
 }
 
+/// Configuration passed to [`AccumulatorFactory::spawn`] for resilience wiring.
+pub struct AccumulatorSpawnConfig {
+    /// DAL handle for checkpoint persistence. None in embedded/test mode.
+    pub dal: Option<crate::dal::unified::DAL>,
+    /// Health state reporter. None when health tracking is not needed.
+    pub health_tx: Option<watch::Sender<AccumulatorHealth>>,
+    /// Graph name (used as key for checkpoint persistence).
+    pub graph_name: String,
+}
+
 /// Factory trait for creating accumulator instances.
 ///
 /// We can't clone trait objects, so we use a factory that produces them.
@@ -63,13 +73,13 @@ pub trait AccumulatorFactory: Send + Sync {
     ///
     /// Returns:
     /// - socket_tx: sender for the accumulator's socket channel
-    /// - boundary_tx: sender for boundary output to reactor
     /// - join_handle: spawned task handle
     fn spawn(
         &self,
         name: String,
         boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
         shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
     ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>);
 }
 
@@ -91,6 +101,8 @@ pub struct GraphStatus {
     pub accumulators: Vec<String>,
     pub reactor_paused: bool,
     pub running: bool,
+    /// Reactor health state machine value. None if health tracking is not configured.
+    pub health: Option<super::reactor::ReactorHealth>,
 }
 
 /// State for a running computation graph.
@@ -107,6 +119,8 @@ struct RunningGraph {
     reactor_handle: JoinHandle<()>,
     /// Reactor handle for pause/resume queries.
     reactor_shared: ReactorHandle,
+    /// Reactor health receiver for status reporting.
+    reactor_health_rx: Option<watch::Receiver<super::reactor::ReactorHealth>>,
     /// Declaration (for restarts).
     declaration: ComputationGraphDeclaration,
     /// Per-component consecutive failure count.
@@ -133,6 +147,8 @@ pub struct ReactiveScheduler {
     registry: EndpointRegistry,
     /// Running computation graphs.
     graphs: Arc<RwLock<HashMap<String, RunningGraph>>>,
+    /// DAL handle for persistence. None in embedded/test mode.
+    dal: Option<crate::dal::unified::DAL>,
 }
 
 impl ReactiveScheduler {
@@ -140,6 +156,16 @@ impl ReactiveScheduler {
         Self {
             registry,
             graphs: Arc::new(RwLock::new(HashMap::new())),
+            dal: None,
+        }
+    }
+
+    /// Create a scheduler with DAL support for persistence and health tracking.
+    pub fn with_dal(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self {
+        Self {
+            registry,
+            graphs: Arc::new(RwLock::new(HashMap::new())),
+            dal: Some(dal),
         }
     }
 
@@ -162,18 +188,43 @@ impl ReactiveScheduler {
         let (boundary_tx, boundary_rx) = mpsc::channel(256);
         let stored_boundary_tx = boundary_tx.clone();
 
-        // Spawn accumulators
+        // Collect expected source names for WhenAll seeding
+        let expected_sources: Vec<SourceName> = decl
+            .accumulators
+            .iter()
+            .map(|a| SourceName::new(&a.name))
+            .collect();
+
+        // Spawn accumulators with health and DAL wiring
         let mut accumulator_handles = Vec::new();
+        let mut acc_health_rxs: Vec<(
+            String,
+            watch::Receiver<super::accumulator::AccumulatorHealth>,
+        )> = Vec::new();
         for acc_decl in &decl.accumulators {
+            // Create health channel for this accumulator
+            let (health_tx, health_rx) = health_channel();
+            acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
+
+            let spawn_config = AccumulatorSpawnConfig {
+                dal: self.dal.clone(),
+                health_tx: Some(health_tx),
+                graph_name: name.clone(),
+            };
+
             let (socket_tx, handle) = acc_decl.factory.spawn(
                 acc_decl.name.clone(),
                 boundary_tx.clone(),
                 shutdown_rx.clone(),
+                spawn_config,
             );
 
-            // Register in endpoint registry
+            // Register socket and health in endpoint registry
             self.registry
                 .register_accumulator(acc_decl.name.clone(), socket_tx)
+                .await;
+            self.registry
+                .register_accumulator_health(acc_decl.name.clone(), health_rx)
                 .await;
 
             accumulator_handles.push((acc_decl.name.clone(), handle));
@@ -182,15 +233,26 @@ impl ReactiveScheduler {
         // Create manual command channel
         let (manual_tx, manual_rx) = mpsc::channel(64);
 
-        // Create and spawn reactor
-        let reactor = Reactor::new(
+        // Create reactor health channel
+        let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
+
+        // Create and spawn reactor with full wiring
+        let mut reactor = Reactor::new(
             decl.reactor.graph_fn.clone(),
             decl.reactor.criteria.clone(),
             decl.reactor.strategy.clone(),
             boundary_rx,
             manual_rx,
             shutdown_rx,
-        );
+        )
+        .with_graph_name(name.clone())
+        .with_health(reactor_health_tx)
+        .with_expected_sources(expected_sources)
+        .with_accumulator_health(acc_health_rxs);
+
+        if let Some(ref dal) = self.dal {
+            reactor = reactor.with_dal(dal.clone());
+        }
 
         let reactor_shared = reactor.handle();
 
@@ -210,6 +272,7 @@ impl ReactiveScheduler {
             accumulator_handles,
             reactor_handle,
             reactor_shared,
+            reactor_health_rx: Some(reactor_health_rx),
             declaration: decl,
             failure_counts: HashMap::new(),
             last_success: HashMap::new(),
@@ -262,6 +325,10 @@ impl ReactiveScheduler {
                     .collect(),
                 reactor_paused: running.reactor_shared.is_paused(),
                 running: !running.reactor_handle.is_finished(),
+                health: running
+                    .reactor_health_rx
+                    .as_ref()
+                    .map(|rx| rx.borrow().clone()),
             })
             .collect()
     }
@@ -308,15 +375,20 @@ impl ReactiveScheduler {
                     continue;
                 }
 
-                let backoff = std::time::Duration::from_secs(
-                    (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS),
-                );
+                let backoff_secs =
+                    (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS);
+                let backoff = std::time::Duration::from_secs(backoff_secs);
                 warn!(
                     graph = %graph_name,
                     attempt = *failures,
-                    backoff_secs = backoff.as_secs(),
+                    backoff_secs = backoff_secs,
                     "reactor crashed, restarting (full graph restart)"
                 );
+
+                // Record recovery event and wait for backoff
+                self.record_recovery_event(&reactor_key, *failures, backoff_secs)
+                    .await;
+                tokio::time::sleep(backoff).await;
 
                 // Full graph restart: new channels, re-spawn everything
                 let (shutdown_tx, shutdown_rx) = shutdown_signal();
@@ -324,28 +396,58 @@ impl ReactiveScheduler {
                 let (boundary_tx, boundary_rx) = mpsc::channel(256);
                 let stored_boundary_tx = boundary_tx.clone();
 
+                let expected_sources: Vec<SourceName> = running
+                    .declaration
+                    .accumulators
+                    .iter()
+                    .map(|a| SourceName::new(&a.name))
+                    .collect();
+
                 let mut new_acc_handles = Vec::new();
+                let mut restart_acc_health_rxs: Vec<(
+                    String,
+                    watch::Receiver<super::accumulator::AccumulatorHealth>,
+                )> = Vec::new();
                 for acc_decl in &running.declaration.accumulators {
+                    let (health_tx, health_rx) = health_channel();
+                    restart_acc_health_rxs.push((acc_decl.name.clone(), health_rx.clone()));
+                    let spawn_config = AccumulatorSpawnConfig {
+                        dal: self.dal.clone(),
+                        health_tx: Some(health_tx),
+                        graph_name: graph_name.clone(),
+                    };
                     let (socket_tx, handle) = acc_decl.factory.spawn(
                         acc_decl.name.clone(),
                         boundary_tx.clone(),
                         shutdown_rx.clone(),
+                        spawn_config,
                     );
                     self.registry
                         .register_accumulator(acc_decl.name.clone(), socket_tx)
+                        .await;
+                    self.registry
+                        .register_accumulator_health(acc_decl.name.clone(), health_rx)
                         .await;
                     new_acc_handles.push((acc_decl.name.clone(), handle));
                 }
 
                 let (manual_tx, manual_rx) = mpsc::channel(64);
-                let reactor = Reactor::new(
+                let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
+                let mut reactor = Reactor::new(
                     running.declaration.reactor.graph_fn.clone(),
                     running.declaration.reactor.criteria.clone(),
                     running.declaration.reactor.strategy.clone(),
                     boundary_rx,
                     manual_rx,
                     shutdown_rx,
-                );
+                )
+                .with_graph_name(graph_name.clone())
+                .with_health(reactor_health_tx)
+                .with_expected_sources(expected_sources)
+                .with_accumulator_health(restart_acc_health_rxs);
+                if let Some(ref dal) = self.dal {
+                    reactor = reactor.with_dal(dal.clone());
+                }
                 let reactor_shared = reactor.handle();
                 let reactor_handle = tokio::spawn(reactor.run());
 
@@ -359,6 +461,7 @@ impl ReactiveScheduler {
                 running.accumulator_handles = new_acc_handles;
                 running.reactor_handle = reactor_handle;
                 running.reactor_shared = reactor_shared;
+                running.reactor_health_rx = Some(reactor_health_rx);
                 running.last_success.insert(reactor_key, now);
 
                 restarted += 1;
@@ -395,6 +498,11 @@ impl ReactiveScheduler {
                             "accumulator crashed, restarting individually"
                         );
 
+                        // Record recovery event and wait for backoff
+                        self.record_recovery_event(&acc_key, *failures, backoff_secs)
+                            .await;
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+
                         // Find the declaration for this accumulator
                         if let Some(acc_decl) = running
                             .declaration
@@ -403,15 +511,25 @@ impl ReactiveScheduler {
                             .find(|d| d.name == *acc_name)
                         {
                             // Re-spawn with existing boundary_tx and shutdown_rx
+                            let (health_tx, health_rx) = health_channel();
+                            let spawn_config = AccumulatorSpawnConfig {
+                                dal: self.dal.clone(),
+                                health_tx: Some(health_tx),
+                                graph_name: graph_name.clone(),
+                            };
                             let (socket_tx, new_handle) = acc_decl.factory.spawn(
                                 acc_name.clone(),
                                 running.boundary_tx.clone(),
                                 running.shutdown_rx.clone(),
+                                spawn_config,
                             );
 
-                            // Re-register socket in endpoint registry
+                            // Re-register socket and health in endpoint registry
                             self.registry
                                 .register_accumulator(acc_name.clone(), socket_tx)
+                                .await;
+                            self.registry
+                                .register_accumulator_health(acc_name.clone(), health_rx)
                                 .await;
 
                             running.last_success.insert(acc_key, now);
@@ -483,6 +601,28 @@ impl ReactiveScheduler {
         })
     }
 
+    /// Record a recovery event in the DAL (best-effort, logs on failure).
+    async fn record_recovery_event(&self, component: &str, attempt: u32, backoff_secs: u64) {
+        let dal = match &self.dal {
+            Some(d) => d,
+            None => return,
+        };
+        use crate::database::universal_types::UniversalUuid;
+        use crate::models::recovery_event::NewRecoveryEvent;
+        let event = NewRecoveryEvent {
+            pipeline_execution_id: UniversalUuid::new_v4(),
+            task_execution_id: None,
+            recovery_type: "graph_component_restart".to_string(),
+            details: Some(format!(
+                "component={}, attempt={}, backoff={}s",
+                component, attempt, backoff_secs
+            )),
+        };
+        if let Err(e) = dal.recovery_event().create(event).await {
+            warn!(component = %component, "failed to record recovery event: {}", e);
+        }
+    }
+
     /// Graceful shutdown of all graphs.
     pub async fn shutdown_all(&self) {
         let names: Vec<String> = {
@@ -501,6 +641,10 @@ impl ReactiveScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::computation_graph::accumulator::{
+        accumulator_runtime, Accumulator, AccumulatorContext, AccumulatorRuntimeConfig,
+        BoundarySender,
+    };
     use crate::computation_graph::types::{serialize, GraphResult, InputCache};
     use serde::{Deserialize, Serialize};
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -519,6 +663,7 @@ mod tests {
             name: String,
             boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
             shutdown_rx: watch::Receiver<bool>,
+            config: AccumulatorSpawnConfig,
         ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
             let (socket_tx, socket_rx) = mpsc::channel(64);
 
@@ -533,13 +678,17 @@ mod tests {
                 }
             }
 
+            let checkpoint = config
+                .dal
+                .map(|dal| CheckpointHandle::new(dal, config.graph_name.clone(), name.clone()));
+
             let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
             let ctx = AccumulatorContext {
                 output: sender,
                 name: name.clone(),
                 shutdown: shutdown_rx,
-                checkpoint: None,
-                health: None,
+                checkpoint,
+                health: config.health_tx,
             };
 
             let handle = tokio::spawn(accumulator_runtime(

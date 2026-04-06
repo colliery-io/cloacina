@@ -2297,6 +2297,7 @@ impl PyPipelineResult {
 #[cfg(feature = "sqlite")]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     const TEST_PG_URL: &str = "postgres://cloacina:cloacina@localhost:5432/cloacina";
 
@@ -2308,6 +2309,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_repr() {
         pyo3::prepare_freethreaded_python();
         // Create runner with SQLite (lighter weight, no Postgres needed)
@@ -2319,6 +2321,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_start_returns_not_implemented() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2327,6 +2330,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_stop_returns_not_implemented() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2335,6 +2339,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_shutdown() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2344,6 +2349,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_context_manager() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -2361,6 +2367,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_empty() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2374,6 +2381,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_trigger_schedules_empty() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2387,6 +2395,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_trigger_schedule_not_found() {
         pyo3::prepare_freethreaded_python();
         let runner = PyDefaultRunner::new(&unique_sqlite_url()).expect("Failed to create runner");
@@ -2400,6 +2409,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_register_cron_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2423,6 +2433,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_after_register() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2449,6 +2460,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2474,6 +2486,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_cron_schedule_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2503,6 +2516,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_delete_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2530,6 +2544,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_update_cron_schedule() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2558,6 +2573,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_history_empty() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2582,6 +2598,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_stats() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2598,6 +2615,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_cron_schedule_enabled_invalid_id() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2611,6 +2629,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_set_trigger_enabled() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2626,6 +2645,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_trigger_execution_history() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2641,6 +2661,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pipeline_result_completed() {
         pyo3::prepare_freethreaded_python();
         let mut ctx = crate::Context::new();
@@ -2675,6 +2696,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pipeline_result_failed() {
         pyo3::prepare_freethreaded_python();
         let result = crate::executor::PipelineResult {
@@ -2697,6 +2719,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_execute_nonexistent_workflow() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2714,6 +2737,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_execute_registered_workflow() {
         pyo3::prepare_freethreaded_python();
 
@@ -2767,6 +2791,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_get_cron_execution_stats_invalid_date() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2780,6 +2805,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_runner_list_cron_schedules_enabled_only() {
         pyo3::prepare_freethreaded_python();
         let url = unique_sqlite_url();
@@ -2818,6 +2844,7 @@ mod tests {
     // ── with_schema validation tests ─────────────────────────────────
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_sqlite() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema("sqlite:///tmp/test.db", "tenant_a");
@@ -2825,6 +2852,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_empty_schema() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
@@ -2835,6 +2863,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_with_schema_rejects_invalid_chars() {
         pyo3::prepare_freethreaded_python();
         let result = PyDefaultRunner::with_schema(
@@ -2845,6 +2874,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_shutdown_error_display() {
         let err = ShutdownError::ChannelClosed;
         assert!(format!("{}", err).contains("channel closed"));

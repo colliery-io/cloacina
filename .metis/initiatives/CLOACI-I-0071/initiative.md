@@ -46,10 +46,12 @@ Specs: CLOACI-S-0007 (Integration Points), CLOACI-S-0005 (Reactor — health sta
 
 **Non-Goals:**
 - State accumulator, batch accumulator, polling accumulator (I-0072/I-0073)
-- DAL persistence for reactor cache or accumulator checkpoints (I-0072)
-- Accumulator health state transitions (I-0072)
+- DAL persistence for reactor cache or accumulator checkpoints — deferred to I-0082 (MVP Resilience Wiring)
+- Accumulator health state transitions — deferred to I-0082
 - Python bindings (I-0073)
 - Soak tests (I-0073)
+
+> **Note**: I-0082 (MVP Release — Resilience Wiring) picks up the scheduler wiring, supervision startup, shutdown ordering, and health integration that were explicitly excluded here. WIRE-1 through WIRE-4 and BUG-4 in I-0082 complete I-0071's server integration path.
 
 ## Acceptance Criteria
 

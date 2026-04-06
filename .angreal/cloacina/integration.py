@@ -32,7 +32,7 @@ def build_test_packages(backend=None):
     subprocess.run(
         ["cargo", "build", "-p", "packaged-workflow-example"],
         check=True,
-        cwd="examples/features/packaged-workflows"
+        cwd="examples/features/workflows/packaged-workflows"
     )
 
     # Build simple-packaged-demo (debug mode to match test binary wire format)
@@ -40,7 +40,7 @@ def build_test_packages(backend=None):
     subprocess.run(
         ["cargo", "build", "-p", "simple-packaged-demo"],
         check=True,
-        cwd="examples/features/simple-packaged"
+        cwd="examples/features/workflows/simple-packaged"
     )
 
     print("Test packages built successfully.")

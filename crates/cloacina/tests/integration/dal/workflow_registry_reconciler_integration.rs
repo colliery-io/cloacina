@@ -53,7 +53,7 @@ fn create_source_package() -> Vec<u8> {
         .expect("Should have parent directory (crates)")
         .parent()
         .expect("Should have parent directory (project root)");
-    let project_path = workspace_root.join("examples/features/simple-packaged");
+    let project_path = workspace_root.join("examples/features/workflows/simple-packaged");
 
     if !project_path.exists() {
         panic!("Project path does not exist: {}", project_path.display());

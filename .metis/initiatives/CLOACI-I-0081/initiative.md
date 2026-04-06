@@ -4,14 +4,14 @@ level: initiative
 title: "Computation Graph Resilience — Checkpointing, Health States, and Recovery"
 short_code: "CLOACI-I-0081"
 created_at: 2026-04-05T21:19:53.627753+00:00
-updated_at: 2026-04-05T21:35:53.439530+00:00
+updated_at: 2026-04-06T00:42:09.375405+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -185,6 +185,8 @@ Add metadata to boundaries flowing through the system:
 - Enables deduplication at the reactor (skip boundaries already processed)
 - Enables ordering guarantees for Sequential strategy
 - Wire format: `(SourceName, Vec<u8>)` becomes `(SourceName, Vec<u8>, u64)` or wrapper struct
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

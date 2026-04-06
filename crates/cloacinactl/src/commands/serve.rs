@@ -90,7 +90,11 @@ pub async fn run(
     info!("Connected to Postgres, migrations applied");
 
     let endpoint_registry = EndpointRegistry::new();
-    let reactive_scheduler = Arc::new(ReactiveScheduler::new(endpoint_registry.clone()));
+    let unified_dal = cloacina::dal::unified::DAL::new(runner.database().clone());
+    let reactive_scheduler = Arc::new(ReactiveScheduler::with_dal(
+        endpoint_registry.clone(),
+        unified_dal,
+    ));
 
     let state = AppState {
         database: runner.database().clone(),
@@ -124,15 +128,34 @@ pub async fn run(
     info!("  DEL  /auth/keys/:id — revoke key (auth required)");
     info!("");
 
+    // Shared shutdown signal — used by supervision loop and graceful shutdown.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Start supervision loop — auto-restart crashed accumulator/reactor tasks
+    let _supervision_handle = scheduler_for_shutdown
+        .start_supervision(shutdown_rx.clone(), std::time::Duration::from_secs(5));
+
+    let scheduler_handle = {
+        let scheduler = scheduler_for_shutdown.clone();
+        let mut rx = shutdown_rx; // move, not clone — only consumer
+        tokio::spawn(async move {
+            let _ = rx.changed().await;
+            info!("Shutting down reactive scheduler...");
+            scheduler.shutdown_all().await;
+            info!("Reactive scheduler shutdown complete");
+        })
+    };
+
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            // Signal the scheduler to shut down first
+            let _ = shutdown_tx.send(true);
+            // Wait for scheduler to finish flushing/persisting
+            let _ = scheduler_handle.await;
+        })
         .await
         .context("Server error")?;
-
-    // Shutdown computation graph components — persist final state and stop tasks
-    info!("Shutting down reactive scheduler...");
-    scheduler_for_shutdown.shutdown_all().await;
-    info!("Reactive scheduler shutdown complete");
 
     info!("API server shutdown complete");
     Ok(())

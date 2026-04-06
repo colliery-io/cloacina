@@ -42,6 +42,7 @@ Blocked by: nothing. Reactor infrastructure exists from I-0074.
 - New accumulator types (I-0073)
 - Python bindings (I-0078)
 - Soak/perf (I-0079)
+- Sequential queue durability and expected_sources scheduler wiring — deferred to I-0082 (MVP Resilience Wiring: PERSIST-3 sequential queue persistence gap, WIRE-1 with_expected_sources)
 
 ## Acceptance Criteria
 

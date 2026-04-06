@@ -56,16 +56,16 @@ pub async fn list_reactors(State(state): State<AppState>) -> impl IntoResponse {
     let reactors: Vec<serde_json::Value> = graphs
         .into_iter()
         .map(|g| {
-            let status = if !g.running {
-                "stopped"
-            } else if g.reactor_paused {
-                "paused"
-            } else {
-                "running"
-            };
+            let health = g
+                .health
+                .as_ref()
+                .map(|h| serde_json::to_value(h).unwrap_or(serde_json::json!("unknown")))
+                .unwrap_or(
+                    serde_json::json!({"state": if !g.running { "stopped" } else { "running" }}),
+                );
             serde_json::json!({
                 "name": g.name,
-                "status": status,
+                "health": health,
                 "accumulators": g.accumulators,
                 "paused": g.reactor_paused,
             })
@@ -83,19 +83,19 @@ pub async fn get_reactor(
     let graphs = state.reactive_scheduler.list_graphs().await;
 
     if let Some(g) = graphs.into_iter().find(|g| g.name == name) {
-        let status = if !g.running {
-            "stopped"
-        } else if g.reactor_paused {
-            "paused"
-        } else {
-            "running"
-        };
+        let health = g
+            .health
+            .as_ref()
+            .map(|h| serde_json::to_value(h).unwrap_or(serde_json::json!("unknown")))
+            .unwrap_or(
+                serde_json::json!({"state": if !g.running { "stopped" } else { "running" }}),
+            );
 
         (
             StatusCode::OK,
             Json(serde_json::json!({
                 "name": g.name,
-                "status": status,
+                "health": health,
                 "accumulators": g.accumulators,
                 "paused": g.reactor_paused,
             })),

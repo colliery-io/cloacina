@@ -847,23 +847,27 @@ impl<'a> CheckpointDAL<'a> {
         let graph_name = graph_name.to_string();
 
         conn.interact(move |conn| {
-            diesel::delete(
-                accumulator_checkpoints::table
-                    .filter(accumulator_checkpoints::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)?;
-            diesel::delete(
-                accumulator_boundaries::table
-                    .filter(accumulator_boundaries::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)?;
-            diesel::delete(reactor_state::table.filter(reactor_state::graph_name.eq(&graph_name)))
+            conn.transaction(|conn| {
+                diesel::delete(
+                    accumulator_checkpoints::table
+                        .filter(accumulator_checkpoints::graph_name.eq(&graph_name)),
+                )
                 .execute(conn)?;
-            diesel::delete(
-                state_accumulator_buffers::table
-                    .filter(state_accumulator_buffers::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)
+                diesel::delete(
+                    accumulator_boundaries::table
+                        .filter(accumulator_boundaries::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    reactor_state::table.filter(reactor_state::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    state_accumulator_buffers::table
+                        .filter(state_accumulator_buffers::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -883,23 +887,27 @@ impl<'a> CheckpointDAL<'a> {
         let graph_name = graph_name.to_string();
 
         conn.interact(move |conn| {
-            diesel::delete(
-                accumulator_checkpoints::table
-                    .filter(accumulator_checkpoints::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)?;
-            diesel::delete(
-                accumulator_boundaries::table
-                    .filter(accumulator_boundaries::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)?;
-            diesel::delete(reactor_state::table.filter(reactor_state::graph_name.eq(&graph_name)))
+            conn.transaction(|conn| {
+                diesel::delete(
+                    accumulator_checkpoints::table
+                        .filter(accumulator_checkpoints::graph_name.eq(&graph_name)),
+                )
                 .execute(conn)?;
-            diesel::delete(
-                state_accumulator_buffers::table
-                    .filter(state_accumulator_buffers::graph_name.eq(&graph_name)),
-            )
-            .execute(conn)
+                diesel::delete(
+                    accumulator_boundaries::table
+                        .filter(accumulator_boundaries::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    reactor_state::table.filter(reactor_state::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)?;
+                diesel::delete(
+                    state_accumulator_buffers::table
+                        .filter(state_accumulator_buffers::graph_name.eq(&graph_name)),
+                )
+                .execute(conn)
+            })
         })
         .await
         .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;

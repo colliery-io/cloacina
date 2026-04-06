@@ -6,7 +6,7 @@ short_code: "CLOACI-I-0079"
 created_at: 2026-04-05T14:34:57.420074+00:00
 updated_at: 2026-04-05T19:22:09.711202+00:00
 parent: CLOACI-V-0001
-blocked_by: []
+blocked_by: [CLOACI-I-0082]
 archived: false
 
 tags:
@@ -27,7 +27,7 @@ The computation graph system has unit and integration tests but no sustained loa
 
 Existing soak test infrastructure from I-0054 can be extended. The existing `examples/features/computation-graphs/continuous-scheduling/` example is a starting point.
 
-Blocked by: I-0073 (batch/polling accumulators should exist first to include in soak), but can start with passthrough + stream accumulators.
+Blocked by: I-0073 (batch/polling accumulators should exist first to include in soak), I-0082 (resilience wiring — soak testing without connected persistence/health/supervision tests an incomplete system). Can start with passthrough + stream accumulators in embedded mode.
 
 ## Goals & Non-Goals
 

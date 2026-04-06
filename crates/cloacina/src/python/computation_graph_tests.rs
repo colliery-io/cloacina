@@ -23,6 +23,7 @@
 mod tests {
     use pyo3::ffi::c_str;
     use pyo3::prelude::*;
+    use serial_test::serial;
 
     use crate::python::computation_graph;
 
@@ -55,6 +56,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_linear_graph_via_builder() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -91,6 +93,7 @@ with ComputationGraphBuilder("linear_test",
     }
 
     #[test]
+    #[serial]
     fn test_routing_graph_via_builder() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -136,6 +139,7 @@ with ComputationGraphBuilder("routing_test",
     }
 
     #[test]
+    #[serial]
     fn test_missing_node_errors() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -181,6 +185,7 @@ with ComputationGraphBuilder("missing_test",
     }
 
     #[test]
+    #[serial]
     fn test_orphan_node_errors() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -228,6 +233,7 @@ with ComputationGraphBuilder("orphan_test",
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_linear_graph_executes() {
         pyo3::prepare_freethreaded_python();
 
@@ -292,6 +298,7 @@ with ComputationGraphBuilder("exec_linear",
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_routing_graph_executes_signal_path() {
         pyo3::prepare_freethreaded_python();
 
@@ -413,6 +420,7 @@ with ComputationGraphBuilder("exec_routing",
     }
 
     #[test]
+    #[serial]
     fn test_passthrough_accumulator_decorator() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -448,6 +456,7 @@ assert result == {"price": 100.5, "change": 0.0}, f"unexpected result: {result}"
     }
 
     #[test]
+    #[serial]
     fn test_stream_accumulator_decorator() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -482,6 +491,7 @@ assert result["bid"] == 100.0
     }
 
     #[test]
+    #[serial]
     fn test_polling_accumulator_decorator() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {
@@ -512,6 +522,7 @@ def config_source():
     }
 
     #[test]
+    #[serial]
     fn test_batch_accumulator_decorator() {
         pyo3::prepare_freethreaded_python();
         Python::with_gil(|py| {

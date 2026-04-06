@@ -27,7 +27,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::sync::{mpsc, watch};
 
-use super::types::{self, GraphError, SourceName};
+use super::types::{self, SourceName};
 
 // =============================================================================
 // Accumulator Health
@@ -88,10 +88,14 @@ pub enum AccumulatorError {
 /// An accumulator consumes events from a source and pushes boundaries to a reactor.
 ///
 /// Two input paths:
-/// - Event loop (optional): `run()` actively pulls from a source
+/// - Event source (optional): an [`EventSource`] actively pulls from a source
 /// - Socket receiver: events pushed in from outside (always active)
 ///
 /// Both paths feed through `process()` which is called sequentially.
+///
+/// To add an active event loop, implement [`EventSource`] and pass it to
+/// [`accumulator_runtime_with_source`]. The processor owns `&mut self` for
+/// `process()` while the event source runs independently on its own task.
 #[async_trait::async_trait]
 pub trait Accumulator: Send + 'static {
     /// The raw event type consumed from the source.
@@ -104,23 +108,34 @@ pub trait Accumulator: Send + 'static {
     /// Called sequentially by the processor task — no concurrent `&mut self`.
     fn process(&mut self, event: Self::Event) -> Option<Self::Output>;
 
-    /// Optional: active event loop that pulls from a source and pushes
-    /// raw events into the merge channel. Should NOT call `process()` directly.
-    /// Default: no event loop (socket-only / passthrough mode).
-    async fn run(
-        &mut self,
-        _ctx: &AccumulatorContext,
-        _events: mpsc::Sender<Self::Event>,
-    ) -> Result<(), AccumulatorError> {
-        // Default: no active event loop. Accumulator is socket-only.
-        std::future::pending().await
-    }
-
-    /// Called on startup before `run()` or first receive.
+    /// Called on startup before first receive.
     /// Use to restore state from last checkpoint.
     async fn init(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError> {
         Ok(())
     }
+}
+
+/// An event source actively pulls events from an external source and pushes
+/// them into the accumulator's merge channel. Runs on its own tokio task,
+/// independently of the processor that calls [`Accumulator::process()`].
+///
+/// This is the correct way to add an active event loop to an accumulator.
+/// The event source takes ownership (`self`, not `&mut self`) so it can
+/// run concurrently with the processor without borrowing conflicts.
+///
+/// For stream-backed sources, see also [`StreamBackend`](super::stream_backend::StreamBackend).
+#[async_trait::async_trait]
+pub trait EventSource: Send + 'static {
+    /// The event type pushed into the merge channel.
+    type Event: Send + 'static;
+
+    /// Run the event loop. Push events into `events` until shutdown fires or
+    /// the source is exhausted. The runtime will shut down if this returns.
+    async fn run(
+        self,
+        events: mpsc::Sender<Self::Event>,
+        shutdown: watch::Receiver<bool>,
+    ) -> Result<(), AccumulatorError>;
 }
 
 /// Handle for persisting accumulator state via the DAL.
@@ -246,15 +261,15 @@ impl BoundarySender {
     }
 
     /// Serialize and send a boundary to the reactor.
-    /// Increments the sequence counter atomically.
+    /// Increments the sequence counter atomically after successful send.
     pub async fn send<T: Serialize>(&self, boundary: &T) -> Result<(), AccumulatorError> {
         let bytes = types::serialize(boundary)
             .map_err(|e| AccumulatorError::Send(format!("serialization failed: {}", e)))?;
-        self.sequence.fetch_add(1, Ordering::SeqCst);
         self.inner
             .send((self.source_name.clone(), bytes))
             .await
             .map_err(|e| AccumulatorError::Send(format!("channel send failed: {}", e)))?;
+        self.sequence.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -283,12 +298,21 @@ impl Default for AccumulatorRuntimeConfig {
     }
 }
 
-/// Run an accumulator as 3 tokio tasks connected by a merge channel.
+/// Run an accumulator as 2-3 tokio tasks connected by a merge channel.
 ///
+/// Socket-only mode (no event source):
+/// ```text
+/// ┌─────────────────┐     ┌─────────────────┐
+/// │  Socket task     │──→  │  Processor task  │──→ BoundarySender ──→ Reactor
+/// │  (always active) │     │  (calls process) │
+/// └─────────────────┘     └─────────────────┘
+/// ```
+///
+/// With event source (use [`accumulator_runtime_with_source`]):
 /// ```text
 /// ┌─────────────────┐
-/// │  Event loop task │──→ mpsc<Event> ──┐
-/// │  (optional)      │                  │     ┌─────────────────┐
+/// │  Event source    │──→ mpsc<Event> ──┐
+/// │  (pulls events)  │                  │     ┌─────────────────┐
 /// └─────────────────┘                  ├────→│  Processor task  │──→ BoundarySender ──→ Reactor
 /// ┌─────────────────┐                  │     │  (calls process) │
 /// │  Socket task     │──→ mpsc<Event> ──┘     └─────────────────┘
@@ -296,10 +320,52 @@ impl Default for AccumulatorRuntimeConfig {
 /// └─────────────────┘
 /// ```
 pub async fn accumulator_runtime<A: Accumulator>(
+    acc: A,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    config: AccumulatorRuntimeConfig,
+) {
+    accumulator_runtime_inner::<A, NoEventSource<A::Event>>(acc, ctx, socket_rx, config, None).await
+}
+
+/// Run an accumulator with an active event source that pulls events from
+/// an external system. The event source runs on its own task and pushes
+/// events into the merge channel concurrently with the socket receiver.
+pub async fn accumulator_runtime_with_source<A, S>(
+    acc: A,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+    config: AccumulatorRuntimeConfig,
+    source: S,
+) where
+    A: Accumulator,
+    S: EventSource<Event = A::Event>,
+{
+    accumulator_runtime_inner(acc, ctx, socket_rx, config, Some(source)).await
+}
+
+/// Placeholder type for when no event source is provided.
+struct NoEventSource<E>(std::marker::PhantomData<E>);
+
+#[async_trait::async_trait]
+impl<E: Send + 'static> EventSource for NoEventSource<E> {
+    type Event = E;
+    async fn run(
+        self,
+        _events: mpsc::Sender<E>,
+        _shutdown: watch::Receiver<bool>,
+    ) -> Result<(), AccumulatorError> {
+        std::future::pending().await
+    }
+}
+
+/// Inner runtime shared by both `accumulator_runtime` and `accumulator_runtime_with_source`.
+async fn accumulator_runtime_inner<A: Accumulator, S: EventSource<Event = A::Event>>(
     mut acc: A,
     ctx: AccumulatorContext,
     socket_rx: mpsc::Receiver<Vec<u8>>,
     config: AccumulatorRuntimeConfig,
+    event_source: Option<S>,
 ) {
     // Report starting health
     set_health(&ctx, AccumulatorHealth::Starting);
@@ -310,24 +376,30 @@ pub async fn accumulator_runtime<A: Accumulator>(
         return;
     }
 
-    // Passthrough/standard accumulators are socket-only (no external source)
-    set_health(&ctx, AccumulatorHealth::SocketOnly);
-
     // Create merge channel
     let (event_tx, mut event_rx) = mpsc::channel::<A::Event>(config.merge_channel_capacity);
 
-    // Spawn event loop task
-    let event_tx_loop = event_tx.clone();
-    let mut shutdown_loop = ctx.shutdown.clone();
+    // Spawn event source task (or no-op wait if none provided)
     let name_loop = ctx.name.clone();
-    let loop_handle = tokio::spawn(async move {
-        // We need a mutable reference to acc for run(), but acc is moved into the processor.
-        // Instead, run() is a no-op for passthrough accumulators. For stream accumulators,
-        // the event loop is handled externally (StreamBackend feeds into event_tx).
-        // So this task just waits for shutdown.
-        let _ = shutdown_loop.changed().await;
-        tracing::debug!(name = %name_loop, "event loop task shutting down");
-    });
+    let loop_handle = if let Some(source) = event_source {
+        set_health(&ctx, AccumulatorHealth::Connecting);
+        let shutdown_source = ctx.shutdown.clone();
+        let event_tx_source = event_tx.clone();
+        let name_source = name_loop.clone();
+        tokio::spawn(async move {
+            match source.run(event_tx_source, shutdown_source).await {
+                Ok(()) => tracing::debug!(name = %name_source, "event source completed"),
+                Err(e) => tracing::error!(name = %name_source, "event source failed: {}", e),
+            }
+        })
+    } else {
+        set_health(&ctx, AccumulatorHealth::SocketOnly);
+        let mut shutdown_loop = ctx.shutdown.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_loop.changed().await;
+            tracing::debug!(name = %name_loop, "event loop task shutting down");
+        })
+    };
 
     // Spawn socket receiver task
     let event_tx_socket = event_tx.clone();
@@ -419,6 +491,22 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
 ) {
     set_health(&ctx, AccumulatorHealth::Starting);
 
+    // Restore last poll output from checkpoint and emit to reactor
+    if let Some(ref handle) = ctx.checkpoint {
+        match handle.load::<P::Output>().await {
+            Ok(Some(output)) => {
+                tracing::info!(name = %ctx.name, "polling accumulator restored last output from checkpoint");
+                if let Err(e) = ctx.output.send(&output).await {
+                    tracing::warn!(name = %ctx.name, "failed to emit restored poll output: {}", e);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "failed to load polling checkpoint: {}", e);
+            }
+        }
+    }
+
     let interval = poller.interval();
     let mut timer = tokio::time::interval(interval);
     // Skip the first immediate tick — we want to wait one interval before first poll
@@ -438,6 +526,12 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                         tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
                     } else {
                         persist_boundary(&ctx, &output).await;
+                        // Checkpoint the last successful poll output
+                        if let Some(ref handle) = ctx.checkpoint {
+                            if let Err(e) = handle.save(&output).await {
+                                tracing::warn!(name = %ctx.name, "polling checkpoint save failed: {}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -524,8 +618,31 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     mut flush_rx: mpsc::Receiver<()>,
     config: BatchAccumulatorConfig,
-) {
+) where
+    B::Event: Serialize,
+{
     set_health(&ctx, AccumulatorHealth::Starting);
+
+    // Restore buffered events from checkpoint if available
+    let mut buffer: Vec<B::Event> = Vec::new();
+    if let Some(ref handle) = ctx.checkpoint {
+        match handle.load::<Vec<Vec<u8>>>().await {
+            Ok(Some(raw_events)) => {
+                for raw in raw_events {
+                    if let Ok(event) = types::deserialize::<B::Event>(&raw) {
+                        buffer.push(event);
+                    }
+                }
+                if !buffer.is_empty() {
+                    tracing::info!(name = %ctx.name, events = buffer.len(), "batch buffer restored from checkpoint");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "failed to load batch checkpoint: {}", e);
+            }
+        }
+    }
 
     // Create timer only if interval is configured
     let mut timer = config.flush_interval.map(tokio::time::interval);
@@ -539,7 +656,6 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
 
     let mut shutdown = ctx.shutdown.clone();
     let mut socket_rx = socket_rx;
-    let mut buffer: Vec<B::Event> = Vec::new();
 
     loop {
         tokio::select! {
@@ -547,6 +663,8 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                 match types::deserialize::<B::Event>(&bytes) {
                     Ok(event) => {
                         buffer.push(event);
+                        // Persist buffer snapshot for crash resilience
+                        persist_batch_buffer(&ctx, &buffer).await;
                         // Check size threshold
                         if let Some(max) = config.max_buffer_size {
                             if buffer.len() >= max {
@@ -561,6 +679,8 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
             }
             Some(()) = flush_rx.recv() => {
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
+                // Clear checkpoint after flush (buffer is empty)
+                persist_batch_buffer::<B::Event>(&ctx, &[]).await;
             }
             _ = async {
                 match timer.as_mut() {
@@ -576,6 +696,20 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
                 flush_batch(&mut acc, &mut buffer, &ctx).await;
                 break;
             }
+        }
+    }
+}
+
+/// Persist batch buffer snapshot to DAL for crash resilience (best-effort).
+async fn persist_batch_buffer<E: Serialize>(ctx: &AccumulatorContext, buffer: &[E]) {
+    if let Some(ref handle) = ctx.checkpoint {
+        // Serialize each event to raw bytes, then save the vec of raw bytes
+        let raw: Vec<Vec<u8>> = buffer
+            .iter()
+            .filter_map(|e| types::serialize(e).ok())
+            .collect();
+        if let Err(e) = handle.save(&raw).await {
+            tracing::warn!(name = %ctx.name, "batch buffer checkpoint failed: {}", e);
         }
     }
 }
@@ -681,7 +815,7 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
             .await
         {
             Ok(Some((data, _cap))) => {
-                if let Ok(buffer) = serde_json::from_slice::<std::collections::VecDeque<T>>(&data) {
+                if let Ok(buffer) = types::deserialize::<std::collections::VecDeque<T>>(&data) {
                     acc.buffer = buffer;
                     tracing::info!(name = %ctx.name, entries = acc.buffer.len(), "state accumulator restored from DAL");
                 }
@@ -725,7 +859,7 @@ pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + 
 
                         // Persist to DAL
                         if let Some(ref handle) = ctx.checkpoint {
-                            let data = match serde_json::to_vec(&acc.buffer) {
+                            let data = match types::serialize(&acc.buffer) {
                                 Ok(d) => d,
                                 Err(e) => {
                                     tracing::warn!(name = %ctx.name, "state buffer serialization failed: {}", e);

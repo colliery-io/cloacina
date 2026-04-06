@@ -40,7 +40,7 @@ Blocked by: nothing. All accumulator infrastructure exists from I-0074.
 - `when_all` / `sequential` reactor features (separate initiative)
 - Python accumulator decorators (separate initiative)
 - Soak tests / performance benchmarks (separate initiative)
-- DAL persistence for accumulator checkpoints (later)
+- DAL persistence for accumulator checkpoints — deferred to I-0082 (MVP Resilience Wiring: PERSIST-1 batch buffer crash resilience, PERSIST-2 polling checkpoint restore)
 
 ## Acceptance Criteria
 

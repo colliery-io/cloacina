@@ -225,7 +225,7 @@ pub struct Reactor {
     /// Reaction criteria.
     criteria: ReactionCriteria,
     /// Input strategy.
-    _input_strategy: InputStrategy,
+    input_strategy: InputStrategy,
     /// Channel receiving boundaries from accumulators.
     accumulator_rx: mpsc::Receiver<(SourceName, Vec<u8>)>,
     /// Channel for manual operations.
@@ -244,6 +244,11 @@ pub struct Reactor {
     dal: Option<crate::dal::unified::DAL>,
     /// Health state reporter. None when health tracking not needed.
     health: Option<watch::Sender<ReactorHealth>>,
+    /// Accumulator health receivers for startup gating and degraded mode detection.
+    accumulator_health_rxs: Vec<(
+        String,
+        watch::Receiver<super::accumulator::AccumulatorHealth>,
+    )>,
 }
 
 impl Reactor {
@@ -258,7 +263,7 @@ impl Reactor {
         Self {
             graph,
             criteria,
-            _input_strategy: input_strategy,
+            input_strategy: input_strategy,
             accumulator_rx,
             manual_rx,
             shutdown,
@@ -268,6 +273,7 @@ impl Reactor {
             graph_name: String::new(),
             dal: None,
             health: None,
+            accumulator_health_rxs: Vec::new(),
         }
     }
 
@@ -298,6 +304,18 @@ impl Reactor {
         self
     }
 
+    /// Set accumulator health receivers for startup gating and degraded mode.
+    pub fn with_accumulator_health(
+        mut self,
+        rxs: Vec<(
+            String,
+            watch::Receiver<super::accumulator::AccumulatorHealth>,
+        )>,
+    ) -> Self {
+        self.accumulator_health_rxs = rxs;
+        self
+    }
+
     /// Get a handle to this reactor's shared state.
     ///
     /// Call before `run()` to get a handle that WebSocket handlers can use
@@ -310,7 +328,7 @@ impl Reactor {
     }
 
     /// Run the reactor. Spawns receiver + executor tasks.
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         // Report starting health
         if let Some(ref health) = self.health {
             let _ = health.send(ReactorHealth::Starting);
@@ -351,12 +369,125 @@ impl Reactor {
             )))
         };
 
-        // Report Live health (startup gating deferred to T-0410 full implementation)
+        // Startup gating — wait for all accumulators to become healthy before going Live
+        if !self.accumulator_health_rxs.is_empty() {
+            use super::accumulator::AccumulatorHealth;
+
+            let all_names: Vec<String> = self
+                .accumulator_health_rxs
+                .iter()
+                .map(|(n, _)| n.clone())
+                .collect();
+            let mut healthy_set: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+
+            // Report Warming
+            if let Some(ref health) = self.health {
+                let _ = health.send(ReactorHealth::Warming {
+                    healthy: vec![],
+                    waiting: all_names.clone(),
+                });
+            }
+
+            let mut shutdown_gate = self.shutdown.clone();
+
+            // Wait until all accumulators are healthy or shutdown fires
+            'gating: loop {
+                // Check current state of all receivers
+                for (name, rx) in &self.accumulator_health_rxs {
+                    let h = rx.borrow().clone();
+                    match h {
+                        AccumulatorHealth::Live | AccumulatorHealth::SocketOnly => {
+                            healthy_set.insert(name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+
+                if healthy_set.len() >= all_names.len() {
+                    break 'gating;
+                }
+
+                // Wait for any health change or shutdown
+                tokio::select! {
+                    _ = shutdown_gate.changed() => {
+                        tracing::debug!(graph = %self.graph_name, "shutdown during startup gating");
+                        return;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                        // Poll again — watch receivers update in place
+                    }
+                }
+
+                // Update Warming status
+                if let Some(ref health) = self.health {
+                    let waiting: Vec<String> = all_names
+                        .iter()
+                        .filter(|n| !healthy_set.contains(*n))
+                        .cloned()
+                        .collect();
+                    let _ = health.send(ReactorHealth::Warming {
+                        healthy: healthy_set.iter().cloned().collect(),
+                        waiting,
+                    });
+                }
+            }
+        }
+
+        // All accumulators healthy — go Live
         if let Some(ref health) = self.health {
             let _ = health.send(ReactorHealth::Live);
         }
+
+        // Spawn degraded-mode monitor — watches accumulator health and toggles
+        // between Live and Degraded based on accumulator disconnections.
+        let _degraded_monitor = if let Some(ref health) = self.health {
+            let health_tx = health.clone();
+            let acc_rxs = std::mem::take(&mut self.accumulator_health_rxs);
+            let mut shutdown_mon = self.shutdown.clone();
+            let graph_name = self.graph_name.clone();
+            Some(tokio::spawn(async move {
+                use super::accumulator::AccumulatorHealth;
+                if acc_rxs.is_empty() {
+                    // No accumulators to monitor — just wait for shutdown
+                    let _ = shutdown_mon.changed().await;
+                    return;
+                }
+                loop {
+                    tokio::select! {
+                        _ = shutdown_mon.changed() => break,
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                            let disconnected: Vec<String> = acc_rxs
+                                .iter()
+                                .filter(|(_, rx)| {
+                                    matches!(*rx.borrow(), AccumulatorHealth::Disconnected)
+                                })
+                                .map(|(name, _)| name.clone())
+                                .collect();
+
+                            if disconnected.is_empty() {
+                                // All healthy — ensure we're Live (not Degraded)
+                                if matches!(&*health_tx.borrow(), ReactorHealth::Degraded { .. }) {
+                                    tracing::info!(graph = %graph_name, "all accumulators recovered — back to Live");
+                                    let _ = health_tx.send(ReactorHealth::Live);
+                                }
+                            } else {
+                                // Some disconnected — enter/stay Degraded
+                                if !matches!(&*health_tx.borrow(), ReactorHealth::Degraded { .. }) {
+                                    tracing::warn!(graph = %graph_name, ?disconnected, "accumulator(s) disconnected — entering Degraded mode");
+                                }
+                                let _ = health_tx.send(ReactorHealth::Degraded { disconnected });
+                            }
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
         let paused = self.paused.clone();
-        let input_strategy = self._input_strategy.clone();
+        let input_strategy = self.input_strategy.clone();
 
         // Sequential queue — only used when InputStrategy::Sequential
         let seq_queue: Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>> =
@@ -457,6 +588,11 @@ impl Reactor {
                             if paused.load(Ordering::SeqCst) {
                                 continue;
                             }
+                            // Persist queue BEFORE draining so crash mid-drain doesn't lose items
+                            persist_reactor_state(
+                                &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
+                                Some(&seq_queue_exec),
+                            ).await;
                             // Drain the queue — one execution per queued boundary
                             loop {
                                 let item = seq_queue_exec.write().await.pop_front();
@@ -468,6 +604,12 @@ impl Reactor {
                                         match &result {
                                             GraphResult::Completed { .. } => {
                                                 tracing::debug!("graph execution completed (sequential)");
+                                                // Persist after each successful execution so
+                                                // processed items are removed from persisted queue
+                                                persist_reactor_state(
+                                                    &dal_exec, &graph_name_exec, &cache_exec,
+                                                    &dirty_exec, Some(&seq_queue_exec),
+                                                ).await;
                                             }
                                             GraphResult::Error(e) => {
                                                 tracing::error!("graph execution failed: {}", e);
@@ -477,11 +619,6 @@ impl Reactor {
                                     None => break,
                                 }
                             }
-                            // Persist after draining the queue
-                            persist_reactor_state(
-                                &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
-                                Some(&seq_queue_exec),
-                            ).await;
                         }
                     }
                 }
