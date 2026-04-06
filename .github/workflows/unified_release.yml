@@ -113,7 +113,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install PostgreSQL client (macOS)
+      - name: Install libpq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Install libpq (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install libpq
