@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-06T09:54:37Z | 418 files | JavaScript, Python, Rust
+> Generated: 2026-04-06T10:32:39Z | 418 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -728,31 +728,31 @@
 - pub `pause` function L207-209 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
 - pub `resume` function L212-214 — `(&self)` — Resume the reactor.
 - pub `CompiledGraphFn` type L218-219 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
-- pub `Reactor` struct L222-249 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
-- pub `new` function L252-275 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_graph_name` function L278-281 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
-- pub `with_dal` function L284-287 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
-- pub `with_health` function L290-293 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
-- pub `with_expected_sources` function L299-302 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `with_accumulator_health` function L305-311 — `( mut self, rxs: Vec<(String, watch::Receiver<super::accumulator::AccumulatorHea...` — Set accumulator health receivers for startup gating and degraded mode.
-- pub `handle` function L317-322 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L325-633 — `(mut self)` — Run the reactor.
+- pub `Reactor` struct L222-252 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
+- pub `new` function L255-278 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_graph_name` function L281-284 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L287-290 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_health` function L293-296 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L302-305 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `with_accumulator_health` function L308-317 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
+- pub `handle` function L323-328 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L331-639 — `(mut self)` — Run the reactor.
 -  `ReactorHealth` type L59-68 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
 -  `fmt` function L60-67 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L99-135 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L137-141 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `default` function L138-140 — `() -> Self` — See CLOACI-S-0005 for the full specification.
 -  `ReactorHandle` type L194-215 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L251-634 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `persist_reactor_state` function L637-693 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `tests` module L696-874 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L700-709 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L712-720 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L723-731 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L734-738 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L741-783 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L786-822 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L825-873 — `()` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L254-640 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `persist_reactor_state` function L643-699 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `tests` module L702-880 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L706-715 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L718-726 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L729-737 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L740-744 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L747-789 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L792-828 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L831-879 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -813,32 +813,32 @@
 - pub `ReactiveScheduler` struct L145-152 — `{ registry: EndpointRegistry, graphs: Arc<RwLock<HashMap<String, RunningGraph>>>...` — The Reactive Scheduler.
 - pub `new` function L155-161 — `(registry: EndpointRegistry) -> Self` — and restarts tasks on panic.
 - pub `with_dal` function L164-170 — `(registry: EndpointRegistry, dal: crate::dal::unified::DAL) -> Self` — Create a scheduler with DAL support for persistence and health tracking.
-- pub `load_graph` function L173-280 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
-- pub `unload_graph` function L283-309 — `(&self, name: &str) -> Result<(), String>` — Unload and shut down a computation graph.
-- pub `list_graphs` function L312-331 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
-- pub `check_and_restart_failed` function L338-566 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
-- pub `start_supervision` function L571-596 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
-- pub `shutdown_all` function L621-632 — `(&self)` — Graceful shutdown of all graphs.
+- pub `load_graph` function L173-283 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
+- pub `unload_graph` function L286-312 — `(&self, name: &str) -> Result<(), String>` — Unload and shut down a computation graph.
+- pub `list_graphs` function L315-334 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
+- pub `check_and_restart_failed` function L341-572 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
+- pub `start_supervision` function L577-602 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
+- pub `shutdown_all` function L627-638 — `(&self)` — Graceful shutdown of all graphs.
 -  `RunningGraph` struct L109-130 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
 -  `MAX_RECOVERY_ATTEMPTS` variable L133 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
 -  `BACKOFF_BASE_SECS` variable L136 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
 -  `BACKOFF_MAX_SECS` variable L139 — `: u64` — Maximum backoff delay.
 -  `SUCCESS_RESET_SECS` variable L142 — `: u64` — Duration of successful operation before failure counter resets.
--  `ReactiveScheduler` type L154-633 — `= ReactiveScheduler` — and restarts tasks on panic.
--  `record_recovery_event` function L599-618 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
--  `tests` module L636-810 — `-` — and restarts tasks on panic.
--  `TestEvent` struct L647-649 — `{ value: f64 }` — and restarts tasks on panic.
--  `TestAccumulatorFactory` struct L652 — `-` — A simple passthrough accumulator for testing.
--  `TestAccumulatorFactory` type L654-697 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
--  `spawn` function L655-696 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
--  `Passthrough` struct L664 — `-` — and restarts tasks on panic.
--  `Passthrough` type L667-673 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
--  `Event` type L668 — `= TestEvent` — and restarts tasks on panic.
--  `Output` type L669 — `= TestEvent` — and restarts tasks on panic.
--  `process` function L670-672 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
--  `test_load_graph_push_event_fires` function L700-746 — `()` — and restarts tasks on panic.
--  `test_unload_graph_deregisters` function L749-784 — `()` — and restarts tasks on panic.
--  `test_duplicate_load_rejected` function L787-809 — `()` — and restarts tasks on panic.
+-  `ReactiveScheduler` type L154-639 — `= ReactiveScheduler` — and restarts tasks on panic.
+-  `record_recovery_event` function L605-624 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
+-  `tests` module L642-816 — `-` — and restarts tasks on panic.
+-  `TestEvent` struct L653-655 — `{ value: f64 }` — and restarts tasks on panic.
+-  `TestAccumulatorFactory` struct L658 — `-` — A simple passthrough accumulator for testing.
+-  `TestAccumulatorFactory` type L660-703 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
+-  `spawn` function L661-702 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
+-  `Passthrough` struct L670 — `-` — and restarts tasks on panic.
+-  `Passthrough` type L673-679 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
+-  `Event` type L674 — `= TestEvent` — and restarts tasks on panic.
+-  `Output` type L675 — `= TestEvent` — and restarts tasks on panic.
+-  `process` function L676-678 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L706-752 — `()` — and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L755-790 — `()` — and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L793-815 — `()` — and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -2942,43 +2942,43 @@
 -  `PyPipelineResult` type L220-261 — `= PyPipelineResult`
 -  `PyDefaultRunner` type L270-2288 — `= PyDefaultRunner`
 -  `PyPipelineResult` type L2290-2294 — `= PyPipelineResult`
--  `tests` module L2298-2858 — `-`
--  `TEST_PG_URL` variable L2301 — `: &str`
--  `unique_sqlite_url` function L2303-2308 — `() -> String`
--  `test_runner_repr` function L2311-2319 — `()`
--  `test_runner_start_returns_not_implemented` function L2322-2327 — `()`
--  `test_runner_stop_returns_not_implemented` function L2330-2335 — `()`
--  `test_runner_shutdown` function L2338-2344 — `()`
--  `test_runner_context_manager` function L2347-2361 — `()`
--  `test_runner_list_cron_schedules_empty` function L2364-2374 — `()`
--  `test_runner_list_trigger_schedules_empty` function L2377-2387 — `()`
--  `test_runner_get_trigger_schedule_not_found` function L2390-2400 — `()`
--  `test_runner_register_cron_workflow` function L2403-2423 — `()`
--  `test_runner_list_cron_schedules_after_register` function L2426-2449 — `()`
--  `test_runner_get_cron_schedule` function L2452-2474 — `()`
--  `test_runner_set_cron_schedule_enabled` function L2477-2503 — `()`
--  `test_runner_delete_cron_schedule` function L2506-2530 — `()`
--  `test_runner_update_cron_schedule` function L2533-2558 — `()`
--  `test_runner_get_cron_execution_history_empty` function L2561-2582 — `()`
--  `test_runner_get_cron_execution_stats` function L2585-2598 — `()`
--  `test_runner_set_cron_schedule_enabled_invalid_id` function L2601-2611 — `()`
--  `test_runner_set_trigger_enabled` function L2614-2626 — `()`
--  `test_runner_get_trigger_execution_history` function L2629-2641 — `()`
--  `test_pipeline_result_completed` function L2644-2675 — `()`
--  `test_pipeline_result_failed` function L2678-2697 — `()`
--  `test_runner_execute_nonexistent_workflow` function L2700-2714 — `()`
--  `test_runner_execute_registered_workflow` function L2717-2767 — `()`
--  `NoOpTask` struct L2725 — `-`
--  `NoOpTask` type L2728-2741 — `= NoOpTask`
--  `execute` function L2729-2734 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
--  `id` function L2735-2737 — `(&self) -> &str`
--  `dependencies` function L2738-2740 — `(&self) -> &[crate::TaskNamespace]`
--  `test_runner_get_cron_execution_stats_invalid_date` function L2770-2780 — `()`
--  `test_runner_list_cron_schedules_enabled_only` function L2783-2816 — `()`
--  `test_with_schema_rejects_sqlite` function L2821-2825 — `()`
--  `test_with_schema_rejects_empty_schema` function L2828-2835 — `()`
--  `test_with_schema_rejects_invalid_chars` function L2838-2845 — `()`
--  `test_shutdown_error_display` function L2848-2857 — `()`
+-  `tests` module L2298-2888 — `-`
+-  `TEST_PG_URL` variable L2302 — `: &str`
+-  `unique_sqlite_url` function L2304-2309 — `() -> String`
+-  `test_runner_repr` function L2313-2321 — `()`
+-  `test_runner_start_returns_not_implemented` function L2325-2330 — `()`
+-  `test_runner_stop_returns_not_implemented` function L2334-2339 — `()`
+-  `test_runner_shutdown` function L2343-2349 — `()`
+-  `test_runner_context_manager` function L2353-2367 — `()`
+-  `test_runner_list_cron_schedules_empty` function L2371-2381 — `()`
+-  `test_runner_list_trigger_schedules_empty` function L2385-2395 — `()`
+-  `test_runner_get_trigger_schedule_not_found` function L2399-2409 — `()`
+-  `test_runner_register_cron_workflow` function L2413-2433 — `()`
+-  `test_runner_list_cron_schedules_after_register` function L2437-2460 — `()`
+-  `test_runner_get_cron_schedule` function L2464-2486 — `()`
+-  `test_runner_set_cron_schedule_enabled` function L2490-2516 — `()`
+-  `test_runner_delete_cron_schedule` function L2520-2544 — `()`
+-  `test_runner_update_cron_schedule` function L2548-2573 — `()`
+-  `test_runner_get_cron_execution_history_empty` function L2577-2598 — `()`
+-  `test_runner_get_cron_execution_stats` function L2602-2615 — `()`
+-  `test_runner_set_cron_schedule_enabled_invalid_id` function L2619-2629 — `()`
+-  `test_runner_set_trigger_enabled` function L2633-2645 — `()`
+-  `test_runner_get_trigger_execution_history` function L2649-2661 — `()`
+-  `test_pipeline_result_completed` function L2665-2696 — `()`
+-  `test_pipeline_result_failed` function L2700-2719 — `()`
+-  `test_runner_execute_nonexistent_workflow` function L2723-2737 — `()`
+-  `test_runner_execute_registered_workflow` function L2741-2791 — `()`
+-  `NoOpTask` struct L2749 — `-`
+-  `NoOpTask` type L2752-2765 — `= NoOpTask`
+-  `execute` function L2753-2758 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
+-  `id` function L2759-2761 — `(&self) -> &str`
+-  `dependencies` function L2762-2764 — `(&self) -> &[crate::TaskNamespace]`
+-  `test_runner_get_cron_execution_stats_invalid_date` function L2795-2805 — `()`
+-  `test_runner_list_cron_schedules_enabled_only` function L2809-2842 — `()`
+-  `test_with_schema_rejects_sqlite` function L2848-2852 — `()`
+-  `test_with_schema_rejects_empty_schema` function L2856-2863 — `()`
+-  `test_with_schema_rejects_invalid_chars` function L2867-2874 — `()`
+-  `test_shutdown_error_display` function L2878-2887 — `()`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -3123,19 +3123,19 @@
 
 #### crates/cloacina/src/python/computation_graph_tests.rs
 
--  `tests` module L23-549 — `-` — Tests for the Python computation graph bindings.
--  `define_graph_and_get_executor` function L31-55 — `( py: Python<'_>, graph_name: &str, python_code: &std::ffi::CStr, )` — Helper: run a Python script that defines a computation graph using the
--  `test_linear_graph_via_builder` function L58-91 — `()` — WorkflowBuilder + @task pattern.
--  `test_routing_graph_via_builder` function L94-136 — `()` — WorkflowBuilder + @task pattern.
--  `test_missing_node_errors` function L139-181 — `()` — WorkflowBuilder + @task pattern.
--  `test_orphan_node_errors` function L184-228 — `()` — WorkflowBuilder + @task pattern.
--  `test_linear_graph_executes` function L231-292 — `()` — WorkflowBuilder + @task pattern.
--  `test_routing_graph_executes_signal_path` function L295-374 — `()` — WorkflowBuilder + @task pattern.
--  `setup_accumulator_env` function L381-413 — `(py: Python<'_>) -> Bound<'_, pyo3::types::PyDict>` — Helper: set up Python environment with accumulator decorators available.
--  `test_passthrough_accumulator_decorator` function L416-448 — `()` — WorkflowBuilder + @task pattern.
--  `test_stream_accumulator_decorator` function L451-482 — `()` — WorkflowBuilder + @task pattern.
--  `test_polling_accumulator_decorator` function L485-512 — `()` — WorkflowBuilder + @task pattern.
--  `test_batch_accumulator_decorator` function L515-548 — `()` — WorkflowBuilder + @task pattern.
+-  `tests` module L23-560 — `-` — Tests for the Python computation graph bindings.
+-  `define_graph_and_get_executor` function L32-56 — `( py: Python<'_>, graph_name: &str, python_code: &std::ffi::CStr, )` — Helper: run a Python script that defines a computation graph using the
+-  `test_linear_graph_via_builder` function L60-93 — `()` — WorkflowBuilder + @task pattern.
+-  `test_routing_graph_via_builder` function L97-139 — `()` — WorkflowBuilder + @task pattern.
+-  `test_missing_node_errors` function L143-185 — `()` — WorkflowBuilder + @task pattern.
+-  `test_orphan_node_errors` function L189-233 — `()` — WorkflowBuilder + @task pattern.
+-  `test_linear_graph_executes` function L237-298 — `()` — WorkflowBuilder + @task pattern.
+-  `test_routing_graph_executes_signal_path` function L302-381 — `()` — WorkflowBuilder + @task pattern.
+-  `setup_accumulator_env` function L388-420 — `(py: Python<'_>) -> Bound<'_, pyo3::types::PyDict>` — Helper: set up Python environment with accumulator decorators available.
+-  `test_passthrough_accumulator_decorator` function L424-456 — `()` — WorkflowBuilder + @task pattern.
+-  `test_stream_accumulator_decorator` function L460-491 — `()` — WorkflowBuilder + @task pattern.
+-  `test_polling_accumulator_decorator` function L495-522 — `()` — WorkflowBuilder + @task pattern.
+-  `test_batch_accumulator_decorator` function L526-559 — `()` — WorkflowBuilder + @task pattern.
 
 #### crates/cloacina/src/python/context.rs
 
@@ -4645,42 +4645,42 @@
 
 #### crates/cloacina/tests/fixtures.rs
 
-- pub `get_or_init_postgres_fixture` function L80-102 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the PostgreSQL test fixture singleton
-- pub `get_or_init_sqlite_fixture` function L115-126 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the SQLite test fixture singleton
-- pub `get_or_init_fixture` function L131-133 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
-- pub `get_or_init_fixture` function L138-140 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
-- pub `get_all_fixtures` function L159-169 — `() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)>` — Returns all enabled backend fixtures for parameterized testing.
-- pub `TestFixture` struct L215-224 — `{ initialized: bool, db: Database, db_url: String, schema: String }` — Represents a test fixture for the Cloacina project.
-- pub `new_postgres` function L232-248 — `(db: Database, db_url: String, schema: String) -> Self` — Creates a new TestFixture instance for PostgreSQL
-- pub `new_sqlite` function L254-267 — `(db: Database, db_url: String) -> Self` — Creates a new TestFixture instance for SQLite
-- pub `get_dal` function L270-272 — `(&self) -> cloacina::dal::DAL` — Get a DAL instance using the database
-- pub `get_database` function L275-277 — `(&self) -> Database` — Get a clone of the database instance
-- pub `get_database_url` function L280-282 — `(&self) -> String` — Get the database URL for this fixture
-- pub `get_schema` function L285-287 — `(&self) -> String` — Get the schema name for this fixture
-- pub `get_current_backend` function L290-306 — `(&self) -> &'static str` — Get the name of the current backend (postgres or sqlite)
-- pub `create_storage` function L309-311 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database (primary storage method)
-- pub `create_backend_storage` function L315-317 — `(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage>` — Create storage backend matching the current database backend
-- pub `create_unified_storage` function L320-322 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database
-- pub `create_filesystem_storage` function L325-330 — `(&self) -> cloacina::dal::FilesystemRegistryStorage` — Create a filesystem storage backend for testing
-- pub `initialize` function L333-362 — `(&mut self)` — Initialize the fixture with additional setup
-- pub `reset_database` function L365-451 — `(&mut self)` — Reset the database by truncating all tables in the test schema
-- pub `poll_until` function L471-490 — `( timeout: std::time::Duration, interval: std::time::Duration, msg: &str, condit...` — Poll a condition until it returns true, or timeout.
-- pub `fixtures` module L507-573 — `-` — for integration tests.
+- pub `get_or_init_postgres_fixture` function L80-103 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the PostgreSQL test fixture singleton
+- pub `get_or_init_sqlite_fixture` function L116-127 — `() -> Arc<Mutex<TestFixture>>` — Gets or initializes the SQLite test fixture singleton
+- pub `get_or_init_fixture` function L132-134 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
+- pub `get_or_init_fixture` function L139-141 — `() -> Arc<Mutex<TestFixture>>` — Get the default fixture for the current backend configuration.
+- pub `get_all_fixtures` function L160-170 — `() -> Vec<(&'static str, Arc<Mutex<TestFixture>>)>` — Returns all enabled backend fixtures for parameterized testing.
+- pub `TestFixture` struct L216-225 — `{ initialized: bool, db: Database, db_url: String, schema: String }` — Represents a test fixture for the Cloacina project.
+- pub `new_postgres` function L233-249 — `(db: Database, db_url: String, schema: String) -> Self` — Creates a new TestFixture instance for PostgreSQL
+- pub `new_sqlite` function L255-268 — `(db: Database, db_url: String) -> Self` — Creates a new TestFixture instance for SQLite
+- pub `get_dal` function L271-273 — `(&self) -> cloacina::dal::DAL` — Get a DAL instance using the database
+- pub `get_database` function L276-278 — `(&self) -> Database` — Get a clone of the database instance
+- pub `get_database_url` function L281-283 — `(&self) -> String` — Get the database URL for this fixture
+- pub `get_schema` function L286-288 — `(&self) -> String` — Get the schema name for this fixture
+- pub `get_current_backend` function L291-307 — `(&self) -> &'static str` — Get the name of the current backend (postgres or sqlite)
+- pub `create_storage` function L310-312 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database (primary storage method)
+- pub `create_backend_storage` function L316-318 — `(&self) -> Box<dyn cloacina::registry::traits::RegistryStorage>` — Create storage backend matching the current database backend
+- pub `create_unified_storage` function L321-323 — `(&self) -> cloacina::dal::UnifiedRegistryStorage` — Create a unified storage backend using this fixture's database
+- pub `create_filesystem_storage` function L326-331 — `(&self) -> cloacina::dal::FilesystemRegistryStorage` — Create a filesystem storage backend for testing
+- pub `initialize` function L334-363 — `(&mut self)` — Initialize the fixture with additional setup
+- pub `reset_database` function L366-452 — `(&mut self)` — Reset the database by truncating all tables in the test schema
+- pub `poll_until` function L472-491 — `( timeout: std::time::Duration, interval: std::time::Duration, msg: &str, condit...` — Poll a condition until it returns true, or timeout.
+- pub `fixtures` module L508-574 — `-` — for integration tests.
 -  `INIT` variable L40 — `: Once` — for integration tests.
 -  `POSTGRES_FIXTURE` variable L42 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
 -  `SQLITE_FIXTURE` variable L44 — `: OnceCell<Arc<Mutex<TestFixture>>>` — for integration tests.
 -  `DEFAULT_POSTGRES_URL` variable L48 — `: &str` — Default PostgreSQL connection URL
 -  `get_test_schema` function L53-60 — `() -> String` — Get the test schema name from environment variable or generate a unique one
 -  `DEFAULT_SQLITE_URL` variable L64 — `: &str` — Default SQLite connection URL (in-memory with shared cache for testing)
--  `backend_test` macro L185-205 — `-` — Macro for defining tests that run on all enabled backends.
--  `TestFixture` type L226-452 — `= TestFixture` — for integration tests.
--  `TableName` struct L383-386 — `{ tablename: String }` — for integration tests.
--  `TableName` struct L427-430 — `{ name: String }` — for integration tests.
--  `TestFixture` type L492-497 — `impl Drop for TestFixture` — for integration tests.
--  `drop` function L493-496 — `(&mut self)` — for integration tests.
--  `TableCount` struct L500-503 — `{ count: i64 }` — for integration tests.
--  `test_migration_function_postgres` function L514-541 — `()` — for integration tests.
--  `test_migration_function_sqlite` function L546-572 — `()` — for integration tests.
+-  `backend_test` macro L186-206 — `-` — Macro for defining tests that run on all enabled backends.
+-  `TestFixture` type L227-453 — `= TestFixture` — for integration tests.
+-  `TableName` struct L384-387 — `{ tablename: String }` — for integration tests.
+-  `TableName` struct L428-431 — `{ name: String }` — for integration tests.
+-  `TestFixture` type L493-498 — `impl Drop for TestFixture` — for integration tests.
+-  `drop` function L494-497 — `(&mut self)` — for integration tests.
+-  `TableCount` struct L501-504 — `{ count: i64 }` — for integration tests.
+-  `test_migration_function_postgres` function L515-542 — `()` — for integration tests.
+-  `test_migration_function_sqlite` function L547-573 — `()` — for integration tests.
 
 ### crates/cloacina/tests/integration
 
@@ -4744,38 +4744,38 @@
 -  `Output` type L730 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L731-733 — `(&mut self, event: BetaData) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
 -  `test_sequential_input_strategy` function L830-913 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_dal` function L920-930 — `() -> cloacina::dal::unified::DAL` — Helper: create an in-memory SQLite DAL for testing.
--  `test_boundary_sender_sequence_numbers` function L933-949 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_boundary_sender_with_sequence_recovery` function L952-966 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_accumulator_health_channel` function L969-988 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_dal_round_trip` function L991-1015 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_dal_upsert` function L1018-1036 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_boundary_dal_with_sequence` function L1039-1059 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_state_dal_round_trip` function L1062-1081 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_state_dal_with_sequential_queue` function L1084-1100 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_state_buffer_dal_round_trip` function L1103-1117 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_delete_graph_state` function L1120-1161 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_handle_typed_round_trip` function L1164-1180 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_handle_load_empty` function L1183-1194 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_cache_recovery_across_restart` function L1211-1351 — `()` — Test: Reactor cache persists to DAL and survives restart.
--  `test_reactor_health_warming_to_live` function L1359-1427 — `()` — Test: Health state machine transitions — Starting → Warming → Live.
--  `test_boundary_sequence_continuity_across_restart` function L1435-1518 — `()` — Test: Boundary sequence continuity across restart.
--  `test_state_accumulator_survives_restart` function L1525-1634 — `()` — Test: State accumulator persists VecDeque to DAL and restores on restart.
--  `test_batch_buffer_crash_recovery` function L1642-1762 — `()` — Test: Batch buffer survives crash via checkpoint.
--  `SumBatcher` struct L1665 — `-` — graph, and generates a callable async function that routes data correctly.
--  `SumBatcher` type L1667-1674 — `= SumBatcher` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L1668 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L1669 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process_batch` function L1670-1673 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_supervisor_individual_accumulator_restart` function L1770-1906 — `()` — Test: Supervisor restarts crashed accumulator individually.
--  `PanicAfterTwoFactory` struct L1789-1791 — `{ spawn_count: std::sync::atomic::AtomicU32 }` — Factory that produces accumulators that panic after 2 events on first spawn,
--  `PanicAfterTwoFactory` type L1793-1845 — `impl AccumulatorFactory for PanicAfterTwoFactory` — graph, and generates a callable async function that routes data correctly.
--  `spawn` function L1794-1844 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
--  `MaybePanicAccumulator` struct L1806-1809 — `{ count: u32, should_panic: bool }` — graph, and generates a callable async function that routes data correctly.
--  `MaybePanicAccumulator` type L1812-1822 — `= MaybePanicAccumulator` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L1813 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L1814 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process` function L1815-1821 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_dal` function L922-932 — `() -> cloacina::dal::unified::DAL` — Helper: create an in-memory SQLite DAL for testing.
+-  `test_boundary_sender_sequence_numbers` function L935-951 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_boundary_sender_with_sequence_recovery` function L954-968 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_accumulator_health_channel` function L971-990 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_dal_round_trip` function L993-1017 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_dal_upsert` function L1020-1038 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_boundary_dal_with_sequence` function L1041-1061 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_state_dal_round_trip` function L1064-1083 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_state_dal_with_sequential_queue` function L1086-1102 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_state_buffer_dal_round_trip` function L1105-1119 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_delete_graph_state` function L1122-1163 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_handle_typed_round_trip` function L1166-1182 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_handle_load_empty` function L1185-1196 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_cache_recovery_across_restart` function L1213-1353 — `()` — Test: Reactor cache persists to DAL and survives restart.
+-  `test_reactor_health_warming_to_live` function L1361-1429 — `()` — Test: Health state machine transitions — Starting → Warming → Live.
+-  `test_boundary_sequence_continuity_across_restart` function L1437-1513 — `()` — Test: Boundary sequence continuity across restart.
+-  `test_state_accumulator_survives_restart` function L1520-1626 — `()` — Test: State accumulator persists VecDeque to DAL and restores on restart.
+-  `test_batch_buffer_crash_recovery` function L1634-1746 — `()` — Test: Batch buffer survives crash via checkpoint.
+-  `SumBatcher` struct L1657 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `SumBatcher` type L1659-1666 — `= SumBatcher` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L1660 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L1661 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process_batch` function L1662-1665 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_supervisor_individual_accumulator_restart` function L1754-1893 — `()` — Test: Supervisor restarts crashed accumulator individually.
+-  `PanicAfterTwoFactory` struct L1773-1775 — `{ spawn_count: std::sync::atomic::AtomicU32 }` — Factory that produces accumulators that panic after 2 events on first spawn,
+-  `PanicAfterTwoFactory` type L1777-1829 — `impl AccumulatorFactory for PanicAfterTwoFactory` — graph, and generates a callable async function that routes data correctly.
+-  `spawn` function L1778-1828 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
+-  `MaybePanicAccumulator` struct L1790-1793 — `{ count: u32, should_panic: bool }` — graph, and generates a callable async function that routes data correctly.
+-  `MaybePanicAccumulator` type L1796-1806 — `= MaybePanicAccumulator` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L1797 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L1798 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L1799-1805 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 
@@ -6321,8 +6321,8 @@
 #### crates/cloacinactl/src/server/health_reactive.rs
 
 - pub `list_accumulators` function L33-50 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators with health status.
-- pub `list_reactors` function L53-74 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
-- pub `get_reactor` function L77-107 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
+- pub `list_reactors` function L53-76 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
+- pub `get_reactor` function L79-111 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
 
 #### crates/cloacinactl/src/server/keys.rs
 

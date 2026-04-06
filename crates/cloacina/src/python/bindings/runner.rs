@@ -2303,7 +2303,7 @@ mod tests {
 
     fn unique_sqlite_url() -> String {
         format!(
-            "sqlite:///tmp/cloacina_runner_test_{}.db?mode=rwc",
+            "file:cloacina_runner_test_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4()
         )
     }

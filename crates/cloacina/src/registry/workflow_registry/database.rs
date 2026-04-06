@@ -649,7 +649,10 @@ mod tests {
 
     #[cfg(feature = "sqlite")]
     async fn create_test_registry() -> WorkflowRegistryImpl<UnifiedRegistryStorage> {
-        let url = format!("sqlite:///tmp/wfreg_test_{}.db?mode=rwc", Uuid::new_v4());
+        let url = format!(
+            "file:wfreg_test_{}?mode=memory&cache=shared",
+            Uuid::new_v4()
+        );
         let db = Database::new(&url, "", 5);
         db.run_migrations()
             .await
