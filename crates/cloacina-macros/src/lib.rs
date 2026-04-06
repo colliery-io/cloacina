@@ -206,3 +206,17 @@ pub fn polling_accumulator(args: TokenStream, input: TokenStream) -> TokenStream
         Err(err) => err.to_compile_error().into(),
     }
 }
+
+/// Define a state accumulator (bounded history buffer with DAL persistence).
+///
+/// ```rust,ignore
+/// #[state_accumulator(capacity = 10)]
+/// fn previous_outputs() -> VecDeque<DecisionOutput>;
+/// ```
+#[proc_macro_attribute]
+pub fn state_accumulator(args: TokenStream, input: TokenStream) -> TokenStream {
+    match computation_graph::accumulator_macros::state_accumulator_impl(args.into(), input.into()) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}

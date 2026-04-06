@@ -605,6 +605,142 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
     }
 }
 
+// =============================================================================
+// State Accumulator
+// =============================================================================
+
+/// A state accumulator holds a bounded VecDeque<T> that receives values from
+/// the computation graph (collector or mid-graph writes), persists to DAL on
+/// every write, and loads from DAL on startup. Enables cyclic state patterns
+/// where the graph's output feeds back as input on the next execution.
+///
+/// Capacity modes:
+/// - `capacity > 0`: bounded — evicts oldest when at capacity
+/// - `capacity < 0` (e.g., -1): unbounded — grows without limit
+/// - `capacity == 0`: write-only sink — no history emitted back
+pub struct StateAccumulator<T: Serialize + DeserializeOwned + Send + Clone + 'static> {
+    buffer: std::collections::VecDeque<T>,
+    capacity: i32,
+}
+
+impl<T: Serialize + DeserializeOwned + Send + Clone + 'static> StateAccumulator<T> {
+    pub fn new(capacity: i32) -> Self {
+        Self {
+            buffer: std::collections::VecDeque::new(),
+            capacity,
+        }
+    }
+}
+
+/// Run a state accumulator. Receives values via socket, appends to VecDeque,
+/// evicts if over capacity, persists to DAL, and emits the full list as boundary.
+///
+/// On startup: loads from DAL and emits current list to reactor.
+pub async fn state_accumulator_runtime<T: Serialize + DeserializeOwned + Send + Clone + 'static>(
+    mut acc: StateAccumulator<T>,
+    ctx: AccumulatorContext,
+    socket_rx: mpsc::Receiver<Vec<u8>>,
+) {
+    set_health(&ctx, AccumulatorHealth::Starting);
+
+    // Load from DAL on startup
+    if let Some(ref handle) = ctx.checkpoint {
+        match handle
+            .dal()
+            .checkpoint()
+            .load_state_buffer(handle.graph_name(), handle.accumulator_name())
+            .await
+        {
+            Ok(Some((data, _cap))) => {
+                if let Ok(buffer) = serde_json::from_slice::<std::collections::VecDeque<T>>(&data) {
+                    acc.buffer = buffer;
+                    tracing::info!(name = %ctx.name, entries = acc.buffer.len(), "state accumulator restored from DAL");
+                }
+            }
+            Ok(None) => {
+                tracing::debug!(name = %ctx.name, "no persisted state accumulator buffer found");
+            }
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "failed to load state buffer: {}", e);
+            }
+        }
+
+        // Emit current list to reactor immediately (so reactor has state on startup)
+        if !acc.buffer.is_empty() && acc.capacity != 0 {
+            let list: Vec<T> = acc.buffer.iter().cloned().collect();
+            if let Err(e) = ctx.output.send(&list).await {
+                tracing::error!(name = %ctx.name, "state accumulator initial emit failed: {}", e);
+            }
+        }
+    }
+
+    set_health(&ctx, AccumulatorHealth::SocketOnly);
+
+    let mut shutdown = ctx.shutdown.clone();
+    let mut socket_rx = socket_rx;
+
+    loop {
+        tokio::select! {
+            Some(bytes) = socket_rx.recv() => {
+                match types::deserialize::<T>(&bytes) {
+                    Ok(value) => {
+                        // Append to buffer
+                        acc.buffer.push_back(value);
+
+                        // Evict if over capacity (bounded mode)
+                        if acc.capacity > 0 {
+                            while acc.buffer.len() > acc.capacity as usize {
+                                acc.buffer.pop_front();
+                            }
+                        }
+
+                        // Persist to DAL
+                        if let Some(ref handle) = ctx.checkpoint {
+                            let data = match serde_json::to_vec(&acc.buffer) {
+                                Ok(d) => d,
+                                Err(e) => {
+                                    tracing::warn!(name = %ctx.name, "state buffer serialization failed: {}", e);
+                                    continue;
+                                }
+                            };
+                            if let Err(e) = handle
+                                .dal()
+                                .checkpoint()
+                                .save_state_buffer(
+                                    handle.graph_name(),
+                                    handle.accumulator_name(),
+                                    data,
+                                    acc.capacity,
+                                )
+                                .await
+                            {
+                                tracing::warn!(name = %ctx.name, "state buffer persistence failed: {}", e);
+                            }
+                        }
+
+                        // Emit full list as boundary (unless write-only mode)
+                        if acc.capacity != 0 {
+                            let list: Vec<T> = acc.buffer.iter().cloned().collect();
+                            if let Err(e) = ctx.output.send(&list).await {
+                                tracing::error!(name = %ctx.name, "state accumulator emit failed: {}", e);
+                            } else {
+                                persist_boundary(&ctx, &list).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(name = %ctx.name, "state accumulator deserialize error: {}", e);
+                    }
+                }
+            }
+            _ = shutdown.changed() => {
+                tracing::debug!(name = %ctx.name, "state accumulator shutting down");
+                break;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

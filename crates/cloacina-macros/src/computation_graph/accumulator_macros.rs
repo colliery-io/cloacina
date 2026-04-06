@@ -462,6 +462,113 @@ fn extract_option_inner(ty: &Type) -> syn::Result<Type> {
     ))
 }
 
+/// Parsed args for `#[state_accumulator(capacity = N)]`
+struct StateAccumulatorArgs {
+    capacity: i32,
+}
+
+impl Parse for StateAccumulatorArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut capacity = None;
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+
+            match key.to_string().as_str() {
+                "capacity" => {
+                    let neg = input.peek(Token![-]);
+                    if neg {
+                        input.parse::<Token![-]>()?;
+                        let lit: syn::LitInt = input.parse()?;
+                        capacity = Some(-(lit.base10_parse::<i32>()?));
+                    } else {
+                        let lit: syn::LitInt = input.parse()?;
+                        capacity = Some(lit.base10_parse::<i32>()?);
+                    }
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        format!("unknown state_accumulator argument '{}'", other),
+                    ));
+                }
+            }
+
+            let _ = input.parse::<Token![,]>();
+        }
+
+        Ok(StateAccumulatorArgs {
+            capacity: capacity.ok_or_else(|| {
+                syn::Error::new(
+                    proc_macro2::Span::call_site(),
+                    "missing 'capacity' argument",
+                )
+            })?,
+        })
+    }
+}
+
+/// Generate code for `#[state_accumulator(capacity = N)]`.
+///
+/// Takes a function signature `fn name() -> VecDeque<T>` and generates a
+/// `StateAccumulator<T>` with DAL persistence wiring.
+///
+/// ```rust,ignore
+/// #[state_accumulator(capacity = 10)]
+/// fn previous_outputs() -> VecDeque<DecisionOutput>;
+/// ```
+pub fn state_accumulator_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let parsed_args: StateAccumulatorArgs = syn::parse2(args)?;
+    let func: ItemFn = syn::parse2(input)?;
+    let fn_name = &func.sig.ident;
+    let struct_name = format_ident!("{}StateAccumulator", pascal_case(&fn_name.to_string()));
+
+    let output = &func.sig.output;
+    let return_type = extract_return_type(output)?;
+
+    // Extract the inner type T from VecDeque<T>
+    let inner_type = extract_vecdeque_inner(&return_type)?;
+
+    let capacity = parsed_args.capacity;
+    let name_str = fn_name.to_string();
+
+    Ok(quote! {
+        #func
+
+        pub struct #struct_name;
+
+        impl #struct_name {
+            pub fn create() -> cloacina::computation_graph::accumulator::StateAccumulator<#inner_type> {
+                cloacina::computation_graph::accumulator::StateAccumulator::new(#capacity)
+            }
+
+            pub fn name() -> &'static str {
+                #name_str
+            }
+        }
+    })
+}
+
+/// Extract the inner type T from VecDeque<T>.
+fn extract_vecdeque_inner(ty: &Type) -> syn::Result<Type> {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "VecDeque" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Ok(inner.clone());
+                    }
+                }
+            }
+        }
+    }
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "state_accumulator function must return VecDeque<T>",
+    ))
+}
+
 /// Convert snake_case to PascalCase.
 fn pascal_case(s: &str) -> String {
     s.split('_')

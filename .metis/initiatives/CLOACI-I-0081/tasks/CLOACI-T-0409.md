@@ -4,14 +4,14 @@ level: task
 title: "State accumulator DAL — VecDeque persistence on write, load on startup, emit to reactor"
 short_code: "CLOACI-T-0409"
 created_at: 2026-04-05T21:24:23.557396+00:00
-updated_at: 2026-04-05T21:24:23.557396+00:00
+updated_at: 2026-04-06T00:25:45.467155+00:00
 parent: CLOACI-I-0081
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0081
 ## Objective
 
 Implement the State accumulator class with full DAL persistence as described in S-0004. The state accumulator holds a bounded `VecDeque<T>` that receives values from the computation graph (collector or mid-graph writes), persists to DAL on every write, and loads from DAL on startup. This enables cyclic state patterns where the graph's output feeds back as input on the next execution.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -73,4 +77,16 @@ struct StateAccumulator<T: Boundary> {
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-06: Implementation complete
+
+**Completed:**
+- StateAccumulator<T> struct with VecDeque<T> buffer and configurable capacity (i32: >0 bounded, <0 unbounded, 0 write-only)
+- state_accumulator_runtime: loads from DAL on startup, emits current list to reactor immediately, persists on every write
+- On receive: append → evict if over capacity → persist to state_accumulator_buffers → emit full list as boundary
+- Capacity enforcement: bounded mode evicts oldest, unbounded mode grows freely, write-only mode doesn't emit
+- #[state_accumulator(capacity = N)] proc macro generates struct with create() and name() methods
+- StateAccumulatorArgs parser handles positive and negative capacity values
+- extract_vecdeque_inner() helper for parsing VecDeque<T> return type
+- Registered in cloacina-macros lib.rs as proc_macro_attribute
+- Health: reports Starting → SocketOnly (no external source)
+- All unit tests pass

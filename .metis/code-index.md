@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-05T19:18:51Z | 417 files | JavaScript, Python, Rust
+> Generated: 2026-04-06T00:20:29Z | 418 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -35,6 +35,7 @@
 │   │   │   │       ├── api_keys/
 │   │   │   │       │   ├── crud.rs
 │   │   │   │       │   └── mod.rs
+│   │   │   │       ├── checkpoint.rs
 │   │   │   │       ├── context.rs
 │   │   │   │       ├── execution_event.rs
 │   │   │   │       ├── mod.rs
@@ -577,66 +578,80 @@
 
 #### crates/cloacina/src/computation_graph/accumulator.rs
 
-- pub `AccumulatorError` enum L31-40 — `Init | Run | Send | Checkpoint` — Errors from accumulator operations.
-- pub `Accumulator` interface L50-78 — `{ fn process(), fn run(), fn init() }` — An accumulator consumes events from a source and pushes boundaries to a reactor.
-- pub `AccumulatorContext` struct L81-88 — `{ output: BoundarySender, name: String, shutdown: watch::Receiver<bool> }` — Context provided to the accumulator by the runtime.
-- pub `BoundarySender` struct L94-97 — `{ inner: mpsc::Sender<(SourceName, Vec<u8>)>, source_name: SourceName }` — Sends serialized boundaries to the reactor.
-- pub `new` function L100-105 — `(sender: mpsc::Sender<(SourceName, Vec<u8>)>, source_name: SourceName) -> Self` — See CLOACI-S-0004 for the full specification.
-- pub `send` function L108-116 — `(&self, boundary: &T) -> Result<(), AccumulatorError>` — Serialize and send a boundary to the reactor.
-- pub `source_name` function L119-121 — `(&self) -> &SourceName` — Get the source name this sender is associated with.
-- pub `AccumulatorRuntimeConfig` struct L125-128 — `{ merge_channel_capacity: usize }` — Configuration for the accumulator runtime.
-- pub `accumulator_runtime` function L150-227 — `( mut acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, confi...` — Run an accumulator as 3 tokio tasks connected by a merge channel.
-- pub `shutdown_signal` function L230-232 — `() -> (watch::Sender<bool>, watch::Receiver<bool>)` — Create a shutdown signal pair.
-- pub `PollingAccumulator` interface L243-253 — `{ fn poll(), fn interval() }` — A polling accumulator periodically calls an async poll function to query
-- pub `polling_accumulator_runtime` function L259-300 — `( mut poller: P, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, )` — Run a polling accumulator as a timer-based loop.
-- pub `BatchAccumulator` interface L314-324 — `{ fn process_batch() }` — A batch accumulator buffers incoming events and processes them all at once
-- pub `BatchAccumulatorConfig` struct L327-332 — `{ flush_interval: Option<std::time::Duration>, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
-- pub `flush_signal` function L347-349 — `() -> (mpsc::Sender<()>, mpsc::Receiver<()>)` — Create a flush signal pair for batch accumulators.
-- pub `batch_accumulator_runtime` function L356-411 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, mut f...` — Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
--  `run` function L64-71 — `( &mut self, _ctx: &AccumulatorContext, _events: mpsc::Sender<Self::Event>, ) ->...` — Optional: active event loop that pulls from a source and pushes
--  `init` function L75-77 — `(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError>` — Called on startup before `run()` or first receive.
--  `BoundarySender` type L99-122 — `= BoundarySender` — See CLOACI-S-0004 for the full specification.
--  `AccumulatorRuntimeConfig` type L130-136 — `impl Default for AccumulatorRuntimeConfig` — See CLOACI-S-0004 for the full specification.
--  `default` function L131-135 — `() -> Self` — See CLOACI-S-0004 for the full specification.
--  `BatchAccumulatorConfig` type L334-341 — `impl Default for BatchAccumulatorConfig` — See CLOACI-S-0004 for the full specification.
--  `default` function L335-340 — `() -> Self` — See CLOACI-S-0004 for the full specification.
--  `flush_batch` function L414-431 — `( acc: &mut B, buffer: &mut Vec<B::Event>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
--  `tests` module L434-1001 — `-` — See CLOACI-S-0004 for the full specification.
--  `TestEvent` struct L439-441 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
--  `TestBoundary` struct L444-446 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` struct L448 — `-` — See CLOACI-S-0004 for the full specification.
--  `DoubleAccumulator` type L451-460 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L452 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L453 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L455-459 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_boundary_sender_round_trip` function L463-475 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_processes_socket_events` function L478-514 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_runtime_multiple_events` function L517-551 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_shutdown` function L554-581 — `()` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` struct L585-588 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
--  `CountingPoller` type L591-608 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
--  `Output` type L592 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `poll` function L594-603 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `interval` function L605-607 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_emits_on_some` function L611-646 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_skips_on_none` function L649-676 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_polling_accumulator_shutdown` function L679-701 — `()` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` struct L705 — `-` — See CLOACI-S-0004 for the full specification.
--  `SumBatchAccumulator` type L708-716 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L709 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L710 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process_batch` function L712-715 — `(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_signal` function L719-766 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_flush_on_timer` function L769-813 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_empty_flush_skips` function L816-850 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_max_buffer_size` function L853-896 — `()` — See CLOACI-S-0004 for the full specification.
--  `test_batch_accumulator_shutdown_drains` function L899-940 — `()` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` struct L942 — `-` — See CLOACI-S-0004 for the full specification.
--  `FilterAccumulator` type L945-959 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
--  `Event` type L946 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
--  `Output` type L947 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
--  `process` function L949-958 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
--  `test_accumulator_process_returns_none` function L962-1000 — `()` — See CLOACI-S-0004 for the full specification.
+- pub `AccumulatorHealth` enum L39-50 — `Starting | Connecting | Live | Disconnected | SocketOnly` — Health state of an accumulator, reported via watch channel.
+- pub `health_channel` function L65-70 — `() -> ( watch::Sender<AccumulatorHealth>, watch::Receiver<AccumulatorHealth>, )` — Create a health reporting channel for an accumulator.
+- pub `AccumulatorError` enum L74-83 — `Init | Run | Send | Checkpoint` — Errors from accumulator operations.
+- pub `Accumulator` interface L93-121 — `{ fn process(), fn run(), fn init() }` — An accumulator consumes events from a source and pushes boundaries to a reactor.
+- pub `CheckpointHandle` struct L128-132 — `{ dal: crate::dal::unified::DAL, graph_name: String, accumulator_name: String }` — Handle for persisting accumulator state via the DAL.
+- pub `new` function L136-146 — `( dal: crate::dal::unified::DAL, graph_name: String, accumulator_name: String, )...` — Create a new checkpoint handle for the given graph and accumulator.
+- pub `save` function L149-157 — `(&self, state: &T) -> Result<(), AccumulatorError>` — Persist accumulator state.
+- pub `load` function L160-176 — `(&self) -> Result<Option<T>, AccumulatorError>` — Load previously persisted accumulator state.
+- pub `dal` function L179-181 — `(&self) -> &crate::dal::unified::DAL` — Access the underlying DAL for direct checkpoint operations.
+- pub `graph_name` function L184-186 — `(&self) -> &str` — Get the graph name this handle is scoped to.
+- pub `accumulator_name` function L189-191 — `(&self) -> &str` — Get the accumulator name this handle is scoped to.
+- pub `AccumulatorContext` struct L195-208 — `{ output: BoundarySender, name: String, shutdown: watch::Receiver<bool>, checkpo...` — Context provided to the accumulator by the runtime.
+- pub `BoundarySender` struct L214-217 — `{ inner: mpsc::Sender<(SourceName, Vec<u8>)>, source_name: SourceName }` — Sends serialized boundaries to the reactor.
+- pub `new` function L220-225 — `(sender: mpsc::Sender<(SourceName, Vec<u8>)>, source_name: SourceName) -> Self` — See CLOACI-S-0004 for the full specification.
+- pub `send` function L228-236 — `(&self, boundary: &T) -> Result<(), AccumulatorError>` — Serialize and send a boundary to the reactor.
+- pub `source_name` function L239-241 — `(&self) -> &SourceName` — Get the source name this sender is associated with.
+- pub `AccumulatorRuntimeConfig` struct L245-248 — `{ merge_channel_capacity: usize }` — Configuration for the accumulator runtime.
+- pub `accumulator_runtime` function L270-355 — `( mut acc: A, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, confi...` — Run an accumulator as 3 tokio tasks connected by a merge channel.
+- pub `shutdown_signal` function L358-360 — `() -> (watch::Sender<bool>, watch::Receiver<bool>)` — Create a shutdown signal pair.
+- pub `PollingAccumulator` interface L371-381 — `{ fn poll(), fn interval() }` — A polling accumulator periodically calls an async poll function to query
+- pub `polling_accumulator_runtime` function L387-437 — `( mut poller: P, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, )` — Run a polling accumulator as a timer-based loop.
+- pub `BatchAccumulator` interface L451-461 — `{ fn process_batch() }` — A batch accumulator buffers incoming events and processes them all at once
+- pub `BatchAccumulatorConfig` struct L464-469 — `{ flush_interval: Option<std::time::Duration>, max_buffer_size: Option<usize> }` — Configuration for the batch accumulator runtime.
+- pub `flush_signal` function L484-486 — `() -> (mpsc::Sender<()>, mpsc::Receiver<()>)` — Create a flush signal pair for batch accumulators.
+- pub `batch_accumulator_runtime` function L493-553 — `( mut acc: B, ctx: AccumulatorContext, socket_rx: mpsc::Receiver<Vec<u8>>, mut f...` — Run a batch accumulator that buffers events and flushes on signal, timer, or size threshold.
+-  `AccumulatorHealth` type L52-62 — `= AccumulatorHealth` — See CLOACI-S-0004 for the full specification.
+-  `fmt` function L53-61 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0004 for the full specification.
+-  `run` function L107-114 — `( &mut self, _ctx: &AccumulatorContext, _events: mpsc::Sender<Self::Event>, ) ->...` — Optional: active event loop that pulls from a source and pushes
+-  `init` function L118-120 — `(&mut self, _ctx: &AccumulatorContext) -> Result<(), AccumulatorError>` — Called on startup before `run()` or first receive.
+-  `CheckpointHandle` type L134-192 — `= CheckpointHandle` — See CLOACI-S-0004 for the full specification.
+-  `BoundarySender` type L219-242 — `= BoundarySender` — See CLOACI-S-0004 for the full specification.
+-  `AccumulatorRuntimeConfig` type L250-256 — `impl Default for AccumulatorRuntimeConfig` — See CLOACI-S-0004 for the full specification.
+-  `default` function L251-255 — `() -> Self` — See CLOACI-S-0004 for the full specification.
+-  `BatchAccumulatorConfig` type L471-478 — `impl Default for BatchAccumulatorConfig` — See CLOACI-S-0004 for the full specification.
+-  `default` function L472-477 — `() -> Self` — See CLOACI-S-0004 for the full specification.
+-  `flush_batch` function L556-574 — `( acc: &mut B, buffer: &mut Vec<B::Event>, ctx: &AccumulatorContext, )` — Flush the buffer through the batch accumulator and send boundary if produced.
+-  `set_health` function L581-585 — `(ctx: &AccumulatorContext, health: AccumulatorHealth)` — Set health state (best-effort, no-op if health channel not configured).
+-  `persist_boundary` function L588-606 — `(ctx: &AccumulatorContext, boundary: &T)` — Persist last-emitted boundary to DAL (best-effort, logs on failure).
+-  `tests` module L609-1200 — `-` — See CLOACI-S-0004 for the full specification.
+-  `TestEvent` struct L614-616 — `{ value: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `TestBoundary` struct L619-621 — `{ result: f64 }` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` struct L623 — `-` — See CLOACI-S-0004 for the full specification.
+-  `DoubleAccumulator` type L626-635 — `impl Accumulator for DoubleAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L627 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L628 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L630-634 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_boundary_sender_round_trip` function L638-650 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_processes_socket_events` function L653-691 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_runtime_multiple_events` function L694-730 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_shutdown` function L733-762 — `()` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` struct L766-769 — `{ count: u32, max: u32 }` — See CLOACI-S-0004 for the full specification.
+-  `CountingPoller` type L772-789 — `impl PollingAccumulator for CountingPoller` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L773 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `poll` function L775-784 — `(&mut self) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `interval` function L786-788 — `(&self) -> std::time::Duration` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_emits_on_some` function L792-829 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_skips_on_none` function L832-861 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_polling_accumulator_shutdown` function L864-888 — `()` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` struct L892 — `-` — See CLOACI-S-0004 for the full specification.
+-  `SumBatchAccumulator` type L895-903 — `impl BatchAccumulator for SumBatchAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L896 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L897 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process_batch` function L899-902 — `(&mut self, events: Vec<TestEvent>) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_signal` function L906-955 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_flush_on_timer` function L958-1004 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_empty_flush_skips` function L1007-1043 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_max_buffer_size` function L1046-1091 — `()` — See CLOACI-S-0004 for the full specification.
+-  `test_batch_accumulator_shutdown_drains` function L1094-1137 — `()` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` struct L1139 — `-` — See CLOACI-S-0004 for the full specification.
+-  `FilterAccumulator` type L1142-1156 — `impl Accumulator for FilterAccumulator` — See CLOACI-S-0004 for the full specification.
+-  `Event` type L1143 — `= TestEvent` — See CLOACI-S-0004 for the full specification.
+-  `Output` type L1144 — `= TestBoundary` — See CLOACI-S-0004 for the full specification.
+-  `process` function L1146-1155 — `(&mut self, event: TestEvent) -> Option<TestBoundary>` — See CLOACI-S-0004 for the full specification.
+-  `test_accumulator_process_returns_none` function L1159-1199 — `()` — See CLOACI-S-0004 for the full specification.
 
 #### crates/cloacina/src/computation_graph/global_registry.rs
 
@@ -673,96 +688,107 @@
 -  `Event` type L219 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
 -  `Output` type L220 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
 -  `process` function L222-224 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
--  `PassthroughAccumulatorFactory` type L227-252 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L228-251 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L255-321 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L259-287 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L290-320 — `()` — `execute_graph()` via fidius FFI.
+-  `PassthroughAccumulatorFactory` type L227-254 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L228-253 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L257-323 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L261-289 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L292-322 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
-- pub `ReactionCriteria` enum L40-45 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
-- pub `InputStrategy` enum L49-54 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
-- pub `DirtyFlags` struct L58-60 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
-- pub `new` function L63-67 — `() -> Self` — See CLOACI-S-0005 for the full specification.
-- pub `with_sources` function L73-79 — `(sources: &[SourceName]) -> Self` — Create dirty flags pre-seeded with expected source names (all initially false).
-- pub `set` function L81-83 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
-- pub `any_set` function L85-87 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `all_set` function L89-91 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `clear_all` function L93-97 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
-- pub `StrategySignal` enum L108-113 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
-- pub `ManualCommand` enum L117-122 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `ReactorCommand` enum L127-133 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
-- pub `ReactorResponse` enum L138-144 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
-- pub `ReactorHandle` struct L150-155 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
-- pub `get_state` function L159-162 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
-- pub `is_paused` function L165-167 — `(&self) -> bool` — Check if the reactor is paused.
-- pub `pause` function L170-172 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
-- pub `resume` function L175-177 — `(&self)` — Resume the reactor.
-- pub `CompiledGraphFn` type L181-182 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
-- pub `Reactor` struct L185-204 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
-- pub `new` function L207-226 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_expected_sources` function L232-235 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `handle` function L241-246 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L249-386 — `(self)` — Run the reactor.
--  `DirtyFlags` type L62-98 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `DirtyFlags` type L100-104 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `default` function L101-103 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `ReactorHandle` type L157-178 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L206-387 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `tests` module L390-568 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L394-403 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L406-414 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L417-425 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L428-432 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L435-477 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L480-516 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L519-567 — `()` — See CLOACI-S-0005 for the full specification.
+- pub `ReactorHealth` enum L45-57 — `Starting | Warming | Live | Degraded` — Health state of a reactor.
+- pub `reactor_health_channel` function L71-73 — `() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>)` — Create a reactor health reporting channel.
+- pub `ReactionCriteria` enum L77-82 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
+- pub `InputStrategy` enum L86-91 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
+- pub `DirtyFlags` struct L95-97 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
+- pub `new` function L100-104 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+- pub `with_sources` function L110-116 — `(sources: &[SourceName]) -> Self` — Create dirty flags pre-seeded with expected source names (all initially false).
+- pub `set` function L118-120 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
+- pub `any_set` function L122-124 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `all_set` function L126-128 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `clear_all` function L130-134 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+- pub `StrategySignal` enum L145-150 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
+- pub `ManualCommand` enum L154-159 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
+- pub `ReactorCommand` enum L164-170 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
+- pub `ReactorResponse` enum L175-181 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
+- pub `ReactorHandle` struct L187-192 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `get_state` function L196-199 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `is_paused` function L202-204 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L207-209 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L212-214 — `(&self)` — Resume the reactor.
+- pub `CompiledGraphFn` type L218-219 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
+- pub `Reactor` struct L222-247 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, _input_strategy: InputStra...` — The Reactor.
+- pub `new` function L250-272 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_graph_name` function L275-278 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L281-284 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_health` function L287-290 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L296-299 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `handle` function L305-310 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L313-502 — `(self)` — Run the reactor.
+-  `ReactorHealth` type L59-68 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
+-  `fmt` function L60-67 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L99-135 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L137-141 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `default` function L138-140 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L194-215 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L249-503 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `persist_reactor_state` function L506-562 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `tests` module L565-743 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L569-578 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L581-589 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L592-600 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L603-607 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L610-652 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L655-691 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L694-742 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
-- pub `RegistryError` enum L33-54 — `AccumulatorNotFound | ReactorNotFound | AccumulatorSendFailed | ReactorSendFaile...` — Errors from registry operations.
-- pub `ReactorOp` enum L59-66 — `ForceFire | FireWith | GetState | Pause | Resume | GetHealth` — Operations that can be performed on a reactor via WebSocket.
-- pub `AccumulatorAuthPolicy` struct L70-74 — `{ allowed_producers: Vec<uuid::Uuid> }` — Authorization policy for an accumulator endpoint.
-- pub `ReactorAuthPolicy` struct L78-85 — `{ allowed_operators: Vec<uuid::Uuid>, operation_permissions: HashMap<uuid::Uuid,...` — Authorization policy for a reactor endpoint.
-- pub `is_authorized` function L89-91 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized.
-- pub `is_authorized` function L96-98 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized to connect.
-- pub `is_operation_permitted` function L101-110 — `(&self, key_id: &uuid::Uuid, op: &ReactorOp) -> bool` — Check if a key is authorized for a specific operation.
-- pub `EndpointRegistry` struct L118-120 — `{ inner: Arc<RwLock<RegistryInner>> }` — Registry mapping endpoint names to channel senders.
-- pub `new` function L136-146 — `() -> Self` — under the same name all receive the message.
-- pub `register_accumulator` function L152-159 — `(&self, name: String, sender: mpsc::Sender<Vec<u8>>)` — Register an accumulator's socket sender under a name.
-- pub `register_reactor` function L162-171 — `( &self, name: String, sender: mpsc::Sender<ManualCommand>, handle: ReactorHandl...` — Register a reactor's manual command sender and shared handle.
-- pub `deregister_accumulator` function L174-177 — `(&self, name: &str)` — Deregister all accumulators under a name.
-- pub `deregister_reactor` function L180-184 — `(&self, name: &str)` — Deregister a reactor by name.
-- pub `get_reactor_handle` function L187-190 — `(&self, name: &str) -> Option<ReactorHandle>` — Get a reactor's shared handle (for GetState/Pause/Resume).
-- pub `set_accumulator_policy` function L193-196 — `(&self, name: String, policy: AccumulatorAuthPolicy)` — Set the auth policy for an accumulator endpoint.
-- pub `set_reactor_policy` function L199-202 — `(&self, name: String, policy: ReactorAuthPolicy)` — Set the auth policy for a reactor endpoint.
-- pub `check_accumulator_auth` function L208-224 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for an accumulator endpoint.
-- pub `check_reactor_auth` function L227-243 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for a reactor endpoint.
-- pub `check_reactor_op_auth` function L246-266 — `( &self, name: &str, key_id: &uuid::Uuid, op: &ReactorOp, ) -> Result<(), Regist...` — Check if a key is authorized for a specific reactor operation.
-- pub `send_to_accumulator` function L272-316 — `( &self, name: &str, bytes: Vec<u8>, ) -> Result<usize, RegistryError>` — Send bytes to all accumulators registered under `name`.
-- pub `send_to_reactor` function L319-336 — `( &self, name: &str, command: ManualCommand, ) -> Result<(), RegistryError>` — Send a manual command to a reactor.
-- pub `list_accumulators` function L339-342 — `(&self) -> Vec<String>` — List all registered accumulator names.
-- pub `list_reactors` function L345-348 — `(&self) -> Vec<String>` — List all registered reactor names.
-- pub `accumulator_count` function L351-354 — `(&self, name: &str) -> usize` — Get the number of accumulators registered under a name.
--  `AccumulatorAuthPolicy` type L87-92 — `= AccumulatorAuthPolicy` — under the same name all receive the message.
--  `ReactorAuthPolicy` type L94-111 — `= ReactorAuthPolicy` — under the same name all receive the message.
--  `RegistryInner` struct L122-133 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
--  `EndpointRegistry` type L135-355 — `= EndpointRegistry` — under the same name all receive the message.
--  `EndpointRegistry` type L357-361 — `impl Default for EndpointRegistry` — under the same name all receive the message.
--  `default` function L358-360 — `() -> Self` — under the same name all receive the message.
--  `tests` module L364-598 — `-` — under the same name all receive the message.
--  `dummy_handle` function L368-373 — `() -> ReactorHandle` — under the same name all receive the message.
--  `test_register_send_deregister_accumulator` function L376-399 — `()` — under the same name all receive the message.
--  `test_broadcast_to_multiple_accumulators` function L402-425 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_accumulator` function L428-435 — `()` — under the same name all receive the message.
--  `test_register_send_deregister_reactor` function L438-461 — `()` — under the same name all receive the message.
--  `test_send_to_unregistered_reactor` function L464-471 — `()` — under the same name all receive the message.
--  `test_closed_accumulator_channel_pruned` function L474-500 — `()` — under the same name all receive the message.
--  `test_list_accumulators_and_reactors` function L503-520 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_deny_by_default` function L523-532 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_authorized_key` function L535-561 — `()` — under the same name all receive the message.
--  `test_reactor_auth_with_operation_permissions` function L564-597 — `()` — under the same name all receive the message.
+- pub `RegistryError` enum L35-56 — `AccumulatorNotFound | ReactorNotFound | AccumulatorSendFailed | ReactorSendFaile...` — Errors from registry operations.
+- pub `ReactorOp` enum L61-68 — `ForceFire | FireWith | GetState | Pause | Resume | GetHealth` — Operations that can be performed on a reactor via WebSocket.
+- pub `AccumulatorAuthPolicy` struct L72-76 — `{ allowed_producers: Vec<uuid::Uuid> }` — Authorization policy for an accumulator endpoint.
+- pub `ReactorAuthPolicy` struct L80-87 — `{ allowed_operators: Vec<uuid::Uuid>, operation_permissions: HashMap<uuid::Uuid,...` — Authorization policy for a reactor endpoint.
+- pub `is_authorized` function L91-93 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized.
+- pub `is_authorized` function L98-100 — `(&self, key_id: &uuid::Uuid) -> bool` — Check if a key is authorized to connect.
+- pub `is_operation_permitted` function L103-112 — `(&self, key_id: &uuid::Uuid, op: &ReactorOp) -> bool` — Check if a key is authorized for a specific operation.
+- pub `EndpointRegistry` struct L120-122 — `{ inner: Arc<RwLock<RegistryInner>> }` — Registry mapping endpoint names to channel senders.
+- pub `new` function L140-151 — `() -> Self` — under the same name all receive the message.
+- pub `register_accumulator` function L157-164 — `(&self, name: String, sender: mpsc::Sender<Vec<u8>>)` — Register an accumulator's socket sender under a name.
+- pub `register_reactor` function L167-176 — `( &self, name: String, sender: mpsc::Sender<ManualCommand>, handle: ReactorHandl...` — Register a reactor's manual command sender and shared handle.
+- pub `deregister_accumulator` function L179-182 — `(&self, name: &str)` — Deregister all accumulators under a name.
+- pub `deregister_reactor` function L185-189 — `(&self, name: &str)` — Deregister a reactor by name.
+- pub `get_reactor_handle` function L192-195 — `(&self, name: &str) -> Option<ReactorHandle>` — Get a reactor's shared handle (for GetState/Pause/Resume).
+- pub `set_accumulator_policy` function L198-201 — `(&self, name: String, policy: AccumulatorAuthPolicy)` — Set the auth policy for an accumulator endpoint.
+- pub `set_reactor_policy` function L204-207 — `(&self, name: String, policy: ReactorAuthPolicy)` — Set the auth policy for a reactor endpoint.
+- pub `check_accumulator_auth` function L213-229 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for an accumulator endpoint.
+- pub `check_reactor_auth` function L232-248 — `( &self, name: &str, key_id: &uuid::Uuid, ) -> Result<(), RegistryError>` — Check if a key is authorized for a reactor endpoint.
+- pub `check_reactor_op_auth` function L251-271 — `( &self, name: &str, key_id: &uuid::Uuid, op: &ReactorOp, ) -> Result<(), Regist...` — Check if a key is authorized for a specific reactor operation.
+- pub `send_to_accumulator` function L277-321 — `( &self, name: &str, bytes: Vec<u8>, ) -> Result<usize, RegistryError>` — Send bytes to all accumulators registered under `name`.
+- pub `send_to_reactor` function L324-341 — `( &self, name: &str, command: ManualCommand, ) -> Result<(), RegistryError>` — Send a manual command to a reactor.
+- pub `list_accumulators` function L344-347 — `(&self) -> Vec<String>` — List all registered accumulator names.
+- pub `list_reactors` function L350-353 — `(&self) -> Vec<String>` — List all registered reactor names.
+- pub `accumulator_count` function L356-359 — `(&self, name: &str) -> usize` — Get the number of accumulators registered under a name.
+- pub `register_accumulator_health` function L362-369 — `( &self, name: String, health_rx: watch::Receiver<AccumulatorHealth>, )` — Register a health watch receiver for an accumulator.
+- pub `get_accumulator_health` function L372-378 — `(&self, name: &str) -> Option<AccumulatorHealth>` — Get the current health of an accumulator.
+- pub `list_accumulators_with_health` function L381-395 — `(&self) -> Vec<(String, AccumulatorHealth)>` — List all accumulators with their current health status.
+-  `AccumulatorAuthPolicy` type L89-94 — `= AccumulatorAuthPolicy` — under the same name all receive the message.
+-  `ReactorAuthPolicy` type L96-113 — `= ReactorAuthPolicy` — under the same name all receive the message.
+-  `RegistryInner` struct L124-137 — `{ accumulators: HashMap<String, Vec<mpsc::Sender<Vec<u8>>>>, reactors: HashMap<S...` — under the same name all receive the message.
+-  `EndpointRegistry` type L139-396 — `= EndpointRegistry` — under the same name all receive the message.
+-  `EndpointRegistry` type L398-402 — `impl Default for EndpointRegistry` — under the same name all receive the message.
+-  `default` function L399-401 — `() -> Self` — under the same name all receive the message.
+-  `tests` module L405-639 — `-` — under the same name all receive the message.
+-  `dummy_handle` function L409-414 — `() -> ReactorHandle` — under the same name all receive the message.
+-  `test_register_send_deregister_accumulator` function L417-440 — `()` — under the same name all receive the message.
+-  `test_broadcast_to_multiple_accumulators` function L443-466 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_accumulator` function L469-476 — `()` — under the same name all receive the message.
+-  `test_register_send_deregister_reactor` function L479-502 — `()` — under the same name all receive the message.
+-  `test_send_to_unregistered_reactor` function L505-512 — `()` — under the same name all receive the message.
+-  `test_closed_accumulator_channel_pruned` function L515-541 — `()` — under the same name all receive the message.
+-  `test_list_accumulators_and_reactors` function L544-561 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_deny_by_default` function L564-573 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_authorized_key` function L576-602 — `()` — under the same name all receive the message.
+-  `test_reactor_auth_with_operation_permissions` function L605-638 — `()` — under the same name all receive the message.
 
 #### crates/cloacina/src/computation_graph/scheduler.rs
 
@@ -781,19 +807,19 @@
 - pub `shutdown_all` function L353-364 — `(&self)` — Graceful shutdown of all graphs.
 -  `RunningGraph` struct L97-108 — `{ shutdown_tx: watch::Sender<bool>, accumulator_handles: Vec<(String, JoinHandle...` — State for a running computation graph.
 -  `ReactiveScheduler` type L118-365 — `= ReactiveScheduler` — and restarts tasks on panic.
--  `tests` module L368-531 — `-` — and restarts tasks on panic.
+-  `tests` module L368-533 — `-` — and restarts tasks on panic.
 -  `TestEvent` struct L375-377 — `{ value: f64 }` — and restarts tasks on panic.
 -  `TestAccumulatorFactory` struct L380 — `-` — A simple passthrough accumulator for testing.
--  `TestAccumulatorFactory` type L382-418 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
--  `spawn` function L383-417 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
+-  `TestAccumulatorFactory` type L382-420 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
+-  `spawn` function L383-419 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
 -  `Passthrough` struct L391 — `-` — and restarts tasks on panic.
 -  `Passthrough` type L394-400 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
 -  `Event` type L395 — `= TestEvent` — and restarts tasks on panic.
 -  `Output` type L396 — `= TestEvent` — and restarts tasks on panic.
 -  `process` function L397-399 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
--  `test_load_graph_push_event_fires` function L421-467 — `()` — and restarts tasks on panic.
--  `test_unload_graph_deregisters` function L470-505 — `()` — and restarts tasks on panic.
--  `test_duplicate_load_rejected` function L508-530 — `()` — and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L423-469 — `()` — and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L472-507 — `()` — and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L510-532 — `()` — and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -846,16 +872,17 @@
 - pub `is_empty` function L116-118 — `(&self) -> bool` — Whether the cache is empty.
 - pub `replace_all` function L121-123 — `(&mut self, other: InputCache)` — Replace all entries (used for manual fire-with-state).
 - pub `sources` function L126-128 — `(&self) -> Vec<&SourceName>` — List all source names in the cache.
-- pub `entries_as_json` function L134-149 — `(&self) -> std::collections::HashMap<String, String>` — Return entries as a JSON-friendly map (base64-encoded raw bytes per source).
-- pub `serialize` function L167-176 — `(value: &T) -> Result<Vec<u8>, GraphError>` — Core types for computation graph execution.
-- pub `deserialize` function L179-188 — `(bytes: &[u8]) -> Result<T, GraphError>` — Deserialize bytes to a value using the build-profile-appropriate format.
-- pub `GraphResult` enum L196-201 — `Completed | Error` — Result of executing a compiled computation graph.
-- pub `completed` function L205-207 — `(outputs: Vec<Box<dyn Any + Send>>) -> Self` — Create a completed result with terminal node outputs.
-- pub `completed_empty` function L210-214 — `() -> Self` — Create a completed result with no outputs (all branches short-circuited).
-- pub `error` function L217-219 — `(err: GraphError) -> Self` — Create an error result.
-- pub `is_completed` function L222-224 — `(&self) -> bool` — Check if the graph completed successfully.
-- pub `is_error` function L227-229 — `(&self) -> bool` — Check if the graph errored.
-- pub `GraphError` enum L234-249 — `Serialization | Deserialization | MissingInput | NodeExecution | Execution` — Errors that can occur during graph execution.
+- pub `entries_raw` function L131-133 — `(&self) -> &HashMap<SourceName, Vec<u8>>` — Get a reference to the raw entries map (for serialization/persistence).
+- pub `entries_as_json` function L139-154 — `(&self) -> std::collections::HashMap<String, String>` — Return entries as a JSON-friendly map (base64-encoded raw bytes per source).
+- pub `serialize` function L172-181 — `(value: &T) -> Result<Vec<u8>, GraphError>` — Core types for computation graph execution.
+- pub `deserialize` function L184-193 — `(bytes: &[u8]) -> Result<T, GraphError>` — Deserialize bytes to a value using the build-profile-appropriate format.
+- pub `GraphResult` enum L201-206 — `Completed | Error` — Result of executing a compiled computation graph.
+- pub `completed` function L210-212 — `(outputs: Vec<Box<dyn Any + Send>>) -> Self` — Create a completed result with terminal node outputs.
+- pub `completed_empty` function L215-219 — `() -> Self` — Create a completed result with no outputs (all branches short-circuited).
+- pub `error` function L222-224 — `(err: GraphError) -> Self` — Create an error result.
+- pub `is_completed` function L227-229 — `(&self) -> bool` — Check if the graph completed successfully.
+- pub `is_error` function L232-234 — `(&self) -> bool` — Check if the graph errored.
+- pub `GraphError` enum L239-254 — `Serialization | Deserialization | MissingInput | NodeExecution | Execution` — Errors that can occur during graph execution.
 -  `SourceName` type L29-37 — `= SourceName` — Core types for computation graph execution.
 -  `SourceName` type L39-43 — `= SourceName` — Core types for computation graph execution.
 -  `fmt` function L40-42 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — Core types for computation graph execution.
@@ -863,27 +890,27 @@
 -  `from` function L46-48 — `(s: &str) -> Self` — Core types for computation graph execution.
 -  `SourceName` type L51-55 — `= SourceName` — Core types for computation graph execution.
 -  `from` function L52-54 — `(s: String) -> Self` — Core types for computation graph execution.
--  `InputCache` type L72-150 — `= InputCache` — Core types for computation graph execution.
--  `InputCache` type L152-156 — `impl Default for InputCache` — Core types for computation graph execution.
--  `default` function L153-155 — `() -> Self` — Core types for computation graph execution.
--  `hex_encode` function L163-165 — `(bytes: &[u8]) -> String` — Serialize a value to bytes using the build-profile-appropriate format.
--  `GraphResult` type L203-230 — `= GraphResult` — Core types for computation graph execution.
--  `tests` module L252-434 — `-` — Core types for computation graph execution.
--  `TestData` struct L257-260 — `{ value: f64, label: String }` — Core types for computation graph execution.
--  `test_input_cache_update_and_get` function L263-275 — `()` — Core types for computation graph execution.
--  `test_input_cache_missing_source` function L278-282 — `()` — Core types for computation graph execution.
--  `test_input_cache_overwrite` function L285-302 — `()` — Core types for computation graph execution.
--  `test_input_cache_snapshot` function L305-327 — `()` — Core types for computation graph execution.
--  `test_input_cache_has` function L330-337 — `()` — Core types for computation graph execution.
--  `test_input_cache_len_and_empty` function L340-351 — `()` — Core types for computation graph execution.
--  `test_serialization_round_trip` function L354-362 — `()` — Core types for computation graph execution.
--  `test_serialization_round_trip_primitives` function L365-380 — `()` — Core types for computation graph execution.
--  `test_deserialization_type_mismatch` function L383-387 — `()` — Core types for computation graph execution.
--  `test_graph_result_completed` function L390-394 — `()` — Core types for computation graph execution.
--  `test_graph_result_completed_empty` function L397-403 — `()` — Core types for computation graph execution.
--  `test_graph_result_error` function L406-410 — `()` — Core types for computation graph execution.
--  `test_source_name_equality` function L413-419 — `()` — Core types for computation graph execution.
--  `test_replace_all` function L422-433 — `()` — Core types for computation graph execution.
+-  `InputCache` type L72-155 — `= InputCache` — Core types for computation graph execution.
+-  `InputCache` type L157-161 — `impl Default for InputCache` — Core types for computation graph execution.
+-  `default` function L158-160 — `() -> Self` — Core types for computation graph execution.
+-  `hex_encode` function L168-170 — `(bytes: &[u8]) -> String` — Serialize a value to bytes using the build-profile-appropriate format.
+-  `GraphResult` type L208-235 — `= GraphResult` — Core types for computation graph execution.
+-  `tests` module L257-439 — `-` — Core types for computation graph execution.
+-  `TestData` struct L262-265 — `{ value: f64, label: String }` — Core types for computation graph execution.
+-  `test_input_cache_update_and_get` function L268-280 — `()` — Core types for computation graph execution.
+-  `test_input_cache_missing_source` function L283-287 — `()` — Core types for computation graph execution.
+-  `test_input_cache_overwrite` function L290-307 — `()` — Core types for computation graph execution.
+-  `test_input_cache_snapshot` function L310-332 — `()` — Core types for computation graph execution.
+-  `test_input_cache_has` function L335-342 — `()` — Core types for computation graph execution.
+-  `test_input_cache_len_and_empty` function L345-356 — `()` — Core types for computation graph execution.
+-  `test_serialization_round_trip` function L359-367 — `()` — Core types for computation graph execution.
+-  `test_serialization_round_trip_primitives` function L370-385 — `()` — Core types for computation graph execution.
+-  `test_deserialization_type_mismatch` function L388-392 — `()` — Core types for computation graph execution.
+-  `test_graph_result_completed` function L395-399 — `()` — Core types for computation graph execution.
+-  `test_graph_result_completed_empty` function L402-408 — `()` — Core types for computation graph execution.
+-  `test_graph_result_error` function L411-415 — `()` — Core types for computation graph execution.
+-  `test_source_name_equality` function L418-424 — `()` — Core types for computation graph execution.
+-  `test_replace_all` function L427-438 — `()` — Core types for computation graph execution.
 
 ### crates/cloacina/src
 
@@ -1253,6 +1280,38 @@
 
 > *Semantic summary to be generated by AI agent.*
 
+#### crates/cloacina/src/dal/unified/checkpoint.rs
+
+- pub `CheckpointDAL` struct L38-40 — `{ dal: &'a DAL }` — Data access layer for computation graph checkpoint operations.
+- pub `new` function L43-45 — `(dal: &'a DAL) -> Self` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+- pub `save_checkpoint` function L52-65 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, ) -> Result<()...` — Save (upsert) an accumulator checkpoint.
+- pub `load_checkpoint` function L162-174 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<Vec<u8>>, ...` — Load an accumulator checkpoint.
+- pub `save_boundary` function L241-255 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, sequence_numbe...` — Save (upsert) a boundary with sequence number.
+- pub `load_boundary` function L358-370 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — Load a boundary and its sequence number.
+- pub `save_reactor_state` function L437-451 — `( &self, graph_name: &str, cache_data: Vec<u8>, dirty_flags: Vec<u8>, sequential...` — Save (upsert) reactor state.
+- pub `load_reactor_state` function L552-561 — `( &self, graph_name: &str, ) -> Result<Option<(Vec<u8>, Vec<u8>, Option<Vec<u8>>...` — Load reactor state.
+- pub `save_state_buffer` function L634-648 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, capacity: i32,...` — Save (upsert) a state accumulator buffer.
+- pub `load_state_buffer` function L751-763 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — Load a state accumulator buffer.
+- pub `delete_graph_state` function L830-836 — `(&self, graph_name: &str) -> Result<(), ValidationError>` — Delete all state for a graph (used on graph unload/removal).
+-  `save_checkpoint_postgres` function L68-112 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, ) -> Result<()...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_checkpoint_sqlite` function L115-159 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, ) -> Result<()...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_checkpoint_postgres` function L177-204 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<Vec<u8>>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_checkpoint_sqlite` function L207-234 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<Vec<u8>>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_boundary_postgres` function L258-305 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, sequence_numbe...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_boundary_sqlite` function L308-355 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, sequence_numbe...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_boundary_postgres` function L373-400 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_boundary_sqlite` function L403-430 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_reactor_state_postgres` function L454-500 — `( &self, graph_name: &str, cache_data: Vec<u8>, dirty_flags: Vec<u8>, sequential...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_reactor_state_sqlite` function L503-549 — `( &self, graph_name: &str, cache_data: Vec<u8>, dirty_flags: Vec<u8>, sequential...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_reactor_state_postgres` function L564-594 — `( &self, graph_name: &str, ) -> Result<Option<(Vec<u8>, Vec<u8>, Option<Vec<u8>>...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_reactor_state_sqlite` function L597-627 — `( &self, graph_name: &str, ) -> Result<Option<(Vec<u8>, Vec<u8>, Option<Vec<u8>>...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_state_buffer_postgres` function L651-698 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, capacity: i32,...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `save_state_buffer_sqlite` function L701-748 — `( &self, graph_name: &str, accumulator_name: &str, data: Vec<u8>, capacity: i32,...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_state_buffer_postgres` function L766-793 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `load_state_buffer_sqlite` function L796-823 — `( &self, graph_name: &str, accumulator_name: &str, ) -> Result<Option<(Vec<u8>, ...` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `delete_graph_state_postgres` function L839-872 — `(&self, graph_name: &str) -> Result<(), ValidationError>` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+-  `delete_graph_state_sqlite` function L875-908 — `(&self, graph_name: &str) -> Result<(), ValidationError>` — semantics keyed by (graph_name, accumulator_name) or (graph_name).
+
 #### crates/cloacina/src/dal/unified/context.rs
 
 - pub `ContextDAL` struct L32-34 — `{ dal: &'a DAL }` — Data access layer for context operations with runtime backend selection.
@@ -1305,101 +1364,111 @@
 #### crates/cloacina/src/dal/unified/mod.rs
 
 - pub `api_keys` module L47 — `-` — ```
-- pub `context` module L48 — `-` — ```
-- pub `execution_event` module L49 — `-` — ```
-- pub `models` module L50 — `-` — ```
-- pub `pipeline_execution` module L51 — `-` — ```
-- pub `recovery_event` module L52 — `-` — ```
-- pub `schedule` module L53 — `-` — ```
-- pub `schedule_execution` module L54 — `-` — ```
-- pub `task_execution` module L55 — `-` — ```
-- pub `task_execution_metadata` module L56 — `-` — ```
-- pub `task_outbox` module L57 — `-` — ```
-- pub `workflow_packages` module L58 — `-` — ```
-- pub `workflow_registry` module L59 — `-` — ```
-- pub `workflow_registry_storage` module L60 — `-` — ```
-- pub `DAL` struct L166-169 — `{ database: Database }` — The unified Data Access Layer struct.
-- pub `new` function L181-183 — `(database: Database) -> Self` — Creates a new unified DAL instance.
-- pub `backend` function L186-188 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
-- pub `database` function L191-193 — `(&self) -> &Database` — Returns a reference to the underlying database.
-- pub `pool` function L196-198 — `(&self) -> AnyPool` — Returns the connection pool.
-- pub `api_keys` function L202-204 — `(&self) -> ApiKeyDAL<'_>` — Returns an API key DAL (Postgres only).
-- pub `context` function L207-209 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
-- pub `pipeline_execution` function L212-214 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
-- pub `task_execution` function L217-219 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
-- pub `task_execution_metadata` function L222-224 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
-- pub `task_outbox` function L227-229 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
-- pub `recovery_event` function L232-234 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
-- pub `execution_event` function L237-239 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
-- pub `schedule` function L242-244 — `(&self) -> ScheduleDAL<'_>` — Returns a unified schedule DAL for schedule operations.
-- pub `schedule_execution` function L247-249 — `(&self) -> ScheduleExecutionDAL<'_>` — Returns a unified schedule execution DAL for schedule execution operations.
-- pub `workflow_packages` function L252-254 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
-- pub `workflow_registry` function L266-272 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
-- pub `try_workflow_registry` function L285-296 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
--  `backend_dispatch` macro L95-115 — `-` — Helper macro for dispatching operations based on backend type.
--  `connection_match` macro L134-154 — `-` — Helper macro for matching on AnyConnection variants.
--  `DAL` type L171-297 — `= DAL` — ```
+- pub `checkpoint` module L48 — `-` — ```
+- pub `context` module L49 — `-` — ```
+- pub `execution_event` module L50 — `-` — ```
+- pub `models` module L51 — `-` — ```
+- pub `pipeline_execution` module L52 — `-` — ```
+- pub `recovery_event` module L53 — `-` — ```
+- pub `schedule` module L54 — `-` — ```
+- pub `schedule_execution` module L55 — `-` — ```
+- pub `task_execution` module L56 — `-` — ```
+- pub `task_execution_metadata` module L57 — `-` — ```
+- pub `task_outbox` module L58 — `-` — ```
+- pub `workflow_packages` module L59 — `-` — ```
+- pub `workflow_registry` module L60 — `-` — ```
+- pub `workflow_registry_storage` module L61 — `-` — ```
+- pub `DAL` struct L168-171 — `{ database: Database }` — The unified Data Access Layer struct.
+- pub `new` function L183-185 — `(database: Database) -> Self` — Creates a new unified DAL instance.
+- pub `backend` function L188-190 — `(&self) -> BackendType` — Returns the backend type for this DAL instance.
+- pub `database` function L193-195 — `(&self) -> &Database` — Returns a reference to the underlying database.
+- pub `pool` function L198-200 — `(&self) -> AnyPool` — Returns the connection pool.
+- pub `api_keys` function L204-206 — `(&self) -> ApiKeyDAL<'_>` — Returns an API key DAL (Postgres only).
+- pub `checkpoint` function L209-211 — `(&self) -> CheckpointDAL<'_>` — Returns a checkpoint DAL for computation graph state persistence.
+- pub `context` function L214-216 — `(&self) -> ContextDAL<'_>` — Returns a context DAL for context operations.
+- pub `pipeline_execution` function L219-221 — `(&self) -> PipelineExecutionDAL<'_>` — Returns a pipeline execution DAL for pipeline operations.
+- pub `task_execution` function L224-226 — `(&self) -> TaskExecutionDAL<'_>` — Returns a task execution DAL for task operations.
+- pub `task_execution_metadata` function L229-231 — `(&self) -> TaskExecutionMetadataDAL<'_>` — Returns a task execution metadata DAL for metadata operations.
+- pub `task_outbox` function L234-236 — `(&self) -> TaskOutboxDAL<'_>` — Returns a task outbox DAL for work distribution operations.
+- pub `recovery_event` function L239-241 — `(&self) -> RecoveryEventDAL<'_>` — Returns a recovery event DAL for recovery operations.
+- pub `execution_event` function L244-246 — `(&self) -> ExecutionEventDAL<'_>` — Returns an execution event DAL for execution event operations.
+- pub `schedule` function L249-251 — `(&self) -> ScheduleDAL<'_>` — Returns a unified schedule DAL for schedule operations.
+- pub `schedule_execution` function L254-256 — `(&self) -> ScheduleExecutionDAL<'_>` — Returns a unified schedule execution DAL for schedule execution operations.
+- pub `workflow_packages` function L259-261 — `(&self) -> WorkflowPackagesDAL<'_>` — Returns a workflow packages DAL for package operations.
+- pub `workflow_registry` function L273-279 — `( &self, storage: S, ) -> crate::registry::workflow_registry::WorkflowRegistryIm...` — Creates a workflow registry implementation with the given storage backend.
+- pub `try_workflow_registry` function L292-303 — `( &self, storage: S, ) -> Result< crate::registry::workflow_registry::WorkflowRe...` — Creates a workflow registry implementation with the given storage backend.
+-  `backend_dispatch` macro L97-117 — `-` — Helper macro for dispatching operations based on backend type.
+-  `connection_match` macro L136-156 — `-` — Helper macro for matching on AnyConnection variants.
+-  `DAL` type L173-304 — `= DAL` — ```
 
 #### crates/cloacina/src/dal/unified/models.rs
 
-- pub `UnifiedDbContext` struct L39-44 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Unified context model that works with both PostgreSQL and SQLite.
-- pub `NewUnifiedDbContext` struct L49-54 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
-- pub `UnifiedPipelineExecution` struct L62-77 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPipelineExecution` struct L81-90 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecution` struct L98-119 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecution` struct L123-134 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskExecutionMetadata` struct L142-150 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTaskExecutionMetadata` struct L154-162 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedRecoveryEvent` struct L170-179 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedRecoveryEvent` struct L183-192 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedExecutionEvent` struct L202-211 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
-- pub `NewUnifiedExecutionEvent` struct L215-223 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTaskOutbox` struct L233-237 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
-- pub `NewUnifiedTaskOutbox` struct L241-244 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSchedule` struct L252-270 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSchedule` struct L274-290 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedScheduleExecution` struct L298-309 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedScheduleExecution` struct L313-323 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowRegistryEntry` struct L331-335 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowRegistryEntry` struct L339-343 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedWorkflowPackage` struct L351-362 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedWorkflowPackage` struct L366-377 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedSigningKey` struct L385-394 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedSigningKey` struct L398-406 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedTrustedKey` struct L414-422 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedTrustedKey` struct L426-433 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedKeyTrustAcl` struct L441-447 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedKeyTrustAcl` struct L451-456 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `UnifiedPackageSignature` struct L464-470 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
-- pub `NewUnifiedPackageSignature` struct L474-480 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
--  `DbContext` type L502-511 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L503-510 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PipelineExecution` type L513-532 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L514-531 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecution` type L534-559 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L535-558 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TaskExecutionMetadata` type L561-573 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L562-572 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `RecoveryEvent` type L575-588 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L576-587 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ExecutionEvent` type L590-603 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L591-602 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowRegistryEntry` type L605-613 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L606-612 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `WorkflowPackage` type L615-630 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L616-629 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `SigningKey` type L632-645 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L633-644 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `TrustedKey` type L647-659 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L648-658 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `KeyTrustAcl` type L661-671 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L662-670 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `PackageSignature` type L673-683 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L674-682 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `Schedule` type L685-707 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L686-706 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
--  `ScheduleExecution` type L709-724 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
--  `from` function L710-723 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedDbContext` struct L40-45 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Unified context model that works with both PostgreSQL and SQLite.
+- pub `NewUnifiedDbContext` struct L50-55 — `{ id: UniversalUuid, value: String, created_at: UniversalTimestamp, updated_at: ...` — Insertable context with explicit ID and timestamps (for SQLite compatibility).
+- pub `UnifiedPipelineExecution` struct L63-78 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPipelineExecution` struct L82-91 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecution` struct L99-120 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecution` struct L124-135 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_name: String, st...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskExecutionMetadata` struct L143-151 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTaskExecutionMetadata` struct L155-163 — `{ id: UniversalUuid, task_execution_id: UniversalUuid, pipeline_execution_id: Un...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedRecoveryEvent` struct L171-180 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedRecoveryEvent` struct L184-193 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedExecutionEvent` struct L203-212 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — Unified execution event model for audit trail of state transitions.
+- pub `NewUnifiedExecutionEvent` struct L216-224 — `{ id: UniversalUuid, pipeline_execution_id: UniversalUuid, task_execution_id: Op...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTaskOutbox` struct L234-238 — `{ id: i64, task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — Unified task outbox model for work distribution.
+- pub `NewUnifiedTaskOutbox` struct L242-245 — `{ task_execution_id: UniversalUuid, created_at: UniversalTimestamp }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSchedule` struct L253-271 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSchedule` struct L275-291 — `{ id: UniversalUuid, schedule_type: String, workflow_name: String, enabled: Univ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedScheduleExecution` struct L299-310 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedScheduleExecution` struct L314-324 — `{ id: UniversalUuid, schedule_id: UniversalUuid, pipeline_execution_id: Option<U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowRegistryEntry` struct L332-336 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowRegistryEntry` struct L340-344 — `{ id: UniversalUuid, created_at: UniversalTimestamp, data: UniversalBinary }` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedWorkflowPackage` struct L352-363 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedWorkflowPackage` struct L367-378 — `{ id: UniversalUuid, registry_id: UniversalUuid, package_name: String, version: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedSigningKey` struct L386-395 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedSigningKey` struct L399-407 — `{ id: UniversalUuid, org_id: UniversalUuid, key_name: String, encrypted_private_...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedTrustedKey` struct L415-423 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedTrustedKey` struct L427-434 — `{ id: UniversalUuid, org_id: UniversalUuid, key_fingerprint: String, public_key:...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedKeyTrustAcl` struct L442-448 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedKeyTrustAcl` struct L452-457 — `{ id: UniversalUuid, parent_org_id: UniversalUuid, child_org_id: UniversalUuid, ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedPackageSignature` struct L465-471 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedPackageSignature` struct L475-481 — `{ id: UniversalUuid, package_hash: String, key_fingerprint: String, signature: U...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorCheckpoint` struct L733-740 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorCheckpoint` struct L744-751 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, checkpoint_da...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedAccumulatorBoundary` struct L755-763 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedAccumulatorBoundary` struct L767-775 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, boundary_data...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedReactorState` struct L779-787 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedReactorState` struct L791-799 — `{ id: UniversalUuid, graph_name: String, cache_data: UniversalBinary, dirty_flag...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `UnifiedStateAccumulatorBuffer` struct L803-811 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+- pub `NewUnifiedStateAccumulatorBuffer` struct L815-823 — `{ id: UniversalUuid, graph_name: String, accumulator_name: String, buffer_data: ...` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `DbContext` type L503-512 — `= DbContext` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L504-511 — `(u: UnifiedDbContext) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PipelineExecution` type L514-533 — `= PipelineExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L515-532 — `(u: UnifiedPipelineExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecution` type L535-560 — `= TaskExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L536-559 — `(u: UnifiedTaskExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TaskExecutionMetadata` type L562-574 — `= TaskExecutionMetadata` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L563-573 — `(u: UnifiedTaskExecutionMetadata) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `RecoveryEvent` type L576-589 — `= RecoveryEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L577-588 — `(u: UnifiedRecoveryEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ExecutionEvent` type L591-604 — `= ExecutionEvent` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L592-603 — `(u: UnifiedExecutionEvent) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowRegistryEntry` type L606-614 — `= WorkflowRegistryEntry` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L607-613 — `(u: UnifiedWorkflowRegistryEntry) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `WorkflowPackage` type L616-631 — `= WorkflowPackage` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L617-630 — `(u: UnifiedWorkflowPackage) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `SigningKey` type L633-646 — `= SigningKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L634-645 — `(u: UnifiedSigningKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `TrustedKey` type L648-660 — `= TrustedKey` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L649-659 — `(u: UnifiedTrustedKey) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `KeyTrustAcl` type L662-672 — `= KeyTrustAcl` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L663-671 — `(u: UnifiedKeyTrustAcl) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `PackageSignature` type L674-684 — `= PackageSignature` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L675-683 — `(u: UnifiedPackageSignature) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `Schedule` type L686-708 — `= Schedule` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L687-707 — `(u: UnifiedSchedule) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `ScheduleExecution` type L710-725 — `= ScheduleExecution` — SQL types that work with both PostgreSQL and SQLite backends.
+-  `from` function L711-724 — `(u: UnifiedScheduleExecution) -> Self` — SQL types that work with both PostgreSQL and SQLite backends.
 
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
@@ -1915,12 +1984,12 @@
 
 #### crates/cloacina/src/database/schema.rs
 
-- pub `unified` module L866-868 — `-`
-- pub `postgres` module L873-875 — `-`
-- pub `sqlite` module L878-880 — `-`
--  `unified_schema` module L25-317 — `-`
--  `postgres_schema` module L324-628 — `-`
--  `sqlite_schema` module L631-861 — `-`
+- pub `unified` module L1041-1043 — `-`
+- pub `postgres` module L1048-1050 — `-`
+- pub `sqlite` module L1053-1055 — `-`
+-  `unified_schema` module L25-384 — `-`
+-  `postgres_schema` module L391-751 — `-`
+-  `sqlite_schema` module L754-1036 — `-`
 
 #### crates/cloacina/src/database/universal_types.rs
 
@@ -4616,9 +4685,9 @@
 - pub `decision` function L132-142 — `(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> DecisionOutcome` — graph, and generates a callable async function that routes data correctly.
 - pub `signal_handler` function L144-149 — `(signal: &SignalData) -> OutputConfirmation` — graph, and generates a callable async function that routes data correctly.
 - pub `audit_logger` function L151-155 — `(reason: &NoActionReason) -> AuditRecord` — graph, and generates a callable async function that routes data correctly.
-- pub `when_all_graph` module L676-691 — `-` — graph, and generates a callable async function that routes data correctly.
-- pub `combine` function L679-683 — `(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> ProcessedData` — graph, and generates a callable async function that routes data correctly.
-- pub `output` function L685-690 — `(input: &ProcessedData) -> OutputConfirmation` — graph, and generates a callable async function that routes data correctly.
+- pub `when_all_graph` module L684-699 — `-` — graph, and generates a callable async function that routes data correctly.
+- pub `combine` function L687-691 — `(alpha: Option<&AlphaData>, beta: Option<&BetaData>) -> ProcessedData` — graph, and generates a callable async function that routes data correctly.
+- pub `output` function L693-698 — `(input: &ProcessedData) -> OutputConfirmation` — graph, and generates a callable async function that routes data correctly.
 -  `test_linear_chain` function L79-88 — `()` — graph, and generates a callable async function that routes data correctly.
 -  `test_routing_signal_path` function L159-172 — `()` — graph, and generates a callable async function that routes data correctly.
 -  `test_routing_no_action_path` function L175-188 — `()` — graph, and generates a callable async function that routes data correctly.
@@ -4627,35 +4696,35 @@
 -  `Event` type L207 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `Output` type L208 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L210-212 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_end_to_end_accumulator_reactor_graph` function L216-321 — `()` — graph, and generates a callable async function that routes data correctly.
--  `TestAccumulatorFactory` struct L335 — `-` — graph, and generates a callable async function that routes data correctly.
--  `TestAccumulatorFactory` type L337-373 — `impl AccumulatorFactory for TestAccumulatorFactory` — graph, and generates a callable async function that routes data correctly.
--  `spawn` function L338-372 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
--  `Passthrough` struct L346 — `-` — graph, and generates a callable async function that routes data correctly.
--  `Passthrough` type L349-355 — `= Passthrough` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L350 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L351 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process` function L352-354 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_reactive_scheduler_end_to_end` function L376-468 — `()` — graph, and generates a callable async function that routes data correctly.
--  `TestPoller` struct L477-479 — `{ value: f64 }` — graph, and generates a callable async function that routes data correctly.
--  `TestPoller` type L482-497 — `impl PollingAccumulator for TestPoller` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L483 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `poll` function L485-492 — `(&mut self) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `interval` function L494-496 — `(&self) -> std::time::Duration` — graph, and generates a callable async function that routes data correctly.
--  `test_polling_accumulator_to_reactor` function L500-550 — `()` — graph, and generates a callable async function that routes data correctly.
--  `TestBatcher` struct L561 — `-` — graph, and generates a callable async function that routes data correctly.
--  `TestBatcher` type L564-572 — `impl BatchAccumulator for TestBatcher` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L565 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L566 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process_batch` function L568-571 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_batch_accumulator_to_reactor` function L575-664 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_when_all_waits_for_both_sources` function L694-810 — `()` — graph, and generates a callable async function that routes data correctly.
--  `BetaPassthrough` struct L715 — `-` — graph, and generates a callable async function that routes data correctly.
--  `BetaPassthrough` type L717-723 — `= BetaPassthrough` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L718 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L719 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
--  `process` function L720-722 — `(&mut self, event: BetaData) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_sequential_input_strategy` function L817-898 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_end_to_end_accumulator_reactor_graph` function L216-323 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `TestAccumulatorFactory` struct L337 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `TestAccumulatorFactory` type L339-377 — `impl AccumulatorFactory for TestAccumulatorFactory` — graph, and generates a callable async function that routes data correctly.
+-  `spawn` function L340-376 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
+-  `Passthrough` struct L348 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `Passthrough` type L351-357 — `= Passthrough` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L352 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L353 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L354-356 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactive_scheduler_end_to_end` function L380-472 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `TestPoller` struct L481-483 — `{ value: f64 }` — graph, and generates a callable async function that routes data correctly.
+-  `TestPoller` type L486-501 — `impl PollingAccumulator for TestPoller` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L487 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `poll` function L489-496 — `(&mut self) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `interval` function L498-500 — `(&self) -> std::time::Duration` — graph, and generates a callable async function that routes data correctly.
+-  `test_polling_accumulator_to_reactor` function L504-556 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `TestBatcher` struct L567 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `TestBatcher` type L570-578 — `impl BatchAccumulator for TestBatcher` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L571 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L572 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process_batch` function L574-577 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_batch_accumulator_to_reactor` function L581-672 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_when_all_waits_for_both_sources` function L702-822 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `BetaPassthrough` struct L725 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `BetaPassthrough` type L727-733 — `= BetaPassthrough` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L728 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L729 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L730-732 — `(&mut self, event: BetaData) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_sequential_input_strategy` function L829-912 — `()` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 
@@ -6194,9 +6263,9 @@
 
 #### crates/cloacinactl/src/server/health_reactive.rs
 
-- pub `list_accumulators` function L33-47 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators.
-- pub `list_reactors` function L50-73 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
-- pub `get_reactor` function L76-108 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
+- pub `list_accumulators` function L33-50 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/accumulators — list all registered accumulators with health status.
+- pub `list_reactors` function L53-76 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /v1/health/reactors — list all reactors with status.
+- pub `get_reactor` function L79-111 — `( State(state): State<AppState>, Path(name): Path<String>, ) -> impl IntoRespons...` — GET /v1/health/reactors/{name} — single reactor health.
 
 #### crates/cloacinactl/src/server/keys.rs
 
@@ -8838,7 +8907,7 @@
 -  `Event` type L123 — `= PricingUpdate` — - Pushing serialized events and watching the graph fire
 -  `Output` type L124 — `= PricingSignal` — - Pushing serialized events and watching the graph fire
 -  `process` function L126-132 — `(&mut self, event: PricingUpdate) -> Option<PricingSignal>` — - Pushing serialized events and watching the graph fire
--  `main` function L149-256 — `()` — - Pushing serialized events and watching the graph fire
+-  `main` function L149-258 — `()` — - Pushing serialized events and watching the graph fire
 
 ### examples/tutorials/computation-graphs/library/09-full-pipeline
 
@@ -8872,7 +8941,7 @@
 -  `Event` type L152 — `= PricingUpdate` — - Pushing to different sources and watching the reactor fire each time
 -  `Output` type L153 — `= PricingUpdate` — - Pushing to different sources and watching the reactor fire each time
 -  `process` function L155-157 — `(&mut self, event: PricingUpdate) -> Option<PricingUpdate>` — - Pushing to different sources and watching the reactor fire each time
--  `main` function L165-300 — `()` — - Pushing to different sources and watching the reactor fire each time
+-  `main` function L165-304 — `()` — - Pushing to different sources and watching the reactor fire each time
 
 ### examples/tutorials/computation-graphs/library/10-routing
 
@@ -8909,7 +8978,7 @@
 -  `Event` type L204 — `= PricingData` — - How input values determine which path executes
 -  `Output` type L205 — `= PricingData` — - How input values determine which path executes
 -  `process` function L206-208 — `(&mut self, event: PricingData) -> Option<PricingData>` — - How input values determine which path executes
--  `main` function L212-362 — `()` — - How input values determine which path executes
+-  `main` function L212-366 — `()` — - How input values determine which path executes
 
 ### examples/tutorials/python/workflows
 

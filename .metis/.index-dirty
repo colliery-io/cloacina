@@ -1,9 +1,3 @@
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/database/schema.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/models.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/checkpoint.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/dal/unified/mod.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/accumulator.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/registry.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/server/health_reactive.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/reactor.rs
-/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/types.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/computation_graph/accumulator_macros.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina-macros/src/lib.rs
