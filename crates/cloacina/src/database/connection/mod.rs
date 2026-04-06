@@ -214,6 +214,9 @@ impl Database {
                 let manager = PgManager::new(connection_url, PgRuntime::Tokio1);
                 let pool = PgPool::builder(manager)
                     .max_size(max_size as usize)
+                    .wait_timeout(Some(std::time::Duration::from_secs(30)))
+                    .create_timeout(Some(std::time::Duration::from_secs(30)))
+                    .recycle_timeout(Some(std::time::Duration::from_secs(30)))
                     .build()
                     .map_err(|e| DatabaseError::PoolCreation {
                         backend: "PostgreSQL",
