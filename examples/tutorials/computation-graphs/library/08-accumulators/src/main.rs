@@ -172,6 +172,8 @@ async fn main() {
         output: boundary_sender,
         name: "pricing".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
 
     println!("Spawning accumulator runtime...");

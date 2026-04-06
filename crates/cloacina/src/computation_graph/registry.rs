@@ -26,7 +26,9 @@ use tokio::sync::{mpsc, RwLock};
 
 use serde::{Deserialize, Serialize};
 
+use super::accumulator::AccumulatorHealth;
 use super::reactor::{ManualCommand, ReactorHandle};
+use tokio::sync::watch;
 
 /// Errors from registry operations.
 #[derive(Debug, thiserror::Error)]
@@ -130,6 +132,8 @@ struct RegistryInner {
     accumulator_policies: HashMap<String, AccumulatorAuthPolicy>,
     /// Reactor name → auth policy.
     reactor_policies: HashMap<String, ReactorAuthPolicy>,
+    /// Accumulator name → health watch receiver.
+    accumulator_health: HashMap<String, watch::Receiver<AccumulatorHealth>>,
 }
 
 impl EndpointRegistry {
@@ -141,6 +145,7 @@ impl EndpointRegistry {
                 reactor_handles: HashMap::new(),
                 accumulator_policies: HashMap::new(),
                 reactor_policies: HashMap::new(),
+                accumulator_health: HashMap::new(),
             })),
         }
     }
@@ -351,6 +356,42 @@ impl EndpointRegistry {
     pub async fn accumulator_count(&self, name: &str) -> usize {
         let inner = self.inner.read().await;
         inner.accumulators.get(name).map(|v| v.len()).unwrap_or(0)
+    }
+
+    /// Register a health watch receiver for an accumulator.
+    pub async fn register_accumulator_health(
+        &self,
+        name: String,
+        health_rx: watch::Receiver<AccumulatorHealth>,
+    ) {
+        let mut inner = self.inner.write().await;
+        inner.accumulator_health.insert(name, health_rx);
+    }
+
+    /// Get the current health of an accumulator.
+    pub async fn get_accumulator_health(&self, name: &str) -> Option<AccumulatorHealth> {
+        let inner = self.inner.read().await;
+        inner
+            .accumulator_health
+            .get(name)
+            .map(|rx| rx.borrow().clone())
+    }
+
+    /// List all accumulators with their current health status.
+    pub async fn list_accumulators_with_health(&self) -> Vec<(String, AccumulatorHealth)> {
+        let inner = self.inner.read().await;
+        inner
+            .accumulators
+            .keys()
+            .map(|name| {
+                let health = inner
+                    .accumulator_health
+                    .get(name)
+                    .map(|rx| rx.borrow().clone())
+                    .unwrap_or(AccumulatorHealth::Live); // default for accumulators without health tracking
+                (name.clone(), health)
+            })
+            .collect()
     }
 }
 

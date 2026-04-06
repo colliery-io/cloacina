@@ -29,16 +29,19 @@ use axum::{
 
 use crate::commands::serve::AppState;
 
-/// GET /v1/health/accumulators — list all registered accumulators.
+/// GET /v1/health/accumulators — list all registered accumulators with health status.
 pub async fn list_accumulators(State(state): State<AppState>) -> impl IntoResponse {
-    let names = state.endpoint_registry.list_accumulators().await;
+    let accumulators_with_health = state
+        .endpoint_registry
+        .list_accumulators_with_health()
+        .await;
 
-    let accumulators: Vec<serde_json::Value> = names
+    let accumulators: Vec<serde_json::Value> = accumulators_with_health
         .into_iter()
-        .map(|name| {
+        .map(|(name, health)| {
             serde_json::json!({
                 "name": name,
-                "status": "running"
+                "status": health
             })
         })
         .collect();

@@ -26,6 +26,49 @@ use tokio::sync::{mpsc, watch};
 
 use super::types::{self, GraphError, SourceName};
 
+// =============================================================================
+// Accumulator Health
+// =============================================================================
+
+/// Health state of an accumulator, reported via watch channel.
+///
+/// The reactor watches these to gate its own startup (Warming → Live)
+/// and detect degradation (Live → Degraded).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccumulatorHealth {
+    /// Loading checkpoint from DAL.
+    Starting,
+    /// Checkpoint loaded, connecting to source. Socket already active.
+    Connecting,
+    /// Connected, processing events, pushing boundaries.
+    Live,
+    /// Was live, lost source connection. Socket still active. Retrying.
+    Disconnected,
+    /// Passthrough — no source to connect to. Healthy by definition.
+    SocketOnly,
+}
+
+impl std::fmt::Display for AccumulatorHealth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Starting => write!(f, "starting"),
+            Self::Connecting => write!(f, "connecting"),
+            Self::Live => write!(f, "live"),
+            Self::Disconnected => write!(f, "disconnected"),
+            Self::SocketOnly => write!(f, "socket_only"),
+        }
+    }
+}
+
+/// Create a health reporting channel for an accumulator.
+pub fn health_channel() -> (
+    watch::Sender<AccumulatorHealth>,
+    watch::Receiver<AccumulatorHealth>,
+) {
+    watch::channel(AccumulatorHealth::Starting)
+}
+
 /// Errors from accumulator operations.
 #[derive(Debug, thiserror::Error)]
 pub enum AccumulatorError {
@@ -77,6 +120,77 @@ pub trait Accumulator: Send + 'static {
     }
 }
 
+/// Handle for persisting accumulator state via the DAL.
+///
+/// Wraps simple key-value checkpoint storage keyed by (graph_name, accumulator_name).
+/// Serialization uses the same debug-JSON/release-bincode pattern as boundary wire format.
+#[derive(Clone)]
+pub struct CheckpointHandle {
+    dal: crate::dal::unified::DAL,
+    graph_name: String,
+    accumulator_name: String,
+}
+
+impl CheckpointHandle {
+    /// Create a new checkpoint handle for the given graph and accumulator.
+    pub fn new(
+        dal: crate::dal::unified::DAL,
+        graph_name: String,
+        accumulator_name: String,
+    ) -> Self {
+        Self {
+            dal,
+            graph_name,
+            accumulator_name,
+        }
+    }
+
+    /// Persist accumulator state.
+    pub async fn save<T: Serialize>(&self, state: &T) -> Result<(), AccumulatorError> {
+        let bytes = types::serialize(state)
+            .map_err(|e| AccumulatorError::Checkpoint(format!("serialization failed: {}", e)))?;
+        self.dal
+            .checkpoint()
+            .save_checkpoint(&self.graph_name, &self.accumulator_name, bytes)
+            .await
+            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()))
+    }
+
+    /// Load previously persisted accumulator state.
+    pub async fn load<T: DeserializeOwned>(&self) -> Result<Option<T>, AccumulatorError> {
+        let bytes = self
+            .dal
+            .checkpoint()
+            .load_checkpoint(&self.graph_name, &self.accumulator_name)
+            .await
+            .map_err(|e| AccumulatorError::Checkpoint(e.to_string()))?;
+        match bytes {
+            Some(data) => {
+                let state = types::deserialize(&data).map_err(|e| {
+                    AccumulatorError::Checkpoint(format!("deserialization failed: {}", e))
+                })?;
+                Ok(Some(state))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Access the underlying DAL for direct checkpoint operations.
+    pub fn dal(&self) -> &crate::dal::unified::DAL {
+        &self.dal
+    }
+
+    /// Get the graph name this handle is scoped to.
+    pub fn graph_name(&self) -> &str {
+        &self.graph_name
+    }
+
+    /// Get the accumulator name this handle is scoped to.
+    pub fn accumulator_name(&self) -> &str {
+        &self.accumulator_name
+    }
+}
+
 /// Context provided to the accumulator by the runtime.
 pub struct AccumulatorContext {
     /// Send a boundary to the reactor.
@@ -85,6 +199,12 @@ pub struct AccumulatorContext {
     pub name: String,
     /// Shutdown signal — accumulator should exit run() when this fires.
     pub shutdown: watch::Receiver<bool>,
+    /// Handle to persist accumulator state. None when DAL is not available
+    /// (e.g., embedded mode without database).
+    pub checkpoint: Option<CheckpointHandle>,
+    /// Health state reporter. None when health tracking is not needed
+    /// (e.g., tests, embedded mode).
+    pub health: Option<watch::Sender<AccumulatorHealth>>,
 }
 
 /// Sends serialized boundaries to the reactor.
@@ -153,11 +273,17 @@ pub async fn accumulator_runtime<A: Accumulator>(
     socket_rx: mpsc::Receiver<Vec<u8>>,
     config: AccumulatorRuntimeConfig,
 ) {
-    // Initialize
+    // Report starting health
+    set_health(&ctx, AccumulatorHealth::Starting);
+
+    // Initialize — may restore state from checkpoint
     if let Err(e) = acc.init(&ctx).await {
         tracing::error!(name = %ctx.name, "accumulator init failed: {}", e);
         return;
     }
+
+    // Passthrough/standard accumulators are socket-only (no external source)
+    set_health(&ctx, AccumulatorHealth::SocketOnly);
 
     // Create merge channel
     let (event_tx, mut event_rx) = mpsc::channel::<A::Event>(config.merge_channel_capacity);
@@ -211,6 +337,8 @@ pub async fn accumulator_runtime<A: Accumulator>(
                 if let Some(boundary) = acc.process(event) {
                     if let Err(e) = ctx.output.send(&boundary).await {
                         tracing::error!(name = %ctx.name, "boundary send failed: {}", e);
+                    } else {
+                        persist_boundary(&ctx, &boundary).await;
                     }
                 }
             }
@@ -261,10 +389,15 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
     ctx: AccumulatorContext,
     socket_rx: mpsc::Receiver<Vec<u8>>,
 ) {
+    set_health(&ctx, AccumulatorHealth::Starting);
+
     let interval = poller.interval();
     let mut timer = tokio::time::interval(interval);
     // Skip the first immediate tick — we want to wait one interval before first poll
     timer.tick().await;
+
+    // Polling accumulators are Live once the timer starts
+    set_health(&ctx, AccumulatorHealth::Live);
 
     let mut shutdown = ctx.shutdown.clone();
     let mut socket_rx = socket_rx;
@@ -275,6 +408,8 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                 if let Some(output) = poller.poll().await {
                     if let Err(e) = ctx.output.send(&output).await {
                         tracing::error!(name = %ctx.name, "polling boundary send failed: {}", e);
+                    } else {
+                        persist_boundary(&ctx, &output).await;
                     }
                 }
             }
@@ -284,6 +419,8 @@ pub async fn polling_accumulator_runtime<P: PollingAccumulator>(
                     Ok(output) => {
                         if let Err(e) = ctx.output.send(&output).await {
                             tracing::error!(name = %ctx.name, "socket boundary send failed: {}", e);
+                        } else {
+                            persist_boundary(&ctx, &output).await;
                         }
                     }
                     Err(e) => {
@@ -360,12 +497,17 @@ pub async fn batch_accumulator_runtime<B: BatchAccumulator>(
     mut flush_rx: mpsc::Receiver<()>,
     config: BatchAccumulatorConfig,
 ) {
+    set_health(&ctx, AccumulatorHealth::Starting);
+
     // Create timer only if interval is configured
     let mut timer = config.flush_interval.map(tokio::time::interval);
     if let Some(ref mut t) = timer {
         // Skip the first immediate tick
         t.tick().await;
     }
+
+    // Batch accumulators are Live once ready to receive events
+    set_health(&ctx, AccumulatorHealth::Live);
 
     let mut shutdown = ctx.shutdown.clone();
     let mut socket_rx = socket_rx;
@@ -426,6 +568,39 @@ async fn flush_batch<B: BatchAccumulator>(
             tracing::error!(name = %ctx.name, "batch boundary send failed: {}", e);
         } else {
             tracing::debug!(name = %ctx.name, events = count, "batch flushed");
+            persist_boundary(ctx, &output).await;
+        }
+    }
+}
+
+// =============================================================================
+// Internal helpers
+// =============================================================================
+
+/// Set health state (best-effort, no-op if health channel not configured).
+fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
+    if let Some(ref sender) = ctx.health {
+        let _ = sender.send(health);
+    }
+}
+
+/// Persist last-emitted boundary to DAL (best-effort, logs on failure).
+async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) {
+    if let Some(ref handle) = ctx.checkpoint {
+        let bytes = match types::serialize(boundary) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(name = %ctx.name, "boundary persistence serialization failed: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = handle
+            .dal()
+            .checkpoint()
+            .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, 0)
+            .await
+        {
+            tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
         }
     }
 }
@@ -485,6 +660,8 @@ mod tests {
             output: sender,
             name: "test_acc".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let acc = DoubleAccumulator;
@@ -524,6 +701,8 @@ mod tests {
             output: sender,
             name: "multi".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let handle = tokio::spawn(accumulator_runtime(
@@ -561,6 +740,8 @@ mod tests {
             output: sender,
             name: "shutdown_test".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let handle = tokio::spawn(accumulator_runtime(
@@ -618,6 +799,8 @@ mod tests {
             output: sender,
             name: "poller".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let poller = CountingPoller { count: 0, max: 3 };
@@ -656,6 +839,8 @@ mod tests {
             output: sender,
             name: "skip_poller".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         // max=0 means poll always returns None
@@ -686,6 +871,8 @@ mod tests {
             output: sender,
             name: "shutdown_poller".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let poller = CountingPoller { count: 0, max: 100 };
@@ -727,6 +914,8 @@ mod tests {
             output: sender,
             name: "batch_signal".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let config = BatchAccumulatorConfig::default(); // no timer, no size threshold
@@ -777,6 +966,8 @@ mod tests {
             output: sender,
             name: "batch".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let config = BatchAccumulatorConfig {
@@ -824,6 +1015,8 @@ mod tests {
             output: sender,
             name: "empty_batch".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let config = BatchAccumulatorConfig::default();
@@ -861,6 +1054,8 @@ mod tests {
             output: sender,
             name: "size_batch".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let config = BatchAccumulatorConfig {
@@ -907,6 +1102,8 @@ mod tests {
             output: sender,
             name: "drain_batch".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let config = BatchAccumulatorConfig::default(); // no timer, no size
@@ -969,6 +1166,8 @@ mod tests {
             output: sender,
             name: "filter".to_string(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let handle = tokio::spawn(accumulator_runtime(

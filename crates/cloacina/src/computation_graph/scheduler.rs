@@ -404,6 +404,8 @@ mod tests {
                 output: sender,
                 name: name.clone(),
                 shutdown: shutdown_rx,
+                checkpoint: None,
+                health: None,
             };
 
             let handle = tokio::spawn(accumulator_runtime(

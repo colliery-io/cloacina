@@ -20,9 +20,10 @@
 //! SQL types that work with both PostgreSQL and SQLite backends.
 
 use crate::database::schema::unified::{
-    contexts, execution_events, key_trust_acls, package_signatures, pipeline_executions,
-    recovery_events, schedule_executions, schedules, signing_keys, task_execution_metadata,
-    task_executions, task_outbox, trusted_keys, workflow_packages, workflow_registry,
+    accumulator_boundaries, accumulator_checkpoints, contexts, execution_events, key_trust_acls,
+    package_signatures, pipeline_executions, reactor_state, recovery_events, schedule_executions,
+    schedules, signing_keys, state_accumulator_buffers, task_execution_metadata, task_executions,
+    task_outbox, trusted_keys, workflow_packages, workflow_registry,
 };
 use crate::database::universal_types::{
     UniversalBinary, UniversalBool, UniversalTimestamp, UniversalUuid,
@@ -721,4 +722,102 @@ impl From<UnifiedScheduleExecution> for ScheduleExecution {
             updated_at: u.updated_at,
         }
     }
+}
+
+// ============================================================================
+// Computation Graph State Models
+// ============================================================================
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = accumulator_checkpoints)]
+pub struct UnifiedAccumulatorCheckpoint {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub checkpoint_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = accumulator_checkpoints)]
+pub struct NewUnifiedAccumulatorCheckpoint {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub checkpoint_data: UniversalBinary,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = accumulator_boundaries)]
+pub struct UnifiedAccumulatorBoundary {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub boundary_data: UniversalBinary,
+    pub sequence_number: i64,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = accumulator_boundaries)]
+pub struct NewUnifiedAccumulatorBoundary {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub boundary_data: UniversalBinary,
+    pub sequence_number: i64,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = reactor_state)]
+pub struct UnifiedReactorState {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub cache_data: UniversalBinary,
+    pub dirty_flags: UniversalBinary,
+    pub sequential_queue: Option<UniversalBinary>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = reactor_state)]
+pub struct NewUnifiedReactorState {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub cache_data: UniversalBinary,
+    pub dirty_flags: UniversalBinary,
+    pub sequential_queue: Option<UniversalBinary>,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = state_accumulator_buffers)]
+pub struct UnifiedStateAccumulatorBuffer {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub buffer_data: UniversalBinary,
+    pub capacity: i32,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = state_accumulator_buffers)]
+pub struct NewUnifiedStateAccumulatorBuffer {
+    pub id: UniversalUuid,
+    pub graph_name: String,
+    pub accumulator_name: String,
+    pub buffer_data: UniversalBinary,
+    pub capacity: i32,
+    pub created_at: UniversalTimestamp,
+    pub updated_at: UniversalTimestamp,
 }

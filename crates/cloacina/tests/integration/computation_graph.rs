@@ -224,6 +224,8 @@ async fn test_end_to_end_accumulator_reactor_graph() {
         output: acc_sender,
         name: "alpha".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
 
     let acc_handle = tokio::spawn(accumulator_runtime(
@@ -359,6 +361,8 @@ impl AccumulatorFactory for TestAccumulatorFactory {
             output: sender,
             name: name.clone(),
             shutdown: shutdown_rx,
+            checkpoint: None,
+            health: None,
         };
 
         let handle = tokio::spawn(accumulator_runtime(
@@ -508,6 +512,8 @@ async fn test_polling_accumulator_to_reactor() {
         output: sender,
         name: "alpha".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
 
     let _poll_handle = tokio::spawn(polling_accumulator_runtime(
@@ -584,6 +590,8 @@ async fn test_batch_accumulator_to_reactor() {
         output: sender,
         name: "alpha".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
 
     let config = BatchAccumulatorConfig::default(); // flush via signal, not timer
@@ -706,6 +714,8 @@ async fn test_when_all_waits_for_both_sources() {
             output: alpha_sender,
             name: "alpha".to_string(),
             shutdown: shutdown_rx.clone(),
+            checkpoint: None,
+            health: None,
         },
         alpha_rx,
         AccumulatorRuntimeConfig::default(),
@@ -729,6 +739,8 @@ async fn test_when_all_waits_for_both_sources() {
             output: beta_sender,
             name: "beta".to_string(),
             shutdown: shutdown_rx.clone(),
+            checkpoint: None,
+            health: None,
         },
         beta_rx,
         AccumulatorRuntimeConfig::default(),
@@ -825,6 +837,8 @@ async fn test_sequential_input_strategy() {
         output: acc_sender,
         name: "alpha".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
 
     let _acc_handle = tokio::spawn(accumulator_runtime(

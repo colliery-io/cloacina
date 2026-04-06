@@ -180,6 +180,8 @@ async fn main() {
         output: ob_sender,
         name: "orderbook".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
     let _ob_handle = tokio::spawn(accumulator_runtime(
         OrderBookAccumulator,
@@ -195,6 +197,8 @@ async fn main() {
         output: pr_sender,
         name: "pricing".to_string(),
         shutdown: shutdown_rx.clone(),
+        checkpoint: None,
+        health: None,
     };
     let _pr_handle = tokio::spawn(accumulator_runtime(
         PricingAccumulator,
