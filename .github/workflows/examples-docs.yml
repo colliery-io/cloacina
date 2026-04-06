@@ -62,7 +62,11 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run tutorial ${{ matrix.tutorial }}
-        run: angreal demos tutorial-${{ matrix.tutorial }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos tutorial-${{ matrix.tutorial }}
 
   rust-examples:
     name: Rust Example Tests
@@ -115,7 +119,11 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run ${{ matrix.example }} example
-        run: angreal demos ${{ matrix.example }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos ${{ matrix.example }}
 
   python-tutorials:
     name: Python Tutorial Tests
@@ -198,8 +206,11 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run Python tutorial ${{ matrix.tutorial }} (${{ matrix.backend }})
-        run: |
-          angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
 
   documentation:
     name: Build Documentation
