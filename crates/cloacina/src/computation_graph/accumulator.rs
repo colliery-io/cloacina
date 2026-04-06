@@ -20,6 +20,9 @@
 //! optionally aggregates them, and pushes typed boundaries to a reactor.
 //! See CLOACI-S-0004 for the full specification.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::sync::{mpsc, watch};
@@ -210,10 +213,14 @@ pub struct AccumulatorContext {
 /// Sends serialized boundaries to the reactor.
 ///
 /// Wire format: bincode in release, JSON in debug.
+/// Tracks a monotonically increasing sequence number per accumulator
+/// for deduplication and ordering guarantees.
 #[derive(Clone)]
 pub struct BoundarySender {
     inner: mpsc::Sender<(SourceName, Vec<u8>)>,
     source_name: SourceName,
+    /// Monotonically increasing sequence counter (shared across clones).
+    sequence: Arc<AtomicU64>,
 }
 
 impl BoundarySender {
@@ -221,13 +228,29 @@ impl BoundarySender {
         Self {
             inner: sender,
             source_name,
+            sequence: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Create a sender with a specific starting sequence number (for restart recovery).
+    pub fn with_sequence(
+        sender: mpsc::Sender<(SourceName, Vec<u8>)>,
+        source_name: SourceName,
+        start_sequence: u64,
+    ) -> Self {
+        Self {
+            inner: sender,
+            source_name,
+            sequence: Arc::new(AtomicU64::new(start_sequence)),
         }
     }
 
     /// Serialize and send a boundary to the reactor.
+    /// Increments the sequence counter atomically.
     pub async fn send<T: Serialize>(&self, boundary: &T) -> Result<(), AccumulatorError> {
         let bytes = types::serialize(boundary)
             .map_err(|e| AccumulatorError::Send(format!("serialization failed: {}", e)))?;
+        self.sequence.fetch_add(1, Ordering::SeqCst);
         self.inner
             .send((self.source_name.clone(), bytes))
             .await
@@ -238,6 +261,11 @@ impl BoundarySender {
     /// Get the source name this sender is associated with.
     pub fn source_name(&self) -> &SourceName {
         &self.source_name
+    }
+
+    /// Get the current sequence number (last emitted).
+    pub fn sequence_number(&self) -> u64 {
+        self.sequence.load(Ordering::SeqCst)
     }
 }
 
@@ -584,7 +612,7 @@ fn set_health(ctx: &AccumulatorContext, health: AccumulatorHealth) {
     }
 }
 
-/// Persist last-emitted boundary to DAL (best-effort, logs on failure).
+/// Persist last-emitted boundary with sequence number to DAL (best-effort, logs on failure).
 async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) {
     if let Some(ref handle) = ctx.checkpoint {
         let bytes = match types::serialize(boundary) {
@@ -594,10 +622,11 @@ async fn persist_boundary<T: Serialize>(ctx: &AccumulatorContext, boundary: &T) 
                 return;
             }
         };
+        let seq = ctx.output.sequence_number() as i64;
         if let Err(e) = handle
             .dal()
             .checkpoint()
-            .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, 0)
+            .save_boundary(handle.graph_name(), handle.accumulator_name(), bytes, seq)
             .await
         {
             tracing::warn!(name = %ctx.name, "boundary persistence failed: {}", e);
