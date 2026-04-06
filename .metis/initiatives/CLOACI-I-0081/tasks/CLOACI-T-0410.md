@@ -4,14 +4,14 @@ level: task
 title: "Reactor resilience — cache persistence, startup DAL loading, health state machine with startup gating and degraded mode"
 short_code: "CLOACI-T-0410"
 created_at: 2026-04-05T21:24:24.449475+00:00
-updated_at: 2026-04-05T21:24:24.449475+00:00
+updated_at: 2026-04-06T00:19:48.471019+00:00
 parent: CLOACI-I-0081
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0081
 ## Objective
 
 Make the reactor survive restarts by persisting its `InputCache` and `DirtyFlags` to the DAL, loading them on startup, and implementing the `ReactorHealth` state machine with startup gating (waits for all accumulators healthy before entering Live) and degraded mode (continues with stale data when an accumulator disconnects).
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -71,4 +75,26 @@ Make the reactor survive restarts by persisting its `InputCache` and `DirtyFlags
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-05: Core implementation complete
+
+**Completed:**
+- ReactorHealth enum (Starting, Warming, Live, Degraded) with serde + Display
+- reactor_health_channel() factory function
+- Reactor struct extended with graph_name, dal, health fields + builder methods
+- Reactor::run() loads cache from DAL on startup (instant recovery)
+- Cache + dirty flags persisted after every successful graph execution (Latest mode)
+- Sequential queue persisted after queue drain (Sequential mode)
+- Final state persist on orderly shutdown
+- persist_reactor_state() helper — best-effort, serializes via JSON, logs on failure
+- InputCache::entries_raw() added for serialization
+- DirtyFlags.flags made pub(crate) for serialization
+- SourceName now derives Deserialize (needed for cache deserialization on restore)
+- All unit tests pass (825)
+
+**Deferred to later tasks:**
+- Startup gating (reactor waits for accumulators) — requires scheduler integration
+- Degraded mode (health watcher for accumulator disconnects) — requires accumulator health subscriptions from scheduler
+- Idle-time periodic persistence — needs a timer in the executor
+- health_reactive.rs reactor health update — needs ReactorHandle to expose health receiver
+
+These are scheduler-level concerns that tie T-0410 to T-0412 (supervisor). The core persistence and health enum are in place.

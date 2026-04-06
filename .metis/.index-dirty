@@ -5,3 +5,5 @@
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/accumulator.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/registry.rs
 /Users/dstorey/Desktop/cloacina/crates/cloacinactl/src/server/health_reactive.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/reactor.rs
+/Users/dstorey/Desktop/cloacina/crates/cloacina/src/computation_graph/types.rs

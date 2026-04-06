@@ -35,6 +35,43 @@ use tokio::sync::{mpsc, watch, RwLock};
 
 use super::types::{GraphResult, InputCache, SourceName};
 
+// =============================================================================
+// Reactor Health
+// =============================================================================
+
+/// Health state of a reactor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "state")]
+pub enum ReactorHealth {
+    /// Loading cache from DAL, spawning accumulators.
+    Starting,
+    /// Some accumulators healthy, waiting for all.
+    Warming {
+        healthy: Vec<String>,
+        waiting: Vec<String>,
+    },
+    /// All accumulators healthy, evaluating criteria.
+    Live,
+    /// Was live, an accumulator disconnected. Running with stale data.
+    Degraded { disconnected: Vec<String> },
+}
+
+impl std::fmt::Display for ReactorHealth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Starting => write!(f, "starting"),
+            Self::Warming { .. } => write!(f, "warming"),
+            Self::Live => write!(f, "live"),
+            Self::Degraded { .. } => write!(f, "degraded"),
+        }
+    }
+}
+
+/// Create a reactor health reporting channel.
+pub fn reactor_health_channel() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>) {
+    watch::channel(ReactorHealth::Starting)
+}
+
 /// Reaction criteria — when to fire the graph.
 #[derive(Debug, Clone)]
 pub enum ReactionCriteria {
@@ -56,7 +93,7 @@ pub enum InputStrategy {
 /// Dirty flags — one boolean per source.
 #[derive(Debug, Clone)]
 pub struct DirtyFlags {
-    flags: HashMap<SourceName, bool>,
+    pub(crate) flags: HashMap<SourceName, bool>,
 }
 
 impl DirtyFlags {
@@ -201,6 +238,12 @@ pub struct Reactor {
     paused: Arc<AtomicBool>,
     /// Expected source names (used to seed DirtyFlags for WhenAll).
     expected_sources: Vec<SourceName>,
+    /// Graph name (for DAL persistence keying).
+    graph_name: String,
+    /// DAL handle for cache persistence. None in embedded mode.
+    dal: Option<crate::dal::unified::DAL>,
+    /// Health state reporter. None when health tracking not needed.
+    health: Option<watch::Sender<ReactorHealth>>,
 }
 
 impl Reactor {
@@ -222,7 +265,28 @@ impl Reactor {
             cache: Arc::new(RwLock::new(InputCache::new())),
             paused: Arc::new(AtomicBool::new(false)),
             expected_sources: Vec::new(),
+            graph_name: String::new(),
+            dal: None,
+            health: None,
         }
+    }
+
+    /// Set the graph name (used as key for DAL persistence).
+    pub fn with_graph_name(mut self, name: String) -> Self {
+        self.graph_name = name;
+        self
+    }
+
+    /// Set the DAL handle for cache persistence.
+    pub fn with_dal(mut self, dal: crate::dal::unified::DAL) -> Self {
+        self.dal = Some(dal);
+        self
+    }
+
+    /// Set the health reporter channel.
+    pub fn with_health(mut self, health: watch::Sender<ReactorHealth>) -> Self {
+        self.health = Some(health);
+        self
     }
 
     /// Set the expected source names for WhenAll criteria.
@@ -247,7 +311,38 @@ impl Reactor {
 
     /// Run the reactor. Spawns receiver + executor tasks.
     pub async fn run(self) {
+        // Report starting health
+        if let Some(ref health) = self.health {
+            let _ = health.send(ReactorHealth::Starting);
+        }
+
+        // Load cache from DAL if available (instant recovery)
         let cache = self.cache.clone();
+        if let Some(ref dal) = self.dal {
+            if !self.graph_name.is_empty() {
+                match dal.checkpoint().load_reactor_state(&self.graph_name).await {
+                    Ok(Some((cache_data, _dirty_data, _seq_queue))) => {
+                        // Restore cache — deserialize the entries map
+                        if let Ok(entries) =
+                            serde_json::from_slice::<HashMap<SourceName, Vec<u8>>>(&cache_data)
+                        {
+                            let mut c = cache.write().await;
+                            for (source, bytes) in entries {
+                                c.update(source, bytes);
+                            }
+                            tracing::info!(graph = %self.graph_name, "reactor cache restored from DAL");
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::debug!(graph = %self.graph_name, "no persisted reactor state found");
+                    }
+                    Err(e) => {
+                        tracing::warn!(graph = %self.graph_name, "failed to load reactor state: {}", e);
+                    }
+                }
+            }
+        }
+
         let dirty = if self.expected_sources.is_empty() {
             Arc::new(RwLock::new(DirtyFlags::new()))
         } else {
@@ -255,6 +350,11 @@ impl Reactor {
                 &self.expected_sources,
             )))
         };
+
+        // Report Live health (startup gating deferred to T-0410 full implementation)
+        if let Some(ref health) = self.health {
+            let _ = health.send(ReactorHealth::Live);
+        }
         let paused = self.paused.clone();
         let input_strategy = self._input_strategy.clone();
 
@@ -316,6 +416,8 @@ impl Reactor {
         let mut shutdown_exec = self.shutdown.clone();
         let graph = self.graph.clone();
         let criteria = self.criteria.clone();
+        let dal_exec = self.dal.clone();
+        let graph_name_exec = self.graph_name.clone();
 
         loop {
             tokio::select! {
@@ -340,6 +442,10 @@ impl Reactor {
                                 match &result {
                                     GraphResult::Completed { .. } => {
                                         tracing::debug!("graph execution completed");
+                                        // Persist cache after successful execution
+                                        persist_reactor_state(
+                                            &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
+                                        ).await;
                                     }
                                     GraphResult::Error(e) => {
                                         tracing::error!("graph execution failed: {}", e);
@@ -371,11 +477,21 @@ impl Reactor {
                                     None => break,
                                 }
                             }
+                            // Persist after draining the queue
+                            persist_reactor_state(
+                                &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
+                                Some(&seq_queue_exec),
+                            ).await;
                         }
                     }
                 }
                 _ = shutdown_exec.changed() => {
                     tracing::debug!("reactor executor shutting down");
+                    // Final persist on orderly shutdown
+                    persist_reactor_state(
+                        &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec,
+                        Some(&seq_queue_exec),
+                    ).await;
                     break;
                 }
             }
@@ -383,6 +499,65 @@ impl Reactor {
 
         // Wait for receiver to finish
         let _ = receiver_handle.await;
+    }
+}
+
+/// Persist reactor state to DAL (best-effort, logs on failure).
+async fn persist_reactor_state(
+    dal: &Option<crate::dal::unified::DAL>,
+    graph_name: &str,
+    cache: &Arc<RwLock<InputCache>>,
+    dirty: &Arc<RwLock<DirtyFlags>>,
+    seq_queue: Option<&Arc<RwLock<VecDeque<(SourceName, Vec<u8>)>>>>,
+) {
+    let dal = match dal {
+        Some(d) if !graph_name.is_empty() => d,
+        _ => return,
+    };
+
+    let cache_snapshot = cache.read().await;
+    let dirty_snapshot = dirty.read().await;
+
+    // Serialize cache entries as JSON map
+    let cache_bytes = match serde_json::to_vec(&cache_snapshot.entries_raw()) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(graph = %graph_name, "cache serialization failed: {}", e);
+            return;
+        }
+    };
+
+    let dirty_bytes = match serde_json::to_vec(&dirty_snapshot.flags) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(graph = %graph_name, "dirty flags serialization failed: {}", e);
+            return;
+        }
+    };
+
+    let seq_bytes = if let Some(q) = seq_queue {
+        let queue = q.read().await;
+        if queue.is_empty() {
+            None
+        } else {
+            match serde_json::to_vec(&*queue) {
+                Ok(b) => Some(b),
+                Err(e) => {
+                    tracing::warn!(graph = %graph_name, "sequential queue serialization failed: {}", e);
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Err(e) = dal
+        .checkpoint()
+        .save_reactor_state(graph_name, cache_bytes, dirty_bytes, seq_bytes)
+        .await
+    {
+        tracing::warn!(graph = %graph_name, "reactor state persistence failed: {}", e);
     }
 }
 

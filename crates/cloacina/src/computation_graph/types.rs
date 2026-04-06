@@ -17,13 +17,13 @@
 //! Core types for computation graph execution.
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 
 /// Identifies an accumulator source by name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SourceName(pub String);
 
 impl SourceName {
@@ -125,6 +125,11 @@ impl InputCache {
     /// List all source names in the cache.
     pub fn sources(&self) -> Vec<&SourceName> {
         self.entries.keys().collect()
+    }
+
+    /// Get a reference to the raw entries map (for serialization/persistence).
+    pub fn entries_raw(&self) -> &HashMap<SourceName, Vec<u8>> {
+        &self.entries
     }
 
     /// Return entries as a JSON-friendly map (base64-encoded raw bytes per source).
