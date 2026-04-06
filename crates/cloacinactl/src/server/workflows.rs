@@ -20,7 +20,7 @@ use axum::{
     extract::{Multipart, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use tracing::{info, warn};
 
@@ -29,13 +29,22 @@ use cloacina::registry::traits::WorkflowRegistry;
 use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
 pub async fn upload_workflow(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
@@ -102,8 +111,13 @@ pub async fn upload_workflow(
 /// GET /tenants/:tenant_id/workflows — list registered workflows.
 pub async fn list_workflows(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,
@@ -151,8 +165,13 @@ pub async fn list_workflows(
 /// GET /tenants/:tenant_id/workflows/:name — get workflow details.
 pub async fn get_workflow(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,
@@ -197,8 +216,16 @@ pub async fn get_workflow(
 /// DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
 pub async fn delete_workflow(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name, version)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let mut registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,

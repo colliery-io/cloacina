@@ -184,6 +184,11 @@ fn build_router(state: AppState) -> Router {
             "/tenants/{schema_name}",
             delete(crate::server::tenants::remove_tenant),
         )
+        // Tenant-scoped key creation (admin-only)
+        .route(
+            "/tenants/{tenant_id}/keys",
+            post(crate::server::keys::create_tenant_key),
+        )
         // Workflow packages (tenant-scoped)
         .route(
             "/tenants/{tenant_id}/workflows",
@@ -383,7 +388,7 @@ async fn bootstrap_admin_key(
     };
 
     dal.api_keys()
-        .create_key(&hash, "bootstrap-admin")
+        .create_key(&hash, "bootstrap-admin", None, true, "admin")
         .await
         .context("Failed to create bootstrap admin key")?;
 
@@ -453,7 +458,7 @@ mod tests {
         let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
         let dal = cloacina::dal::DAL::new(state.database.clone());
         dal.api_keys()
-            .create_key(&hash, "test-key")
+            .create_key(&hash, "test-key", None, true, "admin")
             .await
             .expect("Failed to create test API key");
         plaintext
@@ -681,7 +686,7 @@ mod tests {
         let dal = cloacina::dal::DAL::new(state.database.clone());
         let info2 = dal
             .api_keys()
-            .create_key(&hash2, "to-revoke")
+            .create_key(&hash2, "to-revoke", None, false, "admin")
             .await
             .expect("create key");
 

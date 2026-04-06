@@ -173,6 +173,7 @@ mod unified_schema {
             storage_type -> Text,
             created_at -> DbTimestamp,
             updated_at -> DbTimestamp,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -507,6 +508,7 @@ mod postgres_schema {
             storage_type -> Varchar,
             created_at -> Timestamp,
             updated_at -> Timestamp,
+            tenant_id -> Nullable<Text>,
         }
     }
 
@@ -693,6 +695,8 @@ mod postgres_schema {
             permissions -> Text,
             created_at -> Timestamptz,
             revoked_at -> Nullable<Timestamptz>,
+            tenant_id -> Nullable<Text>,
+            is_admin -> Bool,
         }
     }
 
@@ -870,6 +874,7 @@ mod sqlite_schema {
             storage_type -> Text,
             created_at -> Text,
             updated_at -> Text,
+            tenant_id -> Nullable<Text>,
         }
     }
 

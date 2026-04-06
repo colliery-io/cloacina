@@ -32,7 +32,7 @@ use serde::Deserialize;
 use tracing::{debug, info, warn};
 
 use cloacina::computation_graph::reactor::{ManualCommand, ReactorCommand, ReactorResponse};
-use cloacina::computation_graph::registry::EndpointRegistry;
+use cloacina::computation_graph::registry::{EndpointRegistry, KeyContext};
 use cloacina::computation_graph::types::InputCache;
 use cloacina::computation_graph::SourceName;
 
@@ -92,9 +92,14 @@ pub async fn accumulator_ws(
     };
 
     // Per-endpoint authorization check
+    let ctx = KeyContext {
+        key_id: &auth.key_id,
+        tenant_id: auth.tenant_id.as_deref(),
+        is_admin: auth.is_admin,
+    };
     if let Err(_e) = state
         .endpoint_registry
-        .check_accumulator_auth(&name, &auth.key_id)
+        .check_accumulator_auth(&name, &ctx)
         .await
     {
         return (
@@ -145,9 +150,14 @@ pub async fn reactor_ws(
     };
 
     // Per-endpoint authorization check
+    let ctx = KeyContext {
+        key_id: &auth.key_id,
+        tenant_id: auth.tenant_id.as_deref(),
+        is_admin: auth.is_admin,
+    };
     if let Err(_e) = state
         .endpoint_registry
-        .check_reactor_auth(&name, &auth.key_id)
+        .check_reactor_auth(&name, &ctx)
         .await
     {
         return (
@@ -265,7 +275,16 @@ async fn handle_reactor_socket(
             Ok(axum::extract::ws::Message::Text(text)) => {
                 let response = match serde_json::from_str::<ReactorCommand>(&text) {
                     Ok(cmd) => {
-                        process_reactor_command(&name, cmd, &registry, &handle, auth.key_id).await
+                        process_reactor_command(
+                            &name,
+                            cmd,
+                            &registry,
+                            &handle,
+                            auth.key_id,
+                            auth.tenant_id.clone(),
+                            auth.is_admin,
+                        )
+                        .await
                     }
                     Err(e) => ReactorResponse::Error {
                         message: format!("invalid command: {}", e),
@@ -320,10 +339,17 @@ async fn process_reactor_command(
     registry: &EndpointRegistry,
     handle: &Option<cloacina::computation_graph::reactor::ReactorHandle>,
     key_id: uuid::Uuid,
+    key_tenant_id: Option<String>,
+    key_is_admin: bool,
 ) -> ReactorResponse {
     // Per-command authZ check
     let op = command_to_op(&cmd);
-    if let Err(_e) = registry.check_reactor_op_auth(name, &key_id, &op).await {
+    let ctx = KeyContext {
+        key_id: &key_id,
+        tenant_id: key_tenant_id.as_deref(),
+        is_admin: key_is_admin,
+    };
+    if let Err(_e) = registry.check_reactor_op_auth(name, &ctx, &op).await {
         return ReactorResponse::Error {
             message: format!("operation {:?} not permitted on reactor '{}'", op, name),
         };

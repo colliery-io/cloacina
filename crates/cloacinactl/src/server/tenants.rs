@@ -23,7 +23,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -31,6 +31,7 @@ use tracing::{info, warn};
 use cloacina::database::{DatabaseAdmin, TenantConfig};
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
 
 /// Request body for creating a tenant.
 #[derive(Deserialize)]
@@ -45,10 +46,16 @@ pub struct CreateTenantRequest {
 }
 
 /// POST /tenants — create a new tenant (Postgres schema + user + migrations).
+/// Admin-only: only is_admin keys can create tenants.
 pub async fn create_tenant(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+
     let admin = DatabaseAdmin::new(state.database.clone());
     let config = TenantConfig {
         schema_name: body.schema_name.clone(),
@@ -82,10 +89,16 @@ pub async fn create_tenant(
 }
 
 /// DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
+/// Admin-only: only is_admin keys can remove tenants.
 pub async fn remove_tenant(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(schema_name): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+
     let admin = DatabaseAdmin::new(state.database.clone());
 
     // Use schema_name as both schema and username (convention)

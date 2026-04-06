@@ -36,6 +36,8 @@ struct ApiKeyRow {
     pub permissions: String,
     pub created_at: chrono::NaiveDateTime,
     pub revoked_at: Option<chrono::NaiveDateTime>,
+    pub tenant_id: Option<String>,
+    pub is_admin: bool,
 }
 
 /// Diesel model for inserting api_keys rows.
@@ -46,6 +48,8 @@ struct NewApiKey {
     pub key_hash: String,
     pub name: String,
     pub permissions: String,
+    pub tenant_id: Option<String>,
+    pub is_admin: bool,
 }
 
 fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
@@ -55,6 +59,8 @@ fn to_info(row: ApiKeyRow) -> ApiKeyInfo {
         permissions: row.permissions,
         created_at: row.created_at.and_utc(),
         revoked: row.revoked_at.is_some(),
+        tenant_id: row.tenant_id,
+        is_admin: row.is_admin,
     }
 }
 
@@ -62,6 +68,9 @@ pub async fn create_key(
     dal: &DAL,
     key_hash: &str,
     name: &str,
+    tenant_id: Option<&str>,
+    is_admin: bool,
+    role: &str,
 ) -> Result<ApiKeyInfo, ValidationError> {
     let conn = dal
         .database
@@ -74,7 +83,9 @@ pub async fn create_key(
         id,
         key_hash: key_hash.to_string(),
         name: name.to_string(),
-        permissions: "admin".to_string(),
+        permissions: role.to_string(),
+        tenant_id: tenant_id.map(|s| s.to_string()),
+        is_admin,
     };
 
     let row: ApiKeyRow = conn

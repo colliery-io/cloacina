@@ -360,6 +360,7 @@ pub struct UnifiedWorkflowPackage {
     pub storage_type: String,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
@@ -375,6 +376,7 @@ pub struct NewUnifiedWorkflowPackage {
     pub storage_type: String,
     pub created_at: UniversalTimestamp,
     pub updated_at: UniversalTimestamp,
+    pub tenant_id: Option<String>,
 }
 
 // ============================================================================
@@ -626,6 +628,7 @@ impl From<UnifiedWorkflowPackage> for WorkflowPackage {
             storage_type: u.storage_type.parse().unwrap(),
             created_at: u.created_at,
             updated_at: u.updated_at,
+            tenant_id: u.tenant_id,
         }
     }
 }

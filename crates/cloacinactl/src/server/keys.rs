@@ -23,17 +23,25 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
 
 /// Request body for creating a new API key.
 #[derive(Deserialize)]
 pub struct CreateKeyRequest {
     pub name: String,
+    /// Role for the key: "admin", "write", or "read". Defaults to "admin".
+    #[serde(default = "default_role")]
+    pub role: String,
+}
+
+fn default_role() -> String {
+    "admin".to_string()
 }
 
 /// POST /auth/keys — create a new API key.
@@ -46,7 +54,11 @@ pub async fn create_key(
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
-    match dal.api_keys().create_key(&hash, &body.name).await {
+    match dal
+        .api_keys()
+        .create_key(&hash, &body.name, None, false, &body.role)
+        .await
+    {
         Ok(info) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
@@ -54,6 +66,8 @@ pub async fn create_key(
                 "name": info.name,
                 "key": plaintext,
                 "permissions": info.permissions,
+                "tenant_id": info.tenant_id,
+                "is_admin": info.is_admin,
                 "created_at": info.created_at.to_rfc3339(),
             })),
         )
@@ -81,6 +95,8 @@ pub async fn list_keys(State(state): State<AppState>) -> impl IntoResponse {
                         "id": k.id.to_string(),
                         "name": k.name,
                         "permissions": k.permissions,
+                        "tenant_id": k.tenant_id,
+                        "is_admin": k.is_admin,
                         "created_at": k.created_at.to_rfc3339(),
                         "revoked": k.revoked,
                     })
@@ -100,10 +116,15 @@ pub async fn list_keys(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// DELETE /auth/keys/:key_id — revoke an API key.
+/// Requires admin role within tenant (or god mode).
 pub async fn revoke_key(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(key_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_admin() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
@@ -132,6 +153,56 @@ pub async fn revoke_key(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "failed to revoke API key"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+/// Admin-only: only is_admin keys can create tenant-scoped keys.
+pub async fn create_tenant_key(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+    Path(tenant_id): Path<String>,
+    Json(body): Json<CreateKeyRequest>,
+) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
+
+    let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
+
+    let dal = cloacina::dal::DAL::new(state.database.clone());
+    match dal
+        .api_keys()
+        .create_key(&hash, &body.name, Some(&tenant_id), false, &body.role)
+        .await
+    {
+        Ok(info) => {
+            info!(
+                "Created tenant-scoped key '{}' for tenant '{}'",
+                info.name, tenant_id
+            );
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "id": info.id.to_string(),
+                    "name": info.name,
+                    "key": plaintext,
+                    "permissions": info.permissions,
+                    "tenant_id": info.tenant_id,
+                    "is_admin": info.is_admin,
+                    "created_at": info.created_at.to_rfc3339(),
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            warn!("Failed to create tenant key: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "failed to create API key"})),
             )
                 .into_response()
         }

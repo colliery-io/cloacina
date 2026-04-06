@@ -4,14 +4,14 @@ level: initiative
 title: "Reactor Depth — when_all Criteria and Sequential Input Strategy"
 short_code: "CLOACI-I-0077"
 created_at: 2026-04-05T14:34:55.023637+00:00
-updated_at: 2026-04-05T15:17:48.878559+00:00
+updated_at: 2026-04-06T10:56:11.469983+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,6 +43,8 @@ Blocked by: nothing. Reactor infrastructure exists from I-0074.
 - Python bindings (I-0078)
 - Soak/perf (I-0079)
 - Sequential queue durability and expected_sources scheduler wiring — deferred to I-0082 (MVP Resilience Wiring: PERSIST-3 sequential queue persistence gap, WIRE-1 with_expected_sources)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

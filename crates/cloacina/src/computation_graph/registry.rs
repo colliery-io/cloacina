@@ -67,19 +67,32 @@ pub enum ReactorOp {
     GetHealth,
 }
 
+/// Caller identity for authorization checks.
+pub struct KeyContext<'a> {
+    pub key_id: &'a uuid::Uuid,
+    pub tenant_id: Option<&'a str>,
+    pub is_admin: bool,
+}
+
 /// Authorization policy for an accumulator endpoint.
 #[derive(Debug, Clone, Default)]
 pub struct AccumulatorAuthPolicy {
-    /// PAK key IDs authorized to push to this accumulator.
-    /// Empty = deny all.
+    /// If true, any authenticated key is authorized (single-tenant default).
+    pub allow_all_authenticated: bool,
+    /// Tenant IDs whose keys are authorized. Checked when allow_all is false.
+    pub allowed_tenants: Vec<String>,
+    /// PAK key IDs authorized to push to this accumulator (explicit override).
     pub allowed_producers: Vec<uuid::Uuid>,
 }
 
 /// Authorization policy for a reactor endpoint.
 #[derive(Debug, Clone, Default)]
 pub struct ReactorAuthPolicy {
-    /// PAK key IDs authorized to connect.
-    /// Empty = deny all.
+    /// If true, any authenticated key is authorized (single-tenant default).
+    pub allow_all_authenticated: bool,
+    /// Tenant IDs whose keys are authorized. Checked when allow_all is false.
+    pub allowed_tenants: Vec<String>,
+    /// PAK key IDs authorized to connect (explicit override).
     pub allowed_operators: Vec<uuid::Uuid>,
     /// Per-key operation restrictions. If a key is in allowed_operators
     /// but not in this map, all operations are permitted.
@@ -87,25 +100,84 @@ pub struct ReactorAuthPolicy {
 }
 
 impl AccumulatorAuthPolicy {
+    /// Create a policy that allows any authenticated key (global/single-tenant).
+    pub fn allow_all() -> Self {
+        Self {
+            allow_all_authenticated: true,
+            allowed_tenants: Vec::new(),
+            allowed_producers: Vec::new(),
+        }
+    }
+
+    /// Create a policy scoped to a specific tenant.
+    pub fn for_tenant(tenant_id: &str) -> Self {
+        Self {
+            allow_all_authenticated: false,
+            allowed_tenants: vec![tenant_id.to_string()],
+            allowed_producers: Vec::new(),
+        }
+    }
+
     /// Check if a key is authorized.
-    pub fn is_authorized(&self, key_id: &uuid::Uuid) -> bool {
-        self.allowed_producers.contains(key_id)
+    pub fn is_authorized(&self, ctx: &KeyContext) -> bool {
+        if self.allow_all_authenticated || ctx.is_admin {
+            return true;
+        }
+        if self.allowed_producers.contains(ctx.key_id) {
+            return true;
+        }
+        if let Some(key_tenant) = ctx.tenant_id {
+            return self.allowed_tenants.iter().any(|t| t == key_tenant);
+        }
+        false
     }
 }
 
 impl ReactorAuthPolicy {
+    /// Create a policy that allows any authenticated key (global/single-tenant).
+    pub fn allow_all() -> Self {
+        Self {
+            allow_all_authenticated: true,
+            allowed_tenants: Vec::new(),
+            allowed_operators: Vec::new(),
+            operation_permissions: HashMap::new(),
+        }
+    }
+
+    /// Create a policy scoped to a specific tenant.
+    pub fn for_tenant(tenant_id: &str) -> Self {
+        Self {
+            allow_all_authenticated: false,
+            allowed_tenants: vec![tenant_id.to_string()],
+            allowed_operators: Vec::new(),
+            operation_permissions: HashMap::new(),
+        }
+    }
+
     /// Check if a key is authorized to connect.
-    pub fn is_authorized(&self, key_id: &uuid::Uuid) -> bool {
-        self.allowed_operators.contains(key_id)
+    pub fn is_authorized(&self, ctx: &KeyContext) -> bool {
+        if self.allow_all_authenticated || ctx.is_admin {
+            return true;
+        }
+        if self.allowed_operators.contains(ctx.key_id) {
+            return true;
+        }
+        if let Some(key_tenant) = ctx.tenant_id {
+            return self.allowed_tenants.iter().any(|t| t == key_tenant);
+        }
+        false
     }
 
     /// Check if a key is authorized for a specific operation.
-    pub fn is_operation_permitted(&self, key_id: &uuid::Uuid, op: &ReactorOp) -> bool {
-        if !self.is_authorized(key_id) {
+    pub fn is_operation_permitted(&self, ctx: &KeyContext, op: &ReactorOp) -> bool {
+        if self.allow_all_authenticated || ctx.is_admin {
+            return true;
+        }
+        if !self.is_authorized(ctx) {
             return false;
         }
         // If no per-key restrictions, all ops are allowed
-        match self.operation_permissions.get(key_id) {
+        match self.operation_permissions.get(ctx.key_id) {
             None => true,
             Some(permitted) => permitted.contains(op),
         }
@@ -213,13 +285,13 @@ impl EndpointRegistry {
     pub async fn check_accumulator_auth(
         &self,
         name: &str,
-        key_id: &uuid::Uuid,
+        ctx: &KeyContext<'_>,
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
         match inner.accumulator_policies.get(name) {
             None => Err(RegistryError::AccumulatorUnauthorized(name.to_string())),
             Some(policy) => {
-                if policy.is_authorized(key_id) {
+                if policy.is_authorized(ctx) {
                     Ok(())
                 } else {
                     Err(RegistryError::AccumulatorUnauthorized(name.to_string()))
@@ -232,13 +304,13 @@ impl EndpointRegistry {
     pub async fn check_reactor_auth(
         &self,
         name: &str,
-        key_id: &uuid::Uuid,
+        ctx: &KeyContext<'_>,
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
         match inner.reactor_policies.get(name) {
             None => Err(RegistryError::ReactorUnauthorized(name.to_string())),
             Some(policy) => {
-                if policy.is_authorized(key_id) {
+                if policy.is_authorized(ctx) {
                     Ok(())
                 } else {
                     Err(RegistryError::ReactorUnauthorized(name.to_string()))
@@ -251,14 +323,14 @@ impl EndpointRegistry {
     pub async fn check_reactor_op_auth(
         &self,
         name: &str,
-        key_id: &uuid::Uuid,
+        ctx: &KeyContext<'_>,
         op: &ReactorOp,
     ) -> Result<(), RegistryError> {
         let inner = self.inner.read().await;
         match inner.reactor_policies.get(name) {
             None => Err(RegistryError::ReactorUnauthorized(name.to_string())),
             Some(policy) => {
-                if policy.is_operation_permitted(key_id, op) {
+                if policy.is_operation_permitted(ctx, op) {
                     Ok(())
                 } else {
                     Err(RegistryError::OperationNotPermitted {
@@ -564,9 +636,14 @@ mod tests {
     async fn test_accumulator_auth_deny_by_default() {
         let registry = EndpointRegistry::new();
         let key_id = uuid::Uuid::new_v4();
+        let ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: None,
+            is_admin: false,
+        };
         // No policy set → deny
         let err = registry
-            .check_accumulator_auth("alpha", &key_id)
+            .check_accumulator_auth("alpha", &ctx)
             .await
             .unwrap_err();
         assert!(matches!(err, RegistryError::AccumulatorUnauthorized(_)));
@@ -581,24 +658,93 @@ mod tests {
             .set_accumulator_policy(
                 "alpha".to_string(),
                 AccumulatorAuthPolicy {
+                    allow_all_authenticated: false,
+                    allowed_tenants: Vec::new(),
                     allowed_producers: vec![key_id],
                 },
             )
             .await;
 
         // Authorized key succeeds
+        let ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: None,
+            is_admin: false,
+        };
         registry
-            .check_accumulator_auth("alpha", &key_id)
+            .check_accumulator_auth("alpha", &ctx)
             .await
             .unwrap();
 
         // Different key is denied
         let other_key = uuid::Uuid::new_v4();
+        let other_ctx = KeyContext {
+            key_id: &other_key,
+            tenant_id: None,
+            is_admin: false,
+        };
         let err = registry
-            .check_accumulator_auth("alpha", &other_key)
+            .check_accumulator_auth("alpha", &other_ctx)
             .await
             .unwrap_err();
         assert!(matches!(err, RegistryError::AccumulatorUnauthorized(_)));
+    }
+
+    #[tokio::test]
+    async fn test_accumulator_auth_tenant_scoped() {
+        let registry = EndpointRegistry::new();
+        let key_id = uuid::Uuid::new_v4();
+
+        registry
+            .set_accumulator_policy(
+                "alpha".to_string(),
+                AccumulatorAuthPolicy::for_tenant("acme"),
+            )
+            .await;
+
+        // Acme key → allowed
+        let acme_ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: Some("acme"),
+            is_admin: false,
+        };
+        registry
+            .check_accumulator_auth("alpha", &acme_ctx)
+            .await
+            .unwrap();
+
+        // Other tenant → denied
+        let other_ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: Some("other"),
+            is_admin: false,
+        };
+        assert!(registry
+            .check_accumulator_auth("alpha", &other_ctx)
+            .await
+            .is_err());
+
+        // Admin → always allowed
+        let admin_ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: Some("other"),
+            is_admin: true,
+        };
+        registry
+            .check_accumulator_auth("alpha", &admin_ctx)
+            .await
+            .unwrap();
+
+        // Global key (no tenant) → denied for tenant-scoped endpoint
+        let global_ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: None,
+            is_admin: false,
+        };
+        assert!(registry
+            .check_accumulator_auth("alpha", &global_ctx)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -613,25 +759,33 @@ mod tests {
             .set_reactor_policy(
                 "mm".to_string(),
                 ReactorAuthPolicy {
+                    allow_all_authenticated: false,
+                    allowed_tenants: Vec::new(),
                     allowed_operators: vec![key_id],
                     operation_permissions: op_perms,
                 },
             )
             .await;
 
+        let ctx = KeyContext {
+            key_id: &key_id,
+            tenant_id: None,
+            is_admin: false,
+        };
+
         // Authorized ops succeed
         registry
-            .check_reactor_op_auth("mm", &key_id, &ReactorOp::ForceFire)
+            .check_reactor_op_auth("mm", &ctx, &ReactorOp::ForceFire)
             .await
             .unwrap();
         registry
-            .check_reactor_op_auth("mm", &key_id, &ReactorOp::GetState)
+            .check_reactor_op_auth("mm", &ctx, &ReactorOp::GetState)
             .await
             .unwrap();
 
         // Unauthorized op denied
         let err = registry
-            .check_reactor_op_auth("mm", &key_id, &ReactorOp::Pause)
+            .check_reactor_op_auth("mm", &ctx, &ReactorOp::Pause)
             .await
             .unwrap_err();
         assert!(matches!(err, RegistryError::OperationNotPermitted { .. }));

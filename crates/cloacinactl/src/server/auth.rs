@@ -40,12 +40,11 @@ use crate::commands::serve::AppState;
 /// Authenticated key info inserted into request extensions.
 #[derive(Clone, Debug)]
 pub struct AuthenticatedKey {
-    #[allow(dead_code)]
     pub key_id: uuid::Uuid,
-    #[allow(dead_code)]
     pub name: String,
-    #[allow(dead_code)]
     pub permissions: String,
+    pub tenant_id: Option<String>,
+    pub is_admin: bool,
 }
 
 /// A cached entry with TTL tracking.
@@ -132,6 +131,8 @@ pub async fn validate_token(
             key_id: info.id,
             name: info.name,
             permissions: info.permissions,
+            tenant_id: info.tenant_id,
+            is_admin: info.is_admin,
         });
     }
 
@@ -143,6 +144,8 @@ pub async fn validate_token(
                 key_id: info.id,
                 name: info.name.clone(),
                 permissions: info.permissions.clone(),
+                tenant_id: info.tenant_id.clone(),
+                is_admin: info.is_admin,
             };
             state.key_cache.insert(hash, info).await;
             Ok(auth)
@@ -201,4 +204,62 @@ fn extract_bearer_token(request: &Request) -> Option<&str> {
         .to_str()
         .ok()?
         .strip_prefix("Bearer ")
+}
+
+// ---------------------------------------------------------------------------
+// Authorization helpers — used by handlers to enforce tenant and admin checks
+// ---------------------------------------------------------------------------
+
+impl AuthenticatedKey {
+    /// Check if this key can access the given tenant's resources.
+    ///
+    /// - Admin keys (is_admin=true) can access any tenant — god mode.
+    /// - Tenant-scoped keys can only access their own tenant.
+    /// - Global keys (tenant_id=None) can access global/public resources only.
+    pub fn can_access_tenant(&self, tenant_id: &str) -> bool {
+        if self.is_admin {
+            return true;
+        }
+        match &self.tenant_id {
+            Some(key_tenant) => key_tenant == tenant_id,
+            None => tenant_id == "public",
+        }
+    }
+
+    /// Returns a 403 response for tenant access denied.
+    pub fn forbidden_response() -> (StatusCode, Json<serde_json::Value>) {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "access denied for this tenant"})),
+        )
+    }
+
+    /// Returns a 403 response for admin-only operations.
+    pub fn admin_required_response() -> (StatusCode, Json<serde_json::Value>) {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "admin access required"})),
+        )
+    }
+
+    /// Check if this key has at least write permission.
+    /// Roles: admin > write > read.
+    /// God mode (is_admin) implicitly has all permissions.
+    pub fn can_write(&self) -> bool {
+        self.is_admin || self.permissions == "admin" || self.permissions == "write"
+    }
+
+    /// Check if this key has admin role within its tenant.
+    /// Note: is_admin (god mode) is separate from permissions="admin" (tenant admin).
+    pub fn can_admin(&self) -> bool {
+        self.is_admin || self.permissions == "admin"
+    }
+
+    /// Returns a 403 response for insufficient role.
+    pub fn insufficient_role_response() -> (StatusCode, Json<serde_json::Value>) {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "insufficient permissions"})),
+        )
+    }
 }

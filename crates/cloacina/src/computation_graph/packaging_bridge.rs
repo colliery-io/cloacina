@@ -84,6 +84,7 @@ pub fn build_declaration_from_ffi(
             strategy,
             graph_fn,
         },
+        tenant_id: None, // Set by the reconciler based on package ownership
     }
 }
 

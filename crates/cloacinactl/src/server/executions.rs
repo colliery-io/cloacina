@@ -20,7 +20,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -29,6 +29,7 @@ use cloacina::executor::PipelineExecutor;
 use cloacina::Context;
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
 
 /// Request body for executing a workflow.
 #[derive(Deserialize)]
@@ -41,9 +42,17 @@ pub struct ExecuteRequest {
 /// POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
 pub async fn execute_workflow(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
     Json(body): Json<ExecuteRequest>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+    if !auth.can_write() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
     let mut context = Context::new();
 
     // Merge provided context if any
@@ -89,8 +98,13 @@ pub async fn execute_workflow(
 /// GET /tenants/:tenant_id/executions — list pipeline executions.
 pub async fn list_executions(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     match dal.pipeline_execution().get_active_executions().await {
@@ -130,8 +144,13 @@ pub async fn list_executions(
 /// GET /tenants/:tenant_id/executions/:id — get execution details.
 pub async fn get_execution(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
@@ -161,8 +180,13 @@ pub async fn get_execution(
 /// GET /tenants/:tenant_id/executions/:id/events — execution event log.
 pub async fn get_execution_events(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, exec_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {

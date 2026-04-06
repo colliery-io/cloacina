@@ -20,17 +20,23 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    Extension, Json,
 };
 use tracing::warn;
 
 use crate::commands::serve::AppState;
+use crate::server::auth::AuthenticatedKey;
 
 /// GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
 pub async fn list_triggers(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path(tenant_id): Path<String>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     match dal.schedule().list(None, false, 100, 0).await {
@@ -72,8 +78,13 @@ pub async fn list_triggers(
 /// GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 pub async fn get_trigger(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Path((tenant_id, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    if !auth.can_access_tenant(&tenant_id) {
+        return AuthenticatedKey::forbidden_response().into_response();
+    }
+
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
     // Find schedule by workflow name or trigger name

@@ -4,14 +4,14 @@ level: initiative
 title: "Python Computation Graph Depth — Accumulator Decorators and Tutorials"
 short_code: "CLOACI-I-0078"
 created_at: 2026-04-05T14:34:56.356757+00:00
-updated_at: 2026-04-05T15:34:59.420528+00:00
+updated_at: 2026-04-06T10:56:13.927045+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -42,6 +42,8 @@ Blocked by: nothing. Python graph bindings exist from I-0075.
 - Reactor features (I-0077)
 - Soak/perf (I-0079)
 - Server mode / packaging for Python graphs
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

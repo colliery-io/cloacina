@@ -404,6 +404,7 @@ async fn test_reactive_scheduler_end_to_end() {
             strategy: InputStrategy::Latest,
             graph_fn,
         },
+        tenant_id: None,
     };
 
     scheduler.load_graph(decl).await.unwrap();
@@ -1841,6 +1842,7 @@ async fn test_supervisor_individual_accumulator_restart() {
             strategy: InputStrategy::Latest,
             graph_fn,
         },
+        tenant_id: None,
     };
 
     scheduler.load_graph(decl).await.unwrap();

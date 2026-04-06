@@ -4,14 +4,14 @@ level: initiative
 title: "Accumulator Depth — Batch and Polling Accumulators"
 short_code: "CLOACI-I-0073"
 created_at: 2026-04-04T17:48:57.173883+00:00
-updated_at: 2026-04-05T14:50:35.873130+00:00
+updated_at: 2026-04-06T10:56:09.120250+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,6 +41,8 @@ Blocked by: nothing. All accumulator infrastructure exists from I-0074.
 - Python accumulator decorators (separate initiative)
 - Soak tests / performance benchmarks (separate initiative)
 - DAL persistence for accumulator checkpoints — deferred to I-0082 (MVP Resilience Wiring: PERSIST-1 batch buffer crash resilience, PERSIST-2 polling checkpoint restore)
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

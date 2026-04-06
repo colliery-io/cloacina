@@ -32,7 +32,7 @@ use super::reactor::{
     reactor_health_channel, CompiledGraphFn, InputStrategy, ReactionCriteria, Reactor,
     ReactorHandle,
 };
-use super::registry::EndpointRegistry;
+use super::registry::{AccumulatorAuthPolicy, EndpointRegistry, ReactorAuthPolicy};
 use super::types::SourceName;
 
 /// Declaration of a computation graph to be loaded by the Reactive Scheduler.
@@ -44,6 +44,8 @@ pub struct ComputationGraphDeclaration {
     pub accumulators: Vec<AccumulatorDeclaration>,
     /// Reactor declaration.
     pub reactor: ReactorDeclaration,
+    /// Tenant that owns this graph (None = global/public).
+    pub tenant_id: Option<String>,
 }
 
 /// Declaration for a single accumulator.
@@ -261,6 +263,26 @@ impl ReactiveScheduler {
             .register_reactor(name.clone(), manual_tx, reactor_shared.clone())
             .await;
 
+        // Set auth policies based on package tenant ownership.
+        // Global packages (tenant_id=None): allow any authenticated key.
+        // Tenant-scoped packages: restrict to that tenant's keys + admin.
+        let acc_policy = match &decl.tenant_id {
+            Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
+            None => AccumulatorAuthPolicy::allow_all(),
+        };
+        let reactor_policy = match &decl.tenant_id {
+            Some(tid) => ReactorAuthPolicy::for_tenant(tid),
+            None => ReactorAuthPolicy::allow_all(),
+        };
+        for acc_decl in &decl.accumulators {
+            self.registry
+                .set_accumulator_policy(acc_decl.name.clone(), acc_policy.clone())
+                .await;
+        }
+        self.registry
+            .set_reactor_policy(name.clone(), reactor_policy)
+            .await;
+
         let reactor_handle = tokio::spawn(reactor.run());
 
         info!(graph = %name, "computation graph loaded and running");
@@ -455,6 +477,24 @@ impl ReactiveScheduler {
                     .register_reactor(graph_name.clone(), manual_tx, reactor_shared.clone())
                     .await;
 
+                // Re-set auth policies after restart
+                let restart_acc_policy = match &running.declaration.tenant_id {
+                    Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
+                    None => AccumulatorAuthPolicy::allow_all(),
+                };
+                let restart_reactor_policy = match &running.declaration.tenant_id {
+                    Some(tid) => ReactorAuthPolicy::for_tenant(tid),
+                    None => ReactorAuthPolicy::allow_all(),
+                };
+                for acc_decl in &running.declaration.accumulators {
+                    self.registry
+                        .set_accumulator_policy(acc_decl.name.clone(), restart_acc_policy.clone())
+                        .await;
+                }
+                self.registry
+                    .set_reactor_policy(graph_name.clone(), restart_reactor_policy)
+                    .await;
+
                 running.shutdown_tx = shutdown_tx;
                 running.shutdown_rx = stored_shutdown_rx;
                 running.boundary_tx = stored_boundary_tx;
@@ -524,12 +564,19 @@ impl ReactiveScheduler {
                                 spawn_config,
                             );
 
-                            // Re-register socket and health in endpoint registry
+                            // Re-register socket, health, and auth policy in endpoint registry
                             self.registry
                                 .register_accumulator(acc_name.clone(), socket_tx)
                                 .await;
                             self.registry
                                 .register_accumulator_health(acc_name.clone(), health_rx)
+                                .await;
+                            let ind_acc_policy = match &running.declaration.tenant_id {
+                                Some(tid) => AccumulatorAuthPolicy::for_tenant(tid),
+                                None => AccumulatorAuthPolicy::allow_all(),
+                            };
+                            self.registry
+                                .set_accumulator_policy(acc_name.clone(), ind_acc_policy)
                                 .await;
 
                             running.last_success.insert(acc_key, now);
@@ -729,6 +776,7 @@ mod tests {
                 strategy: InputStrategy::Latest,
                 graph_fn,
             },
+            tenant_id: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -770,6 +818,7 @@ mod tests {
                 strategy: InputStrategy::Latest,
                 graph_fn,
             },
+            tenant_id: None,
         };
 
         scheduler.load_graph(decl).await.unwrap();
@@ -805,6 +854,7 @@ mod tests {
                 strategy: InputStrategy::Latest,
                 graph_fn,
             },
+            tenant_id: None,
         };
 
         scheduler.load_graph(decl.clone()).await.unwrap();

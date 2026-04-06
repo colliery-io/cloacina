@@ -1,0 +1,20 @@
+[package]
+name = "performance-computation-graph"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+cloacina = { path = "../../../crates/cloacina" }
+cloacina-macros = { path = "../../../crates/cloacina-macros" }
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+ctor = "0.2"
+clap = { version = "4.0", features = ["derive"] }
+
+[build-dependencies]
+cloacina-build = { path = "../../../crates/cloacina-build" }

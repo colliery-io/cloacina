@@ -48,13 +48,24 @@ impl<'a> WorkflowPackagesDAL<'a> {
         registry_id: &str,
         package_metadata: &PackageMetadata,
         storage_type: crate::models::workflow_packages::StorageType,
+        tenant_id: Option<&str>,
     ) -> Result<Uuid, RegistryError> {
         crate::dispatch_backend!(
             self.dal.backend(),
-            self.store_package_metadata_postgres(registry_id, package_metadata, storage_type)
-                .await,
-            self.store_package_metadata_sqlite(registry_id, package_metadata, storage_type)
-                .await
+            self.store_package_metadata_postgres(
+                registry_id,
+                package_metadata,
+                storage_type,
+                tenant_id
+            )
+            .await,
+            self.store_package_metadata_sqlite(
+                registry_id,
+                package_metadata,
+                storage_type,
+                tenant_id
+            )
+            .await
         )
     }
 
@@ -64,6 +75,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         registry_id: &str,
         package_metadata: &PackageMetadata,
         storage_type: crate::models::workflow_packages::StorageType,
+        tenant_id: Option<&str>,
     ) -> Result<Uuid, RegistryError> {
         let conn = self
             .dal
@@ -79,6 +91,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
 
+        let tenant_id_owned = tenant_id.map(|s| s.to_string());
         let new_unified = NewUnifiedWorkflowPackage {
             id,
             registry_id: UniversalUuid(registry_uuid),
@@ -90,6 +103,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             storage_type: storage_type.as_str().to_string(),
             created_at: now,
             updated_at: now,
+            tenant_id: tenant_id_owned,
         };
 
         let package_name_clone = package_metadata.package_name.clone();
@@ -122,6 +136,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         registry_id: &str,
         package_metadata: &PackageMetadata,
         storage_type: crate::models::workflow_packages::StorageType,
+        tenant_id: Option<&str>,
     ) -> Result<Uuid, RegistryError> {
         let conn = self
             .dal
@@ -137,6 +152,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
         let id = UniversalUuid::new_v4();
         let now = UniversalTimestamp::now();
 
+        let tenant_id_owned = tenant_id.map(|s| s.to_string());
         let new_unified = NewUnifiedWorkflowPackage {
             id,
             registry_id: UniversalUuid(registry_uuid),
@@ -148,6 +164,7 @@ impl<'a> WorkflowPackagesDAL<'a> {
             storage_type: storage_type.as_str().to_string(),
             created_at: now,
             updated_at: now,
+            tenant_id: tenant_id_owned,
         };
 
         let package_name_clone = package_metadata.package_name.clone();
@@ -580,6 +597,7 @@ mod tests {
                 &registry_id,
                 &meta,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
@@ -625,6 +643,7 @@ mod tests {
                 &registry_id,
                 &meta,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
@@ -670,6 +689,7 @@ mod tests {
                 &registry_id,
                 &meta1,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
@@ -678,6 +698,7 @@ mod tests {
                 &registry_id,
                 &meta2,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
@@ -698,6 +719,7 @@ mod tests {
                 &registry_id,
                 &meta,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
@@ -738,6 +760,7 @@ mod tests {
                 &registry_id,
                 &meta,
                 crate::models::workflow_packages::StorageType::Database,
+                None,
             )
             .await
             .unwrap();
