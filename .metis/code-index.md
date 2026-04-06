@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-06T10:32:39Z | 418 files | JavaScript, Python, Rust
+> Generated: 2026-04-06T10:39:53Z | 418 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3749,17 +3749,17 @@
 -  `delete_package_metadata_by_id` function L577-587 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by ID.
 -  `delete_package_metadata_by_id_postgres` function L590-613 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
 -  `delete_package_metadata_by_id_sqlite` function L616-640 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Database operations for workflow registry metadata storage.
--  `tests` module L644-852 — `-` — Database operations for workflow registry metadata storage.
--  `create_test_registry` function L651-659 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
--  `sample_metadata` function L662-680 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
--  `test_store_and_get_package_metadata` function L684-704 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_not_found` function L708-716 — `()` — Database operations for workflow registry metadata storage.
--  `test_list_all_packages` function L720-746 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata` function L750-779 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id` function L783-799 — `()` — Database operations for workflow registry metadata storage.
--  `test_get_package_metadata_by_id_not_found` function L803-811 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_package_metadata_by_id` function L815-835 — `()` — Database operations for workflow registry metadata storage.
--  `test_delete_nonexistent_does_not_error` function L839-851 — `()` — Database operations for workflow registry metadata storage.
+-  `tests` module L644-855 — `-` — Database operations for workflow registry metadata storage.
+-  `create_test_registry` function L651-662 — `() -> WorkflowRegistryImpl<UnifiedRegistryStorage>` — Database operations for workflow registry metadata storage.
+-  `sample_metadata` function L665-683 — `(name: &str, version: &str) -> PackageMetadata` — Database operations for workflow registry metadata storage.
+-  `test_store_and_get_package_metadata` function L687-707 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_not_found` function L711-719 — `()` — Database operations for workflow registry metadata storage.
+-  `test_list_all_packages` function L723-749 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata` function L753-782 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id` function L786-802 — `()` — Database operations for workflow registry metadata storage.
+-  `test_get_package_metadata_by_id_not_found` function L806-814 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_package_metadata_by_id` function L818-838 — `()` — Database operations for workflow registry metadata storage.
+-  `test_delete_nonexistent_does_not_error` function L842-854 — `()` — Database operations for workflow registry metadata storage.
 
 #### crates/cloacina/src/registry/workflow_registry/filesystem.rs
 

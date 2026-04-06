@@ -182,7 +182,7 @@ mod tests {
     #[cfg(feature = "sqlite")]
     async fn unique_dal() -> DAL {
         let url = format!(
-            "sqlite:///tmp/sched_exec_test_{}.db?mode=rwc",
+            "file:sched_exec_test_{}?mode=memory&cache=shared",
             uuid::Uuid::new_v4()
         );
         let db = Database::new(&url, "", 5);
