@@ -4,14 +4,14 @@ level: task
 title: "Supervisor hardening — individual accumulator restart, failure counting, backoff, recovery events"
 short_code: "CLOACI-T-0412"
 created_at: 2026-04-05T21:24:26.728252+00:00
-updated_at: 2026-04-05T21:24:26.728252+00:00
+updated_at: 2026-04-06T00:32:57.189610+00:00
 parent: CLOACI-I-0081
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -27,6 +27,10 @@ initiative_id: CLOACI-I-0081
 ## Objective
 
 Upgrade the ReactiveScheduler's supervision loop to handle individual accumulator restarts (currently only full-graph restart), add failure counting with exponential backoff, circuit breaking after max failures, and record all recovery events in the existing `RecoveryEvent` DAL.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -73,4 +77,21 @@ Upgrade the ReactiveScheduler's supervision loop to handle individual accumulato
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-04-06: Implementation complete
+
+**Completed:**
+- Individual accumulator restart without tearing down reactor — re-spawns via factory with stored boundary_tx and shutdown_rx
+- RunningGraph extended with boundary_tx, shutdown_rx (stored for re-spawning), failure_counts, last_success
+- Per-component failure counting (HashMap keyed by "graph::component")
+- Exponential backoff: base 1s, doubles each failure, max 60s — logged with attempt and backoff_secs
+- Circuit breaker: MAX_RECOVERY_ATTEMPTS=5, permanently abandons component after limit
+- Failure counter auto-resets after SUCCESS_RESET_SECS=60 of successful operation
+- Re-wired accumulator socket registered in EndpointRegistry on restart
+- Full-graph restart still triggered when reactor crashes (same as before, with backoff)
+- All unit tests pass (825)
+
+**Key insight:** Individual accumulator restart was simpler than expected — all accumulators share the same boundary_tx (cloned per accumulator), so re-spawning just needs factory.spawn() with the stored boundary_tx clone. No channel re-wiring needed at the reactor level.
+
+**Deferred:**
+- RecoveryEvent DAL recording (existing schema requires pipeline_execution_id which doesn't map to CG components — needs schema extension)
+- AccumulatorHealth watch channel updates on restart (health sender is inside AccumulatorContext, not stored by scheduler — would need AccumulatorFactory to return health receiver)

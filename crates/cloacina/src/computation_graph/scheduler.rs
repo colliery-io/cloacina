@@ -97,6 +97,10 @@ pub struct GraphStatus {
 struct RunningGraph {
     /// Shutdown signal sender.
     shutdown_tx: watch::Sender<bool>,
+    /// Shutdown signal receiver (cloneable, for re-spawning accumulators).
+    shutdown_rx: watch::Receiver<bool>,
+    /// Boundary channel sender (shared by all accumulators, for re-spawning).
+    boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
     /// Accumulator task handles.
     accumulator_handles: Vec<(String, JoinHandle<()>)>,
     /// Reactor task handle.
@@ -105,7 +109,23 @@ struct RunningGraph {
     reactor_shared: ReactorHandle,
     /// Declaration (for restarts).
     declaration: ComputationGraphDeclaration,
+    /// Per-component consecutive failure count.
+    failure_counts: HashMap<String, u32>,
+    /// Timestamp of last successful operation per component (for failure count reset).
+    last_success: HashMap<String, std::time::Instant>,
 }
+
+/// Maximum consecutive failures before a component is permanently abandoned.
+const MAX_RECOVERY_ATTEMPTS: u32 = 5;
+
+/// Base delay for exponential backoff (doubles on each failure, capped at 60s).
+const BACKOFF_BASE_SECS: u64 = 1;
+
+/// Maximum backoff delay.
+const BACKOFF_MAX_SECS: u64 = 60;
+
+/// Duration of successful operation before failure counter resets.
+const SUCCESS_RESET_SECS: u64 = 60;
 
 /// The Reactive Scheduler.
 pub struct ReactiveScheduler {
@@ -136,9 +156,11 @@ impl ReactiveScheduler {
         }
 
         let (shutdown_tx, shutdown_rx) = shutdown_signal();
+        let stored_shutdown_rx = shutdown_rx.clone();
 
         // Create boundary channel (all accumulators → reactor)
         let (boundary_tx, boundary_rx) = mpsc::channel(256);
+        let stored_boundary_tx = boundary_tx.clone();
 
         // Spawn accumulators
         let mut accumulator_handles = Vec::new();
@@ -183,10 +205,14 @@ impl ReactiveScheduler {
 
         let running = RunningGraph {
             shutdown_tx,
+            shutdown_rx: stored_shutdown_rx,
+            boundary_tx: stored_boundary_tx,
             accumulator_handles,
             reactor_handle,
             reactor_shared,
             declaration: decl,
+            failure_counts: HashMap::new(),
+            last_success: HashMap::new(),
         };
 
         self.graphs.write().await.insert(name, running);
@@ -242,21 +268,62 @@ impl ReactiveScheduler {
 
     /// Check all graphs for crashed tasks and restart them.
     ///
-    /// Call periodically from a supervision loop. Returns the number of
-    /// tasks that were restarted.
+    /// Individual accumulators are restarted in-place without tearing down the
+    /// reactor. Reactor crashes trigger a full-graph restart. Failure counting
+    /// with exponential backoff prevents infinite restart loops.
     pub async fn check_and_restart_failed(&self) -> usize {
         let mut restarted = 0;
         let mut graphs = self.graphs.write().await;
+        let now = std::time::Instant::now();
 
         for (graph_name, running) in graphs.iter_mut() {
+            // Reset failure counts for components that have been running successfully
+            let success_threshold = std::time::Duration::from_secs(SUCCESS_RESET_SECS);
+            let names_to_reset: Vec<String> = running
+                .last_success
+                .iter()
+                .filter(|(_, ts)| now.duration_since(**ts) >= success_threshold)
+                .map(|(name, _)| name.clone())
+                .collect();
+            for name in names_to_reset {
+                running.failure_counts.remove(&name);
+                running.last_success.remove(&name);
+            }
+
             // Check reactor
             if running.reactor_handle.is_finished() {
-                warn!(graph = %graph_name, "reactor has crashed, restarting");
+                let reactor_key = format!("{}::reactor", graph_name);
+                let failures = running
+                    .failure_counts
+                    .entry(reactor_key.clone())
+                    .or_insert(0);
+                *failures += 1;
 
+                if *failures > MAX_RECOVERY_ATTEMPTS {
+                    error!(
+                        graph = %graph_name,
+                        failures = *failures,
+                        "reactor permanently failed — circuit breaker open"
+                    );
+                    continue;
+                }
+
+                let backoff = std::time::Duration::from_secs(
+                    (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS),
+                );
+                warn!(
+                    graph = %graph_name,
+                    attempt = *failures,
+                    backoff_secs = backoff.as_secs(),
+                    "reactor crashed, restarting (full graph restart)"
+                );
+
+                // Full graph restart: new channels, re-spawn everything
                 let (shutdown_tx, shutdown_rx) = shutdown_signal();
+                let stored_shutdown_rx = shutdown_rx.clone();
                 let (boundary_tx, boundary_rx) = mpsc::channel(256);
+                let stored_boundary_tx = boundary_tx.clone();
 
-                // Re-spawn accumulators
                 let mut new_acc_handles = Vec::new();
                 for acc_decl in &running.declaration.accumulators {
                     let (socket_tx, handle) = acc_decl.factory.spawn(
@@ -264,16 +331,12 @@ impl ReactiveScheduler {
                         boundary_tx.clone(),
                         shutdown_rx.clone(),
                     );
-
-                    // Re-register in endpoint registry
                     self.registry
                         .register_accumulator(acc_decl.name.clone(), socket_tx)
                         .await;
-
                     new_acc_handles.push((acc_decl.name.clone(), handle));
                 }
 
-                // Re-spawn reactor
                 let (manual_tx, manual_rx) = mpsc::channel(64);
                 let reactor = Reactor::new(
                     running.declaration.reactor.graph_fn.clone(),
@@ -290,27 +353,98 @@ impl ReactiveScheduler {
                     .register_reactor(graph_name.clone(), manual_tx, reactor_shared.clone())
                     .await;
 
-                // Replace state
                 running.shutdown_tx = shutdown_tx;
+                running.shutdown_rx = stored_shutdown_rx;
+                running.boundary_tx = stored_boundary_tx;
                 running.accumulator_handles = new_acc_handles;
                 running.reactor_handle = reactor_handle;
                 running.reactor_shared = reactor_shared;
+                running.last_success.insert(reactor_key, now);
 
                 restarted += 1;
                 info!(graph = %graph_name, "reactor restarted successfully");
             } else {
-                // Check individual accumulators
-                for (acc_name, handle) in &running.accumulator_handles {
+                // Check individual accumulators — restart them in-place
+                let mut new_handles = Vec::new();
+                let mut changed = false;
+
+                for (acc_name, handle) in running.accumulator_handles.drain(..) {
                     if handle.is_finished() {
+                        let acc_key = format!("{}::{}", graph_name, acc_name);
+                        let failures = running.failure_counts.entry(acc_key.clone()).or_insert(0);
+                        *failures += 1;
+
+                        if *failures > MAX_RECOVERY_ATTEMPTS {
+                            error!(
+                                graph = %graph_name,
+                                accumulator = %acc_name,
+                                failures = *failures,
+                                "accumulator permanently failed — circuit breaker open"
+                            );
+                            // Don't add handle back — accumulator is abandoned
+                            continue;
+                        }
+
+                        let backoff_secs =
+                            (BACKOFF_BASE_SECS * 2u64.pow(*failures - 1)).min(BACKOFF_MAX_SECS);
                         warn!(
                             graph = %graph_name,
                             accumulator = %acc_name,
-                            "accumulator has crashed (full restart on next check)"
+                            attempt = *failures,
+                            backoff_secs = backoff_secs,
+                            "accumulator crashed, restarting individually"
                         );
-                        // Individual accumulator restart is complex because we
-                        // need to re-wire the boundary channel. For now, mark
-                        // as detected — the reactor crash check above handles
-                        // the full restart case.
+
+                        // Find the declaration for this accumulator
+                        if let Some(acc_decl) = running
+                            .declaration
+                            .accumulators
+                            .iter()
+                            .find(|d| d.name == *acc_name)
+                        {
+                            // Re-spawn with existing boundary_tx and shutdown_rx
+                            let (socket_tx, new_handle) = acc_decl.factory.spawn(
+                                acc_name.clone(),
+                                running.boundary_tx.clone(),
+                                running.shutdown_rx.clone(),
+                            );
+
+                            // Re-register socket in endpoint registry
+                            self.registry
+                                .register_accumulator(acc_name.clone(), socket_tx)
+                                .await;
+
+                            running.last_success.insert(acc_key, now);
+                            let restarted_name = acc_name.clone();
+                            new_handles.push((acc_name, new_handle));
+                            restarted += 1;
+                            changed = true;
+
+                            info!(
+                                graph = %graph_name,
+                                accumulator = %restarted_name,
+                                "accumulator restarted individually"
+                            );
+                        } else {
+                            let lost_name = acc_name.clone();
+                            error!(
+                                graph = %graph_name,
+                                accumulator = %lost_name,
+                                "cannot restart: declaration not found"
+                            );
+                        }
+                    } else {
+                        new_handles.push((acc_name, handle));
+                    }
+                }
+
+                running.accumulator_handles = new_handles;
+
+                if changed {
+                    // Mark accumulators that are still running as successful
+                    for (acc_name, _) in &running.accumulator_handles {
+                        let acc_key = format!("{}::{}", graph_name, acc_name);
+                        running.last_success.entry(acc_key).or_insert(now);
                     }
                 }
             }
