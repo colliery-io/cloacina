@@ -917,9 +917,11 @@ async fn test_sequential_input_strategy() {
 // =============================================================================
 
 /// Helper: create an in-memory SQLite DAL for testing.
+/// Uses shared-cache in-memory DB so the pool can have multiple connections
+/// to the same database without creating temp files on disk.
 async fn test_dal() -> cloacina::dal::unified::DAL {
     let url = format!(
-        "sqlite:///tmp/resilience_test_{}.db?mode=rwc",
+        "file:resilience_test_{}?mode=memory&cache=shared",
         uuid::Uuid::new_v4()
     );
     let db = cloacina::database::Database::new(&url, "", 5);
