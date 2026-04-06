@@ -103,6 +103,9 @@ pub async fn run(
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
+    // Keep a reference to the scheduler for shutdown
+    let scheduler_for_shutdown = state.reactive_scheduler.clone();
+
     // Build router
     let app = build_router(state);
 
@@ -125,6 +128,11 @@ pub async fn run(
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
+
+    // Shutdown computation graph components — persist final state and stop tasks
+    info!("Shutting down reactive scheduler...");
+    scheduler_for_shutdown.shutdown_all().await;
+    info!("Reactive scheduler shutdown complete");
 
     info!("API server shutdown complete");
     Ok(())
