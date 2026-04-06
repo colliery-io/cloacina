@@ -910,3 +910,284 @@ async fn test_sequential_input_strategy() {
 
     shutdown_tx.send(true).unwrap();
 }
+
+// =============================================================================
+// Resilience Tests (T-0414)
+// =============================================================================
+
+/// Helper: create an in-memory SQLite DAL for testing.
+async fn test_dal() -> cloacina::dal::unified::DAL {
+    let url = format!(
+        "sqlite:///tmp/resilience_test_{}.db?mode=rwc",
+        uuid::Uuid::new_v4()
+    );
+    let db = cloacina::database::Database::new(&url, "", 5);
+    db.run_migrations()
+        .await
+        .expect("migrations should succeed");
+    cloacina::dal::unified::DAL::new(db)
+}
+
+#[tokio::test]
+async fn test_boundary_sender_sequence_numbers() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+    let sender =
+        cloacina::computation_graph::accumulator::BoundarySender::new(tx, SourceName::new("test"));
+
+    assert_eq!(sender.sequence_number(), 0);
+
+    sender.send(&AlphaData { value: 1.0 }).await.unwrap();
+    assert_eq!(sender.sequence_number(), 1);
+
+    sender.send(&AlphaData { value: 2.0 }).await.unwrap();
+    assert_eq!(sender.sequence_number(), 2);
+
+    // Drain the channel
+    let _ = rx.recv().await;
+    let _ = rx.recv().await;
+}
+
+#[tokio::test]
+async fn test_boundary_sender_with_sequence_recovery() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+    let sender = cloacina::computation_graph::accumulator::BoundarySender::with_sequence(
+        tx,
+        SourceName::new("test"),
+        42,
+    );
+
+    assert_eq!(sender.sequence_number(), 42);
+
+    sender.send(&AlphaData { value: 1.0 }).await.unwrap();
+    assert_eq!(sender.sequence_number(), 43);
+
+    let _ = rx.recv().await;
+}
+
+#[tokio::test]
+async fn test_accumulator_health_channel() {
+    use cloacina::computation_graph::accumulator::{health_channel, AccumulatorHealth};
+
+    let (tx, rx) = health_channel();
+
+    // Initial state is Starting
+    assert_eq!(*rx.borrow(), AccumulatorHealth::Starting);
+
+    // Transition to Live
+    tx.send(AccumulatorHealth::Live).unwrap();
+    assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
+
+    // Transition to Disconnected
+    tx.send(AccumulatorHealth::Disconnected).unwrap();
+    assert_eq!(*rx.borrow(), AccumulatorHealth::Disconnected);
+
+    // Back to Live
+    tx.send(AccumulatorHealth::Live).unwrap();
+    assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
+}
+
+#[tokio::test]
+async fn test_checkpoint_dal_round_trip() {
+    let dal = test_dal().await;
+
+    // Save a checkpoint
+    dal.checkpoint()
+        .save_checkpoint("test_graph", "alpha", b"hello world".to_vec())
+        .await
+        .unwrap();
+
+    // Load it back
+    let loaded = dal
+        .checkpoint()
+        .load_checkpoint("test_graph", "alpha")
+        .await
+        .unwrap();
+    assert_eq!(loaded, Some(b"hello world".to_vec()));
+
+    // Non-existent returns None
+    let missing = dal
+        .checkpoint()
+        .load_checkpoint("test_graph", "nonexistent")
+        .await
+        .unwrap();
+    assert_eq!(missing, None);
+}
+
+#[tokio::test]
+async fn test_checkpoint_dal_upsert() {
+    let dal = test_dal().await;
+
+    // Save initial
+    dal.checkpoint()
+        .save_checkpoint("g", "a", b"v1".to_vec())
+        .await
+        .unwrap();
+
+    // Upsert with new data
+    dal.checkpoint()
+        .save_checkpoint("g", "a", b"v2".to_vec())
+        .await
+        .unwrap();
+
+    // Should get v2
+    let loaded = dal.checkpoint().load_checkpoint("g", "a").await.unwrap();
+    assert_eq!(loaded, Some(b"v2".to_vec()));
+}
+
+#[tokio::test]
+async fn test_boundary_dal_with_sequence() {
+    let dal = test_dal().await;
+
+    // Save boundary with sequence 5
+    dal.checkpoint()
+        .save_boundary("g", "alpha", b"data1".to_vec(), 5)
+        .await
+        .unwrap();
+
+    let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
+    assert_eq!(loaded, Some((b"data1".to_vec(), 5)));
+
+    // Upsert with higher sequence
+    dal.checkpoint()
+        .save_boundary("g", "alpha", b"data2".to_vec(), 10)
+        .await
+        .unwrap();
+
+    let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
+    assert_eq!(loaded, Some((b"data2".to_vec(), 10)));
+}
+
+#[tokio::test]
+async fn test_reactor_state_dal_round_trip() {
+    let dal = test_dal().await;
+
+    // Save reactor state
+    dal.checkpoint()
+        .save_reactor_state("test_graph", b"cache".to_vec(), b"flags".to_vec(), None)
+        .await
+        .unwrap();
+
+    let loaded = dal
+        .checkpoint()
+        .load_reactor_state("test_graph")
+        .await
+        .unwrap();
+    assert!(loaded.is_some());
+    let (cache, flags, queue) = loaded.unwrap();
+    assert_eq!(cache, b"cache");
+    assert_eq!(flags, b"flags");
+    assert_eq!(queue, None);
+}
+
+#[tokio::test]
+async fn test_reactor_state_dal_with_sequential_queue() {
+    let dal = test_dal().await;
+
+    dal.checkpoint()
+        .save_reactor_state(
+            "g",
+            b"cache".to_vec(),
+            b"flags".to_vec(),
+            Some(b"queue_data".to_vec()),
+        )
+        .await
+        .unwrap();
+
+    let loaded = dal.checkpoint().load_reactor_state("g").await.unwrap();
+    let (_, _, queue) = loaded.unwrap();
+    assert_eq!(queue, Some(b"queue_data".to_vec()));
+}
+
+#[tokio::test]
+async fn test_state_buffer_dal_round_trip() {
+    let dal = test_dal().await;
+
+    dal.checkpoint()
+        .save_state_buffer("g", "prev_outputs", b"[1,2,3]".to_vec(), 10)
+        .await
+        .unwrap();
+
+    let loaded = dal
+        .checkpoint()
+        .load_state_buffer("g", "prev_outputs")
+        .await
+        .unwrap();
+    assert_eq!(loaded, Some((b"[1,2,3]".to_vec(), 10)));
+}
+
+#[tokio::test]
+async fn test_delete_graph_state() {
+    let dal = test_dal().await;
+
+    // Populate all tables for a graph
+    dal.checkpoint()
+        .save_checkpoint("g", "a", b"cp".to_vec())
+        .await
+        .unwrap();
+    dal.checkpoint()
+        .save_boundary("g", "a", b"bd".to_vec(), 1)
+        .await
+        .unwrap();
+    dal.checkpoint()
+        .save_reactor_state("g", b"c".to_vec(), b"d".to_vec(), None)
+        .await
+        .unwrap();
+    dal.checkpoint()
+        .save_state_buffer("g", "s", b"buf".to_vec(), 5)
+        .await
+        .unwrap();
+
+    // Delete all state for the graph
+    dal.checkpoint().delete_graph_state("g").await.unwrap();
+
+    // All should be None now
+    assert_eq!(
+        dal.checkpoint().load_checkpoint("g", "a").await.unwrap(),
+        None
+    );
+    assert_eq!(
+        dal.checkpoint().load_boundary("g", "a").await.unwrap(),
+        None
+    );
+    assert_eq!(
+        dal.checkpoint().load_reactor_state("g").await.unwrap(),
+        None
+    );
+    assert_eq!(
+        dal.checkpoint().load_state_buffer("g", "s").await.unwrap(),
+        None
+    );
+}
+
+#[tokio::test]
+async fn test_checkpoint_handle_typed_round_trip() {
+    let dal = test_dal().await;
+
+    let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
+        dal,
+        "test_graph".to_string(),
+        "alpha".to_string(),
+    );
+
+    // Save a typed value
+    let value = AlphaData { value: 42.0 };
+    handle.save(&value).await.unwrap();
+
+    // Load it back with correct type
+    let loaded: Option<AlphaData> = handle.load().await.unwrap();
+    assert_eq!(loaded, Some(AlphaData { value: 42.0 }));
+}
+
+#[tokio::test]
+async fn test_checkpoint_handle_load_empty() {
+    let dal = test_dal().await;
+
+    let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
+        dal,
+        "test_graph".to_string(),
+        "nonexistent".to_string(),
+    );
+
+    let loaded: Option<AlphaData> = handle.load().await.unwrap();
+    assert_eq!(loaded, None);
+}
