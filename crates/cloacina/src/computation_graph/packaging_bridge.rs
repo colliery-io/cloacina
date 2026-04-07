@@ -349,87 +349,79 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
             AccumulatorRuntimeConfig::default(),
         ));
 
-        // Spawn the stream reader that feeds the accumulator's socket channel
-        let stream_config = super::stream_backend::StreamConfig {
-            broker_url: self
-                .config
-                .get("broker_url")
-                .cloned()
-                .unwrap_or_else(|| "localhost:9092".to_string()),
-            topic: self.config.get("topic").cloned().unwrap_or_default(),
-            group: self
-                .config
-                .get("group")
-                .cloned()
-                .unwrap_or_else(|| format!("{}_group", name)),
-            extra: self
-                .config
-                .iter()
-                .filter(|(k, _)| !["broker_url", "topic", "group", "backend"].contains(&k.as_str()))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        };
+        // Spawn the stream reader that feeds the accumulator's socket channel.
+        // Broker URL from KAFKA_BROKER_URL env var, topic and group from package metadata.
+        let topic = self.config.get("topic").cloned().unwrap_or_default();
+        let group = self
+            .config
+            .get("group")
+            .cloned()
+            .unwrap_or_else(|| format!("{}_group", name));
+        let extra_config: std::collections::HashMap<String, String> = self
+            .config
+            .iter()
+            .filter(|(k, _)| !["topic", "group", "backend"].contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
         let socket_tx_stream = socket_tx.clone();
         let mut shutdown_stream = shutdown_rx;
         let acc_name = name;
 
+        #[cfg(feature = "kafka")]
         tokio::spawn(async move {
-            let backend_type = stream_config
-                .extra
-                .get("backend_type")
-                .cloned()
-                .unwrap_or_else(|| "kafka".to_string());
+            let broker_url =
+                std::env::var("KAFKA_BROKER_URL").unwrap_or_else(|_| "localhost:9092".to_string());
 
-            // Get the creation future while holding the lock, then await outside
-            let backend_future = {
-                let registry = super::stream_backend::global_stream_registry();
-                let reg = registry.lock().unwrap();
-                reg.create_future(&backend_type, stream_config)
+            let stream_config = super::stream_backend::StreamConfig {
+                broker_url,
+                topic,
+                group,
+                extra: extra_config,
             };
 
-            let backend = match backend_future {
-                Some(fut) => fut.await,
-                None => {
-                    tracing::error!(accumulator = %acc_name, "stream backend '{}' not registered", backend_type);
-                    return;
-                }
-            };
-
-            match backend {
+            use super::stream_backend::StreamBackend as _;
+            match super::stream_backend::kafka::KafkaStreamBackend::connect(&stream_config).await {
                 Ok(mut backend) => {
-                    tracing::info!(accumulator = %acc_name, "stream reader started");
+                    tracing::info!(accumulator = %acc_name, "Kafka stream reader started");
                     loop {
                         tokio::select! {
                             result = backend.recv() => {
                                 match result {
                                     Ok(msg) => {
                                         if socket_tx_stream.send(msg.payload).await.is_err() {
-                                            tracing::debug!(accumulator = %acc_name, "stream reader: socket closed");
                                             break;
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::warn!(accumulator = %acc_name, "stream recv error: {}", e);
+                                        tracing::warn!(accumulator = %acc_name, "Kafka recv error: {}", e);
                                     }
                                 }
                             }
                             _ = shutdown_stream.changed() => {
-                                tracing::debug!(accumulator = %acc_name, "stream reader shutting down");
+                                tracing::debug!(accumulator = %acc_name, "Kafka stream reader shutting down");
                                 break;
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    tracing::error!(
-                        accumulator = %acc_name,
-                        "failed to create stream backend: {}",
-                        e
-                    );
+                    tracing::error!(accumulator = %acc_name, "failed to connect to Kafka: {}", e);
                 }
             }
         });
+
+        #[cfg(not(feature = "kafka"))]
+        {
+            let _ = (
+                topic,
+                group,
+                extra_config,
+                socket_tx_stream,
+                shutdown_stream,
+            );
+            tracing::error!(accumulator = %acc_name, "stream accumulator requires 'kafka' feature");
+        }
 
         (socket_tx, handle)
     }
