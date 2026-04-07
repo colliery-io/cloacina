@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-07T21:41:24Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-07T22:17:10Z | 422 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -717,11 +717,11 @@
 -  `StreamBackendAccumulatorFactory` struct L310-313 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
 -  `StreamBackendAccumulatorFactory` type L315-319 — `= StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
 -  `new` function L316-318 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
--  `StreamBackendAccumulatorFactory` type L321-436 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L322-435 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L439-506 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L444-472 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L475-505 — `()` — `execute_graph()` via fidius FFI.
+-  `StreamBackendAccumulatorFactory` type L321-428 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L322-427 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L431-498 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L436-464 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L467-497 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 

@@ -32,7 +32,7 @@
     "crates/cloacina/src/computation_graph/accumulator.rs": "6668152806ccb737ff9d938e5f14393007eb33522a0eabafb4e28058fc4f4437",
     "crates/cloacina/src/computation_graph/global_registry.rs": "d7966498af2b596cc0757644a13bd3b632a2adcac1687d06cb8c0099c9a05689",
     "crates/cloacina/src/computation_graph/mod.rs": "30bbab624c0fed359d126e4ccf967b3c9a94a314c01cef324eb10193fe895df8",
-    "crates/cloacina/src/computation_graph/packaging_bridge.rs": "a7afd96684f781c9b21ff425a567f4d5b7558776670b610fa7c601dfba1c5036",
+    "crates/cloacina/src/computation_graph/packaging_bridge.rs": "f4f36d6a385d3d6e2ca6f1aa10780ad1c362268da39d5bc6157f6e1c994dca1b",
     "crates/cloacina/src/computation_graph/reactor.rs": "c3c03a8ec18369073fdbeea47679cdce9d792758bfe3da5050600a6219f6f021",
     "crates/cloacina/src/computation_graph/registry.rs": "5524f03796b9ba19e3cbdb1b94c8a6de97c1caeda0adbb905fc9b0e52ad69265",
     "crates/cloacina/src/computation_graph/scheduler.rs": "c91fe02e1426f3c14581bd91e1290f84701a38bf237ab58f73e617f82ab61760",
