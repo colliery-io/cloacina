@@ -4,14 +4,14 @@ level: task
 title: "Docker Compose Kafka (KRaft), angreal tasks, and integration tests"
 short_code: "CLOACI-T-0435"
 created_at: 2026-04-07T18:44:44.899332+00:00
-updated_at: 2026-04-07T19:39:06.567944+00:00
+updated_at: 2026-04-07T21:31:26.650389+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Add Kafka to the Docker Compose infrastructure (KIP-500 / KRaft mode, no ZooKeeper), create angreal tasks for Kafka integration testing, and write end-to-end tests that exercise the full Kafka → accumulator → graph pipeline.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

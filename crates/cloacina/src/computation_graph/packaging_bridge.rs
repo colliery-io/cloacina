@@ -125,26 +125,42 @@ pub fn build_declaration_from_ffi(
         _ => InputStrategy::Latest,
     };
 
-    // Load the library once and keep the handle for reuse
-    let plugin = Arc::new(
-        LoadedGraphPlugin::load(&library_data).expect("Failed to load graph plugin library"),
-    );
-
-    let graph_fn: CompiledGraphFn = {
-        let plugin = plugin.clone();
-        Arc::new(move |cache: InputCache| {
-            let plugin = plugin.clone();
-            Box::pin(async move { execute_graph_via_ffi(&plugin, &cache).await })
-        })
+    // Load the library once and keep the handle for reuse.
+    // If loading fails (e.g., in tests with fake data), the graph function
+    // returns an error on every call instead of panicking at construction.
+    let graph_fn: CompiledGraphFn = match LoadedGraphPlugin::load(&library_data) {
+        Ok(plugin) => {
+            let plugin = Arc::new(plugin);
+            Arc::new(move |cache: InputCache| {
+                let plugin = plugin.clone();
+                Box::pin(async move { execute_graph_via_ffi(&plugin, &cache).await })
+            })
+        }
+        Err(e) => {
+            let error_msg = format!("Graph plugin library failed to load: {}", e);
+            tracing::warn!("{}", error_msg);
+            Arc::new(move |_cache: InputCache| {
+                let msg = error_msg.clone();
+                Box::pin(async move { GraphResult::error(GraphError::Execution(msg)) })
+            })
+        }
     };
 
     // Create accumulator factories from FFI metadata
     let accumulators = graph_meta
         .accumulators
         .iter()
-        .map(|acc_entry| AccumulatorDeclaration {
-            name: acc_entry.name.clone(),
-            factory: Arc::new(PassthroughAccumulatorFactory),
+        .map(|acc_entry| {
+            let factory: Arc<dyn AccumulatorFactory> = match acc_entry.accumulator_type.as_str() {
+                "stream" => Arc::new(StreamBackendAccumulatorFactory::new(
+                    acc_entry.config.clone(),
+                )),
+                _ => Arc::new(PassthroughAccumulatorFactory),
+            };
+            AccumulatorDeclaration {
+                name: acc_entry.name.clone(),
+                factory,
+            }
         })
         .collect();
 
@@ -286,9 +302,143 @@ impl AccumulatorFactory for PassthroughAccumulatorFactory {
     }
 }
 
+/// A stream-backed accumulator factory for FFI-loaded packages.
+///
+/// Creates a passthrough accumulator with a background task that reads from a
+/// `StreamBackend` and pushes events into the accumulator's socket channel.
+/// The accumulator itself is still passthrough — the stream reader feeds it.
+struct StreamBackendAccumulatorFactory {
+    /// Stream backend config from the package metadata.
+    config: std::collections::HashMap<String, String>,
+}
+
+impl StreamBackendAccumulatorFactory {
+    fn new(config: std::collections::HashMap<String, String>) -> Self {
+        Self { config }
+    }
+}
+
+impl AccumulatorFactory for StreamBackendAccumulatorFactory {
+    fn spawn(
+        &self,
+        name: String,
+        boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>,
+        shutdown_rx: watch::Receiver<bool>,
+        config: AccumulatorSpawnConfig,
+    ) -> (mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+        let (socket_tx, socket_rx) = mpsc::channel(1024);
+
+        let checkpoint = config.dal.map(|dal| {
+            super::accumulator::CheckpointHandle::new(dal, config.graph_name.clone(), name.clone())
+        });
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: name.clone(),
+            shutdown: shutdown_rx.clone(),
+            checkpoint,
+            health: config.health_tx,
+        };
+
+        // Spawn the passthrough accumulator runtime (handles socket → boundary)
+        let handle = tokio::spawn(accumulator_runtime(
+            GenericPassthroughAccumulator,
+            ctx,
+            socket_rx,
+            AccumulatorRuntimeConfig::default(),
+        ));
+
+        // Spawn the stream reader that feeds the accumulator's socket channel
+        let stream_config = super::stream_backend::StreamConfig {
+            broker_url: self
+                .config
+                .get("broker_url")
+                .cloned()
+                .unwrap_or_else(|| "localhost:9092".to_string()),
+            topic: self.config.get("topic").cloned().unwrap_or_default(),
+            group: self
+                .config
+                .get("group")
+                .cloned()
+                .unwrap_or_else(|| format!("{}_group", name)),
+            extra: self
+                .config
+                .iter()
+                .filter(|(k, _)| !["broker_url", "topic", "group", "backend"].contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        };
+
+        let socket_tx_stream = socket_tx.clone();
+        let mut shutdown_stream = shutdown_rx;
+        let acc_name = name;
+
+        tokio::spawn(async move {
+            let backend_type = stream_config
+                .extra
+                .get("backend_type")
+                .cloned()
+                .unwrap_or_else(|| "kafka".to_string());
+
+            // Get the creation future while holding the lock, then await outside
+            let backend_future = {
+                let registry = super::stream_backend::global_stream_registry();
+                let reg = registry.lock().unwrap();
+                reg.create_future(&backend_type, stream_config)
+            };
+
+            let backend = match backend_future {
+                Some(fut) => fut.await,
+                None => {
+                    tracing::error!(accumulator = %acc_name, "stream backend '{}' not registered", backend_type);
+                    return;
+                }
+            };
+
+            match backend {
+                Ok(mut backend) => {
+                    tracing::info!(accumulator = %acc_name, "stream reader started");
+                    loop {
+                        tokio::select! {
+                            result = backend.recv() => {
+                                match result {
+                                    Ok(msg) => {
+                                        if socket_tx_stream.send(msg.payload).await.is_err() {
+                                            tracing::debug!(accumulator = %acc_name, "stream reader: socket closed");
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(accumulator = %acc_name, "stream recv error: {}", e);
+                                    }
+                                }
+                            }
+                            _ = shutdown_stream.changed() => {
+                                tracing::debug!(accumulator = %acc_name, "stream reader shutting down");
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        accumulator = %acc_name,
+                        "failed to create stream backend: {}",
+                        e
+                    );
+                }
+            }
+        });
+
+        (socket_tx, handle)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cloacina_workflow_plugin::AccumulatorDeclarationEntry;
 
     #[test]
     fn test_build_declaration_from_ffi_metadata() {

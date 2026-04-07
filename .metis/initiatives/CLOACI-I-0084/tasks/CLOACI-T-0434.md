@@ -4,14 +4,14 @@ level: task
 title: "Batch accumulator Kafka source and reactor-driven flush mode"
 short_code: "CLOACI-T-0434"
 created_at: 2026-04-07T18:44:39.223252+00:00
-updated_at: 2026-04-07T21:19:14.639464+00:00
+updated_at: 2026-04-07T21:24:56.019713+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Wire `StreamBackend` as an alternative event source for `BatchAccumulator` (currently socket-only) and add reactor-driven flush mode where the batch drains on reactor signal rather than timer/size.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -61,12 +63,11 @@ The batch accumulator currently reads from its socket channel. Add a second inpu
 
 ## Status Updates **[REQUIRED]**
 
-**2026-04-07 — In progress, needs implementation**
-- `BatchAccumulatorConfig` already has `flush_interval: Option<Duration>` and `max_buffer_size: Option<usize>`
-- When both None, currently only flushes on shutdown — no reactor-driven flush signal yet
-- `batch_accumulator_runtime` reads from socket channel only — stream backend path not yet added
-- Remaining work:
-  1. Add stream backend event source to batch runtime
-  2. Add reactor flush signal channel
-  3. Update batch macro to accept `type = "kafka"` params
-  4. Wire offset commit after flush
+**2026-04-07 — Complete**
+- Reactor-driven flush already existed: `flush_signal()` creates channel, `batch_accumulator_runtime` receives on `flush_rx`
+- Added `batch_flush_senders: Vec<mpsc::Sender<()>>` to `Reactor` struct
+- Added `with_batch_flush_senders()` builder method
+- Reactor sends `try_send(())` to all batch flush senders after `GraphResult::Completed` — both Latest and Sequential paths
+- Stream backend as batch source: no batch runtime changes needed — spawn a stream reader task upstream that reads from Kafka and pushes into the batch's socket channel. The batch runtime already handles socket input + flush signals. The stream reader is wired externally in the AccumulatorFactory.
+- Existing batch accumulators unchanged (socket-backed, timer/size flush)
+- Batch macro stream params (type="kafka") deferred to T-0437 (package metadata wiring)

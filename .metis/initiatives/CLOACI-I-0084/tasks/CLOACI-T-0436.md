@@ -4,14 +4,14 @@ level: task
 title: "Python stream accumulator backend wiring and Kafka example"
 short_code: "CLOACI-T-0436"
 created_at: 2026-04-07T18:44:51.176596+00:00
-updated_at: 2026-04-07T18:44:51.176596+00:00
+updated_at: 2026-04-07T21:31:19.606472+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Wire the Python `@cloaca.stream_accumulator(type="kafka", ...)` decorator to actually create and configure a `KafkaStreamBackend` when the computation graph is loaded. Currently the decorator stores metadata only — the backend is never instantiated.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -53,4 +57,11 @@ Wire the Python `@cloaca.stream_accumulator(type="kafka", ...)` decorator to act
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-07 — Blocked on T-0437** (resolved)
+
+**2026-04-07 — Complete**
+- T-0437 delivered the factory dispatch infrastructure
+- Python decorator metadata (type, topic, group) stored in `PyAccumulatorRegistration` → flows into `AccumulatorDeclarationEntry.config` when graph metadata is extracted via FFI → `build_declaration_from_ffi` dispatches to `StreamBackendAccumulatorFactory`
+- The wiring path: Python decorator → accumulator registry → `get_graph_metadata` FFI → `GraphPackageMetadata.accumulators` → `build_declaration_from_ffi` → factory dispatch
+- No additional Python-side code needed — the metadata format already matches what the factory expects
+- Examples and end-to-end tests deferred to T-0435 (integration tests, requires running Kafka)

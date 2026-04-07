@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-07T01:41:56Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-07T21:31:35Z | 422 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -698,25 +698,30 @@
 
 #### crates/cloacina/src/computation_graph/packaging_bridge.rs
 
-- pub `build_declaration_from_ffi` function L114-161 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
+- pub `build_declaration_from_ffi` function L114-169 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
 -  `LoadedGraphPlugin` struct L45-49 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded FFI graph plugin.
 -  `LoadedGraphPlugin` type L53 — `impl Send for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` type L54 — `impl Sync for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `LoadedGraphPlugin` type L56-107 — `= LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
 -  `load` function L59-92 — `(library_data: &[u8]) -> Result<Self, String>` — Load a graph plugin from library bytes.
 -  `execute_graph` function L95-106 — `( &self, request: GraphExecutionRequest, ) -> Result<cloacina_workflow_plugin::G...` — Call execute_graph (method index 3) on the loaded plugin.
--  `execute_graph_via_ffi` function L164-234 — `(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult` — Execute a computation graph via FFI using the pre-loaded plugin handle.
--  `PassthroughAccumulatorFactory` struct L241 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
--  `GenericPassthroughAccumulator` struct L243 — `-` — `execute_graph()` via fidius FFI.
--  `GenericPassthroughAccumulator` type L246-253 — `= GenericPassthroughAccumulator` — `execute_graph()` via fidius FFI.
--  `Event` type L247 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
--  `Output` type L248 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
--  `process` function L250-252 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
--  `PassthroughAccumulatorFactory` type L255-287 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L256-286 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L290-356 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L294-322 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L325-355 — `()` — `execute_graph()` via fidius FFI.
+-  `execute_graph_via_ffi` function L172-242 — `(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult` — Execute a computation graph via FFI using the pre-loaded plugin handle.
+-  `PassthroughAccumulatorFactory` struct L249 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
+-  `GenericPassthroughAccumulator` struct L251 — `-` — `execute_graph()` via fidius FFI.
+-  `GenericPassthroughAccumulator` type L254-261 — `= GenericPassthroughAccumulator` — `execute_graph()` via fidius FFI.
+-  `Event` type L255 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
+-  `Output` type L256 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
+-  `process` function L258-260 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
+-  `PassthroughAccumulatorFactory` type L263-295 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L264-294 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `StreamBackendAccumulatorFactory` struct L302-305 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
+-  `StreamBackendAccumulatorFactory` type L307-311 — `= StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `new` function L308-310 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
+-  `StreamBackendAccumulatorFactory` type L313-432 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L314-431 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L435-501 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L439-467 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L470-500 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
@@ -740,31 +745,32 @@
 - pub `is_paused` function L200-202 — `(&self) -> bool` — Check if the reactor is paused.
 - pub `pause` function L205-207 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
 - pub `resume` function L210-212 — `(&self)` — Resume the reactor.
-- pub `Reactor` struct L220-250 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
-- pub `new` function L253-276 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_graph_name` function L279-282 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
-- pub `with_dal` function L285-288 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
-- pub `with_health` function L291-294 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
-- pub `with_expected_sources` function L300-303 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `with_accumulator_health` function L306-315 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
-- pub `handle` function L321-326 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L329-637 — `(mut self)` — Run the reactor.
+- pub `Reactor` struct L220-252 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
+- pub `new` function L255-279 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_batch_flush_senders` function L282-285 — `(mut self, senders: Vec<mpsc::Sender<()>>) -> Self` — Add batch flush senders — reactor will signal these after each graph execution.
+- pub `with_graph_name` function L288-291 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L294-297 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_health` function L300-303 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L309-312 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `with_accumulator_health` function L315-324 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
+- pub `handle` function L330-335 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L338-653 — `(mut self)` — Run the reactor.
 -  `ReactorHealth` type L57-66 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
 -  `fmt` function L58-65 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L97-133 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L135-139 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `default` function L136-138 — `() -> Self` — See CLOACI-S-0005 for the full specification.
 -  `ReactorHandle` type L192-213 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L252-638 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `persist_reactor_state` function L641-697 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `tests` module L700-878 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L704-713 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L716-724 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L727-735 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L738-742 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L745-787 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L790-826 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L829-877 — `()` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L254-654 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `persist_reactor_state` function L657-713 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `tests` module L716-894 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L720-729 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L732-740 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L743-751 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L754-758 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L761-803 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L806-842 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L845-893 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -870,28 +876,37 @@
 - pub `register` function L97-99 — `(&mut self, type_name: &str, factory: StreamBackendFactory)` — Register a backend factory by type name.
 - pub `create` function L102-111 — `( &self, type_name: &str, config: StreamConfig, ) -> Result<Box<dyn StreamBacken...` — Create a backend instance by type name.
 - pub `has` function L114-116 — `(&self, type_name: &str) -> bool` — Check if a backend type is registered.
-- pub `global_stream_registry` function L130-132 — `() -> &'static Mutex<StreamBackendRegistry>` — Get a reference to the global stream backend registry.
-- pub `register_stream_backend` function L135-140 — `(type_name: &str, factory: StreamBackendFactory)` — Register a backend in the global registry.
-- pub `MockBackend` struct L147-151 — `{ receiver: tokio::sync::mpsc::Receiver<Vec<u8>>, offset: u64, committed_offset:...` — In-memory mock stream backend for testing without a real broker.
-- pub `MockBackendProducer` struct L155-157 — `{ sender: tokio::sync::mpsc::Sender<Vec<u8>> }` — Handle for pushing messages into a MockBackend.
-- pub `send` function L161-166 — `(&self, payload: Vec<u8>) -> Result<(), StreamError>` — Push a message into the mock backend.
-- pub `mock_backend` function L170-180 — `(capacity: usize) -> (MockBackend, MockBackendProducer)` — Create a mock backend + producer pair.
-- pub `register_mock_backend` function L220-231 — `()` — Register the mock backend in the global registry.
--  `StreamBackendRegistry` type L89-117 — `= StreamBackendRegistry` — StreamBackend trait and registry for pluggable broker backends.
--  `StreamBackendRegistry` type L119-123 — `impl Default for StreamBackendRegistry` — StreamBackend trait and registry for pluggable broker backends.
--  `default` function L120-122 — `() -> Self` — StreamBackend trait and registry for pluggable broker backends.
--  `GLOBAL_REGISTRY` variable L126-127 — `: Lazy<Mutex<StreamBackendRegistry>>` — Global stream backend registry.
--  `MockBackendProducer` type L159-167 — `= MockBackendProducer` — StreamBackend trait and registry for pluggable broker backends.
--  `MockBackend` type L183-217 — `impl StreamBackend for MockBackend` — StreamBackend trait and registry for pluggable broker backends.
--  `connect` function L184-189 — `(_config: &StreamConfig) -> Result<Self, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
--  `recv` function L191-203 — `(&mut self) -> Result<RawMessage, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
--  `commit` function L205-208 — `(&mut self) -> Result<(), StreamError>` — StreamBackend trait and registry for pluggable broker backends.
--  `current_offset` function L210-216 — `(&self) -> Option<u64>` — StreamBackend trait and registry for pluggable broker backends.
--  `tests` module L234-298 — `-` — StreamBackend trait and registry for pluggable broker backends.
--  `test_mock_backend_recv` function L238-251 — `()` — StreamBackend trait and registry for pluggable broker backends.
--  `test_mock_backend_commit` function L254-264 — `()` — StreamBackend trait and registry for pluggable broker backends.
--  `test_registry_lookup` function L267-280 — `()` — StreamBackend trait and registry for pluggable broker backends.
--  `test_registry_not_found` function L283-297 — `()` — StreamBackend trait and registry for pluggable broker backends.
+- pub `create_future` function L120-128 — `( &self, type_name: &str, config: StreamConfig, ) -> Option<Pin<Box<dyn Future<O...` — Get the creation future for a backend type without holding the lock across await.
+- pub `global_stream_registry` function L142-144 — `() -> &'static Mutex<StreamBackendRegistry>` — Get a reference to the global stream backend registry.
+- pub `register_stream_backend` function L147-152 — `(type_name: &str, factory: StreamBackendFactory)` — Register a backend in the global registry.
+- pub `MockBackend` struct L159-163 — `{ receiver: tokio::sync::mpsc::Receiver<Vec<u8>>, offset: u64, committed_offset:...` — In-memory mock stream backend for testing without a real broker.
+- pub `MockBackendProducer` struct L167-169 — `{ sender: tokio::sync::mpsc::Sender<Vec<u8>> }` — Handle for pushing messages into a MockBackend.
+- pub `send` function L173-178 — `(&self, payload: Vec<u8>) -> Result<(), StreamError>` — Push a message into the mock backend.
+- pub `mock_backend` function L182-192 — `(capacity: usize) -> (MockBackend, MockBackendProducer)` — Create a mock backend + producer pair.
+- pub `register_mock_backend` function L232-243 — `()` — Register the mock backend in the global registry.
+- pub `kafka` module L250-375 — `-` — StreamBackend trait and registry for pluggable broker backends.
+- pub `KafkaStreamBackend` struct L261-266 — `{ consumer: StreamConsumer, topic: String, offset: u64, committed_offset: u64 }` — Kafka stream backend using rdkafka (librdkafka wrapper).
+- pub `register_kafka_backend` function L364-374 — `()` — Register the Kafka backend in the global registry.
+-  `StreamBackendRegistry` type L89-129 — `= StreamBackendRegistry` — StreamBackend trait and registry for pluggable broker backends.
+-  `StreamBackendRegistry` type L131-135 — `impl Default for StreamBackendRegistry` — StreamBackend trait and registry for pluggable broker backends.
+-  `default` function L132-134 — `() -> Self` — StreamBackend trait and registry for pluggable broker backends.
+-  `GLOBAL_REGISTRY` variable L138-139 — `: Lazy<Mutex<StreamBackendRegistry>>` — Global stream backend registry.
+-  `MockBackendProducer` type L171-179 — `= MockBackendProducer` — StreamBackend trait and registry for pluggable broker backends.
+-  `MockBackend` type L195-229 — `impl StreamBackend for MockBackend` — StreamBackend trait and registry for pluggable broker backends.
+-  `connect` function L196-201 — `(_config: &StreamConfig) -> Result<Self, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `recv` function L203-215 — `(&mut self) -> Result<RawMessage, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `commit` function L217-220 — `(&mut self) -> Result<(), StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `current_offset` function L222-228 — `(&self) -> Option<u64>` — StreamBackend trait and registry for pluggable broker backends.
+-  `KafkaStreamBackend` type L269-361 — `impl StreamBackend for KafkaStreamBackend` — StreamBackend trait and registry for pluggable broker backends.
+-  `connect` function L270-310 — `(config: &StreamConfig) -> Result<Self, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `recv` function L312-336 — `(&mut self) -> Result<RawMessage, StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `commit` function L338-352 — `(&mut self) -> Result<(), StreamError>` — StreamBackend trait and registry for pluggable broker backends.
+-  `current_offset` function L354-360 — `(&self) -> Option<u64>` — StreamBackend trait and registry for pluggable broker backends.
+-  `tests` module L378-442 — `-` — StreamBackend trait and registry for pluggable broker backends.
+-  `test_mock_backend_recv` function L382-395 — `()` — StreamBackend trait and registry for pluggable broker backends.
+-  `test_mock_backend_commit` function L398-408 — `()` — StreamBackend trait and registry for pluggable broker backends.
+-  `test_registry_lookup` function L411-424 — `()` — StreamBackend trait and registry for pluggable broker backends.
+-  `test_registry_not_found` function L427-441 — `()` — StreamBackend trait and registry for pluggable broker backends.
 
 #### crates/cloacina/src/computation_graph/types.rs
 
@@ -8962,19 +8977,19 @@
 
 #### examples/performance/computation-graph/src/bench.rs
 
-- pub `BenchEvent` struct L28-31 — `{ sequence: u64, value: f64 }` — - Maximum sustained throughput: events/sec before channel backup
-- pub `BenchOutput` struct L34-36 — `{ result: f64 }` — - Maximum sustained throughput: events/sec before channel backup
-- pub `bench_graph` module L48-58 — `-` — - Maximum sustained throughput: events/sec before channel backup
-- pub `process` function L51-53 — `(source: Option<&BenchEvent>) -> f64` — - Maximum sustained throughput: events/sec before channel backup
-- pub `output` function L55-57 — `(value: &f64) -> BenchOutput` — - Maximum sustained throughput: events/sec before channel backup
--  `BenchAccumulator` struct L64 — `-` — - Maximum sustained throughput: events/sec before channel backup
--  `BenchAccumulator` type L67-73 — `= BenchAccumulator` — - Maximum sustained throughput: events/sec before channel backup
--  `Event` type L68 — `= BenchEvent` — - Maximum sustained throughput: events/sec before channel backup
--  `Output` type L69 — `= BenchEvent` — - Maximum sustained throughput: events/sec before channel backup
--  `process` function L70-72 — `(&mut self, event: BenchEvent) -> Option<BenchEvent>` — - Maximum sustained throughput: events/sec before channel backup
--  `Args` struct L82-102 — `{ latency_duration: u64, latency_interval_us: u64, throughput_duration: u64, thr...` — - Maximum sustained throughput: events/sec before channel backup
--  `percentile` function L108-114 — `(sorted: &[f64], p: f64) -> f64` — - Maximum sustained throughput: events/sec before channel backup
--  `main` function L121-356 — `()` — - Maximum sustained throughput: events/sec before channel backup
+- pub `BenchEvent` struct L44-47 — `{ sequence: u64, value: f64 }` — - Maximum sustained throughput: events/sec before channel backup
+- pub `BenchOutput` struct L50-52 — `{ result: f64 }` — - Maximum sustained throughput: events/sec before channel backup
+- pub `bench_graph` module L64-74 — `-` — - Maximum sustained throughput: events/sec before channel backup
+- pub `process` function L67-69 — `(source: Option<&BenchEvent>) -> f64` — - Maximum sustained throughput: events/sec before channel backup
+- pub `output` function L71-73 — `(value: &f64) -> BenchOutput` — - Maximum sustained throughput: events/sec before channel backup
+-  `BenchAccumulator` struct L80 — `-` — - Maximum sustained throughput: events/sec before channel backup
+-  `BenchAccumulator` type L83-89 — `= BenchAccumulator` — - Maximum sustained throughput: events/sec before channel backup
+-  `Event` type L84 — `= BenchEvent` — - Maximum sustained throughput: events/sec before channel backup
+-  `Output` type L85 — `= BenchEvent` — - Maximum sustained throughput: events/sec before channel backup
+-  `process` function L86-88 — `(&mut self, event: BenchEvent) -> Option<BenchEvent>` — - Maximum sustained throughput: events/sec before channel backup
+-  `Args` struct L98-118 — `{ latency_duration: u64, latency_interval_us: u64, throughput_duration: u64, thr...` — - Maximum sustained throughput: events/sec before channel backup
+-  `percentile` function L124-130 — `(sorted: &[f64], p: f64) -> f64` — - Maximum sustained throughput: events/sec before channel backup
+-  `main` function L137-375 — `()` — - Maximum sustained throughput: events/sec before channel backup
 
 #### examples/performance/computation-graph/src/main.rs
 

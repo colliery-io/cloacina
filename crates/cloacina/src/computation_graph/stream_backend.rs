@@ -114,6 +114,18 @@ impl StreamBackendRegistry {
     pub fn has(&self, type_name: &str) -> bool {
         self.backends.contains_key(type_name)
     }
+
+    /// Get the creation future for a backend type without holding the lock across await.
+    /// Returns the future that will create the backend, or None if the type isn't registered.
+    pub fn create_future(
+        &self,
+        type_name: &str,
+        config: StreamConfig,
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Box<dyn StreamBackend>, StreamError>> + Send>>>
+    {
+        let factory = self.backends.get(type_name)?;
+        Some(factory(config))
+    }
 }
 
 impl Default for StreamBackendRegistry {

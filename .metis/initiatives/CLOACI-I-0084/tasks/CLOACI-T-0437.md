@@ -4,14 +4,14 @@ level: task
 title: "Package metadata for stream accumulators and reconciler wiring"
 short_code: "CLOACI-T-0437"
 created_at: 2026-04-07T18:44:57.753537+00:00
-updated_at: 2026-04-07T18:44:57.753537+00:00
+updated_at: 2026-04-07T21:30:51.114454+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Extend `package.toml` metadata to declare stream-backed accumulators so the reconciler can create them with the correct backend when loading CG packages. Currently `AccumulatorFactory` in `packaging_bridge.rs` only creates passthrough accumulators.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -56,4 +60,13 @@ Extend `package.toml` metadata to declare stream-backed accumulators so the reco
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-07 — Complete**
+- `AccumulatorDeclarationEntry` already has `accumulator_type` and `config: HashMap<String, String>` — no schema changes needed
+- `build_declaration_from_ffi` now dispatches on `accumulator_type`:
+  - "stream" → `StreamBackendAccumulatorFactory` (creates passthrough accumulator + stream reader task)
+  - anything else → `PassthroughAccumulatorFactory` (existing behavior)
+- `StreamBackendAccumulatorFactory` implemented: reads `broker_url`, `topic`, `group` from config HashMap, creates stream reader task that feeds events into the accumulator's socket channel via the global `StreamBackendRegistry`
+- `create_future()` method added to `StreamBackendRegistry` to get the factory future without holding the Mutex across await
+- Stream reader task: spawns alongside the accumulator, reads from backend, pushes to socket_tx, respects shutdown signal
+- Existing passthrough packages unchanged — accumulator_type defaults to "passthrough"
+- Package.toml already supports the metadata format via `[[metadata.accumulators]]` with config HashMap

@@ -247,6 +247,8 @@ pub struct Reactor {
         String,
         watch::Receiver<super::accumulator::AccumulatorHealth>,
     )>,
+    /// Flush senders for batch accumulators — signalled after graph execution.
+    batch_flush_senders: Vec<mpsc::Sender<()>>,
 }
 
 impl Reactor {
@@ -272,7 +274,14 @@ impl Reactor {
             dal: None,
             health: None,
             accumulator_health_rxs: Vec::new(),
+            batch_flush_senders: Vec::new(),
         }
+    }
+
+    /// Add batch flush senders — reactor will signal these after each graph execution.
+    pub fn with_batch_flush_senders(mut self, senders: Vec<mpsc::Sender<()>>) -> Self {
+        self.batch_flush_senders = senders;
+        self
     }
 
     /// Set the graph name (used as key for DAL persistence).
@@ -547,6 +556,7 @@ impl Reactor {
         let criteria = self.criteria.clone();
         let dal_exec = self.dal.clone();
         let graph_name_exec = self.graph_name.clone();
+        let batch_flush = self.batch_flush_senders.clone();
 
         loop {
             tokio::select! {
@@ -575,6 +585,10 @@ impl Reactor {
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
                                         ).await;
+                                        // Signal batch accumulators to flush
+                                        for sender in &batch_flush {
+                                            let _ = sender.try_send(());
+                                        }
                                     }
                                     GraphResult::Error(e) => {
                                         tracing::error!("graph execution failed: {}", e);
@@ -602,12 +616,14 @@ impl Reactor {
                                         match &result {
                                             GraphResult::Completed { .. } => {
                                                 tracing::debug!("graph execution completed (sequential)");
-                                                // Persist after each successful execution so
-                                                // processed items are removed from persisted queue
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
                                                     &dirty_exec, Some(&seq_queue_exec),
                                                 ).await;
+                                                // Signal batch accumulators to flush
+                                                for sender in &batch_flush {
+                                                    let _ = sender.try_send(());
+                                                }
                                             }
                                             GraphResult::Error(e) => {
                                                 tracing::error!("graph execution failed: {}", e);
