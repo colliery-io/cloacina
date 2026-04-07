@@ -4,14 +4,14 @@ level: initiative
 title: "Computation Graph Soak Tests and Performance Benchmarks"
 short_code: "CLOACI-I-0079"
 created_at: 2026-04-05T14:34:57.420074+00:00
-updated_at: 2026-04-06T11:01:16.387955+00:00
+updated_at: 2026-04-07T12:03:06.506940+00:00
 parent: CLOACI-V-0001
 blocked_by: [CLOACI-I-0082]
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -44,6 +44,8 @@ Blocked by: I-0073 (batch/polling accumulators should exist first to include in 
 - New features (covered by I-0073, I-0077, I-0078)
 - Server-mode soak testing (requires T-0380 reconciler wiring)
 - Distributed performance testing
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

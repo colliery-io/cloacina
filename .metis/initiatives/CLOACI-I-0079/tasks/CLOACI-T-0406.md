@@ -4,14 +4,14 @@ level: task
 title: "CI integration and baseline documentation for computation graph benchmarks"
 short_code: "CLOACI-T-0406"
 created_at: 2026-04-05T19:22:28.516952+00:00
-updated_at: 2026-04-07T01:39:35.799804+00:00
+updated_at: 2026-04-07T12:02:59.595482+00:00
 parent: CLOACI-I-0079
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0079
 ## Objective **[REQUIRED]**
 
 Wire the soak test and benchmarks into angreal tasks so they can be run in CI and locally. Document baseline performance numbers from a reference run.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

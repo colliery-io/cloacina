@@ -4,14 +4,14 @@ level: task
 title: "Python accumulator decorators (@stream_accumulator, @passthrough_accumulator)"
 short_code: "CLOACI-T-0365"
 created_at: 2026-04-04T20:48:54.417237+00:00
-updated_at: 2026-04-04T20:48:54.417237+00:00
+updated_at: 2026-04-07T15:38:49.359674+00:00
 parent: CLOACI-I-0075
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -25,6 +25,10 @@ initiative_id: CLOACI-I-0075
 Implement Python decorators for accumulators that mirror the Rust accumulator macros. Each decorator wraps a Python function into the Rust `Accumulator` trait implementation with `spawn_blocking` for GIL safety.
 
 Note: This task depends on the Rust accumulator trait existing (I-0074). If I-0074 hasn't started yet, this task should define the Python-side decorator API and test it with a mock Rust backend, then wire to the real trait when I-0074 lands.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

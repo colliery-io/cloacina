@@ -4,14 +4,14 @@ level: initiative
 title: "WebSocket Integration & Reactive Scheduler"
 short_code: "CLOACI-I-0071"
 created_at: 2026-04-04T17:48:55.180684+00:00
-updated_at: 2026-04-05T00:32:48.904742+00:00
+updated_at: 2026-04-07T15:45:37.558452+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -52,6 +52,10 @@ Specs: CLOACI-S-0007 (Integration Points), CLOACI-S-0005 (Reactor — health sta
 - Soak tests (I-0073)
 
 > **Note**: I-0082 (MVP Release — Resilience Wiring) picks up the scheduler wiring, supervision startup, shutdown ordering, and health integration that were explicitly excluded here. WIRE-1 through WIRE-4 and BUG-4 in I-0082 complete I-0071's server integration path.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
