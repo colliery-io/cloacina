@@ -6,7 +6,7 @@ short_code: "CLOACI-T-0404"
 created_at: 2026-04-05T19:22:26.325184+00:00
 updated_at: 2026-04-06T11:02:01.167342+00:00
 parent: CLOACI-I-0079
-blocked_by: [CLOACI-I-0083]
+blocked_by: [CLOACI-T-0429]
 archived: false
 
 tags:
@@ -165,8 +165,23 @@ Build a standalone soak test binary (or angreal task) that runs a market maker c
 - This binary is NOT the soak test — soak tests must run against the server (packaged mode)
 - The actual soak test should be a step in `angreal cloacina server-soak` that uploads a CG package and injects events via WebSocket
 
-**2026-04-06 — BLOCKED**
-- Server-mode soak test requires WebSocket event injection into packaged CG accumulators
-- AccumulatorAuthPolicy is deny-by-default and scheduler never sets policies → all WS connections get 403
-- Broader investigation revealed auth model is fundamentally incomplete (see auth initiative)
-- Blocked until auth initiative delivers key-to-tenant binding and CG policy wiring
+**2026-04-06 — BLOCKED** (resolved by I-0083)
+
+**2026-04-06 — Server-mode soak test implemented**
+- I-0083 completed — auth policies now wired, WebSocket endpoints accept authenticated connections
+- Added CG soak testing to `angreal cloacina server-soak`:
+  - `create_cg_source_package()` — builds a simple CG package (single accumulator `alpha`, linear graph)
+  - Step 8d: uploads CG package, waits for compilation (up to 120s), verifies health endpoints
+  - `ws_send_event()` — minimal stdlib WebSocket client (HTTP upgrade → masked binary frame → close)
+  - Soak loop injects CG events via WebSocket every 2 iterations during the 60s operational soak
+  - Stats track `cg_events_sent` and `cg_events_failed`
+  - Final assertion: `cg_events_sent > 0` when CG loaded
+  - Progress reports include CG event stats
+- Embedded performance binary at `examples/performance/computation-graph/` remains for T-0405 benchmarks
+
+**2026-04-06 — Bug fix: ReactiveScheduler not wired to reconciler**
+- Server crashed during CG compilation because the reconciler had no ReactiveScheduler reference
+- Root cause: `DefaultRunner` starts services in constructor, but `set_reactive_scheduler()` was called after
+- Fix: reconciler uses shared `Arc<RwLock<Option<...>>>` slot; runner injects the same slot via `set_reactive_scheduler_slot()` during service startup; `set_reactive_scheduler()` writes to the shared slot and the reconciler reads from it
+- Added `reactive_scheduler` field to `DefaultRunner`, setter method, Clone impl
+- Verified end-to-end: upload CG package → reconciler compiles → `load_graph()` → `computation graph loaded and running` → WS upgrade returns 101

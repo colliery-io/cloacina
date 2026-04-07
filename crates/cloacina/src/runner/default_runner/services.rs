@@ -307,7 +307,7 @@ impl DefaultRunner {
         match workflow_registry_result {
             Ok(workflow_registry_arc) => {
                 // Create Registry Reconciler
-                let registry_reconciler = RegistryReconciler::new(
+                let mut registry_reconciler = RegistryReconciler::new(
                     workflow_registry_arc.clone(),
                     reconciler_config,
                     reconciler_shutdown_rx,
@@ -315,6 +315,11 @@ impl DefaultRunner {
                 .map_err(|e| PipelineError::Configuration {
                     message: format!("Failed to create registry reconciler: {}", e),
                 })?;
+
+                // Share the runner's reactive scheduler slot with the reconciler.
+                // When set_reactive_scheduler() is called on the runner later,
+                // the reconciler will see it because they share the same Arc.
+                registry_reconciler.set_reactive_scheduler_slot(self.reactive_scheduler.clone());
 
                 // Start reconciler background service
                 let mut broadcast_shutdown_rx = shutdown_tx.subscribe();

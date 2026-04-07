@@ -96,6 +96,11 @@ pub async fn run(
         unified_dal,
     ));
 
+    // Wire reactive scheduler into the runner so the reconciler can route CG packages
+    runner
+        .set_reactive_scheduler(reactive_scheduler.clone())
+        .await;
+
     let state = AppState {
         database: runner.database().clone(),
         runner: Arc::new(runner),

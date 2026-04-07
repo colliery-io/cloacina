@@ -431,6 +431,9 @@
 // This makes cloacina_workflow available to any crate that depends on cloacina
 pub extern crate cloacina_workflow;
 
+// Re-export cloacina_computation_graph for packaged CG plugins that use `cloacina::computation_graph::*` paths
+pub use cloacina_computation_graph;
+
 /// Prelude module for convenient imports.
 ///
 /// The prelude provides convenient access to the most commonly used types

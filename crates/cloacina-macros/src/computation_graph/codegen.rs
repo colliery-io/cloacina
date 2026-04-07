@@ -88,8 +88,16 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         .map(|(name, _)| name.clone())
         .collect();
 
+    // Determine path prefix for generated code:
+    // Inside cloacina crate: use `crate::computation_graph::`
+    // External crates: use `cloacina_computation_graph::`
+    let is_cloacina_crate_early = std::env::var("CARGO_CRATE_NAME")
+        .map(|n| n == "cloacina")
+        .unwrap_or(false);
+
     // Generate the compiled function
-    let compiled_fn = generate_compiled_function(ir, &functions, &blocking_nodes)?;
+    let compiled_fn =
+        generate_compiled_function(ir, &functions, &blocking_nodes, is_cloacina_crate_early)?;
 
     // Get the module name and visibility
     let mod_name = &module.ident;
@@ -191,7 +199,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     // The FFI boundary always uses JSON strings. We parse each
                     // into serde_json::Value and re-serialize using the
                     // computation graph's serialize() (JSON in debug, bincode in release).
-                    let mut cache = cloacina::computation_graph::InputCache::new();
+                    let mut cache = cloacina_computation_graph::InputCache::new();
                     for (source_name, json_str) in &request.cache {
                         let value: serde_json::Value = serde_json::from_str(json_str)
                             .map_err(|e| cloacina_workflow_plugin::PluginError {
@@ -199,14 +207,14 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 message: format!("Failed to parse cache entry '{}': {}", source_name, e),
                                 details: None,
                             })?;
-                        let bytes = cloacina::computation_graph::types::serialize(&value)
+                        let bytes = cloacina_computation_graph::serialize(&value)
                             .map_err(|e| cloacina_workflow_plugin::PluginError {
                                 code: "SERIALIZATION_ERROR".to_string(),
                                 message: format!("Failed to serialize cache entry '{}': {}", source_name, e),
                                 details: None,
                             })?;
                         cache.update(
-                            cloacina::computation_graph::SourceName::new(source_name),
+                            cloacina_computation_graph::SourceName::new(source_name),
                             bytes,
                         );
                     }
@@ -217,7 +225,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                     });
 
                     match result {
-                        cloacina::computation_graph::GraphResult::Completed { outputs } => {
+                        cloacina_computation_graph::GraphResult::Completed { outputs } => {
                             // Serialize terminal outputs to JSON strings
                             let terminal_json: Vec<String> = outputs
                                 .iter()
@@ -237,7 +245,7 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
                                 error: None,
                             })
                         }
-                        cloacina::computation_graph::GraphResult::Error(e) => {
+                        cloacina_computation_graph::GraphResult::Error(e) => {
                             Ok(cloacina_workflow_plugin::GraphExecutionResult {
                                 success: false,
                                 terminal_outputs_json: None,
@@ -252,41 +260,86 @@ pub fn generate(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream> {
         }
     };
 
+    let (compiled_fn_body, ctor_body) = if is_cloacina_crate_early {
+        // Inside the cloacina crate — use `crate::` paths
+        let fn_body = quote! {
+            #vis async fn #compiled_fn_name(
+                cache: &crate::computation_graph::InputCache,
+            ) -> crate::computation_graph::GraphResult {
+                #[allow(unused_imports)]
+                use #mod_name::*;
+                #(#routing_use_stmts)*
+                #compiled_fn
+            }
+        };
+        let ctor = quote! {
+            #[cfg(not(test))]
+            #[cfg(not(feature = "packaged"))]
+            #[ctor::ctor]
+            fn #auto_register_name() {
+                crate::register_computation_graph_constructor(
+                    #mod_name_str.to_string(),
+                    || {
+                        crate::ComputationGraphRegistration {
+                            graph_fn: std::sync::Arc::new(|cache: crate::computation_graph::InputCache| {
+                                Box::pin(async move {
+                                    #compiled_fn_name(&cache).await
+                                })
+                            }),
+                            accumulator_names: vec![#(#accumulator_names.to_string()),*],
+                            reaction_mode: #reaction_mode_str.to_string(),
+                        }
+                    },
+                );
+            }
+        };
+        (fn_body, ctor)
+    } else {
+        // External crate — use `cloacina_computation_graph::` paths
+        let fn_body = quote! {
+            #vis async fn #compiled_fn_name(
+                cache: &cloacina_computation_graph::InputCache,
+            ) -> cloacina_computation_graph::GraphResult {
+                #[allow(unused_imports)]
+                use #mod_name::*;
+                #(#routing_use_stmts)*
+                #compiled_fn
+            }
+        };
+        let ctor = quote! {
+            #[cfg(not(test))]
+            #[cfg(not(feature = "packaged"))]
+            #[ctor::ctor]
+            fn #auto_register_name() {
+                cloacina_computation_graph::register_computation_graph_constructor(
+                    #mod_name_str.to_string(),
+                    || {
+                        cloacina_computation_graph::ComputationGraphRegistration {
+                            graph_fn: std::sync::Arc::new(|cache: cloacina_computation_graph::InputCache| {
+                                Box::pin(async move {
+                                    #compiled_fn_name(&cache).await
+                                })
+                            }),
+                            accumulator_names: vec![#(#accumulator_names.to_string()),*],
+                            reaction_mode: #reaction_mode_str.to_string(),
+                        }
+                    },
+                );
+            }
+        };
+        (fn_body, ctor)
+    };
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_name {
             #(#content)*
         }
 
-        #vis async fn #compiled_fn_name(
-            cache: &cloacina::computation_graph::InputCache,
-        ) -> cloacina::computation_graph::GraphResult {
-            #[allow(unused_imports)]
-            use #mod_name::*;
-            #(#routing_use_stmts)*
-            #compiled_fn
-        }
+        #compiled_fn_body
 
         // Embedded mode: #[ctor] registration for global registry
-        #[cfg(not(test))]
-        #[cfg(not(feature = "packaged"))]
-        #[ctor::ctor]
-        fn #auto_register_name() {
-            cloacina::register_computation_graph_constructor(
-                #mod_name_str.to_string(),
-                || {
-                    cloacina::ComputationGraphRegistration {
-                        graph_fn: std::sync::Arc::new(|cache: cloacina::computation_graph::InputCache| {
-                            Box::pin(async move {
-                                #compiled_fn_name(&cache).await
-                            })
-                        }),
-                        accumulator_names: vec![#(#accumulator_names.to_string()),*],
-                        reaction_mode: #reaction_mode_str.to_string(),
-                    }
-                },
-            );
-        }
+        #ctor_body
 
         // Packaged mode: FFI plugin exports for fidius
         #packaged_ffi
@@ -334,6 +387,7 @@ fn generate_compiled_function(
     ir: &GraphIR,
     functions: &HashMap<String, ItemFn>,
     blocking_nodes: &HashSet<String>,
+    is_cloacina_crate: bool,
 ) -> syn::Result<TokenStream> {
     let entry_nodes = ir.entry_nodes();
 
@@ -358,16 +412,28 @@ fn generate_compiled_function(
             continue;
         }
         let node = ir.get_node(node_name).unwrap();
-        let stmt =
-            generate_node_execution(ir, node, functions, blocking_nodes, &mut generated_nodes)?;
+        let stmt = generate_node_execution(
+            ir,
+            node,
+            functions,
+            blocking_nodes,
+            &mut generated_nodes,
+            is_cloacina_crate,
+        )?;
         exec_stmts.push(stmt);
     }
+
+    let graph_result_completed = if is_cloacina_crate {
+        quote! { crate::computation_graph::GraphResult::completed(__terminal_results) }
+    } else {
+        quote! { cloacina_computation_graph::GraphResult::completed(__terminal_results) }
+    };
 
     Ok(quote! {
         let mut __terminal_results: Vec<Box<dyn std::any::Any + Send>> = Vec::new();
         #cache_reads
         #(#exec_stmts)*
-        cloacina::computation_graph::GraphResult::completed(__terminal_results)
+        #graph_result_completed
     })
 }
 
@@ -398,6 +464,7 @@ fn generate_node_execution(
     functions: &HashMap<String, ItemFn>,
     blocking_nodes: &HashSet<String>,
     generated: &mut HashSet<String>,
+    is_cloacina_crate: bool,
 ) -> syn::Result<TokenStream> {
     if generated.contains(&node.name) {
         return Ok(quote! {});
@@ -413,12 +480,17 @@ fn generate_node_execution(
 
     // Generate the function call (with optional spawn_blocking)
     let call = if is_blocking {
+        let graph_error_path = if is_cloacina_crate {
+            quote! { crate::computation_graph::GraphError::NodeExecution }
+        } else {
+            quote! { cloacina_computation_graph::GraphError::NodeExecution }
+        };
         quote! {
             let #result_var = tokio::task::spawn_blocking(move || {
                 tokio::runtime::Handle::current().block_on(async {
                     #fn_ident(#args).await
                 })
-            }).await.map_err(|e| cloacina::computation_graph::GraphError::NodeExecution(
+            }).await.map_err(|e| #graph_error_path(
                 format!("blocking node '{}' panicked: {}", stringify!(#fn_ident), e)
             ))?;
         }
@@ -450,6 +522,7 @@ fn generate_node_execution(
                     functions,
                     blocking_nodes,
                     generated,
+                    is_cloacina_crate,
                 )?;
                 Ok(quote! {
                     #call
@@ -502,6 +575,7 @@ fn generate_routing_match(
     functions: &HashMap<String, ItemFn>,
     blocking_nodes: &HashSet<String>,
     generated: &mut HashSet<String>,
+    is_cloacina_crate: bool,
 ) -> syn::Result<TokenStream> {
     let result_var = format_ident!("__result_{}", from_name);
 
@@ -521,8 +595,14 @@ fn generate_routing_match(
             )
         })?;
 
-        let downstream =
-            generate_node_execution(ir, target_node, functions, blocking_nodes, generated)?;
+        let downstream = generate_node_execution(
+            ir,
+            target_node,
+            functions,
+            blocking_nodes,
+            generated,
+            is_cloacina_crate,
+        )?;
 
         arms.push(quote! {
             #variant_ident(#variant_var) => {

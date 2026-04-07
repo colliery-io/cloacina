@@ -33,6 +33,7 @@ serde_json.workspace = true
 # Local dependencies
 cloacina-macros = { workspace = true, optional = true }
 cloacina-workflow = { workspace = true }
+cloacina-computation-graph = { path = "../cloacina-computation-graph" }
 cloacina-workflow-plugin = { version = "0.4.0", path = "../cloacina-workflow-plugin" }
 
 # External dependencies

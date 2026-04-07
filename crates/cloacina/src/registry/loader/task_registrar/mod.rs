@@ -50,6 +50,9 @@ pub struct TaskRegistrar {
     registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamespace>>>>,
     /// Tracks which package IDs have been registered (for cleanup bookkeeping)
     loaded_packages: Arc<RwLock<HashMap<String, ()>>>,
+    /// Shared cache — prevents dlclose of loaded libraries.
+    /// See `PackageLoader` docs for full explanation.
+    handle_cache: crate::registry::loader::package_loader::PluginHandleCache,
 }
 
 impl TaskRegistrar {
@@ -63,6 +66,23 @@ impl TaskRegistrar {
             temp_dir,
             registered_tasks: Arc::new(RwLock::new(HashMap::new())),
             loaded_packages: Arc::new(RwLock::new(HashMap::new())),
+            handle_cache: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        })
+    }
+
+    /// Create a task registrar with a shared handle cache.
+    pub fn with_handle_cache(
+        cache: crate::registry::loader::package_loader::PluginHandleCache,
+    ) -> Result<Self, LoaderError> {
+        let temp_dir = TempDir::new().map_err(|e| LoaderError::TempDirectory {
+            error: e.to_string(),
+        })?;
+
+        Ok(Self {
+            temp_dir,
+            registered_tasks: Arc::new(RwLock::new(HashMap::new())),
+            loaded_packages: Arc::new(RwLock::new(HashMap::new())),
+            handle_cache: cache,
         })
     }
 
@@ -94,8 +114,16 @@ impl TaskRegistrar {
             .extract_task_metadata_from_library(package_data)
             .await?;
 
+        // Load the plugin library once — all tasks from this package share the handle.
+        let plugin = Arc::new(
+            DynamicLibraryTask::load_plugin(package_data, &task_metadata.package_name).map_err(
+                |e| LoaderError::MetadataExtraction {
+                    reason: format!("Failed to load plugin for task execution: {}", e),
+                },
+            )?,
+        );
+
         // Register tasks in HOST global registry using metadata.
-        // All data access is now safe - no raw pointers involved.
         let mut registered_namespaces = Vec::new();
 
         let workflow_name = &task_metadata.workflow_name;
@@ -123,7 +151,6 @@ impl TaskRegistrar {
                     .into_iter()
                     .map(|dep_name| {
                         if dep_name.contains("::") {
-                            // Fully qualified namespace with {tenant} placeholder
                             let full_name = dep_name.replace("{tenant}", tenant_id);
                             crate::parse_namespace(&full_name).map_err(|e| {
                                 LoaderError::MetadataExtraction {
@@ -134,7 +161,6 @@ impl TaskRegistrar {
                                 }
                             })
                         } else {
-                            // Local task name — expand to full namespace
                             Ok(TaskNamespace::new(
                                 tenant_id,
                                 package_name,
@@ -146,26 +172,22 @@ impl TaskRegistrar {
                     .collect::<Result<Vec<_>, _>>()?
             };
 
-            // Create namespace for this task
             let namespace = TaskNamespace::new(tenant_id, package_name, workflow_name, task_id);
 
-            // Create task constructor that creates a dynamic task
-            // The constructor name is just metadata - actual execution happens via execute FFI
-            let library_data = package_data.to_vec();
+            let plugin = plugin.clone();
             let task_name = task_id.to_string();
             let pkg_name = package_name.to_string();
             let deps = dependency_namespaces.clone();
 
             let constructor = Box::new(move || {
                 Arc::new(DynamicLibraryTask::new(
-                    library_data.clone(),
+                    plugin.clone(),
                     task_name.clone(),
                     pkg_name.clone(),
                     deps.clone(),
                 )) as Arc<dyn Task>
             });
 
-            // Register in HOST global task registry
             register_task_constructor(namespace.clone(), constructor);
 
             registered_namespaces.push(namespace);

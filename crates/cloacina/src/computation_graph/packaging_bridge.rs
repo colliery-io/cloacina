@@ -21,14 +21,11 @@
 //! `execute_graph()` via fidius FFI.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use cloacina_workflow_plugin::{
-    AccumulatorDeclarationEntry, GraphExecutionRequest, GraphPackageMetadata,
-};
+use cloacina_workflow_plugin::{GraphExecutionRequest, GraphPackageMetadata};
 
 use super::accumulator::{
     accumulator_runtime, AccumulatorContext, AccumulatorRuntimeConfig, BoundarySender,
@@ -40,8 +37,80 @@ use super::scheduler::{
 };
 use super::types::{GraphError, GraphResult, InputCache, SourceName};
 
+/// A persistent handle to a loaded FFI graph plugin.
+///
+/// Loaded once from library bytes, kept alive for the lifetime of the graph.
+/// The `PluginHandle` is behind a `Mutex` because fidius calls are synchronous
+/// and must not be invoked concurrently.
+struct LoadedGraphPlugin {
+    handle: std::sync::Mutex<fidius_host::PluginHandle>,
+    // Keep the temp dir alive so the dylib file isn't deleted while loaded
+    _temp_dir: tempfile::TempDir,
+}
+
+// Safety: fidius PluginHandle wraps a libloading::Library which is Send.
+// We serialize access via Mutex so concurrent calls are safe.
+unsafe impl Send for LoadedGraphPlugin {}
+unsafe impl Sync for LoadedGraphPlugin {}
+
+impl LoadedGraphPlugin {
+    /// Load a graph plugin from library bytes. The library is written to a temp
+    /// file, loaded via fidius, and kept resident for reuse.
+    fn load(library_data: &[u8]) -> Result<Self, String> {
+        let temp_dir =
+            tempfile::TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+        let library_extension = if cfg!(target_os = "macos") {
+            "dylib"
+        } else if cfg!(target_os = "windows") {
+            "dll"
+        } else {
+            "so"
+        };
+
+        let temp_path = temp_dir
+            .path()
+            .join(format!("graph_plugin.{}", library_extension));
+        std::fs::write(&temp_path, library_data)
+            .map_err(|e| format!("Failed to write library: {}", e))?;
+
+        let loaded = fidius_host::loader::load_library(&temp_path)
+            .map_err(|e| format!("Failed to load library: {}", e))?;
+
+        let plugin = loaded
+            .plugins
+            .into_iter()
+            .next()
+            .ok_or_else(|| "No plugins in library".to_string())?;
+
+        let handle = fidius_host::PluginHandle::from_loaded(plugin);
+
+        Ok(Self {
+            handle: std::sync::Mutex::new(handle),
+            _temp_dir: temp_dir,
+        })
+    }
+
+    /// Call execute_graph (method index 3) on the loaded plugin.
+    fn execute_graph(
+        &self,
+        request: GraphExecutionRequest,
+    ) -> Result<cloacina_workflow_plugin::GraphExecutionResult, String> {
+        let handle = self
+            .handle
+            .lock()
+            .map_err(|e| format!("Plugin mutex poisoned: {}", e))?;
+        handle
+            .call_method(3, &(request,))
+            .map_err(|e| format!("execute_graph FFI call failed: {}", e))
+    }
+}
+
 /// Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
 /// that the `ReactiveScheduler` can load.
+///
+/// The library is loaded once here and the handle is kept alive in the
+/// `CompiledGraphFn` closure for reuse on every reactor fire.
 pub fn build_declaration_from_ffi(
     graph_meta: &GraphPackageMetadata,
     library_data: Vec<u8>,
@@ -56,13 +125,16 @@ pub fn build_declaration_from_ffi(
         _ => InputStrategy::Latest,
     };
 
-    // Create the CompiledGraphFn that calls execute_graph() via FFI
-    let lib_data = Arc::new(library_data);
+    // Load the library once and keep the handle for reuse
+    let plugin = Arc::new(
+        LoadedGraphPlugin::load(&library_data).expect("Failed to load graph plugin library"),
+    );
+
     let graph_fn: CompiledGraphFn = {
-        let lib_data = lib_data.clone();
+        let plugin = plugin.clone();
         Arc::new(move |cache: InputCache| {
-            let lib_data = lib_data.clone();
-            Box::pin(async move { execute_graph_via_ffi(&lib_data, &cache).await })
+            let plugin = plugin.clone();
+            Box::pin(async move { execute_graph_via_ffi(&plugin, &cache).await })
         })
     };
 
@@ -88,19 +160,14 @@ pub fn build_declaration_from_ffi(
     }
 }
 
-/// Execute a computation graph via FFI by loading the library and calling
-/// `execute_graph()` (method index 3).
-async fn execute_graph_via_ffi(library_data: &[u8], cache: &InputCache) -> GraphResult {
-    let lib_data = library_data.to_vec();
+/// Execute a computation graph via FFI using the pre-loaded plugin handle.
+async fn execute_graph_via_ffi(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult {
     let cache_snapshot = cache.snapshot();
 
     // Serialize cache entries to JSON for the FFI boundary
     let mut ffi_cache: HashMap<String, String> = HashMap::new();
     for source_name in cache_snapshot.sources() {
         if let Some(raw_bytes) = cache_snapshot.get_raw(source_name.as_str()) {
-            // The cache stores bytes in debug-JSON or release-bincode format.
-            // For the FFI boundary, we need JSON strings.
-            // In debug mode, raw_bytes IS JSON. In release, it's bincode.
             #[cfg(debug_assertions)]
             {
                 let json_str = String::from_utf8_lossy(raw_bytes).to_string();
@@ -108,7 +175,6 @@ async fn execute_graph_via_ffi(library_data: &[u8], cache: &InputCache) -> Graph
             }
             #[cfg(not(debug_assertions))]
             {
-                // Deserialize from bincode to serde_json::Value, then to JSON string
                 match bincode::deserialize::<serde_json::Value>(raw_bytes) {
                     Ok(val) => {
                         let json_str = serde_json::to_string(&val).unwrap_or_default();
@@ -128,14 +194,13 @@ async fn execute_graph_via_ffi(library_data: &[u8], cache: &InputCache) -> Graph
 
     let request = GraphExecutionRequest { cache: ffi_cache };
 
-    // Call the FFI method in a blocking task (library loading is synchronous)
-    let result =
-        tokio::task::spawn_blocking(move || call_execute_graph_ffi(&lib_data, request)).await;
+    // FFI call is synchronous — run in a blocking task
+    let plugin = plugin.clone();
+    let result = tokio::task::spawn_blocking(move || plugin.execute_graph(request)).await;
 
     match result {
         Ok(Ok(ffi_result)) => {
             if ffi_result.success {
-                // Convert terminal outputs from JSON strings to boxed Any values
                 let outputs: Vec<Box<dyn std::any::Any + Send>> =
                     if let Some(json_outputs) = ffi_result.terminal_outputs_json {
                         json_outputs
@@ -166,45 +231,6 @@ async fn execute_graph_via_ffi(library_data: &[u8], cache: &InputCache) -> Graph
             join_err
         ))),
     }
-}
-
-/// Load the library and call execute_graph (method index 3) synchronously.
-fn call_execute_graph_ffi(
-    library_data: &[u8],
-    request: GraphExecutionRequest,
-) -> Result<cloacina_workflow_plugin::GraphExecutionResult, String> {
-    let temp_dir =
-        tempfile::TempDir::new().map_err(|e| format!("Failed to create temp dir: {}", e))?;
-
-    let library_extension = if cfg!(target_os = "macos") {
-        "dylib"
-    } else if cfg!(target_os = "windows") {
-        "dll"
-    } else {
-        "so"
-    };
-
-    let temp_path = temp_dir
-        .path()
-        .join(format!("graph_exec.{}", library_extension));
-    std::fs::write(&temp_path, library_data)
-        .map_err(|e| format!("Failed to write library: {}", e))?;
-
-    let loaded = fidius_host::loader::load_library(&temp_path)
-        .map_err(|e| format!("Failed to load library: {}", e))?;
-
-    let plugin = loaded
-        .plugins
-        .into_iter()
-        .next()
-        .ok_or_else(|| "No plugins in library".to_string())?;
-
-    let handle = fidius_host::PluginHandle::from_loaded(plugin);
-
-    // Method index 3 = execute_graph
-    handle
-        .call_method(3, &(request,))
-        .map_err(|e| format!("execute_graph FFI call failed: {}", e))
 }
 
 /// A generic passthrough accumulator factory for FFI-loaded packages.

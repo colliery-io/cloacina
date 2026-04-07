@@ -238,6 +238,189 @@ pub mod {safe_name} {{
     return buf.getvalue()
 
 
+def create_cg_source_package():
+    """Create a fidius source package with a computation graph (market maker)."""
+    name = "soak-cg-package"
+    version = "1.0.0"
+    prefix = f"{name}-{version}"
+
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+package_type = ["computation_graph"]
+graph_name = "soak_graph"
+language = "rust"
+description = "CG soak test — market maker"
+reaction_mode = "when_any"
+input_strategy = "latest"
+"""
+
+    cargo_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-computation-graph = {{ path = "../../../crates/cloacina-computation-graph" }}
+cloacina-macros = {{ path = "../../../crates/cloacina-macros" }}
+cloacina-workflow-plugin = {{ path = "../../../crates/cloacina-workflow-plugin" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+async-trait = "0.1"
+tokio = {{ version = "1.0", features = ["full"] }}
+
+[build-dependencies]
+cloacina-build = {{ path = "../../../crates/cloacina-build" }}
+"""
+
+    lib_rs = """use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlphaData { pub value: f64 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputData { pub result: f64 }
+
+#[cloacina_macros::computation_graph(
+    react = when_any(alpha),
+    graph = {
+        process(alpha) -> output,
+    }
+)]
+pub mod soak_graph {
+    use super::*;
+
+    pub async fn process(alpha: Option<&AlphaData>) -> f64 {
+        alpha.map(|a| a.value * 2.0).unwrap_or(0.0)
+    }
+
+    pub async fn output(value: &f64) -> OutputData {
+        OutputData { result: *value }
+    }
+}
+"""
+
+    build_rs = """fn main() {
+    cloacina_build::configure();
+}
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            ("Cargo.toml", cargo_toml),
+            ("src/lib.rs", lib_rs),
+            ("build.rs", build_rs),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
+def ws_send_event(host, port, path, token, event_json, timeout=5):
+    """Send a single WebSocket binary frame with event data.
+
+    Implements a minimal WebSocket client using stdlib:
+    1. HTTP upgrade handshake
+    2. Send one masked binary frame
+    3. Close connection
+
+    Returns True on success, False on failure.
+    """
+    import socket
+    import struct
+    import os
+    import base64
+
+    ws_key = base64.b64encode(os.urandom(16)).decode()
+
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+
+        # HTTP upgrade request
+        request = (
+            f"GET {path}?token={token} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {ws_key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"\r\n"
+        )
+        sock.sendall(request.encode())
+
+        # Read response
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = sock.recv(4096)
+            if not chunk:
+                sock.close()
+                return False
+            response += chunk
+
+        status_line = response.split(b"\r\n")[0].decode()
+        if "101" not in status_line:
+            sock.close()
+            return False
+
+        # Send binary frame with event data
+        payload = event_json.encode() if isinstance(event_json, str) else event_json
+        mask_key = os.urandom(4)
+
+        # Frame: FIN + binary opcode (0x82), masked, length
+        frame = bytearray()
+        frame.append(0x82)  # FIN + binary
+
+        length = len(payload)
+        if length < 126:
+            frame.append(0x80 | length)  # mask bit set
+        elif length < 65536:
+            frame.append(0x80 | 126)
+            frame.extend(struct.pack(">H", length))
+        else:
+            frame.append(0x80 | 127)
+            frame.extend(struct.pack(">Q", length))
+
+        frame.extend(mask_key)
+
+        # Mask payload
+        masked = bytearray(len(payload))
+        for i in range(len(payload)):
+            masked[i] = payload[i] ^ mask_key[i % 4]
+        frame.extend(masked)
+
+        sock.sendall(frame)
+
+        # Send close frame
+        close_frame = bytearray([0x88, 0x80]) + os.urandom(4)
+        sock.sendall(close_frame)
+
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
 @cloacina()
 @angreal.command(
     name="server-soak",
@@ -424,6 +607,48 @@ def server_soak():
             else:
                 print("  WARNING: Python pipeline may not have completed yet")
 
+        # Step 8d: Upload and load computation graph package
+        print_section_header("Step 8d: Upload computation graph package")
+        cg_package_data = create_cg_source_package()
+        status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
+                                   token=token, files=cg_package_data)
+        print(f"  CG upload status: {status}")
+        cg_loaded = False
+        if status == 201:
+            print("  CG upload successful ✓")
+
+            # Wait for CG package compilation (Rust — may take 60-90s)
+            print("  Waiting for CG package compilation (up to 120s)...")
+            cg_compile_start = time.time()
+            for _ in range(60):
+                time.sleep(2)
+                assert server_proc.poll() is None, "Server crashed during CG compilation!"
+                stderr_file.flush()
+                stderr = stderr_path.read_text() if stderr_path.exists() else ""
+                if "computation graph loaded" in stderr and "soak_graph" in stderr:
+                    elapsed = int(time.time() - cg_compile_start)
+                    print(f"  CG package compiled and loaded ({elapsed}s) ✓")
+                    cg_loaded = True
+                    break
+                if "Successfully registered" in stderr and "soak-cg-package" in stderr:
+                    elapsed = int(time.time() - cg_compile_start)
+                    print(f"  CG package registered ({elapsed}s) ✓")
+                    cg_loaded = True
+                    break
+            if not cg_loaded:
+                print("  WARNING: CG package may not have compiled — CG soak will be skipped")
+        else:
+            print(f"  CG upload returned {status}: {json.dumps(body)[:200]}")
+
+        # Verify CG health after loading
+        if cg_loaded:
+            s, b = api_request("GET", f"{base_url}/v1/health/accumulators", token=token)
+            if s == 200:
+                print(f"  CG accumulators health: {json.dumps(b)[:150]} ✓")
+            s, b = api_request("GET", f"{base_url}/v1/health/reactors", token=token)
+            if s == 200:
+                print(f"  CG reactors health: {json.dumps(b)[:150]} ✓")
+
         # Step 9: Operational soak — execute workflows while querying API
         soak_duration = 60
         print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
@@ -449,6 +674,8 @@ def server_soak():
             "executions_accepted": 0,
             "py_executions_triggered": 0,
             "py_executions_accepted": 0,
+            "cg_events_sent": 0,
+            "cg_events_failed": 0,
             "cg_health_ok": 0,
             "list_queries": 0,
             "api_errors": 0,
@@ -545,6 +772,15 @@ def server_soak():
                     else:
                         stats["api_errors"] += 1
 
+                # Inject CG events via WebSocket every 2 iterations
+                if cg_loaded and iteration % 2 == 0:
+                    import math
+                    event_json = json.dumps({"value": 42.0 + math.sin(iteration * 0.1)})
+                    if ws_send_event("127.0.0.1", 18080, "/v1/ws/accumulator/alpha", token, event_json):
+                        stats["cg_events_sent"] += 1
+                    else:
+                        stats["cg_events_failed"] += 1
+
             except Exception as e:
                 if "Connection refused" in str(e) or "URLError" in str(type(e).__name__):
                     stats["connection_errors"] += 1
@@ -559,6 +795,7 @@ def server_soak():
                     f"  [{elapsed}s] health={stats['health_ok']} "
                     f"rust={stats['executions_accepted']}/{stats['executions_triggered']} "
                     f"python={stats['py_executions_accepted']}/{stats['py_executions_triggered']} "
+                    f"cg_events={stats['cg_events_sent']}/{stats['cg_events_sent']+stats['cg_events_failed']} "
                     f"cg_health={stats['cg_health_ok']} "
                     f"queries={stats['list_queries']} "
                     f"errors={stats['api_errors']}"
@@ -578,6 +815,8 @@ def server_soak():
         print(f"    Rust exec accepted:   {stats['executions_accepted']}")
         print(f"    Python exec triggered:{stats['py_executions_triggered']}")
         print(f"    Python exec accepted: {stats['py_executions_accepted']}")
+        print(f"    CG events sent:       {stats['cg_events_sent']}")
+        print(f"    CG events failed:     {stats['cg_events_failed']}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
@@ -591,6 +830,8 @@ def server_soak():
             assert pipelines_completed > 0, "No pipelines completed in server logs!"
         if py_workflow_ready:
             assert stats["py_executions_accepted"] > 0, "No Python executions accepted!"
+        if cg_loaded:
+            assert stats["cg_events_sent"] > 0, "No CG events sent via WebSocket!"
 
         # Step 10: Final health check
         print_section_header("Step 10: Final health check")

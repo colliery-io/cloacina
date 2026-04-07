@@ -34,6 +34,10 @@ const HOST_CRATES: &[(&str, &str)] = &[
         "cloacina-workflow-plugin",
         "crates/cloacina-workflow-plugin",
     ),
+    (
+        "cloacina-computation-graph",
+        "crates/cloacina-computation-graph",
+    ),
     ("cloacina-build", "crates/cloacina-build"),
 ];
 

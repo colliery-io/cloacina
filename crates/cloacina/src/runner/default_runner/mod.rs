@@ -82,6 +82,9 @@ pub struct DefaultRunner {
     pub(super) registry_reconciler: Arc<RwLock<Option<Arc<RegistryReconciler>>>>,
     /// Optional unified scheduler for both cron and trigger-based workflow execution
     pub(super) unified_scheduler: Arc<RwLock<Option<Arc<Scheduler>>>>,
+    /// Optional reactive scheduler for computation graph packages
+    pub(super) reactive_scheduler:
+        Arc<RwLock<Option<Arc<crate::computation_graph::scheduler::ReactiveScheduler>>>>,
 }
 
 /// Internal structure for managing runtime handles of background services
@@ -236,6 +239,7 @@ impl DefaultRunner {
             workflow_registry: Arc::new(RwLock::new(None)), // Initially empty
             registry_reconciler: Arc::new(RwLock::new(None)), // Initially empty
             unified_scheduler: Arc::new(RwLock::new(None)), // Initially empty
+            reactive_scheduler: Arc::new(RwLock::new(None)), // Initially empty
         };
 
         // Start the background services immediately
@@ -260,6 +264,16 @@ impl DefaultRunner {
     /// the unified scheduler has not yet been initialized.
     pub async fn unified_scheduler(&self) -> Option<Arc<Scheduler>> {
         self.unified_scheduler.read().await.clone()
+    }
+
+    /// Set the reactive scheduler for computation graph package routing.
+    /// Must be called before `start_services()` so the reconciler can route CG packages.
+    pub async fn set_reactive_scheduler(
+        &self,
+        scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,
+    ) {
+        let mut lock = self.reactive_scheduler.write().await;
+        *lock = Some(scheduler);
     }
 
     /// Gracefully shuts down the executor and its background services
@@ -323,6 +337,7 @@ impl Clone for DefaultRunner {
             workflow_registry: self.workflow_registry.clone(),
             registry_reconciler: self.registry_reconciler.clone(),
             unified_scheduler: self.unified_scheduler.clone(),
+            reactive_scheduler: self.reactive_scheduler.clone(),
         }
     }
 }

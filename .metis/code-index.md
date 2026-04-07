@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-06T19:31:39Z | 420 files | JavaScript, Python, Rust
+> Generated: 2026-04-06T23:55:43Z | 421 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -279,6 +279,9 @@
 │   │               ├── mod.rs
 │   │               └── subgraph.rs
 │   ├── cloacina-build/
+│   │   └── src/
+│   │       └── lib.rs
+│   ├── cloacina-computation-graph/
 │   │   └── src/
 │   │       └── lib.rs
 │   ├── cloacina-macros/
@@ -694,69 +697,73 @@
 
 #### crates/cloacina/src/computation_graph/packaging_bridge.rs
 
-- pub `build_declaration_from_ffi` function L45-89 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
--  `execute_graph_via_ffi` function L93-169 — `(library_data: &[u8], cache: &InputCache) -> GraphResult` — Execute a computation graph via FFI by loading the library and calling
--  `call_execute_graph_ffi` function L172-208 — `( library_data: &[u8], request: GraphExecutionRequest, ) -> Result<cloacina_work...` — Load the library and call execute_graph (method index 3) synchronously.
--  `PassthroughAccumulatorFactory` struct L215 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
--  `GenericPassthroughAccumulator` struct L217 — `-` — `execute_graph()` via fidius FFI.
--  `GenericPassthroughAccumulator` type L220-227 — `= GenericPassthroughAccumulator` — `execute_graph()` via fidius FFI.
--  `Event` type L221 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
--  `Output` type L222 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
--  `process` function L224-226 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
--  `PassthroughAccumulatorFactory` type L229-261 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L230-260 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L264-330 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L268-296 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L299-329 — `()` — `execute_graph()` via fidius FFI.
+- pub `build_declaration_from_ffi` function L114-162 — `( graph_meta: &GraphPackageMetadata, library_data: Vec<u8>, ) -> ComputationGrap...` — Convert FFI graph metadata + library data into a `ComputationGraphDeclaration`
+-  `LoadedGraphPlugin` struct L45-49 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded FFI graph plugin.
+-  `LoadedGraphPlugin` type L53 — `impl Send for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
+-  `LoadedGraphPlugin` type L54 — `impl Sync for LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
+-  `LoadedGraphPlugin` type L56-107 — `= LoadedGraphPlugin` — `execute_graph()` via fidius FFI.
+-  `load` function L59-92 — `(library_data: &[u8]) -> Result<Self, String>` — Load a graph plugin from library bytes.
+-  `execute_graph` function L95-106 — `( &self, request: GraphExecutionRequest, ) -> Result<cloacina_workflow_plugin::G...` — Call execute_graph (method index 3) on the loaded plugin.
+-  `execute_graph_via_ffi` function L165-235 — `(plugin: &Arc<LoadedGraphPlugin>, cache: &InputCache) -> GraphResult` — Execute a computation graph via FFI using the pre-loaded plugin handle.
+-  `PassthroughAccumulatorFactory` struct L242 — `-` — A generic passthrough accumulator factory for FFI-loaded packages.
+-  `GenericPassthroughAccumulator` struct L244 — `-` — `execute_graph()` via fidius FFI.
+-  `GenericPassthroughAccumulator` type L247-254 — `= GenericPassthroughAccumulator` — `execute_graph()` via fidius FFI.
+-  `Event` type L248 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
+-  `Output` type L249 — `= serde_json::Value` — `execute_graph()` via fidius FFI.
+-  `process` function L251-253 — `(&mut self, event: serde_json::Value) -> Option<serde_json::Value>` — `execute_graph()` via fidius FFI.
+-  `PassthroughAccumulatorFactory` type L256-288 — `impl AccumulatorFactory for PassthroughAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L257-287 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L291-357 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L295-323 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L326-356 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
-- pub `ReactorHealth` enum L45-57 — `Starting | Warming | Live | Degraded` — Health state of a reactor.
-- pub `reactor_health_channel` function L71-73 — `() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>)` — Create a reactor health reporting channel.
-- pub `ReactionCriteria` enum L77-82 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
-- pub `InputStrategy` enum L86-91 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
-- pub `DirtyFlags` struct L95-97 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
-- pub `new` function L100-104 — `() -> Self` — See CLOACI-S-0005 for the full specification.
-- pub `with_sources` function L110-116 — `(sources: &[SourceName]) -> Self` — Create dirty flags pre-seeded with expected source names (all initially false).
-- pub `set` function L118-120 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
-- pub `any_set` function L122-124 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `all_set` function L126-128 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
-- pub `clear_all` function L130-134 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
-- pub `StrategySignal` enum L145-150 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
-- pub `ManualCommand` enum L154-159 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
-- pub `ReactorCommand` enum L164-170 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
-- pub `ReactorResponse` enum L175-181 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
-- pub `ReactorHandle` struct L187-192 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
-- pub `get_state` function L196-199 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
-- pub `is_paused` function L202-204 — `(&self) -> bool` — Check if the reactor is paused.
-- pub `pause` function L207-209 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
-- pub `resume` function L212-214 — `(&self)` — Resume the reactor.
-- pub `CompiledGraphFn` type L218-219 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
-- pub `Reactor` struct L222-252 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
-- pub `new` function L255-278 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
-- pub `with_graph_name` function L281-284 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
-- pub `with_dal` function L287-290 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
-- pub `with_health` function L293-296 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
-- pub `with_expected_sources` function L302-305 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
-- pub `with_accumulator_health` function L308-317 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
-- pub `handle` function L323-328 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L331-639 — `(mut self)` — Run the reactor.
--  `ReactorHealth` type L59-68 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
--  `fmt` function L60-67 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
--  `DirtyFlags` type L99-135 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `DirtyFlags` type L137-141 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
--  `default` function L138-140 — `() -> Self` — See CLOACI-S-0005 for the full specification.
--  `ReactorHandle` type L194-215 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L254-640 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `persist_reactor_state` function L643-699 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `tests` module L702-880 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L706-715 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L718-726 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L729-737 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L740-744 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L747-789 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L792-828 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L831-879 — `()` — See CLOACI-S-0005 for the full specification.
+- pub `ReactorHealth` enum L43-55 — `Starting | Warming | Live | Degraded` — Health state of a reactor.
+- pub `reactor_health_channel` function L69-71 — `() -> (watch::Sender<ReactorHealth>, watch::Receiver<ReactorHealth>)` — Create a reactor health reporting channel.
+- pub `ReactionCriteria` enum L75-80 — `WhenAny | WhenAll` — Reaction criteria — when to fire the graph.
+- pub `InputStrategy` enum L84-89 — `Latest | Sequential` — Input strategy — how the reactor handles data between executions.
+- pub `DirtyFlags` struct L93-95 — `{ flags: HashMap<SourceName, bool> }` — Dirty flags — one boolean per source.
+- pub `new` function L98-102 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+- pub `with_sources` function L108-114 — `(sources: &[SourceName]) -> Self` — Create dirty flags pre-seeded with expected source names (all initially false).
+- pub `set` function L116-118 — `(&mut self, source: SourceName, dirty: bool)` — See CLOACI-S-0005 for the full specification.
+- pub `any_set` function L120-122 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `all_set` function L124-126 — `(&self) -> bool` — See CLOACI-S-0005 for the full specification.
+- pub `clear_all` function L128-132 — `(&mut self)` — See CLOACI-S-0005 for the full specification.
+- pub `StrategySignal` enum L143-148 — `BoundaryReceived | ForceFire` — Signals sent from receiver to executor.
+- pub `ManualCommand` enum L152-157 — `ForceFire | FireWith` — Manual commands accepted by the reactor.
+- pub `ReactorCommand` enum L162-168 — `ForceFire | FireWith | GetState | Pause | Resume` — Commands sent by WebSocket operators to a reactor.
+- pub `ReactorResponse` enum L173-179 — `Fired | State | Paused | Resumed | Error` — Responses sent back to WebSocket operators.
+- pub `ReactorHandle` struct L185-190 — `{ cache: Arc<RwLock<InputCache>>, paused: Arc<AtomicBool> }` — Handle to a running reactor — exposes shared state for WebSocket queries.
+- pub `get_state` function L194-197 — `(&self) -> HashMap<String, String>` — Read the current cache as a JSON-friendly map.
+- pub `is_paused` function L200-202 — `(&self) -> bool` — Check if the reactor is paused.
+- pub `pause` function L205-207 — `(&self)` — Pause the reactor (stop executing, continue accepting boundaries).
+- pub `resume` function L210-212 — `(&self)` — Resume the reactor.
+- pub `Reactor` struct L220-250 — `{ graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — The Reactor.
+- pub `new` function L253-276 — `( graph: CompiledGraphFn, criteria: ReactionCriteria, input_strategy: InputStrat...` — See CLOACI-S-0005 for the full specification.
+- pub `with_graph_name` function L279-282 — `(mut self, name: String) -> Self` — Set the graph name (used as key for DAL persistence).
+- pub `with_dal` function L285-288 — `(mut self, dal: crate::dal::unified::DAL) -> Self` — Set the DAL handle for cache persistence.
+- pub `with_health` function L291-294 — `(mut self, health: watch::Sender<ReactorHealth>) -> Self` — Set the health reporter channel.
+- pub `with_expected_sources` function L300-303 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
+- pub `with_accumulator_health` function L306-315 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
+- pub `handle` function L321-326 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
+- pub `run` function L329-637 — `(mut self)` — Run the reactor.
+-  `ReactorHealth` type L57-66 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
+-  `fmt` function L58-65 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L97-133 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `DirtyFlags` type L135-139 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
+-  `default` function L136-138 — `() -> Self` — See CLOACI-S-0005 for the full specification.
+-  `ReactorHandle` type L192-213 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L252-638 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `persist_reactor_state` function L641-697 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `tests` module L700-878 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L704-713 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L716-724 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L727-735 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L738-742 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L745-787 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L790-826 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L829-877 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 
@@ -798,7 +805,7 @@
 -  `EndpointRegistry` type L211-468 — `= EndpointRegistry` — under the same name all receive the message.
 -  `EndpointRegistry` type L470-474 — `impl Default for EndpointRegistry` — under the same name all receive the message.
 -  `default` function L471-473 — `() -> Self` — under the same name all receive the message.
--  `tests` module L477-749 — `-` — under the same name all receive the message.
+-  `tests` module L477-793 — `-` — under the same name all receive the message.
 -  `dummy_handle` function L481-486 — `() -> ReactorHandle` — under the same name all receive the message.
 -  `test_register_send_deregister_accumulator` function L489-512 — `()` — under the same name all receive the message.
 -  `test_broadcast_to_multiple_accumulators` function L515-538 — `()` — under the same name all receive the message.
@@ -807,10 +814,10 @@
 -  `test_send_to_unregistered_reactor` function L577-584 — `()` — under the same name all receive the message.
 -  `test_closed_accumulator_channel_pruned` function L587-613 — `()` — under the same name all receive the message.
 -  `test_list_accumulators_and_reactors` function L616-633 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_deny_by_default` function L636-646 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_authorized_key` function L649-679 — `()` — under the same name all receive the message.
--  `test_accumulator_auth_tenant_scoped` function L682-708 — `()` — under the same name all receive the message.
--  `test_reactor_auth_with_operation_permissions` function L711-748 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_deny_by_default` function L636-650 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_authorized_key` function L653-691 — `()` — under the same name all receive the message.
+-  `test_accumulator_auth_tenant_scoped` function L694-748 — `()` — under the same name all receive the message.
+-  `test_reactor_auth_with_operation_permissions` function L751-792 — `()` — under the same name all receive the message.
 
 #### crates/cloacina/src/computation_graph/scheduler.rs
 
@@ -826,29 +833,29 @@
 - pub `load_graph` function L175-305 — `(&self, decl: ComputationGraphDeclaration) -> Result<(), String>` — Load and start a computation graph.
 - pub `unload_graph` function L308-334 — `(&self, name: &str) -> Result<(), String>` — Unload and shut down a computation graph.
 - pub `list_graphs` function L337-356 — `(&self) -> Vec<GraphStatus>` — List all loaded computation graphs with status.
-- pub `check_and_restart_failed` function L363-622 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
-- pub `start_supervision` function L627-652 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
-- pub `shutdown_all` function L677-688 — `(&self)` — Graceful shutdown of all graphs.
+- pub `check_and_restart_failed` function L363-619 — `(&self) -> usize` — Check all graphs for crashed tasks and restart them.
+- pub `start_supervision` function L624-649 — `( self: &Arc<Self>, mut shutdown_rx: watch::Receiver<bool>, check_interval: std:...` — Start a background supervision loop that checks for crashed tasks.
+- pub `shutdown_all` function L674-685 — `(&self)` — Graceful shutdown of all graphs.
 -  `RunningGraph` struct L111-132 — `{ shutdown_tx: watch::Sender<bool>, shutdown_rx: watch::Receiver<bool>, boundary...` — State for a running computation graph.
 -  `MAX_RECOVERY_ATTEMPTS` variable L135 — `: u32` — Maximum consecutive failures before a component is permanently abandoned.
 -  `BACKOFF_BASE_SECS` variable L138 — `: u64` — Base delay for exponential backoff (doubles on each failure, capped at 60s).
 -  `BACKOFF_MAX_SECS` variable L141 — `: u64` — Maximum backoff delay.
 -  `SUCCESS_RESET_SECS` variable L144 — `: u64` — Duration of successful operation before failure counter resets.
--  `ReactiveScheduler` type L156-689 — `= ReactiveScheduler` — and restarts tasks on panic.
--  `record_recovery_event` function L655-674 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
--  `tests` module L692-869 — `-` — and restarts tasks on panic.
--  `TestEvent` struct L703-705 — `{ value: f64 }` — and restarts tasks on panic.
--  `TestAccumulatorFactory` struct L708 — `-` — A simple passthrough accumulator for testing.
--  `TestAccumulatorFactory` type L710-753 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
--  `spawn` function L711-752 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
--  `Passthrough` struct L720 — `-` — and restarts tasks on panic.
--  `Passthrough` type L723-729 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
--  `Event` type L724 — `= TestEvent` — and restarts tasks on panic.
--  `Output` type L725 — `= TestEvent` — and restarts tasks on panic.
--  `process` function L726-728 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
--  `test_load_graph_push_event_fires` function L756-803 — `()` — and restarts tasks on panic.
--  `test_unload_graph_deregisters` function L806-842 — `()` — and restarts tasks on panic.
--  `test_duplicate_load_rejected` function L845-868 — `()` — and restarts tasks on panic.
+-  `ReactiveScheduler` type L156-686 — `= ReactiveScheduler` — and restarts tasks on panic.
+-  `record_recovery_event` function L652-671 — `(&self, component: &str, attempt: u32, backoff_secs: u64)` — Record a recovery event in the DAL (best-effort, logs on failure).
+-  `tests` module L689-866 — `-` — and restarts tasks on panic.
+-  `TestEvent` struct L700-702 — `{ value: f64 }` — and restarts tasks on panic.
+-  `TestAccumulatorFactory` struct L705 — `-` — A simple passthrough accumulator for testing.
+-  `TestAccumulatorFactory` type L707-750 — `impl AccumulatorFactory for TestAccumulatorFactory` — and restarts tasks on panic.
+-  `spawn` function L708-749 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — and restarts tasks on panic.
+-  `Passthrough` struct L717 — `-` — and restarts tasks on panic.
+-  `Passthrough` type L720-726 — `impl Accumulator for Passthrough` — and restarts tasks on panic.
+-  `Event` type L721 — `= TestEvent` — and restarts tasks on panic.
+-  `Output` type L722 — `= TestEvent` — and restarts tasks on panic.
+-  `process` function L723-725 — `(&mut self, event: TestEvent) -> Option<TestEvent>` — and restarts tasks on panic.
+-  `test_load_graph_push_event_fires` function L753-800 — `()` — and restarts tasks on panic.
+-  `test_unload_graph_deregisters` function L803-839 — `()` — and restarts tasks on panic.
+-  `test_duplicate_load_rejected` function L842-865 — `()` — and restarts tasks on panic.
 
 #### crates/cloacina/src/computation_graph/stream_backend.rs
 
@@ -1068,33 +1075,33 @@
 
 #### crates/cloacina/src/lib.rs
 
-- pub `prelude` module L450-480 — `-` — Prelude module for convenient imports.
-- pub `computation_graph` module L484 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `context` module L485 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_evaluator` module L486 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_recovery` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `crypto` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dal` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `database` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `executor` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `scheduler` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `security` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task_scheduler` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `trigger` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L515-517 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L578-640 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+- pub `prelude` module L453-483 — `-` — Prelude module for convenient imports.
+- pub `computation_graph` module L487 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `context` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_evaluator` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_recovery` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `crypto` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dal` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `database` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `executor` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `scheduler` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task_scheduler` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L518-520 — `()` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L581-643 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1646,35 +1653,35 @@
 
 - pub `WorkflowPackagesDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for workflow package operations with runtime backend selection.
 - pub `new` function L41-43 — `(dal: &'a DAL) -> Self` — Creates a new WorkflowPackagesDAL instance.
-- pub `store_package_metadata` function L46-60 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — Store package metadata in the database.
-- pub `get_package_metadata` function L185-197 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — Retrieve package metadata from the database.
-- pub `get_package_metadata_by_id` function L274-283 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — Retrieve package metadata by UUID from the database.
-- pub `list_all_packages` function L352-358 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — List all packages in the registry.
-- pub `delete_package_metadata` function L397-409 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
-- pub `delete_package_metadata_by_id` function L474-484 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
--  `store_package_metadata_postgres` function L63-121 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
--  `store_package_metadata_sqlite` function L124-182 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
--  `get_package_metadata_postgres` function L200-234 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
--  `get_package_metadata_sqlite` function L237-271 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
--  `get_package_metadata_by_id_postgres` function L286-316 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
--  `get_package_metadata_by_id_sqlite` function L319-349 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
--  `list_all_packages_postgres` function L361-376 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
--  `list_all_packages_sqlite` function L379-394 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_postgres` function L412-440 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_sqlite` function L443-471 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_by_id_postgres` function L487-509 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `delete_package_metadata_by_id_sqlite` function L512-534 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
--  `tests` module L538-789 — `-` — at runtime based on the database connection type.
--  `unique_dal` function L544-554 — `() -> DAL` — at runtime based on the database connection type.
--  `sample_metadata` function L557-575 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
--  `test_store_and_get_package_metadata` function L579-608 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_not_found` function L612-621 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id` function L625-649 — `()` — at runtime based on the database connection type.
--  `test_get_package_metadata_by_id_not_found` function L653-662 — `()` — at runtime based on the database connection type.
--  `test_list_all_packages` function L666-698 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata` function L702-738 — `()` — at runtime based on the database connection type.
--  `test_delete_package_metadata_by_id` function L742-771 — `()` — at runtime based on the database connection type.
--  `test_delete_nonexistent_does_not_error` function L775-788 — `()` — at runtime based on the database connection type.
+- pub `store_package_metadata` function L46-70 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — Store package metadata in the database.
+- pub `get_package_metadata` function L195-207 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — Retrieve package metadata from the database.
+- pub `get_package_metadata_by_id` function L284-293 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — Retrieve package metadata by UUID from the database.
+- pub `list_all_packages` function L362-368 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — List all packages in the registry.
+- pub `delete_package_metadata` function L407-419 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — Delete package metadata from the database.
+- pub `delete_package_metadata_by_id` function L484-494 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — Delete package metadata by UUID from the database.
+-  `store_package_metadata_postgres` function L73-131 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
+-  `store_package_metadata_sqlite` function L134-192 — `( &self, registry_id: &str, package_metadata: &PackageMetadata, storage_type: cr...` — at runtime based on the database connection type.
+-  `get_package_metadata_postgres` function L210-244 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
+-  `get_package_metadata_sqlite` function L247-281 — `( &self, package_name: &str, version: &str, ) -> Result<Option<(String, PackageM...` — at runtime based on the database connection type.
+-  `get_package_metadata_by_id_postgres` function L296-326 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
+-  `get_package_metadata_by_id_sqlite` function L329-359 — `( &self, package_id: Uuid, ) -> Result<Option<(String, PackageMetadata)>, Regist...` — at runtime based on the database connection type.
+-  `list_all_packages_postgres` function L371-386 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
+-  `list_all_packages_sqlite` function L389-404 — `(&self) -> Result<Vec<WorkflowPackage>, RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_postgres` function L422-450 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_sqlite` function L453-481 — `( &self, package_name: &str, version: &str, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_by_id_postgres` function L497-519 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `delete_package_metadata_by_id_sqlite` function L522-544 — `( &self, package_id: Uuid, ) -> Result<(), RegistryError>` — at runtime based on the database connection type.
+-  `tests` module L548-799 — `-` — at runtime based on the database connection type.
+-  `unique_dal` function L554-564 — `() -> DAL` — at runtime based on the database connection type.
+-  `sample_metadata` function L567-585 — `(name: &str, version: &str) -> PackageMetadata` — at runtime based on the database connection type.
+-  `test_store_and_get_package_metadata` function L589-618 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_not_found` function L622-631 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id` function L635-659 — `()` — at runtime based on the database connection type.
+-  `test_get_package_metadata_by_id_not_found` function L663-672 — `()` — at runtime based on the database connection type.
+-  `test_list_all_packages` function L676-708 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata` function L712-748 — `()` — at runtime based on the database connection type.
+-  `test_delete_package_metadata_by_id` function L752-781 — `()` — at runtime based on the database connection type.
+-  `test_delete_nonexistent_does_not_error` function L785-798 — `()` — at runtime based on the database connection type.
 
 #### crates/cloacina/src/dal/unified/workflow_registry.rs
 
@@ -3445,36 +3452,39 @@
 - pub `get_library_extension` function L30-38 — `() -> &'static str` — Get the platform-specific dynamic library extension.
 - pub `PackageMetadata` struct L42-59 — `{ package_name: String, version: String, description: Option<String>, author: Op...` — Metadata extracted from a workflow package.
 - pub `TaskMetadata` struct L63-76 — `{ index: u32, local_id: String, namespaced_id_template: String, dependencies: Ve...` — Individual task metadata.
-- pub `PackageLoader` struct L79-81 — `{ temp_dir: TempDir }` — Package loader for extracting metadata from workflow library files.
-- pub `new` function L85-91 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations.
-- pub `extract_metadata` function L142-159 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from compiled library bytes.
-- pub `extract_graph_metadata` function L261-304 — `( &self, package_data: &[u8], ) -> Result<Option<cloacina_workflow_plugin::Graph...` — Extract computation graph metadata from compiled library bytes.
-- pub `temp_dir` function L307-309 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
-- pub `validate_package_symbols` function L315-341 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
--  `PackageLoader` type L83-342 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
--  `generate_graph_data_from_tasks` function L94-128 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies.
--  `extract_metadata_from_so` function L162-193 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using the fidius-host plugin API.
--  `convert_plugin_metadata_to_rust` function L197-255 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
--  `PackageLoader` type L344-348 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
--  `default` function L345-347 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
--  `tests` module L351-571 — `-` — via the fidius-host plugin API and extract package metadata.
--  `create_invalid_binary_data` function L355-357 — `() -> Vec<u8>` — Helper to create invalid binary data
--  `create_mock_elf_data` function L360-376 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
--  `test_package_loader_creation` function L379-383 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_default` function L386-389 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_invalid_elf` function L392-407 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_empty_data` function L410-421 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_large_invalid_data` function L424-435 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_invalid_data` function L438-449 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_empty_data` function L452-459 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_dir_isolation` function L462-469 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_concurrent_package_loading` function L472-496 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_file_system_operations` function L499-508 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_error_types_and_messages` function L511-529 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_memory_safety` function L532-538 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_directory_cleanup` function L541-548 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_sync_creation` function L551-557 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_get_library_extension` function L560-570 — `()` — via the fidius-host plugin API and extract package metadata.
+- pub `PluginHandleCache` type L93 — `= std::sync::Arc<std::sync::Mutex<Vec<fidius_host::PluginHandle>>>` — Package loader for extracting metadata from workflow library files.
+- pub `PackageLoader` struct L95-99 — `{ temp_dir: TempDir, handle_cache: PluginHandleCache }` — via the fidius-host plugin API and extract package metadata.
+- pub `new` function L103-112 — `() -> Result<Self, LoaderError>` — Create a new package loader with a temporary directory for safe operations.
+- pub `with_handle_cache` function L115-124 — `(cache: PluginHandleCache) -> Result<Self, LoaderError>` — Create a package loader with a shared handle cache.
+- pub `handle_cache` function L127-129 — `(&self) -> PluginHandleCache` — Get the shared handle cache (for passing to TaskRegistrar).
+- pub `extract_metadata` function L180-198 — `( &self, package_data: &[u8], ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from compiled library bytes.
+- pub `extract_graph_metadata` function L312-363 — `( &self, package_data: &[u8], ) -> Result<Option<cloacina_workflow_plugin::Graph...` — Extract computation graph metadata from compiled library bytes.
+- pub `temp_dir` function L366-368 — `(&self) -> &Path` — Get the temporary directory path for manual file operations.
+- pub `validate_package_symbols` function L374-404 — `( &self, package_data: &[u8], ) -> Result<Vec<String>, LoaderError>` — Validate that a package has the required symbols by loading it via fidius-host.
+-  `PackageLoader` type L101-405 — `= PackageLoader` — via the fidius-host plugin API and extract package metadata.
+-  `generate_graph_data_from_tasks` function L132-166 — `( &self, tasks: &[TaskMetadata], ) -> Result<serde_json::Value, LoaderError>` — Generate graph data from task dependencies.
+-  `extract_metadata_from_so` function L203-244 — `( &self, library_path: &Path, ) -> Result<PackageMetadata, LoaderError>` — Extract metadata from a library file using the fidius-host plugin API.
+-  `convert_plugin_metadata_to_rust` function L248-306 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
+-  `PackageLoader` type L407-411 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
+-  `default` function L408-410 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
+-  `tests` module L414-634 — `-` — via the fidius-host plugin API and extract package metadata.
+-  `create_invalid_binary_data` function L418-420 — `() -> Vec<u8>` — Helper to create invalid binary data
+-  `create_mock_elf_data` function L423-439 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
+-  `test_package_loader_creation` function L442-446 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_default` function L449-452 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_invalid_elf` function L455-470 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_empty_data` function L473-484 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_large_invalid_data` function L487-498 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_invalid_data` function L501-512 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_empty_data` function L515-522 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_dir_isolation` function L525-532 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_concurrent_package_loading` function L535-559 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_file_system_operations` function L562-571 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_error_types_and_messages` function L574-592 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_memory_safety` function L595-601 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_directory_cleanup` function L604-611 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_sync_creation` function L614-620 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_get_library_extension` function L623-633 — `()` — via the fidius-host plugin API and extract package metadata.
 
 #### crates/cloacina/src/registry/loader/python_loader.rs
 
@@ -3495,56 +3505,66 @@
 
 #### crates/cloacina/src/registry/loader/task_registrar/dynamic_task.rs
 
--  `DynamicLibraryTask` struct L33-42 — `{ library_data: Vec<u8>, task_name: String, package_name: String, dependencies: ...` — A task implementation that executes via the fidius plugin API.
--  `DynamicLibraryTask` type L44-59 — `= DynamicLibraryTask` — Dynamic library task implementation using fidius-host for task execution.
--  `new` function L46-58 — `( library_data: Vec<u8>, task_name: String, package_name: String, dependencies: ...` — Create a new dynamic library task.
--  `DynamicLibraryTask` type L62-207 — `impl Task for DynamicLibraryTask` — Dynamic library task implementation using fidius-host for task execution.
--  `execute` function L67-196 — `( &self, context: Context<serde_json::Value>, ) -> Result<Context<serde_json::Va...` — Execute the task using the fidius-host plugin API.
--  `id` function L199-201 — `(&self) -> &str` — Get the unique identifier for this task.
--  `dependencies` function L204-206 — `(&self) -> &[TaskNamespace]` — Get the list of task dependencies.
--  `tests` module L210-225 — `-` — Dynamic library task implementation using fidius-host for task execution.
--  `test_dynamic_library_task_creation` function L214-224 — `()` — Dynamic library task implementation using fidius-host for task execution.
+-  `LoadedWorkflowPlugin` struct L35-39 — `{ handle: std::sync::Mutex<fidius_host::PluginHandle>, _temp_dir: tempfile::Temp...` — A persistent handle to a loaded workflow plugin library.
+-  `LoadedWorkflowPlugin` type L43 — `impl Send for LoadedWorkflowPlugin` — temp files or dlopen/dlclose cycles.
+-  `LoadedWorkflowPlugin` type L44 — `impl Sync for LoadedWorkflowPlugin` — temp files or dlopen/dlclose cycles.
+-  `LoadedWorkflowPlugin` type L46-108 — `= LoadedWorkflowPlugin` — temp files or dlopen/dlclose cycles.
+-  `load` function L48-93 — `( library_data: &[u8], package_name: &str, ) -> Result<Self, TaskError>` — Load a workflow plugin from library bytes.
+-  `execute_task` function L96-107 — `( &self, request: TaskExecutionRequest, ) -> Result<TaskExecutionResult, String>` — Call execute_task (method index 1) on the loaded plugin.
+-  `LoadedWorkflowPlugin` type L110-114 — `= LoadedWorkflowPlugin` — temp files or dlopen/dlclose cycles.
+-  `fmt` function L111-113 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — temp files or dlopen/dlclose cycles.
+-  `DynamicLibraryTask` struct L121-130 — `{ plugin: Arc<LoadedWorkflowPlugin>, task_name: String, package_name: String, de...` — A task implementation that executes via the fidius plugin API.
+-  `DynamicLibraryTask` type L132-155 — `= DynamicLibraryTask` — temp files or dlopen/dlclose cycles.
+-  `load_plugin` function L134-139 — `( library_data: &[u8], package_name: &str, ) -> Result<LoadedWorkflowPlugin, Tas...` — Load a plugin library from bytes.
+-  `new` function L142-154 — `( plugin: Arc<LoadedWorkflowPlugin>, task_name: String, package_name: String, de...` — Create a new dynamic library task with a shared plugin handle.
+-  `DynamicLibraryTask` type L158-257 — `impl Task for DynamicLibraryTask` — temp files or dlopen/dlclose cycles.
+-  `execute` function L160-248 — `( &self, context: Context<serde_json::Value>, ) -> Result<Context<serde_json::Va...` — Execute the task using the pre-loaded plugin handle.
+-  `id` function L250-252 — `(&self) -> &str` — temp files or dlopen/dlclose cycles.
+-  `dependencies` function L254-256 — `(&self) -> &[TaskNamespace]` — temp files or dlopen/dlclose cycles.
+-  `tests` module L260-269 — `-` — temp files or dlopen/dlclose cycles.
+-  `test_loaded_workflow_plugin_debug` function L264-268 — `()` — temp files or dlopen/dlclose cycles.
 
 #### crates/cloacina/src/registry/loader/task_registrar/extraction.rs
 
--  `TaskRegistrar` type L26-103 — `= TaskRegistrar` — Task metadata extraction from dynamic libraries via fidius-host.
--  `extract_task_metadata_from_library` function L34-102 — `( &self, package_data: &[u8], ) -> Result<OwnedTaskMetadataCollection, LoaderErr...` — Extract task metadata from a library using the fidius-host plugin API.
+-  `TaskRegistrar` type L26-108 — `= TaskRegistrar` — Task metadata extraction from dynamic libraries via fidius-host.
+-  `extract_task_metadata_from_library` function L34-107 — `( &self, package_data: &[u8], ) -> Result<OwnedTaskMetadataCollection, LoaderErr...` — Extract task metadata from a library using the fidius-host plugin API.
 
 #### crates/cloacina/src/registry/loader/task_registrar/mod.rs
 
-- pub `TaskRegistrar` struct L46-53 — `{ temp_dir: TempDir, registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamesp...` — Task registrar for managing dynamically loaded package tasks.
-- pub `new` function L57-67 — `() -> Result<Self, LoaderError>` — Create a new task registrar with a temporary directory for operations.
-- pub `register_package_tasks` function L82-187 — `( &self, package_id: &str, package_data: &[u8], _metadata: &PackageMetadata, ten...` — Register package tasks with the global task registry using new host-managed approach.
-- pub `unregister_package_tasks` function L199-224 — `(&self, package_id: &str) -> Result<(), LoaderError>` — Unregister package tasks from the global registry.
-- pub `get_registered_namespaces` function L227-230 — `(&self, package_id: &str) -> Vec<TaskNamespace>` — Get the list of task namespaces registered for a package.
-- pub `loaded_package_count` function L233-236 — `(&self) -> usize` — Get the number of currently loaded packages.
-- pub `total_registered_tasks` function L239-242 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
-- pub `temp_dir` function L245-247 — `(&self) -> &Path` — Get the temporary directory path for manual operations.
+- pub `TaskRegistrar` struct L46-56 — `{ temp_dir: TempDir, registered_tasks: Arc<RwLock<HashMap<String, Vec<TaskNamesp...` — Task registrar for managing dynamically loaded package tasks.
+- pub `new` function L60-71 — `() -> Result<Self, LoaderError>` — Create a new task registrar with a temporary directory for operations.
+- pub `with_handle_cache` function L74-87 — `( cache: crate::registry::loader::package_loader::PluginHandleCache, ) -> Result...` — Create a task registrar with a shared handle cache.
+- pub `register_package_tasks` function L102-208 — `( &self, package_id: &str, package_data: &[u8], _metadata: &PackageMetadata, ten...` — Register package tasks with the global task registry using new host-managed approach.
+- pub `unregister_package_tasks` function L220-245 — `(&self, package_id: &str) -> Result<(), LoaderError>` — Unregister package tasks from the global registry.
+- pub `get_registered_namespaces` function L248-251 — `(&self, package_id: &str) -> Vec<TaskNamespace>` — Get the list of task namespaces registered for a package.
+- pub `loaded_package_count` function L254-257 — `(&self) -> usize` — Get the number of currently loaded packages.
+- pub `total_registered_tasks` function L260-263 — `(&self) -> usize` — Get the total number of registered tasks across all packages.
+- pub `temp_dir` function L266-268 — `(&self) -> &Path` — Get the temporary directory path for manual operations.
 -  `dynamic_task` module L23 — `-` — Task registrar for integrating packaged workflow tasks with the global registry.
 -  `extraction` module L24 — `-` — isolation and task lifecycle management.
 -  `types` module L25 — `-` — isolation and task lifecycle management.
--  `TaskRegistrar` type L55-248 — `= TaskRegistrar` — isolation and task lifecycle management.
--  `TaskRegistrar` type L250-254 — `impl Default for TaskRegistrar` — isolation and task lifecycle management.
--  `default` function L251-253 — `() -> Self` — isolation and task lifecycle management.
--  `tests` module L257-549 — `-` — isolation and task lifecycle management.
--  `create_mock_package_metadata` function L262-284 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata for testing
--  `create_mock_binary_data` function L287-290 — `() -> Vec<u8>` — Helper to create mock binary data (not a real .so file)
--  `test_task_registrar_creation` function L293-300 — `()` — isolation and task lifecycle management.
--  `test_task_registrar_default` function L303-307 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_with_invalid_binary` function L310-327 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_with_missing_symbols` function L330-350 — `()` — isolation and task lifecycle management.
--  `test_register_package_tasks_empty_metadata` function L353-364 — `()` — isolation and task lifecycle management.
--  `test_unregister_nonexistent_package` function L367-374 — `()` — isolation and task lifecycle management.
--  `test_get_registered_namespaces_empty` function L377-383 — `()` — isolation and task lifecycle management.
--  `test_registrar_metrics` function L386-402 — `()` — isolation and task lifecycle management.
--  `test_concurrent_registrar_operations` function L405-445 — `()` — isolation and task lifecycle management.
--  `test_temp_directory_isolation` function L448-456 — `()` — isolation and task lifecycle management.
--  `test_package_id_tracking` function L459-470 — `()` — isolation and task lifecycle management.
--  `test_tenant_isolation` function L473-489 — `()` — isolation and task lifecycle management.
--  `test_default_tenant` function L492-503 — `()` — isolation and task lifecycle management.
--  `test_large_package_metadata` function L506-519 — `()` — isolation and task lifecycle management.
--  `test_error_message_quality` function L522-538 — `()` — isolation and task lifecycle management.
--  `test_registrar_sync_creation` function L541-548 — `()` — isolation and task lifecycle management.
+-  `TaskRegistrar` type L58-269 — `= TaskRegistrar` — isolation and task lifecycle management.
+-  `TaskRegistrar` type L271-275 — `impl Default for TaskRegistrar` — isolation and task lifecycle management.
+-  `default` function L272-274 — `() -> Self` — isolation and task lifecycle management.
+-  `tests` module L278-570 — `-` — isolation and task lifecycle management.
+-  `create_mock_package_metadata` function L283-305 — `(package_name: &str, task_count: usize) -> PackageMetadata` — Helper to create mock package metadata for testing
+-  `create_mock_binary_data` function L308-311 — `() -> Vec<u8>` — Helper to create mock binary data (not a real .so file)
+-  `test_task_registrar_creation` function L314-321 — `()` — isolation and task lifecycle management.
+-  `test_task_registrar_default` function L324-328 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_with_invalid_binary` function L331-348 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_with_missing_symbols` function L351-371 — `()` — isolation and task lifecycle management.
+-  `test_register_package_tasks_empty_metadata` function L374-385 — `()` — isolation and task lifecycle management.
+-  `test_unregister_nonexistent_package` function L388-395 — `()` — isolation and task lifecycle management.
+-  `test_get_registered_namespaces_empty` function L398-404 — `()` — isolation and task lifecycle management.
+-  `test_registrar_metrics` function L407-423 — `()` — isolation and task lifecycle management.
+-  `test_concurrent_registrar_operations` function L426-466 — `()` — isolation and task lifecycle management.
+-  `test_temp_directory_isolation` function L469-477 — `()` — isolation and task lifecycle management.
+-  `test_package_id_tracking` function L480-491 — `()` — isolation and task lifecycle management.
+-  `test_tenant_isolation` function L494-510 — `()` — isolation and task lifecycle management.
+-  `test_default_tenant` function L513-524 — `()` — isolation and task lifecycle management.
+-  `test_large_package_metadata` function L527-540 — `()` — isolation and task lifecycle management.
+-  `test_error_message_quality` function L543-559 — `()` — isolation and task lifecycle management.
+-  `test_registrar_sync_creation` function L562-569 — `()` — isolation and task lifecycle management.
 
 #### crates/cloacina/src/registry/loader/task_registrar/types.rs
 
@@ -3644,61 +3664,61 @@
 
 #### crates/cloacina/src/registry/reconciler/extraction.rs
 
--  `HOST_CRATES` variable L29-38 — `: &[(&str, &str)]` — Cloacina crates whose path dependencies should be rewritten to host paths
--  `host_workspace_root` function L43-50 — `() -> PathBuf` — Returns the host workspace root, derived from `CARGO_MANIFEST_DIR` at compile time.
--  `rewrite_host_dependencies` function L60-140 — `(source_dir: &Path) -> Result<(), RegistryError>` — Rewrite path dependencies in an extracted source package's Cargo.toml
--  `RegistryReconciler` type L142-249 — `= RegistryReconciler` — it to a cdylib using `cargo build`.
--  `compile_source_package` function L152-198 — `( source_dir: &Path, ) -> Result<PathBuf, RegistryError>` — Compile a Rust source package directory to a cdylib.
--  `find_compiled_library` function L205-248 — `(target_dir: &Path) -> Result<PathBuf, RegistryError>` — Search `target_dir` for the cdylib produced by `cargo build --lib`.
--  `tests` module L252-576 — `-` — it to a cdylib using `cargo build`.
--  `find_compiled_library_finds_dylib_on_macos` function L261-278 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_ignores_hash_suffixed_artifacts` function L281-303 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_ignores_wrong_extension` function L306-317 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_ignores_non_lib_prefix` function L320-339 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_empty_directory` function L342-346 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_nonexistent_directory` function L349-355 — `()` — it to a cdylib using `cargo build`.
--  `find_compiled_library_prefers_first_matching` function L358-378 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_adds_path_to_string_dep` function L386-427 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_adds_path_to_table_dep` function L431-453 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_preserves_existing_workspace` function L457-480 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_no_cloacina_deps_is_noop` function L484-506 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_missing_cargo_toml_errors` function L510-516 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_invalid_toml_errors` function L520-527 — `()` — it to a cdylib using `cargo build`.
--  `rewrite_host_dependencies_handles_dev_and_build_deps` function L531-563 — `()` — it to a cdylib using `cargo build`.
--  `host_workspace_root_returns_valid_path` function L567-575 — `()` — it to a cdylib using `cargo build`.
+-  `HOST_CRATES` variable L29-42 — `: &[(&str, &str)]` — Cloacina crates whose path dependencies should be rewritten to host paths
+-  `host_workspace_root` function L47-54 — `() -> PathBuf` — Returns the host workspace root, derived from `CARGO_MANIFEST_DIR` at compile time.
+-  `rewrite_host_dependencies` function L64-144 — `(source_dir: &Path) -> Result<(), RegistryError>` — Rewrite path dependencies in an extracted source package's Cargo.toml
+-  `RegistryReconciler` type L146-253 — `= RegistryReconciler` — it to a cdylib using `cargo build`.
+-  `compile_source_package` function L156-202 — `( source_dir: &Path, ) -> Result<PathBuf, RegistryError>` — Compile a Rust source package directory to a cdylib.
+-  `find_compiled_library` function L209-252 — `(target_dir: &Path) -> Result<PathBuf, RegistryError>` — Search `target_dir` for the cdylib produced by `cargo build --lib`.
+-  `tests` module L256-580 — `-` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_finds_dylib_on_macos` function L265-282 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_ignores_hash_suffixed_artifacts` function L285-307 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_ignores_wrong_extension` function L310-321 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_ignores_non_lib_prefix` function L324-343 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_empty_directory` function L346-350 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_nonexistent_directory` function L353-359 — `()` — it to a cdylib using `cargo build`.
+-  `find_compiled_library_prefers_first_matching` function L362-382 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_adds_path_to_string_dep` function L390-431 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_adds_path_to_table_dep` function L435-457 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_preserves_existing_workspace` function L461-484 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_no_cloacina_deps_is_noop` function L488-510 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_missing_cargo_toml_errors` function L514-520 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_invalid_toml_errors` function L524-531 — `()` — it to a cdylib using `cargo build`.
+-  `rewrite_host_dependencies_handles_dev_and_build_deps` function L535-567 — `()` — it to a cdylib using `cargo build`.
+-  `host_workspace_root_returns_valid_path` function L571-579 — `()` — it to a cdylib using `cargo build`.
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-815 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-375 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L378-424 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L427-468 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L471-612 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L615-663 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L666-713 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L716-739 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L742-753 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L761-803 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L806-814 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L818-1114 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L827-832 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L834-847 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L849-865 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L873-882 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L886-917 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L921-941 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L945-984 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L992-1011 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1015-1022 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1026-1029 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1037-1072 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1076-1083 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1090-1092 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1095-1113 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1096-1098 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1100-1102 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1104-1106 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1108-1112 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-832 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-391 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L394-441 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L444-485 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L488-629 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L632-680 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L683-730 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L733-756 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L759-770 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L778-820 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L823-831 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L835-1131 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L844-849 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L851-864 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L866-882 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L890-899 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L903-934 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L938-958 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L962-1001 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1009-1028 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1032-1039 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1043-1046 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1054-1089 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1093-1100 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1107-1109 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1112-1130 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1113-1115 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1117-1119 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1121-1123 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1125-1129 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -3708,32 +3728,33 @@
 - pub `has_failures` function L109-111 — `(&self) -> bool` — Check if the reconciliation had any failures
 - pub `ReconcilerStatus` struct L135-141 — `{ packages_loaded: usize, package_details: Vec<PackageStatusDetail> }` — Status information about the reconciler
 - pub `PackageStatusDetail` struct L145-157 — `{ package_name: String, version: String, task_count: usize, has_workflow: bool }` — Detailed status information about a loaded package
-- pub `RegistryReconciler` struct L160-184 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
-- pub `new` function L188-209 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
-- pub `with_reactive_scheduler` function L212-215 — `(mut self, scheduler: Arc<ReactiveScheduler>) -> Self` — Set the reactive scheduler for computation graph package routing.
-- pub `start_reconciliation_loop` function L218-291 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
-- pub `reconcile` function L294-391 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
-- pub `get_status` function L417-432 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
+- pub `RegistryReconciler` struct L160-185 — `{ registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, loaded_packages...` — Registry Reconciler for synchronizing database state with in-memory registries
+- pub `new` function L189-212 — `( registry: Arc<dyn WorkflowRegistry>, config: ReconcilerConfig, shutdown_rx: wa...` — Create a new Registry Reconciler
+- pub `with_reactive_scheduler` function L215-221 — `(self, scheduler: Arc<ReactiveScheduler>) -> Self` — Set the reactive scheduler for computation graph package routing.
+- pub `set_reactive_scheduler_slot` function L225-230 — `( &mut self, slot: Arc<tokio::sync::RwLock<Option<Arc<ReactiveScheduler>>>>, )` — Replace the reactive scheduler slot with a shared reference from the runner.
+- pub `start_reconciliation_loop` function L233-306 — `(mut self) -> Result<(), RegistryError>` — Start the background reconciliation loop
+- pub `reconcile` function L309-423 — `(&self) -> Result<ReconcileResult, RegistryError>` — Perform a single reconciliation operation
+- pub `get_status` function L449-464 — `(&self) -> ReconcilerStatus` — Get the current reconciliation status
 -  `extraction` module L34 — `-` — # Registry Reconciler
 -  `loading` module L35 — `-` — - `PackageState`: Tracking loaded package state
 -  `ReconcilerConfig` type L71-81 — `impl Default for ReconcilerConfig` — - `PackageState`: Tracking loaded package state
 -  `default` function L72-80 — `() -> Self` — - `PackageState`: Tracking loaded package state
 -  `ReconcileResult` type L102-112 — `= ReconcileResult` — - `PackageState`: Tracking loaded package state
 -  `PackageState` struct L116-131 — `{ metadata: WorkflowMetadata, task_namespaces: Vec<TaskNamespace>, workflow_name...` — Tracks the state of loaded packages
--  `RegistryReconciler` type L186-433 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
--  `shutdown_cleanup` function L394-414 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
--  `tests` module L436-619 — `-` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_default` function L442-449 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_methods` function L452-474 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status` function L477-501 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_custom_values` function L504-518 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_no_changes_no_failures` function L521-533 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_unloaded_counts_as_change` function L536-547 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_both_loaded_and_unloaded` function L550-564 — `()` — - `PackageState`: Tracking loaded package state
--  `test_package_status_detail_fields` function L567-579 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_status_empty` function L582-590 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconciler_config_clone` function L593-602 — `()` — - `PackageState`: Tracking loaded package state
--  `test_reconcile_result_clone` function L605-618 — `()` — - `PackageState`: Tracking loaded package state
+-  `RegistryReconciler` type L187-465 — `= RegistryReconciler` — - `PackageState`: Tracking loaded package state
+-  `shutdown_cleanup` function L426-446 — `(&self) -> Result<(), RegistryError>` — Perform cleanup operations during shutdown
+-  `tests` module L468-651 — `-` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_default` function L474-481 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_methods` function L484-506 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status` function L509-533 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_custom_values` function L536-550 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_no_changes_no_failures` function L553-565 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_unloaded_counts_as_change` function L568-579 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_both_loaded_and_unloaded` function L582-596 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_package_status_detail_fields` function L599-611 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_status_empty` function L614-622 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconciler_config_clone` function L625-634 — `()` — - `PackageState`: Tracking loaded package state
+-  `test_reconcile_result_clone` function L637-650 — `()` — - `PackageState`: Tracking loaded package state
 
 ### crates/cloacina/src/registry/workflow_registry
 
@@ -3902,8 +3923,8 @@
 - pub `database_url` function L520-523 — `(mut self, url: &str) -> Self` — Sets the database URL
 - pub `schema` function L529-532 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L535-538 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L552-667 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
-- pub `routing_config` function L685-688 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L552-668 — `(self) -> Result<DefaultRunner, PipelineError>` — Builds the DefaultRunner
+- pub `routing_config` function L686-689 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L91-241 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L258-294 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L259-293 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -3912,18 +3933,18 @@
 -  `default` function L466-468 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L503-507 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L504-506 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L509-689 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L509-690 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L541-549 — `(schema: &str) -> Result<(), PipelineError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L692-858 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L696-711 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L714-737 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L740-748 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L751-772 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L775-790 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L793-796 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L799-812 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L815-823 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L826-857 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L693-859 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L697-712 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L715-738 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L741-749 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L752-773 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L776-791 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L794-797 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L800-813 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L816-824 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L827-858 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
@@ -3942,26 +3963,27 @@
 
 #### crates/cloacina/src/runner/default_runner/mod.rs
 
-- pub `DefaultRunner` struct L68-85 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
-- pub `new` function L119-121 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
-- pub `builder` function L135-137 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L155-161 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L178-245 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
-- pub `database` function L248-250 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L253-255 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `unified_scheduler` function L261-263 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
-- pub `shutdown` function L275-312 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
+- pub `DefaultRunner` struct L68-87 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
+- pub `new` function L121-123 — `(database_url: &str) -> Result<Self, PipelineError>` — Creates a new default runner with default configuration
+- pub `builder` function L137-139 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
+- pub `with_schema` function L157-163 — `(database_url: &str, schema: &str) -> Result<Self, PipelineError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L180-248 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, PipelineErr...` — Creates a new unified executor with custom configuration
+- pub `database` function L251-253 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L256-258 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `unified_scheduler` function L264-266 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `set_reactive_scheduler` function L270-276 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,...` — Set the reactive scheduler for computation graph package routing.
+- pub `shutdown` function L288-325 — `(&self) -> Result<(), PipelineError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `RuntimeHandles` struct L91-104 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L106-313 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L315-328 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L316-327 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L331-337 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L332-336 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `RuntimeHandles` struct L93-106 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
+-  `DefaultRunner` type L108-326 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L328-342 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L329-341 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L345-351 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L346-350 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
@@ -3984,13 +4006,13 @@
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
--  `DefaultRunner` type L37-400 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
+-  `DefaultRunner` type L37-407 — `= DefaultRunner` — the scheduler, executor, cron scheduler, cron recovery, and registry reconciler.
 -  `create_runner_span` function L39-57 — `(&self, operation: &str) -> tracing::Span` — Creates a tracing span for this runner instance with proper context
 -  `start_background_services` function L69-135 — `(&self) -> Result<(), PipelineError>` — Starts the background scheduler and executor services
 -  `start_unified_scheduler` function L138-195 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the unified scheduler that handles both cron and trigger schedules.
 -  `start_cron_recovery` function L198-255 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the cron recovery service
--  `start_registry_reconciler` function L258-352 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
--  `start_stale_claim_sweeper` function L355-399 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
+-  `start_registry_reconciler` function L258-359 — `( &self, handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<()...` — Starts the registry reconciler service
+-  `start_stale_claim_sweeper` function L362-406 — `( &self, _handles: &mut super::RuntimeHandles, shutdown_tx: &broadcast::Sender<(...` — Starts the stale claim sweeper background service.
 
 ### crates/cloacina/src/runner
 
@@ -5156,8 +5178,8 @@
 -  `test_delete_nonexistent_package` function L265-285 — `()`
 -  `test_get_nonexistent_package` function L288-306 — `()`
 -  `test_store_package_with_complex_metadata` function L309-402 — `()`
--  `test_store_package_with_invalid_uuid` function L405-439 — `()`
--  `test_package_versioning` function L442-511 — `()`
+-  `test_store_package_with_invalid_uuid` function L405-444 — `()`
+-  `test_package_versioning` function L447-516 — `()`
 
 #### crates/cloacina/tests/integration/dal/workflow_registry.rs
 
@@ -5604,6 +5626,60 @@
 
 - pub `configure` function L47-66 — `()` — Configures the Python rpath and PyO3 cfg flags for the current binary crate.
 
+### crates/cloacina-computation-graph/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/cloacina-computation-graph/src/lib.rs
+
+- pub `SourceName` struct L25 — `-` — Identifies an accumulator source by name.
+- pub `new` function L28-30 — `(name: impl Into<String>) -> Self` — this crate.
+- pub `as_str` function L32-34 — `(&self) -> &str` — this crate.
+- pub `serialize` function L63-72 — `(value: &T) -> Result<Vec<u8>, GraphError>` — Serialize a value to bytes using the build-profile-appropriate format.
+- pub `deserialize` function L75-84 — `(bytes: &[u8]) -> Result<T, GraphError>` — Deserialize bytes to a value using the build-profile-appropriate format.
+- pub `InputCache` struct L99-101 — `{ entries: HashMap<SourceName, Vec<u8>> }` — The input cache holds the last-seen serialized boundary per source.
+- pub `new` function L104-108 — `() -> Self` — this crate.
+- pub `update` function L111-113 — `(&mut self, source: SourceName, bytes: Vec<u8>)` — Update the cached value for a source.
+- pub `get` function L116-119 — `(&self, name: &str) -> Option<Result<T, GraphError>>` — Get and deserialize a cached value by source name.
+- pub `has` function L122-124 — `(&self, name: &str) -> bool` — Check if a source has an entry in the cache.
+- pub `get_raw` function L127-131 — `(&self, name: &str) -> Option<&[u8]>` — Get the raw bytes for a source.
+- pub `snapshot` function L134-136 — `(&self) -> InputCache` — Create a snapshot (clone) of the cache.
+- pub `len` function L139-141 — `(&self) -> usize` — Number of sources in the cache.
+- pub `is_empty` function L144-146 — `(&self) -> bool` — Whether the cache is empty.
+- pub `replace_all` function L149-151 — `(&mut self, other: InputCache)` — Replace all entries.
+- pub `sources` function L154-156 — `(&self) -> Vec<&SourceName>` — List all source names in the cache.
+- pub `entries_raw` function L159-161 — `(&self) -> &HashMap<SourceName, Vec<u8>>` — Get a reference to the raw entries map.
+- pub `entries_as_json` function L164-178 — `(&self) -> HashMap<String, String>` — Return entries as a JSON-friendly map.
+- pub `GraphResult` enum L197-202 — `Completed | Error` — Result of executing a compiled computation graph.
+- pub `completed` function L205-207 — `(outputs: Vec<Box<dyn Any + Send>>) -> Self` — this crate.
+- pub `completed_empty` function L209-213 — `() -> Self` — this crate.
+- pub `error` function L215-217 — `(err: GraphError) -> Self` — this crate.
+- pub `is_completed` function L219-221 — `(&self) -> bool` — this crate.
+- pub `is_error` function L223-225 — `(&self) -> bool` — this crate.
+- pub `GraphError` enum L230-245 — `Serialization | Deserialization | MissingInput | NodeExecution | Execution` — Errors that can occur during graph execution.
+- pub `CompiledGraphFn` type L252-253 — `= Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + ...` — Type alias for the compiled graph function.
+- pub `ComputationGraphRegistration` struct L260-267 — `{ graph_fn: CompiledGraphFn, accumulator_names: Vec<String>, reaction_mode: Stri...` — Metadata about a registered computation graph.
+- pub `ComputationGraphConstructor` type L269-270 — `= Box<dyn Fn() -> ComputationGraphRegistration + Send + Sync>` — this crate.
+- pub `GlobalComputationGraphRegistry` type L271-272 — `= Arc<parking_lot::RwLock<HashMap<String, ComputationGraphConstructor>>>` — this crate.
+- pub `register_computation_graph_constructor` function L278-285 — `(graph_name: String, constructor: F)` — Register a computation graph constructor in the global registry.
+- pub `global_computation_graph_registry` function L288-290 — `() -> GlobalComputationGraphRegistry` — Get the global computation graph registry.
+- pub `list_registered_graphs` function L293-296 — `() -> Vec<String>` — List all registered computation graph names.
+- pub `deregister_computation_graph` function L299-306 — `(graph_name: &str)` — Remove a computation graph from the global registry.
+- pub `types` module L309-313 — `-` — this crate.
+-  `SourceName` type L27-35 — `= SourceName` — this crate.
+-  `SourceName` type L37-41 — `= SourceName` — this crate.
+-  `fmt` function L38-40 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — this crate.
+-  `SourceName` type L43-47 — `= SourceName` — this crate.
+-  `from` function L44-46 — `(s: &str) -> Self` — this crate.
+-  `SourceName` type L49-53 — `= SourceName` — this crate.
+-  `from` function L50-52 — `(s: String) -> Self` — this crate.
+-  `InputCache` type L103-179 — `= InputCache` — this crate.
+-  `InputCache` type L181-185 — `impl Default for InputCache` — this crate.
+-  `default` function L182-184 — `() -> Self` — this crate.
+-  `hex_encode` function L187-189 — `(bytes: &[u8]) -> String` — this crate.
+-  `GraphResult` type L204-226 — `= GraphResult` — this crate.
+-  `GLOBAL_COMPUTATION_GRAPH_REGISTRY` variable L274-275 — `: once_cell::sync::Lazy<GlobalComputationGraphRegistry>` — this crate.
+
 ### crates/cloacina-macros/src/computation_graph
 
 > *Semantic summary to be generated by AI agent.*
@@ -5639,16 +5715,16 @@
 
 #### crates/cloacina-macros/src/computation_graph/codegen.rs
 
-- pub `generate` function L49-294 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
+- pub `generate` function L49-346 — `(ir: &GraphIR, module: &ItemMod) -> syn::Result<TokenStream>` — Validate the graph against the module's functions and generate the compiled output.
 -  `pascal_case_ident` function L33-46 — `(ident: &Ident) -> Ident` — Convert a snake_case Ident to PascalCase string for struct naming.
--  `extract_functions` function L297-315 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
--  `has_blocking_attr` function L318-327 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
--  `generate_compiled_function` function L333-372 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
--  `generate_cache_reads` function L375-392 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
--  `generate_node_execution` function L395-465 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
--  `generate_call_args` function L468-495 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
--  `generate_routing_match` function L498-539 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
--  `generate_routing_use_stmts` function L543-571 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
+-  `extract_functions` function L349-367 — `(module: &ItemMod) -> syn::Result<HashMap<String, ItemFn>>` — Extract named async functions from a module.
+-  `has_blocking_attr` function L370-379 — `(func: &ItemFn) -> bool` — Check if a function has `#[node(blocking)]` attribute.
+-  `generate_compiled_function` function L385-431 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, blocking_nodes: &HashSet<St...` — Generate the body of the compiled async function.
+-  `generate_cache_reads` function L434-451 — `(ir: &GraphIR) -> TokenStream` — Generate `let` bindings for cache reads.
+-  `generate_node_execution` function L454-531 — `( ir: &GraphIR, node: &GraphNode, functions: &HashMap<String, ItemFn>, blocking_...` — Generate execution code for a single node.
+-  `generate_call_args` function L534-561 — `(ir: &GraphIR, node: &GraphNode) -> TokenStream` — Generate the argument list for a node function call.
+-  `generate_routing_match` function L564-606 — `( ir: &GraphIR, from_name: &str, variants: &[super::graph_ir::GraphRoutingVarian...` — Generate match arms for a routing node.
+-  `generate_routing_use_stmts` function L610-638 — `( ir: &GraphIR, functions: &HashMap<String, ItemFn>, mod_name: &Ident, ) -> Vec<...` — Generate `use ModName::ReturnType::*;` for routing nodes so enum variant
 
 #### crates/cloacina-macros/src/computation_graph/graph_ir.rs
 
@@ -6213,57 +6289,57 @@
 #### crates/cloacinactl/src/commands/serve.rs
 
 - pub `AppState` struct L37-43 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
-- pub `run` function L46-162 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `build_router` function L168-277 — `(state: AppState) -> Router` — Build the axum router with all routes.
--  `health` function L280-282 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L285-314 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L317-327 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L330-335 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L338-360 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L366-414 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L417-426 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L429-1253 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L437 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L440-454 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L457-465 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L468-483 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_health_returns_200` function L489-501 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L505-517 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_200` function L521-544 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L550-562 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L566-579 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L583-596 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L600-613 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L619-637 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L641-657 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L661-676 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L680-705 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L709-724 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L728-742 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L748-774 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L778-792 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L796-812 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L816-853 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L857-872 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L878-892 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L896-909 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L913-937 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L941-965 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L968-973 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L976-987 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L990-1000 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1004-1030 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1034-1060 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1064-1084 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1090-1104 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1108-1121 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1125-1139 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1143-1156 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1160-1175 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1179-1197 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1203-1217 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1221-1234 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1240-1252 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+- pub `run` function L46-167 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+-  `build_router` function L173-282 — `(state: AppState) -> Router` — Build the axum router with all routes.
+-  `health` function L285-287 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L290-319 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L322-332 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L335-340 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L343-365 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L371-419 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L422-431 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L434-1258 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L442 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L445-459 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L462-470 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L473-488 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_health_returns_200` function L494-506 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L510-522 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_200` function L526-549 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L555-567 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L571-584 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L588-601 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L605-618 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L624-642 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L646-662 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L666-681 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L685-710 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L714-729 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L733-747 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L753-779 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L783-797 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L801-817 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L821-858 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L862-877 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L883-897 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L901-914 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L918-942 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L946-970 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L973-978 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L981-992 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L995-1005 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1009-1035 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1039-1065 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1069-1089 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1095-1109 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1113-1126 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1130-1144 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1148-1161 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1165-1180 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1184-1202 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1208-1222 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1226-1239 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1245-1257 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -6388,9 +6464,9 @@
 - pub `reactor_ws` function L129-178 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
 -  `extract_ws_token` function L53-64 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
 -  `handle_accumulator_socket` function L184-255 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
--  `handle_reactor_socket` function L262-312 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
--  `command_to_op` function L315-324 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
--  `process_reactor_command` function L327-404 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
+-  `handle_reactor_socket` function L262-321 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+-  `command_to_op` function L324-333 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
+-  `process_reactor_command` function L336-413 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
 
 ### docs/themes/hugo-geekdoc/static/js
 
@@ -8877,7 +8953,7 @@
 
 #### examples/performance/computation-graph/build.rs
 
--  `main` function L1-3 — `()`
+-  `main` function L17-19 — `()`
 
 ### examples/performance/computation-graph/src
 
@@ -8885,37 +8961,37 @@
 
 #### examples/performance/computation-graph/src/main.rs
 
-- pub `OrderBookData` struct L64-67 — `{ best_bid: f64, best_ask: f64 }` — bounded memory growth, no persistent channel backup.
-- pub `PricingData` struct L70-72 — `{ mid_price: f64 }` — bounded memory growth, no persistent channel backup.
-- pub `TradeSignal` struct L75-79 — `{ direction: String, price: f64, confidence: f64 }` — bounded memory growth, no persistent channel backup.
-- pub `NoActionReason` struct L82-84 — `{ reason: String }` — bounded memory growth, no persistent channel backup.
-- pub `TradeConfirmation` struct L87-90 — `{ executed: bool, message: String }` — bounded memory growth, no persistent channel backup.
-- pub `AuditRecord` struct L93-96 — `{ logged: bool, reason: String }` — bounded memory growth, no persistent channel backup.
-- pub `market_maker` module L111-174 — `-` — bounded memory growth, no persistent channel backup.
-- pub `DecisionOutcome` enum L115-118 — `Trade | NoAction` — bounded memory growth, no persistent channel backup.
-- pub `decision` function L120-156 — `( orderbook: Option<&OrderBookData>, pricing: Option<&PricingData>, ) -> Decisio...` — bounded memory growth, no persistent channel backup.
-- pub `signal_handler` function L158-166 — `(signal: &TradeSignal) -> TradeConfirmation` — bounded memory growth, no persistent channel backup.
-- pub `audit_logger` function L168-173 — `(reason: &NoActionReason) -> AuditRecord` — bounded memory growth, no persistent channel backup.
--  `ALLOCATED` variable L29 — `: AtomicUsize` — bounded memory growth, no persistent channel backup.
--  `TrackingAllocator` struct L31 — `-` — bounded memory growth, no persistent channel backup.
--  `TrackingAllocator` type L33-50 — `impl GlobalAlloc for TrackingAllocator` — bounded memory growth, no persistent channel backup.
--  `alloc` function L34-37 — `(&self, layout: Layout) -> *mut u8` — bounded memory growth, no persistent channel backup.
--  `dealloc` function L39-42 — `(&self, ptr: *mut u8, layout: Layout)` — bounded memory growth, no persistent channel backup.
--  `realloc` function L44-49 — `(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8` — bounded memory growth, no persistent channel backup.
--  `GLOBAL` variable L53 — `: TrackingAllocator` — bounded memory growth, no persistent channel backup.
--  `current_allocated_bytes` function L55-57 — `() -> usize` — bounded memory growth, no persistent channel backup.
--  `OrderBookAccumulator` struct L180 — `-` — bounded memory growth, no persistent channel backup.
--  `OrderBookAccumulator` type L183-189 — `= OrderBookAccumulator` — bounded memory growth, no persistent channel backup.
--  `Event` type L184 — `= OrderBookData` — bounded memory growth, no persistent channel backup.
--  `Output` type L185 — `= OrderBookData` — bounded memory growth, no persistent channel backup.
--  `process` function L186-188 — `(&mut self, event: OrderBookData) -> Option<OrderBookData>` — bounded memory growth, no persistent channel backup.
--  `PricingAccumulator` struct L191 — `-` — bounded memory growth, no persistent channel backup.
--  `PricingAccumulator` type L194-200 — `= PricingAccumulator` — bounded memory growth, no persistent channel backup.
--  `Event` type L195 — `= PricingData` — bounded memory growth, no persistent channel backup.
--  `Output` type L196 — `= PricingData` — bounded memory growth, no persistent channel backup.
--  `process` function L197-199 — `(&mut self, event: PricingData) -> Option<PricingData>` — bounded memory growth, no persistent channel backup.
--  `Args` struct L209-229 — `{ duration: u64, fast_interval_ms: u64, slow_interval_ms: u64, mem_threshold_pct...` — bounded memory growth, no persistent channel backup.
--  `main` function L236-502 — `()` — bounded memory growth, no persistent channel backup.
+- pub `OrderBookData` struct L80-83 — `{ best_bid: f64, best_ask: f64 }` — bounded memory growth, no persistent channel backup.
+- pub `PricingData` struct L86-88 — `{ mid_price: f64 }` — bounded memory growth, no persistent channel backup.
+- pub `TradeSignal` struct L91-95 — `{ direction: String, price: f64, confidence: f64 }` — bounded memory growth, no persistent channel backup.
+- pub `NoActionReason` struct L98-100 — `{ reason: String }` — bounded memory growth, no persistent channel backup.
+- pub `TradeConfirmation` struct L103-106 — `{ executed: bool, message: String }` — bounded memory growth, no persistent channel backup.
+- pub `AuditRecord` struct L109-112 — `{ logged: bool, reason: String }` — bounded memory growth, no persistent channel backup.
+- pub `market_maker` module L127-190 — `-` — bounded memory growth, no persistent channel backup.
+- pub `DecisionOutcome` enum L131-134 — `Trade | NoAction` — bounded memory growth, no persistent channel backup.
+- pub `decision` function L136-172 — `( orderbook: Option<&OrderBookData>, pricing: Option<&PricingData>, ) -> Decisio...` — bounded memory growth, no persistent channel backup.
+- pub `signal_handler` function L174-182 — `(signal: &TradeSignal) -> TradeConfirmation` — bounded memory growth, no persistent channel backup.
+- pub `audit_logger` function L184-189 — `(reason: &NoActionReason) -> AuditRecord` — bounded memory growth, no persistent channel backup.
+-  `ALLOCATED` variable L45 — `: AtomicUsize` — bounded memory growth, no persistent channel backup.
+-  `TrackingAllocator` struct L47 — `-` — bounded memory growth, no persistent channel backup.
+-  `TrackingAllocator` type L49-66 — `impl GlobalAlloc for TrackingAllocator` — bounded memory growth, no persistent channel backup.
+-  `alloc` function L50-53 — `(&self, layout: Layout) -> *mut u8` — bounded memory growth, no persistent channel backup.
+-  `dealloc` function L55-58 — `(&self, ptr: *mut u8, layout: Layout)` — bounded memory growth, no persistent channel backup.
+-  `realloc` function L60-65 — `(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8` — bounded memory growth, no persistent channel backup.
+-  `GLOBAL` variable L69 — `: TrackingAllocator` — bounded memory growth, no persistent channel backup.
+-  `current_allocated_bytes` function L71-73 — `() -> usize` — bounded memory growth, no persistent channel backup.
+-  `OrderBookAccumulator` struct L196 — `-` — bounded memory growth, no persistent channel backup.
+-  `OrderBookAccumulator` type L199-205 — `= OrderBookAccumulator` — bounded memory growth, no persistent channel backup.
+-  `Event` type L200 — `= OrderBookData` — bounded memory growth, no persistent channel backup.
+-  `Output` type L201 — `= OrderBookData` — bounded memory growth, no persistent channel backup.
+-  `process` function L202-204 — `(&mut self, event: OrderBookData) -> Option<OrderBookData>` — bounded memory growth, no persistent channel backup.
+-  `PricingAccumulator` struct L207 — `-` — bounded memory growth, no persistent channel backup.
+-  `PricingAccumulator` type L210-216 — `= PricingAccumulator` — bounded memory growth, no persistent channel backup.
+-  `Event` type L211 — `= PricingData` — bounded memory growth, no persistent channel backup.
+-  `Output` type L212 — `= PricingData` — bounded memory growth, no persistent channel backup.
+-  `process` function L213-215 — `(&mut self, event: PricingData) -> Option<PricingData>` — bounded memory growth, no persistent channel backup.
+-  `Args` struct L225-245 — `{ duration: u64, fast_interval_ms: u64, slow_interval_ms: u64, mem_threshold_pct...` — bounded memory growth, no persistent channel backup.
+-  `main` function L252-512 — `()` — bounded memory growth, no persistent channel backup.
 
 ### examples/performance/parallel
 

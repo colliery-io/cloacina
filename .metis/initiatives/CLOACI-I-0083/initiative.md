@@ -4,14 +4,14 @@ level: initiative
 title: "Authorization Model — Tenant Isolation, Key Scoping, and CG Policy Wiring"
 short_code: "CLOACI-I-0083"
 created_at: 2026-04-06T11:27:55.819508+00:00
-updated_at: 2026-04-06T16:06:49.942650+00:00
+updated_at: 2026-04-06T19:42:35.052536+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

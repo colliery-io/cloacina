@@ -25,8 +25,6 @@
 //! See CLOACI-S-0005 for the full specification.
 
 use std::collections::{HashMap, VecDeque};
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -215,8 +213,8 @@ impl ReactorHandle {
 }
 
 /// Type alias for the compiled graph function.
-pub type CompiledGraphFn =
-    Arc<dyn Fn(InputCache) -> Pin<Box<dyn Future<Output = GraphResult> + Send>> + Send + Sync>;
+/// Re-exported from `cloacina-computation-graph`.
+pub use cloacina_computation_graph::CompiledGraphFn;
 
 /// The Reactor.
 pub struct Reactor {

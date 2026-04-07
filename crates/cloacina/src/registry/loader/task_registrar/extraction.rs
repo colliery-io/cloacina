@@ -37,10 +37,11 @@ impl TaskRegistrar {
     ) -> Result<OwnedTaskMetadataCollection, LoaderError> {
         // Write package to temporary file with the correct platform extension
         let library_extension = get_library_extension();
-        let temp_path = self
-            .temp_dir
-            .path()
-            .join(format!("metadata_extract.{}", library_extension));
+        let temp_path = self.temp_dir.path().join(format!(
+            "tasks_{}.{}",
+            uuid::Uuid::new_v4(),
+            library_extension
+        ));
         fs::write(&temp_path, package_data)
             .await
             .map_err(|e| LoaderError::FileSystem {
@@ -86,6 +87,11 @@ impl TaskRegistrar {
                     .unwrap_or_else(|_| "[]".to_string()),
             })
             .collect();
+
+        // Keep handle alive to prevent dlclose — inventory linked-list corruption
+        if let Ok(mut cache) = self.handle_cache.lock() {
+            cache.push(handle);
+        }
 
         tracing::debug!(
             "Extracted metadata via fidius: package={}, workflow={}, task_count={}",

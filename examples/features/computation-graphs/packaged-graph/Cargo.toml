@@ -13,14 +13,13 @@ packaged = []
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cloacina = { path = "../../../../crates/cloacina" }
+cloacina-computation-graph = { path = "../../../../crates/cloacina-computation-graph" }
 cloacina-macros = { path = "../../../../crates/cloacina-macros" }
 cloacina-workflow-plugin = { path = "../../../../crates/cloacina-workflow-plugin" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
 tokio = { version = "1.0", features = ["full"] }
-ctor = "0.2"
 
 [build-dependencies]
 cloacina-build = { path = "../../../../crates/cloacina-build" }

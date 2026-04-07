@@ -119,11 +119,16 @@ impl RegistryReconciler {
             == "rust"
         {
             // Rust path: compile cdylib, extract metadata via FFI, register
-            debug!(
-                "Compiling Rust source for package: {}",
+            info!(
+                "Step 4: Compiling Rust source for package: {}",
                 metadata.package_name
             );
             let lib_path = Self::compile_source_package(&source_dir).await?;
+            info!(
+                "Step 4: Compilation complete for {}: {}",
+                metadata.package_name,
+                lib_path.display()
+            );
 
             let library_data = tokio::fs::read(&lib_path).await.map_err(|e| {
                 RegistryError::RegistrationFailed {
@@ -134,10 +139,20 @@ impl RegistryReconciler {
                     ),
                 }
             })?;
+            info!(
+                "Step 5: Library read ({} bytes) for {}",
+                library_data.len(),
+                metadata.package_name
+            );
 
+            info!("Step 5a: Registering tasks for {}", metadata.package_name);
             let task_namespaces = self
                 .register_package_tasks(&metadata, &library_data)
                 .await?;
+            info!(
+                "Step 5b: Registering workflows for {}",
+                metadata.package_name
+            );
             let workflow_name = self
                 .register_package_workflows(&metadata, &library_data)
                 .await?;
@@ -254,7 +269,8 @@ impl RegistryReconciler {
                                 .collect::<Vec<_>>()
                         );
 
-                        if let Some(ref scheduler) = self.reactive_scheduler {
+                        let scheduler_guard = self.reactive_scheduler.read().await;
+                        if let Some(ref scheduler) = *scheduler_guard {
                             let decl =
                                 crate::computation_graph::packaging_bridge::build_declaration_from_ffi(
                                     &graph_meta,
@@ -408,7 +424,8 @@ impl RegistryReconciler {
 
         // Unload computation graph from reactive scheduler
         if let Some(graph_name) = &package_state.graph_name {
-            if let Some(ref scheduler) = self.reactive_scheduler {
+            let scheduler_guard = self.reactive_scheduler.read().await;
+            if let Some(ref scheduler) = *scheduler_guard {
                 if let Err(e) = scheduler.unload_graph(graph_name).await {
                     warn!("Failed to unload computation graph '{}': {}", graph_name, e);
                 }
