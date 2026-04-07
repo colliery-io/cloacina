@@ -4,14 +4,14 @@ level: task
 title: "Latency and throughput benchmarks — event-to-execution p50/p95/p99, max events/sec"
 short_code: "CLOACI-T-0405"
 created_at: 2026-04-05T19:22:27.237657+00:00
-updated_at: 2026-04-05T19:22:27.237657+00:00
+updated_at: 2026-04-07T01:38:29.374021+00:00
 parent: CLOACI-I-0079
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ initiative_id: CLOACI-I-0079
 ## Objective **[REQUIRED]**
 
 Instrument the computation graph pipeline to measure event-to-execution latency and determine maximum throughput before channel backup. Collect latency distribution (p50, p95, p99) and report throughput in events/sec.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -143,4 +147,13 @@ Instrument the computation graph pipeline to measure event-to-execution latency 
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-06 — Complete**
+- Created `src/bench.rs` benchmark binary in `examples/performance/computation-graph/`
+- Added `[[bin]] name = "cg-bench"` to Cargo.toml alongside existing soak binary
+- Latency benchmark: pushes events at configurable interval, records push/completion timestamps, computes p50/p95/p99
+- Throughput benchmark: ramps injection rate from start_us down to min_us, detects TrySendError::Full, reports max sustained rate before backup
+- CLI args: --latency-duration, --latency-interval-us, --throughput-duration, --throughput-start-us, --throughput-min-us
+- Added `angreal performance computation-graph-bench` with duration args
+- Baseline results (debug build, M3 Mac):
+  - Latency: p95=7.6ms, p99=9ms (1ms injection interval)
+  - Throughput: 733 events/sec max sustained before channel backup

@@ -4,14 +4,14 @@ level: task
 title: "Extract computation graph types crate — decouple #[computation_graph] macro from full cloacina engine"
 short_code: "CLOACI-T-0429"
 created_at: 2026-04-06T22:24:22.193266+00:00
-updated_at: 2026-04-06T22:26:22.575596+00:00
+updated_at: 2026-04-07T00:17:18.191876+00:00
 parent: CLOACI-I-0079
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,6 +43,8 @@ The macro in `crates/cloacina-macros/src/computation_graph/codegen.rs` generates
 - `cloacina::ComputationGraphRegistration` — registration struct for `ctor`
 
 These are 5 types/functions. The full `cloacina` crate pulls in Diesel, Postgres, SQLite, PyO3, the entire DAL, the reconciler, the runner, tokio, etc. — none of which a packaged graph plugin needs.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

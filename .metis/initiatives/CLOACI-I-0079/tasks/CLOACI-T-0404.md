@@ -4,14 +4,14 @@ level: task
 title: "Computation graph soak test — sustained 60s event injection with memory and stability checks"
 short_code: "CLOACI-T-0404"
 created_at: 2026-04-05T19:22:26.325184+00:00
-updated_at: 2026-04-06T11:02:01.167342+00:00
+updated_at: 2026-04-07T00:17:29.067384+00:00
 parent: CLOACI-I-0079
 blocked_by: [CLOACI-T-0429]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0079
 ## Objective **[REQUIRED]**
 
 Build a standalone soak test binary (or angreal task) that runs a market maker computation graph under sustained event injection for 60+ seconds. Two accumulators push events at different rates (10ms fast, 200ms slow). Verify: no panics, no memory growth, no channel backup, graph continues firing correctly throughout.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

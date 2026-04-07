@@ -4,14 +4,14 @@ level: task
 title: "Fix SIGKILL when loading multiple Rust cdylib packages — ctor/dlopen interaction bug"
 short_code: "CLOACI-T-0430"
 created_at: 2026-04-06T23:02:22.153127+00:00
-updated_at: 2026-04-06T23:02:27.036044+00:00
+updated_at: 2026-04-07T00:17:23.174840+00:00
 parent: CLOACI-I-0079
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -63,6 +63,8 @@ initiative_id: CLOACI-I-0079
 - **Current Problems**: {What's difficult/slow/buggy now}
 - **Benefits of Fixing**: {What improves after refactoring}
 - **Risk Assessment**: {Risks of not addressing this}
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

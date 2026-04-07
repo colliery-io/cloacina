@@ -116,6 +116,40 @@ def performance_parallel(iterations: int=150, concurrency: int=32):
 
 @performance()
 @angreal.command(
+    name="computation-graph-bench",
+    about="run computation graph latency and throughput benchmarks",
+    when_to_use=["measuring CG pipeline latency", "finding throughput ceiling", "performance regression testing"],
+    when_not_to_use=["soak testing (use angreal cloacina server-soak)", "workflow performance"]
+)
+@angreal.argument(name="latency_duration", python_type="int", long="latency-duration", takes_value=True, required=False, help="latency test duration in seconds")
+@angreal.argument(name="throughput_duration", python_type="int", long="throughput-duration", takes_value=True, required=False, help="throughput ramp duration in seconds")
+def performance_computation_graph_bench(latency_duration: int=15, throughput_duration: int=10):
+    """Run computation graph latency and throughput benchmarks."""
+    if latency_duration is None:
+        latency_duration = 15
+    if throughput_duration is None:
+        throughput_duration = 10
+    print(f"Running CG benchmarks (latency={latency_duration}s, throughput={throughput_duration}s)")
+
+    example_dir = os.path.join("examples", "performance", "computation-graph")
+    if not os.path.exists(example_dir):
+        raise RuntimeError(f"CG benchmark not found at {example_dir}")
+
+    try:
+        subprocess.run(
+            ["cargo", "run", "--bin", "cg-bench", "--",
+             "--latency-duration", str(latency_duration),
+             "--throughput-duration", str(throughput_duration)],
+            cwd=example_dir,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"CG benchmark failed with return code {e.returncode}")
+
+
+@performance()
+@angreal.command(
     name="all",
     about="run all performance tests",
     when_to_use=["comprehensive performance testing", "release validation", "comparing all test types"],
@@ -129,6 +163,7 @@ def performance_all():
         ("Simple Performance Test", performance_simple),
         ("Pipeline Performance Test", performance_pipeline),
         ("Parallel Performance Test", performance_parallel),
+        ("Computation Graph Benchmark", performance_computation_graph_bench),
     ]
 
     failed_tests = []
@@ -205,6 +240,26 @@ def performance_quick():
         except Exception as e:
             print(f"ERROR: Error running {example_name}: {e}")
             results.append((example_name, 1))
+
+    # CG benchmark (separate binary in the computation-graph dir)
+    cg_dir = os.path.join("examples", "performance", "computation-graph")
+    if os.path.exists(cg_dir):
+        print(f"\n{'='*50}")
+        print("Quick Test: computation-graph-bench")
+        print(f"{'='*50}")
+        try:
+            result = subprocess.run(
+                ["cargo", "run", "--bin", "cg-bench", "--",
+                 "--latency-duration", "5", "--throughput-duration", "3"],
+                cwd=cg_dir,
+                capture_output=True,
+                text=True
+            )
+            print(result.stdout)
+            results.append(("computation-graph-bench", result.returncode))
+        except Exception as e:
+            print(f"ERROR: {e}")
+            results.append(("computation-graph-bench", 1))
 
     # Summary
     print(f"\n{'='*50}")
