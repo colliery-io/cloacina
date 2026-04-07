@@ -337,6 +337,200 @@ pub mod soak_graph {
     return buf.getvalue()
 
 
+def kafka_create_topic(topic_name):
+    """Create a Kafka topic using the CLI tools inside the container."""
+    try:
+        subprocess.run(
+            [
+                "docker", "exec", "cloacina-kafka",
+                "/opt/kafka/bin/kafka-topics.sh",
+                "--bootstrap-server", "localhost:9092",
+                "--create", "--topic", topic_name,
+                "--partitions", "1",
+                "--replication-factor", "1",
+                "--if-not-exists",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=15,
+        )
+        return True
+    except Exception as e:
+        print(f"  WARNING: Failed to create topic '{topic_name}': {e}")
+        return False
+
+
+class KafkaProducer:
+    """Persistent Kafka producer using a long-running console-producer process."""
+
+    def __init__(self, topic_name):
+        self.topic = topic_name
+        self.proc = subprocess.Popen(
+            [
+                "docker", "exec", "-i", "cloacina-kafka",
+                "/opt/kafka/bin/kafka-console-producer.sh",
+                "--bootstrap-server", "localhost:9092",
+                "--topic", topic_name,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def send(self, messages):
+        """Send messages (list of strings). Returns True on success."""
+        try:
+            data = "\n".join(messages) + "\n"
+            self.proc.stdin.write(data.encode())
+            self.proc.stdin.flush()
+            return True
+        except Exception:
+            return False
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except Exception:
+            self.proc.kill()
+
+
+def kafka_produce(topic_name, messages):
+    """One-shot produce (for backward compat). Use KafkaProducer for loops."""
+    try:
+        input_data = "\n".join(messages) + "\n"
+        subprocess.run(
+            [
+                "docker", "exec", "-i", "cloacina-kafka",
+                "/opt/kafka/bin/kafka-console-producer.sh",
+                "--bootstrap-server", "localhost:9092",
+                "--topic", topic_name,
+            ],
+            input=input_data,
+            text=True,
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        return True
+    except Exception as e:
+        print(f"  WARNING: Failed to produce to '{topic_name}': {e}")
+        return False
+
+
+def create_kafka_cg_source_package(pkg_name, graph_name, acc_name, topic, acc_type="stream"):
+    """Create a CG source package with a Kafka-sourced accumulator.
+
+    The accumulator type and topic are declared in package.toml metadata,
+    which the reconciler merges into the FFI accumulator declarations.
+    """
+    version = "1.0.0"
+    prefix = f"{pkg_name}-{version}"
+
+    acc_config = f"""
+[[metadata.accumulators]]
+name = "{acc_name}"
+accumulator_type = "{acc_type}"
+
+[metadata.accumulators.config]
+topic = "{topic}"
+group = "{pkg_name}-group"
+"""
+
+    package_toml = f"""[package]
+name = "{pkg_name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+package_type = ["computation_graph"]
+graph_name = "{graph_name}"
+language = "rust"
+description = "Kafka soak test — {acc_type}"
+reaction_mode = "when_any"
+input_strategy = "latest"
+{acc_config}
+"""
+
+    cargo_toml = f"""[package]
+name = "{pkg_name}"
+version = "{version}"
+edition = "2021"
+
+[workspace]
+
+[features]
+default = ["packaged"]
+packaged = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cloacina-computation-graph = {{ path = "../../../crates/cloacina-computation-graph" }}
+cloacina-macros = {{ path = "../../../crates/cloacina-macros" }}
+cloacina-workflow-plugin = {{ path = "../../../crates/cloacina-workflow-plugin" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+async-trait = "0.1"
+tokio = {{ version = "1.0", features = ["full"] }}
+
+[build-dependencies]
+cloacina-build = {{ path = "../../../crates/cloacina-build" }}
+"""
+
+    lib_rs = f"""use serde::{{Deserialize, Serialize}};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventData {{ pub value: f64 }}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputData {{ pub result: f64 }}
+
+#[cloacina_macros::computation_graph(
+    react = when_any({acc_name}),
+    graph = {{
+        process({acc_name}) -> output,
+    }}
+)]
+pub mod {graph_name} {{
+    use super::*;
+
+    pub async fn process({acc_name}: Option<&EventData>) -> f64 {{
+        {acc_name}.map(|e| e.value * 2.0).unwrap_or(0.0)
+    }}
+
+    pub async fn output(value: &f64) -> OutputData {{
+        OutputData {{ result: *value }}
+    }}
+}}
+"""
+
+    build_rs = """fn main() {
+    cloacina_build::configure();
+}
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            ("Cargo.toml", cargo_toml),
+            ("src/lib.rs", lib_rs),
+            ("build.rs", build_rs),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
 def ws_send_event(host, port, path, token, event_json, timeout=5):
     """Send a single WebSocket binary frame with event data.
 
@@ -649,6 +843,79 @@ def server_soak():
             if s == 200:
                 print(f"  CG reactors health: {json.dumps(b)[:150]} ✓")
 
+        # Step 8e: Kafka-sourced computation graph packages
+        print_section_header("Step 8e: Kafka stream accumulator packages")
+        kafka_ready = False
+        kafka_topics = []
+
+        # Check if Kafka is available
+        try:
+            subprocess.run(
+                ["docker", "exec", "cloacina-kafka",
+                 "/opt/kafka/bin/kafka-broker-api-versions.sh",
+                 "--bootstrap-server", "localhost:9092"],
+                capture_output=True, timeout=10, check=True,
+            )
+            kafka_ready = True
+            print("  Kafka broker ready ✓")
+        except Exception:
+            print("  WARNING: Kafka not available — skipping Kafka soak steps")
+
+        kafka_stream_loaded = False
+        kafka_batch_loaded = False
+
+        if kafka_ready:
+            # Create topics
+            for topic in ["soak.stream", "soak.batch"]:
+                if kafka_create_topic(topic):
+                    kafka_topics.append(topic)
+                    print(f"  Topic '{topic}' created ✓")
+
+            # Upload stream CG package
+            stream_pkg = create_kafka_cg_source_package(
+                "soak-kafka-stream", "kafka_stream_graph", "source", "soak.stream", "stream"
+            )
+            s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
+                               token=token, files=stream_pkg)
+            if s == 201:
+                print("  Kafka stream CG package uploaded ✓")
+            else:
+                print(f"  Kafka stream upload: {s}")
+
+            # Upload batch CG package
+            batch_pkg = create_kafka_cg_source_package(
+                "soak-kafka-batch", "kafka_batch_graph", "source", "soak.batch", "stream"
+            )
+            s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
+                               token=token, files=batch_pkg)
+            if s == 201:
+                print("  Kafka batch CG package uploaded ✓")
+            else:
+                print(f"  Kafka batch upload: {s}")
+
+            # Wait for Kafka CG packages to compile and load
+            print("  Waiting for Kafka CG packages (up to 120s)...")
+            kafka_compile_start = time.time()
+            for _ in range(60):
+                time.sleep(2)
+                assert server_proc.poll() is None, "Server crashed during Kafka CG compilation!"
+                stderr_file.flush()
+                stderr = stderr_path.read_text() if stderr_path.exists() else ""
+                stream_ok = "kafka_stream_graph" in stderr and "loaded into ReactiveScheduler" in stderr
+                batch_ok = "kafka_batch_graph" in stderr and "loaded into ReactiveScheduler" in stderr
+                if not kafka_stream_loaded and stream_ok:
+                    print(f"  Kafka stream graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
+                    kafka_stream_loaded = True
+                if not kafka_batch_loaded and batch_ok:
+                    print(f"  Kafka batch graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
+                    kafka_batch_loaded = True
+                if kafka_stream_loaded and kafka_batch_loaded:
+                    break
+            if not kafka_stream_loaded:
+                print("  WARNING: Kafka stream graph not loaded")
+            if not kafka_batch_loaded:
+                print("  WARNING: Kafka batch graph not loaded")
+
         # Step 9: Operational soak — execute workflows while querying API
         soak_duration = 60
         print_section_header(f"Step 9: Operational soak ({soak_duration}s)")
@@ -676,11 +943,54 @@ def server_soak():
             "py_executions_accepted": 0,
             "cg_events_sent": 0,
             "cg_events_failed": 0,
+            "kafka_stream_produced": 0,
+            "kafka_batch_produced": 0,
             "cg_health_ok": 0,
             "list_queries": 0,
             "api_errors": 0,
             "connection_errors": 0,
         }
+
+        # Start independent Kafka producer threads at high rate
+        import threading
+
+        kafka_stop_event = threading.Event()
+        kafka_stream_count = {"sent": 0}
+        kafka_batch_count = {"sent": 0}
+
+        def kafka_stream_worker():
+            """Produce to stream topic at ~100 msg/sec independently."""
+            producer = KafkaProducer("soak.stream")
+            seq = 0
+            while not kafka_stop_event.is_set():
+                msg = json.dumps({"value": float(seq)})
+                if producer.send([msg]):
+                    kafka_stream_count["sent"] += 1
+                seq += 1
+                time.sleep(0.01)  # 100 msg/sec
+            producer.close()
+
+        def kafka_batch_worker():
+            """Produce to batch topic at ~50 msg/sec independently."""
+            producer = KafkaProducer("soak.batch")
+            seq = 0
+            while not kafka_stop_event.is_set():
+                msgs = [json.dumps({"value": float(seq + i)}) for i in range(5)]
+                if producer.send(msgs):
+                    kafka_batch_count["sent"] += 5
+                seq += 5
+                time.sleep(0.1)  # 50 msg/sec (5 per 100ms)
+            producer.close()
+
+        kafka_threads = []
+        if kafka_stream_loaded:
+            t = threading.Thread(target=kafka_stream_worker, daemon=True)
+            t.start()
+            kafka_threads.append(t)
+        if kafka_batch_loaded:
+            t = threading.Thread(target=kafka_batch_worker, daemon=True)
+            t.start()
+            kafka_threads.append(t)
 
         soak_start = time.time()
         iteration = 0
@@ -781,6 +1091,8 @@ def server_soak():
                     else:
                         stats["cg_events_failed"] += 1
 
+                # Kafka producing handled by independent threads
+
             except Exception as e:
                 if "Connection refused" in str(e) or "URLError" in str(type(e).__name__):
                     stats["connection_errors"] += 1
@@ -803,6 +1115,13 @@ def server_soak():
 
             time.sleep(0.2)  # ~5 req bursts/sec
 
+        # Stop Kafka producer threads
+        kafka_stop_event.set()
+        for t in kafka_threads:
+            t.join(timeout=5)
+        stats["kafka_stream_produced"] = kafka_stream_count["sent"]
+        stats["kafka_batch_produced"] = kafka_batch_count["sent"]
+
         # Check completed pipelines in server logs
         stderr_file.flush()
         stderr = stderr_path.read_text() if stderr_path.exists() else ""
@@ -817,6 +1136,14 @@ def server_soak():
         print(f"    Python exec accepted: {stats['py_executions_accepted']}")
         print(f"    CG events sent:       {stats['cg_events_sent']}")
         print(f"    CG events failed:     {stats['cg_events_failed']}")
+        print(f"    Kafka stream produced:{stats['kafka_stream_produced']}")
+        print(f"    Kafka batch produced: {stats['kafka_batch_produced']}")
+
+        # Check Kafka graph fire counts from server logs
+        kafka_stream_fires = stderr.count("kafka_stream_graph") if "kafka_stream_graph" in stderr else 0
+        kafka_batch_fires = stderr.count("kafka_batch_graph") if "kafka_batch_graph" in stderr else 0
+        print(f"    Kafka stream log refs:{kafka_stream_fires}")
+        print(f"    Kafka batch log refs: {kafka_batch_fires}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")

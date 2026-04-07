@@ -269,6 +269,19 @@ impl RegistryReconciler {
                                 .collect::<Vec<_>>()
                         );
 
+                        // Merge manifest accumulator configs into FFI defaults
+                        let mut graph_meta = graph_meta;
+                        for manifest_acc in &cloacina_manifest.metadata.accumulators {
+                            if let Some(ffi_acc) = graph_meta
+                                .accumulators
+                                .iter_mut()
+                                .find(|a| a.name == manifest_acc.name)
+                            {
+                                ffi_acc.accumulator_type = manifest_acc.accumulator_type.clone();
+                                ffi_acc.config = manifest_acc.config.clone();
+                            }
+                        }
+
                         let scheduler_guard = self.reactive_scheduler.read().await;
                         if let Some(ref scheduler) = *scheduler_guard {
                             let decl =

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-07T22:17:10Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-07T23:13:28Z | 422 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3705,36 +3705,36 @@
 
 #### crates/cloacina/src/registry/reconciler/loading.rs
 
--  `RegistryReconciler` type L27-832 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
--  `load_package` function L38-391 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
--  `unload_package` function L394-441 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
--  `register_package_tasks` function L444-485 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
--  `register_package_workflows` function L488-629 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
--  `create_workflow_from_host_registry` function L632-680 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
--  `create_workflow_from_host_registry_static` function L683-730 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
--  `unregister_package_tasks` function L733-756 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
--  `unregister_package_workflow` function L759-770 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
--  `register_package_triggers` function L778-820 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
--  `unregister_package_triggers` function L823-831 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L835-1131 — `-` — Package loading, unloading, and task/workflow registration.
--  `make_test_reconciler` function L844-849 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
--  `make_test_metadata` function L851-864 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L866-882 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L890-899 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L903-934 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L938-958 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L962-1001 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1009-1028 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1032-1039 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1043-1046 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1054-1089 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1093-1100 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1107-1109 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1112-1130 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1113-1115 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1117-1119 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1121-1123 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1125-1129 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `RegistryReconciler` type L27-845 — `= RegistryReconciler` — Package loading, unloading, and task/workflow registration.
+-  `load_package` function L38-404 — `( &self, metadata: WorkflowMetadata, ) -> Result<(), RegistryError>` — Load a package into the global registries.
+-  `unload_package` function L407-454 — `( &self, package_id: WorkflowPackageId, ) -> Result<(), RegistryError>` — Unload a package from the global registries
+-  `register_package_tasks` function L457-498 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Vec<TaskN...` — Register tasks from a package into the global task registry
+-  `register_package_workflows` function L501-642 — `( &self, metadata: &WorkflowMetadata, package_data: &[u8], ) -> Result<Option<St...` — Register workflows from a package into the global workflow registry
+-  `create_workflow_from_host_registry` function L645-693 — `( &self, package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<c...` — Create a workflow using the host's global task registry (avoiding FFI isolation)
+-  `create_workflow_from_host_registry_static` function L696-743 — `( package_name: &str, workflow_name: &str, tenant_id: &str, ) -> Result<crate::w...` — Static version of create_workflow_from_host_registry for use in closures
+-  `unregister_package_tasks` function L746-769 — `( &self, package_id: WorkflowPackageId, task_namespaces: &[TaskNamespace], ) -> ...` — Unregister tasks from the global task registry
+-  `unregister_package_workflow` function L772-783 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
+-  `register_package_triggers` function L791-833 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
+-  `unregister_package_triggers` function L836-844 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
+-  `tests` module L848-1144 — `-` — Package loading, unloading, and task/workflow registration.
+-  `make_test_reconciler` function L857-862 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
+-  `make_test_metadata` function L864-877 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L879-895 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L903-912 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L916-947 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L951-971 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L975-1014 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1022-1041 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1045-1052 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1056-1059 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1067-1102 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1106-1113 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1120-1122 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1125-1143 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1126-1128 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1130-1132 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1134-1136 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1138-1142 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -6192,30 +6192,32 @@
 - pub `AccumulatorDeclarationEntry` struct L110-118 — `{ name: String, accumulator_type: String, config: std::collections::HashMap<Stri...` — Declaration of an accumulator within a computation graph package.
 - pub `GraphExecutionRequest` struct L122-125 — `{ cache: std::collections::HashMap<String, String> }` — Request to execute a computation graph.
 - pub `GraphExecutionResult` struct L129-136 — `{ success: bool, terminal_outputs_json: Option<Vec<String>>, error: Option<Strin...` — Result of a computation graph execution.
-- pub `CloacinaMetadata` struct L148-182 — `{ package_type: Vec<String>, workflow_name: Option<String>, graph_name: Option<S...` — Host-defined metadata schema for cloacina packages.
-- pub `has_workflow` function L190-192 — `(&self) -> bool` — Check if this package contains a workflow.
-- pub `has_computation_graph` function L195-197 — `(&self) -> bool` — Check if this package contains a computation graph.
-- pub `effective_workflow_name` function L202-204 — `(&self) -> Option<&str>` — Get the workflow name, falling back for backward compatibility.
-- pub `TriggerDefinition` struct L209-222 — `{ name: String, workflow: String, poll_interval: String, cron_expression: Option...` — A trigger definition within a workflow package manifest.
+- pub `CloacinaMetadata` struct L148-185 — `{ package_type: Vec<String>, workflow_name: Option<String>, graph_name: Option<S...` — Host-defined metadata schema for cloacina packages.
+- pub `AccumulatorConfig` struct L189-198 — `{ name: String, accumulator_type: String, config: std::collections::HashMap<Stri...` — Accumulator configuration from package.toml metadata.
+- pub `has_workflow` function L210-212 — `(&self) -> bool` — Check if this package contains a workflow.
+- pub `has_computation_graph` function L215-217 — `(&self) -> bool` — Check if this package contains a computation graph.
+- pub `effective_workflow_name` function L222-224 — `(&self) -> Option<&str>` — Get the workflow name, falling back for backward compatibility.
+- pub `TriggerDefinition` struct L229-242 — `{ name: String, workflow: String, poll_interval: String, cron_expression: Option...` — A trigger definition within a workflow package manifest.
 -  `default_input_strategy` function L104-106 — `() -> String` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `default_package_type` function L184-186 — `() -> Vec<String>` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `CloacinaMetadata` type L188-205 — `= CloacinaMetadata` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `tests` module L225-491 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_metadata_serde_round_trip` function L229-243 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_package_tasks_metadata_serde_round_trip` function L246-268 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_request_round_trip` function L271-280 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_success` function L283-295 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_task_execution_result_failure` function L298-309 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_rust_from_toml` function L312-341 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_python_from_toml` function L344-359 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_minimal_rust` function L362-373 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_missing_language_fails` function L376-383 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_defaults_to_workflow_package_type` function L386-396 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_computation_graph_from_toml` function L399-415 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_cloacina_metadata_both_types` function L418-429 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_graph_package_metadata_round_trip` function L432-463 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_graph_execution_request_round_trip` function L466-476 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
--  `test_graph_execution_result_round_trip` function L479-490 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `default_accumulator_type` function L200-202 — `() -> String` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `default_package_type` function L204-206 — `() -> Vec<String>` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `CloacinaMetadata` type L208-225 — `= CloacinaMetadata` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `tests` module L245-511 — `-` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_metadata_serde_round_trip` function L249-263 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_package_tasks_metadata_serde_round_trip` function L266-288 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_request_round_trip` function L291-300 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_success` function L303-315 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_task_execution_result_failure` function L318-329 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_rust_from_toml` function L332-361 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_python_from_toml` function L364-379 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_minimal_rust` function L382-393 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_missing_language_fails` function L396-403 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_defaults_to_workflow_package_type` function L406-416 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_computation_graph_from_toml` function L419-435 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_cloacina_metadata_both_types` function L438-449 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_package_metadata_round_trip` function L452-483 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_execution_request_round_trip` function L486-496 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
+-  `test_graph_execution_result_round_trip` function L499-510 — `()` — no manual `#[repr(C)]` structs or `CStr` handling needed.
 
 ### crates/cloacinactl
 

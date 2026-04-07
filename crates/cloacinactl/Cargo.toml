@@ -15,9 +15,10 @@ name = "cloacinactl"
 path = "src/main.rs"
 
 [features]
-default = ["postgres", "sqlite"]
+default = ["postgres", "sqlite", "kafka"]
 postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
+kafka = ["cloacina/kafka"]
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }

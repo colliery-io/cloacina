@@ -179,6 +179,26 @@ pub struct CloacinaMetadata {
     /// Input strategy for computation graphs: "latest" or "sequential"
     #[serde(default)]
     pub input_strategy: Option<String>,
+    /// Accumulator configuration overrides (from package.toml, merged with FFI defaults)
+    #[serde(default)]
+    pub accumulators: Vec<AccumulatorConfig>,
+}
+
+/// Accumulator configuration from package.toml metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccumulatorConfig {
+    /// Accumulator name (must match a name in the graph's react declaration)
+    pub name: String,
+    /// Accumulator type override: "passthrough", "stream", "batch"
+    #[serde(default = "default_accumulator_type")]
+    pub accumulator_type: String,
+    /// Type-specific config (topic, group, flush_interval, etc.)
+    #[serde(default)]
+    pub config: std::collections::HashMap<String, String>,
+}
+
+fn default_accumulator_type() -> String {
+    "passthrough".to_string()
 }
 
 fn default_package_type() -> Vec<String> {
