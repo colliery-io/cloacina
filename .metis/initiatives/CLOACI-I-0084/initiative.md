@@ -4,14 +4,14 @@ level: initiative
 title: "Stream Backend — Kafka Consumer Accumulator"
 short_code: "CLOACI-I-0084"
 created_at: 2026-04-07T15:45:48.216179+00:00
-updated_at: 2026-04-07T18:44:18.379240+00:00
+updated_at: 2026-04-07T18:49:44.619734+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ The I-0069 design spec describes "detector handoff" as a workflow task pushing b
 - Multi-partition consumer balancing — single partition per accumulator for simplicity
 - Redpanda/Iggy support — Kafka protocol first, others can follow the same trait
 - Schema registry integration — accumulators deserialize raw bytes, format is the producer's concern
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

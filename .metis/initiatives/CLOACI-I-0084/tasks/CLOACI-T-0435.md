@@ -4,14 +4,14 @@ level: task
 title: "Docker Compose Kafka (KRaft), angreal tasks, and integration tests"
 short_code: "CLOACI-T-0435"
 created_at: 2026-04-07T18:44:44.899332+00:00
-updated_at: 2026-04-07T18:44:44.899332+00:00
+updated_at: 2026-04-07T19:39:06.567944+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Add Kafka to the Docker Compose infrastructure (KIP-500 / KRaft mode, no ZooKeeper), create angreal tasks for Kafka integration testing, and write end-to-end tests that exercise the full Kafka → accumulator → graph pipeline.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -57,4 +59,13 @@ Use `apache/kafka` (official KRaft image) or `bitnami/kafka` with KRaft mode ena
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-07 — Docker Compose Kafka done**
+- Added `apache/kafka:3.9.0` to `.angreal/docker-compose.yaml` in KRaft mode (KIP-500, no ZooKeeper)
+- Config: KRaft combined broker+controller, PLAINTEXT on 9092, controller on 9093
+- `CLUSTER_ID: cloacina-dev-cluster-001`, replication factor 1 for dev
+- Volume: `kafka_data` at `/tmp/kraft-combined-logs`
+- Healthcheck: `kafka-broker-api-versions.sh` with 30s start_period
+- `angreal services up` starts both Postgres and Kafka
+- `angreal services clean` removes both volumes
+- Verified: Kafka Server started in KRaft mode, version 3.9.0
+- Remaining: integration test angreal task, soak test update, CI workflow — blocked on T-0432 (KafkaStreamBackend)

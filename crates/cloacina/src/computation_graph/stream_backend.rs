@@ -230,6 +230,138 @@ pub fn register_mock_backend() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Kafka backend (behind "kafka" feature flag)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "kafka")]
+pub mod kafka {
+    use super::*;
+    use futures::StreamExt;
+    use rdkafka::config::ClientConfig;
+    use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+    use rdkafka::message::Message;
+
+    /// Kafka stream backend using rdkafka (librdkafka wrapper).
+    ///
+    /// Implements `StreamBackend` for consuming from a Kafka topic with
+    /// consumer group offset tracking. Supports KRaft (KIP-500) brokers.
+    pub struct KafkaStreamBackend {
+        consumer: StreamConsumer,
+        topic: String,
+        offset: u64,
+        committed_offset: u64,
+    }
+
+    #[async_trait::async_trait]
+    impl StreamBackend for KafkaStreamBackend {
+        async fn connect(config: &StreamConfig) -> Result<Self, StreamError>
+        where
+            Self: Sized,
+        {
+            let mut client_config = ClientConfig::new();
+            client_config
+                .set("bootstrap.servers", &config.broker_url)
+                .set("group.id", &config.group)
+                .set("enable.auto.commit", "false")
+                .set("auto.offset.reset", "earliest");
+
+            // Apply extra config overrides
+            for (key, value) in &config.extra {
+                client_config.set(key, value);
+            }
+
+            let consumer: StreamConsumer = client_config.create().map_err(|e| {
+                StreamError::Connection(format!("Failed to create Kafka consumer: {}", e))
+            })?;
+
+            consumer.subscribe(&[&config.topic]).map_err(|e| {
+                StreamError::Connection(format!(
+                    "Failed to subscribe to topic '{}': {}",
+                    config.topic, e
+                ))
+            })?;
+
+            tracing::info!(
+                topic = %config.topic,
+                group = %config.group,
+                broker = %config.broker_url,
+                "Kafka stream backend connected"
+            );
+
+            Ok(Self {
+                consumer,
+                topic: config.topic.clone(),
+                offset: 0,
+                committed_offset: 0,
+            })
+        }
+
+        async fn recv(&mut self) -> Result<RawMessage, StreamError> {
+            let msg = self
+                .consumer
+                .stream()
+                .next()
+                .await
+                .ok_or_else(|| StreamError::Receive("Kafka stream ended".to_string()))?
+                .map_err(|e| StreamError::Receive(format!("Kafka receive error: {}", e)))?;
+
+            let payload = msg
+                .payload()
+                .ok_or_else(|| StreamError::Receive("Kafka message has no payload".to_string()))?
+                .to_vec();
+
+            let offset = msg.offset() as u64;
+            let timestamp = msg.timestamp().to_millis();
+
+            self.offset = offset;
+
+            Ok(RawMessage {
+                payload,
+                offset,
+                timestamp,
+            })
+        }
+
+        async fn commit(&mut self) -> Result<(), StreamError> {
+            self.consumer
+                .commit_consumer_state(CommitMode::Sync)
+                .map_err(|e| StreamError::Commit(format!("Kafka commit failed: {}", e)))?;
+
+            self.committed_offset = self.offset;
+
+            tracing::debug!(
+                topic = %self.topic,
+                offset = self.committed_offset,
+                "Kafka offset committed"
+            );
+
+            Ok(())
+        }
+
+        fn current_offset(&self) -> Option<u64> {
+            if self.offset > 0 {
+                Some(self.offset)
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Register the Kafka backend in the global registry.
+    pub fn register_kafka_backend() {
+        super::register_stream_backend(
+            "kafka",
+            Box::new(|config| {
+                Box::pin(async move {
+                    let backend = KafkaStreamBackend::connect(&config).await?;
+                    Ok(Box::new(backend) as Box<dyn StreamBackend>)
+                })
+            }),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

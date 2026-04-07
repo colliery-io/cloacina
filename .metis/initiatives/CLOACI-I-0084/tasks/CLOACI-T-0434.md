@@ -4,14 +4,14 @@ level: task
 title: "Batch accumulator Kafka source and reactor-driven flush mode"
 short_code: "CLOACI-T-0434"
 created_at: 2026-04-07T18:44:39.223252+00:00
-updated_at: 2026-04-07T18:44:39.223252+00:00
+updated_at: 2026-04-07T21:19:14.639464+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -29,6 +29,8 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Wire `StreamBackend` as an alternative event source for `BatchAccumulator` (currently socket-only) and add reactor-driven flush mode where the batch drains on reactor signal rather than timer/size.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -59,4 +61,12 @@ The batch accumulator currently reads from its socket channel. Add a second inpu
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-07 — In progress, needs implementation**
+- `BatchAccumulatorConfig` already has `flush_interval: Option<Duration>` and `max_buffer_size: Option<usize>`
+- When both None, currently only flushes on shutdown — no reactor-driven flush signal yet
+- `batch_accumulator_runtime` reads from socket channel only — stream backend path not yet added
+- Remaining work:
+  1. Add stream backend event source to batch runtime
+  2. Add reactor flush signal channel
+  3. Update batch macro to accept `type = "kafka"` params
+  4. Wire offset commit after flush

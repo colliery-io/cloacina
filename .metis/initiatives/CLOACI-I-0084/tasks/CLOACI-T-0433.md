@@ -4,14 +4,14 @@ level: task
 title: "Stateful stream accumulator — state parameter on macro, checkpoint DAL wiring"
 short_code: "CLOACI-T-0433"
 created_at: 2026-04-07T18:44:33.057061+00:00
-updated_at: 2026-04-07T18:44:33.057061+00:00
+updated_at: 2026-04-07T21:19:06.423411+00:00
 parent: CLOACI-I-0084
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -29,6 +29,10 @@ initiative_id: CLOACI-I-0084
 ## Objective
 
 Add `state = Type` parameter to `#[stream_accumulator]` macro so users can maintain mutable state across messages. The macro generates a struct with the state field, passes `&mut self.state` to the user function, and the checkpoint DAL persists/restores state across restarts.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -55,4 +59,10 @@ Add `state = Type` parameter to `#[stream_accumulator]` macro so users can maint
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+**2026-04-07 — Already implemented**
+- `state = Type` parameter already exists in `#[stream_accumulator]` macro (accumulator_macros.rs lines 58-61)
+- Macro generates stateful struct with `state` field, `new(initial_state)` constructor, `process(&mut self.state)` passthrough
+- Stateless path unchanged with `Default` impl
+- Python decorator already accepts `state` param
+- DAL checkpoint wiring: existing `CheckpointHandle` in `AccumulatorContext` handles state persistence
+- No new code needed — built during I-0073/I-0074
