@@ -557,6 +557,7 @@ impl Reactor {
         let dal_exec = self.dal.clone();
         let graph_name_exec = self.graph_name.clone();
         let batch_flush = self.batch_flush_senders.clone();
+        let fire_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         loop {
             tokio::select! {
@@ -580,18 +581,17 @@ impl Reactor {
                                 let result = (graph)(snapshot).await;
                                 match &result {
                                     GraphResult::Completed { .. } => {
-                                        tracing::debug!("graph execution completed");
-                                        // Persist cache after successful execution
+                                        let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                        tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                         persist_reactor_state(
                                             &dal_exec, &graph_name_exec, &cache_exec, &dirty_exec, None,
                                         ).await;
-                                        // Signal batch accumulators to flush
                                         for sender in &batch_flush {
                                             let _ = sender.try_send(());
                                         }
                                     }
                                     GraphResult::Error(e) => {
-                                        tracing::error!("graph execution failed: {}", e);
+                                        tracing::error!(graph = %graph_name_exec, "graph execution failed: {}", e);
                                     }
                                 }
                             }
@@ -615,7 +615,8 @@ impl Reactor {
                                         let result = (graph)(snapshot).await;
                                         match &result {
                                             GraphResult::Completed { .. } => {
-                                                tracing::debug!("graph execution completed (sequential)");
+                                                let fires = fire_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                                                tracing::info!(graph = %graph_name_exec, fires, "graph execution completed");
                                                 persist_reactor_state(
                                                     &dal_exec, &graph_name_exec, &cache_exec,
                                                     &dirty_exec, Some(&seq_queue_exec),

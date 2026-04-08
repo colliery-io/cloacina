@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-07T23:13:28Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-08T00:52:03Z | 422 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -717,11 +717,11 @@
 -  `StreamBackendAccumulatorFactory` struct L310-313 — `{ config: std::collections::HashMap<String, String> }` — A stream-backed accumulator factory for FFI-loaded packages.
 -  `StreamBackendAccumulatorFactory` type L315-319 — `= StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
 -  `new` function L316-318 — `(config: std::collections::HashMap<String, String>) -> Self` — `execute_graph()` via fidius FFI.
--  `StreamBackendAccumulatorFactory` type L321-428 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
--  `spawn` function L322-427 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
--  `tests` module L431-498 — `-` — `execute_graph()` via fidius FFI.
--  `test_build_declaration_from_ffi_metadata` function L436-464 — `()` — `execute_graph()` via fidius FFI.
--  `test_reaction_mode_parsing` function L467-497 — `()` — `execute_graph()` via fidius FFI.
+-  `StreamBackendAccumulatorFactory` type L321-434 — `impl AccumulatorFactory for StreamBackendAccumulatorFactory` — `execute_graph()` via fidius FFI.
+-  `spawn` function L322-433 — `( &self, name: String, boundary_tx: mpsc::Sender<(SourceName, Vec<u8>)>, shutdow...` — `execute_graph()` via fidius FFI.
+-  `tests` module L437-504 — `-` — `execute_graph()` via fidius FFI.
+-  `test_build_declaration_from_ffi_metadata` function L442-470 — `()` — `execute_graph()` via fidius FFI.
+-  `test_reaction_mode_parsing` function L473-503 — `()` — `execute_graph()` via fidius FFI.
 
 #### crates/cloacina/src/computation_graph/reactor.rs
 
@@ -754,23 +754,23 @@
 - pub `with_expected_sources` function L309-312 — `(mut self, sources: Vec<SourceName>) -> Self` — Set the expected source names for WhenAll criteria.
 - pub `with_accumulator_health` function L315-324 — `( mut self, rxs: Vec<( String, watch::Receiver<super::accumulator::AccumulatorHe...` — Set accumulator health receivers for startup gating and degraded mode.
 - pub `handle` function L330-335 — `(&self) -> ReactorHandle` — Get a handle to this reactor's shared state.
-- pub `run` function L338-653 — `(mut self)` — Run the reactor.
+- pub `run` function L338-654 — `(mut self)` — Run the reactor.
 -  `ReactorHealth` type L57-66 — `= ReactorHealth` — See CLOACI-S-0005 for the full specification.
 -  `fmt` function L58-65 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L97-133 — `= DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `DirtyFlags` type L135-139 — `impl Default for DirtyFlags` — See CLOACI-S-0005 for the full specification.
 -  `default` function L136-138 — `() -> Self` — See CLOACI-S-0005 for the full specification.
 -  `ReactorHandle` type L192-213 — `= ReactorHandle` — See CLOACI-S-0005 for the full specification.
--  `Reactor` type L254-654 — `= Reactor` — See CLOACI-S-0005 for the full specification.
--  `persist_reactor_state` function L657-713 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
--  `tests` module L716-894 — `-` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_any` function L720-729 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_when_all` function L732-740 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_clear_all` function L743-751 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_dirty_flags_empty_all_set` function L754-758 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_fires_on_boundary` function L761-803 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_manual_force_fire` function L806-842 — `()` — See CLOACI-S-0005 for the full specification.
--  `test_reactor_cache_snapshot_isolation` function L845-893 — `()` — See CLOACI-S-0005 for the full specification.
+-  `Reactor` type L254-655 — `= Reactor` — See CLOACI-S-0005 for the full specification.
+-  `persist_reactor_state` function L658-714 — `( dal: &Option<crate::dal::unified::DAL>, graph_name: &str, cache: &Arc<RwLock<I...` — Persist reactor state to DAL (best-effort, logs on failure).
+-  `tests` module L717-895 — `-` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_any` function L721-730 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_when_all` function L733-741 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_clear_all` function L744-752 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_dirty_flags_empty_all_set` function L755-759 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_fires_on_boundary` function L762-804 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_manual_force_fire` function L807-843 — `()` — See CLOACI-S-0005 for the full specification.
+-  `test_reactor_cache_snapshot_isolation` function L846-894 — `()` — See CLOACI-S-0005 for the full specification.
 
 #### crates/cloacina/src/computation_graph/registry.rs
 

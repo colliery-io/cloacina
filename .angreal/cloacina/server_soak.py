@@ -615,6 +615,81 @@ def ws_send_event(host, port, path, token, event_json, timeout=5):
         return False
 
 
+class PersistentWebSocket:
+    """Persistent WebSocket connection for high-throughput event injection."""
+
+    def __init__(self, host, port, path, token, timeout=5):
+        import socket as _socket
+        import base64 as _base64
+        import os as _os
+
+        self.sock = _socket.create_connection((host, port), timeout=timeout)
+        ws_key = _base64.b64encode(_os.urandom(16)).decode()
+
+        request = (
+            f"GET {path}?token={token} HTTP/1.1\r\n"
+            f"Host: {host}:{port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {ws_key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"\r\n"
+        )
+        self.sock.sendall(request.encode())
+
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("WebSocket upgrade failed")
+            response += chunk
+
+        if b"101" not in response.split(b"\r\n")[0]:
+            self.sock.close()
+            raise ConnectionError(f"WebSocket upgrade rejected: {response[:100]}")
+
+    def send(self, payload_str):
+        """Send a masked binary frame. Returns True on success."""
+        import struct
+        import os
+
+        try:
+            payload = payload_str.encode() if isinstance(payload_str, str) else payload_str
+            mask_key = os.urandom(4)
+
+            frame = bytearray()
+            frame.append(0x82)  # FIN + binary
+            length = len(payload)
+            if length < 126:
+                frame.append(0x80 | length)
+            elif length < 65536:
+                frame.append(0x80 | 126)
+                frame.extend(struct.pack(">H", length))
+            else:
+                frame.append(0x80 | 127)
+                frame.extend(struct.pack(">Q", length))
+            frame.extend(mask_key)
+
+            masked = bytearray(len(payload))
+            for i in range(len(payload)):
+                masked[i] = payload[i] ^ mask_key[i % 4]
+            frame.extend(masked)
+
+            self.sock.sendall(frame)
+            return True
+        except Exception:
+            return False
+
+    def close(self):
+        import os
+        try:
+            close_frame = bytearray([0x88, 0x80]) + os.urandom(4)
+            self.sock.sendall(close_frame)
+            self.sock.close()
+        except Exception:
+            pass
+
+
 @cloacina()
 @angreal.command(
     name="server-soak",
@@ -873,7 +948,7 @@ def server_soak():
 
             # Upload stream CG package
             stream_pkg = create_kafka_cg_source_package(
-                "soak-kafka-stream", "kafka_stream_graph", "source", "soak.stream", "stream"
+                "soak-kafka-stream", "kafka_stream_graph", "stream_source", "soak.stream", "stream"
             )
             s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
                                token=token, files=stream_pkg)
@@ -884,7 +959,7 @@ def server_soak():
 
             # Upload batch CG package
             batch_pkg = create_kafka_cg_source_package(
-                "soak-kafka-batch", "kafka_batch_graph", "source", "soak.batch", "stream"
+                "soak-kafka-batch", "kafka_batch_graph", "batch_source", "soak.batch", "stream"
             )
             s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
                                token=token, files=batch_pkg)
@@ -957,6 +1032,28 @@ def server_soak():
         kafka_stop_event = threading.Event()
         kafka_stream_count = {"sent": 0}
         kafka_batch_count = {"sent": 0}
+        ws_event_count = {"sent": 0, "failed": 0}
+
+        def ws_event_worker():
+            """Push events via persistent WebSocket at ~200 msg/sec."""
+            try:
+                ws = PersistentWebSocket(
+                    "127.0.0.1", 18080,
+                    "/v1/ws/accumulator/alpha", token
+                )
+                import math
+                seq = 0
+                while not kafka_stop_event.is_set():
+                    msg = json.dumps({"value": 42.0 + math.sin(seq * 0.1)})
+                    if ws.send(msg):
+                        ws_event_count["sent"] += 1
+                    else:
+                        ws_event_count["failed"] += 1
+                    seq += 1
+                    time.sleep(0.005)  # 200 msg/sec
+                ws.close()
+            except Exception as e:
+                print(f"  WS worker error: {e}")
 
         def kafka_stream_worker():
             """Produce to stream topic at ~100 msg/sec independently."""
@@ -982,15 +1079,19 @@ def server_soak():
                 time.sleep(0.1)  # 50 msg/sec (5 per 100ms)
             producer.close()
 
-        kafka_threads = []
+        producer_threads = []
+        if cg_loaded:
+            t = threading.Thread(target=ws_event_worker, daemon=True)
+            t.start()
+            producer_threads.append(t)
         if kafka_stream_loaded:
             t = threading.Thread(target=kafka_stream_worker, daemon=True)
             t.start()
-            kafka_threads.append(t)
+            producer_threads.append(t)
         if kafka_batch_loaded:
             t = threading.Thread(target=kafka_batch_worker, daemon=True)
             t.start()
-            kafka_threads.append(t)
+            producer_threads.append(t)
 
         soak_start = time.time()
         iteration = 0
@@ -1082,16 +1183,8 @@ def server_soak():
                     else:
                         stats["api_errors"] += 1
 
-                # Inject CG events via WebSocket every 2 iterations
-                if cg_loaded and iteration % 2 == 0:
-                    import math
-                    event_json = json.dumps({"value": 42.0 + math.sin(iteration * 0.1)})
-                    if ws_send_event("127.0.0.1", 18080, "/v1/ws/accumulator/alpha", token, event_json):
-                        stats["cg_events_sent"] += 1
-                    else:
-                        stats["cg_events_failed"] += 1
-
-                # Kafka producing handled by independent threads
+                # All event production handled by independent threads
+                # (WS, Kafka stream, Kafka batch)
 
             except Exception as e:
                 if "Connection refused" in str(e) or "URLError" in str(type(e).__name__):
@@ -1115,10 +1208,12 @@ def server_soak():
 
             time.sleep(0.2)  # ~5 req bursts/sec
 
-        # Stop Kafka producer threads
+        # Stop all producer threads
         kafka_stop_event.set()
-        for t in kafka_threads:
+        for t in producer_threads:
             t.join(timeout=5)
+        stats["cg_events_sent"] = ws_event_count["sent"]
+        stats["cg_events_failed"] = ws_event_count["failed"]
         stats["kafka_stream_produced"] = kafka_stream_count["sent"]
         stats["kafka_batch_produced"] = kafka_batch_count["sent"]
 
@@ -1139,11 +1234,20 @@ def server_soak():
         print(f"    Kafka stream produced:{stats['kafka_stream_produced']}")
         print(f"    Kafka batch produced: {stats['kafka_batch_produced']}")
 
-        # Check Kafka graph fire counts from server logs
-        kafka_stream_fires = stderr.count("kafka_stream_graph") if "kafka_stream_graph" in stderr else 0
-        kafka_batch_fires = stderr.count("kafka_batch_graph") if "kafka_batch_graph" in stderr else 0
-        print(f"    Kafka stream log refs:{kafka_stream_fires}")
-        print(f"    Kafka batch log refs: {kafka_batch_fires}")
+        # Count graph fires from server logs (INFO level: "graph execution completed")
+        # Strip ANSI escape codes for reliable matching
+        import re
+        clean_stderr = re.sub(r'\x1b\[[0-9;]*m', '', stderr)
+
+        def count_graph_fires(log_text, graph_name):
+            return log_text.count(f"graph execution completed graph={graph_name}")
+
+        ws_graph_fires = count_graph_fires(clean_stderr, "soak_graph")
+        kafka_stream_fires = count_graph_fires(clean_stderr, "kafka_stream_graph")
+        kafka_batch_fires = count_graph_fires(clean_stderr, "kafka_batch_graph")
+        print(f"    WS graph fires:       {ws_graph_fires}")
+        print(f"    Kafka stream fires:   {kafka_stream_fires}")
+        print(f"    Kafka batch fires:    {kafka_batch_fires}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
@@ -1159,6 +1263,11 @@ def server_soak():
             assert stats["py_executions_accepted"] > 0, "No Python executions accepted!"
         if cg_loaded:
             assert stats["cg_events_sent"] > 0, "No CG events sent via WebSocket!"
+            assert ws_graph_fires > 0, "WS graph (soak_graph) never fired!"
+        if kafka_stream_loaded:
+            assert kafka_stream_fires > 0, f"Kafka stream graph never fired! ({stats['kafka_stream_produced']} messages produced)"
+        if kafka_batch_loaded:
+            assert kafka_batch_fires > 0, f"Kafka batch graph never fired! ({stats['kafka_batch_produced']} messages produced)"
 
         # Step 10: Final health check
         print_section_header("Step 10: Final health check")

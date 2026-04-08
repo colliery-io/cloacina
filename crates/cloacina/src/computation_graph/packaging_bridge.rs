@@ -389,6 +389,12 @@ impl AccumulatorFactory for StreamBackendAccumulatorFactory {
                             result = backend.recv() => {
                                 match result {
                                     Ok(msg) => {
+                                        tracing::info!(
+                                            accumulator = %acc_name,
+                                            offset = msg.offset,
+                                            bytes = msg.payload.len(),
+                                            "Kafka message received"
+                                        );
                                         if socket_tx_stream.send(msg.payload).await.is_err() {
                                             break;
                                         }
