@@ -31,6 +31,7 @@ use cloacina::computation_graph::registry::EndpointRegistry;
 use cloacina::computation_graph::scheduler::ReactiveScheduler;
 use cloacina::database::Database;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
+use cloacina::security::SecurityConfig;
 
 /// Shared application state accessible from all route handlers.
 #[derive(Clone)]
@@ -40,6 +41,7 @@ pub struct AppState {
     pub key_cache: Arc<crate::server::auth::KeyCache>,
     pub endpoint_registry: EndpointRegistry,
     pub reactive_scheduler: Arc<ReactiveScheduler>,
+    pub security_config: SecurityConfig,
 }
 
 /// Run the API server.
@@ -107,6 +109,7 @@ pub async fn run(
         key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
         endpoint_registry,
         reactive_scheduler,
+        security_config: SecurityConfig::default(),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -419,15 +422,9 @@ async fn bootstrap_admin_key(
 }
 
 /// Mask password in database URL for logging
+/// Re-export from cloacina::logging for backward compat in tests.
 fn mask_db_url(url: &str) -> String {
-    if let Some(at_pos) = url.find('@') {
-        if let Some(colon_pos) = url[..at_pos].rfind(':') {
-            let prefix = &url[..colon_pos + 1];
-            let suffix = &url[at_pos..];
-            return format!("{}****{}", prefix, suffix);
-        }
-    }
-    url.to_string()
+    cloacina::logging::mask_db_url(url)
 }
 
 #[cfg(test)]
@@ -457,6 +454,7 @@ mod tests {
             key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
             endpoint_registry: EndpointRegistry::new(),
             reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
+            security_config: SecurityConfig::default(),
         }
     }
 

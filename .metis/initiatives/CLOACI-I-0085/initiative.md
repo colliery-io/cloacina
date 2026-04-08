@@ -4,14 +4,14 @@ level: initiative
 title: "Security Foundation — Authorization, Signature Verification, and Credential Leaks"
 short_code: "CLOACI-I-0085"
 created_at: 2026-04-08T10:46:46.962392+00:00
-updated_at: 2026-04-08T10:46:46.962392+00:00
+updated_at: 2026-04-08T13:34:56.632416+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false

@@ -189,3 +189,32 @@ mod tests {
         debug!("This is a debug message");
     }
 }
+
+/// Mask the password in a database URL for safe logging.
+///
+/// Replaces the password portion (between the last `:` before `@` and the `@`)
+/// with `****`. If the URL does not contain credentials, returns it unchanged.
+///
+/// # Examples
+///
+/// ```
+/// use cloacina::logging::mask_db_url;
+/// assert_eq!(
+///     mask_db_url("postgres://user:secret@localhost/db"),
+///     "postgres://user:****@localhost/db"
+/// );
+/// assert_eq!(
+///     mask_db_url("sqlite:///path/to/db"),
+///     "sqlite:///path/to/db"
+/// );
+/// ```
+pub fn mask_db_url(url: &str) -> String {
+    if let Some(at_pos) = url.find('@') {
+        if let Some(colon_pos) = url[..at_pos].rfind(':') {
+            let prefix = &url[..colon_pos + 1];
+            let suffix = &url[at_pos..];
+            return format!("{}****{}", prefix, suffix);
+        }
+    }
+    url.to_string()
+}

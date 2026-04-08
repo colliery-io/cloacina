@@ -46,11 +46,26 @@ fn default_role() -> String {
 
 /// POST /auth/keys — create a new API key.
 ///
+/// Requires admin role. Non-admin keys cannot create keys with higher
+/// permissions than their own (prevents privilege escalation).
 /// Returns the plaintext key exactly once. It cannot be retrieved again.
 pub async fn create_key(
     State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
     Json(body): Json<CreateKeyRequest>,
 ) -> impl IntoResponse {
+    if !auth.can_admin() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
+
+    // Prevent privilege escalation: non-god-mode admins cannot create god-mode keys
+    let requested_role = body.role.as_str();
+    if !auth.is_admin && requested_role == "admin" {
+        // Tenant-scoped admin creating another admin is OK (same level),
+        // but only god-mode can create god-mode keys (is_admin=true).
+        // Since create_key always sets is_admin=false, this is safe.
+    }
+
     let (plaintext, hash) = cloacina::security::api_keys::generate_api_key();
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
@@ -84,7 +99,14 @@ pub async fn create_key(
 }
 
 /// GET /auth/keys — list all API keys (no hashes or plaintext).
-pub async fn list_keys(State(state): State<AppState>) -> impl IntoResponse {
+/// Requires admin role.
+pub async fn list_keys(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    if !auth.can_admin() {
+        return AuthenticatedKey::insufficient_role_response().into_response();
+    }
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal.api_keys().list_keys().await {
         Ok(keys) => {

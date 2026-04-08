@@ -279,49 +279,36 @@ impl PyDefaultRunner {
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
-            eprintln!("THREAD: Initializing async runtime thread for DefaultRunner");
-            eprintln!("THREAD: Checking RUST_LOG: {:?}", std::env::var("RUST_LOG"));
 
             // Try to initialize tracing
             use tracing::{debug, info};
             let _guard = tracing_subscriber::fmt()
                 .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                        eprintln!("THREAD: No RUST_LOG found, using info level");
-                        tracing_subscriber::EnvFilter::new("info")
-                    }),
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
                 )
                 .try_init();
 
-            eprintln!("THREAD: Tracing initialized");
             info!("Background thread started with tracing");
 
             // Create the tokio runtime in the dedicated thread
-            eprintln!("THREAD: Creating tokio runtime");
             debug!("Creating tokio runtime");
             let rt = Runtime::new().expect("Failed to create tokio runtime");
-            eprintln!("THREAD: Tokio runtime created successfully");
             info!("Tokio runtime created successfully");
 
             // Create the DefaultRunner within the async context
             let runner = rt.block_on(async {
-                eprintln!(
-                    "THREAD: Creating DefaultRunner with database_url: {}",
-                    database_url
+                info!(
+                    "Creating DefaultRunner with database_url: {}",
+                    crate::logging::mask_db_url(&database_url)
                 );
-                info!("Creating DefaultRunner with database_url: {}", database_url);
-                eprintln!("THREAD: About to call crate::DefaultRunner::new()");
                 debug!("About to call crate::DefaultRunner::new()");
                 let runner = crate::DefaultRunner::new(&database_url)
                     .await
                     .expect("Failed to create DefaultRunner");
-                eprintln!(
-                    "THREAD: DefaultRunner created successfully, background services running"
-                );
                 info!("DefaultRunner created successfully, background services running");
                 runner
             });
-            eprintln!("THREAD: DefaultRunner creation completed");
             info!("DefaultRunner creation completed");
 
             let runner = Arc::new(runner);
@@ -335,27 +322,15 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
                                 // Execute the workflow in the async runtime
                                 use crate::executor::PipelineExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
-
                                 // Send response back to the calling thread
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -364,11 +339,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -389,8 +359,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -404,8 +372,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -426,8 +392,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -446,8 +410,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -468,8 +430,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -496,8 +456,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -519,8 +477,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -534,8 +490,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -557,8 +511,6 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -576,8 +528,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -620,8 +570,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -654,14 +602,11 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!("THREAD: Received shutdown signal");
                             break;
                         }
                     }
                 }
             });
-
-            eprintln!("THREAD: Runtime thread shutting down");
         });
 
         Ok(PyDefaultRunner {
@@ -687,15 +632,12 @@ impl PyDefaultRunner {
         // Spawn a dedicated thread for the async runtime
         let thread_handle = thread::spawn(move || {
             // Initialize logging in this thread
-            eprintln!("THREAD: Initializing logging in background thread");
             if std::env::var("RUST_LOG").is_ok() {
-                eprintln!("THREAD: RUST_LOG found: {:?}", std::env::var("RUST_LOG"));
                 // Try to initialize tracing in this thread
                 let _ = tracing_subscriber::fmt()
                     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
                     .try_init();
             } else {
-                eprintln!("THREAD: No RUST_LOG environment variable found");
             }
 
             // Create the tokio runtime in the dedicated thread
@@ -719,27 +661,15 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
                                 // Execute the workflow in the async runtime
                                 use crate::executor::PipelineExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
-
                                 // Send response back to the calling thread
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -748,11 +678,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -773,8 +698,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -788,8 +711,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -810,8 +731,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -830,8 +749,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -852,8 +769,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -880,8 +795,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -903,8 +816,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -918,8 +829,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -941,8 +850,6 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -960,8 +867,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -1004,8 +909,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1038,14 +941,11 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!("THREAD: Received shutdown signal");
                             break;
                         }
                     }
                 }
             });
-
-            eprintln!("THREAD: Runtime thread shutting down");
         });
 
         Ok(PyDefaultRunner {
@@ -1131,33 +1031,21 @@ impl PyDefaultRunner {
 
         // If we got here, the creation succeeded, so spawn the background thread
         let thread_handle = thread::spawn(move || {
-            eprintln!(
-                "THREAD: Starting async runtime thread for schema: {}",
-                schema
-            );
             info!("Starting async runtime thread for schema: {}", schema);
 
             // Create a new Tokio runtime
             let rt = Runtime::new().expect("Failed to create Tokio runtime");
-            eprintln!(
-                "THREAD: Tokio runtime created successfully for schema: {}",
-                schema
-            );
             info!("Tokio runtime created successfully for schema: {}", schema);
 
             // Create the DefaultRunner with schema within the async context
             let runner = rt.block_on(async {
-                eprintln!("THREAD: Creating DefaultRunner with schema: {} and database_url: {}", schema, database_url);
-                info!("Creating DefaultRunner with schema: {} and database_url: {}", schema, database_url);
-                eprintln!("THREAD: About to call crate::DefaultRunner::with_schema()");
+                info!("Creating DefaultRunner with schema: {} and database_url: {}", schema, crate::logging::mask_db_url(&database_url));
                 debug!("About to call crate::DefaultRunner::with_schema()");
                 let runner = crate::DefaultRunner::with_schema(&database_url, &schema).await
                     .expect("Failed to create DefaultRunner with schema - this should not fail since we tested it above");
-                eprintln!("THREAD: DefaultRunner with schema created successfully, background services running");
                 info!("DefaultRunner with schema created successfully, background services running");
                 runner
             });
-            eprintln!("THREAD: DefaultRunner with schema creation completed");
             info!("DefaultRunner with schema creation completed");
 
             let runner = Arc::new(runner);
@@ -1171,24 +1059,12 @@ impl PyDefaultRunner {
                             context,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received execute request for workflow: {}",
-                                workflow_name
-                            );
-                            eprintln!("THREAD: Spawning execution task");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
-                                eprintln!("TASK: About to call runner.execute()");
-
                                 use crate::executor::PipelineExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
-                                eprintln!("TASK: runner.execute() returned: {:?}", result.is_ok());
-                                eprintln!("TASK: Sending response back to Python thread");
-
                                 let _ = response_tx.send(result);
-                                eprintln!("TASK: Response sent successfully");
                             });
                         }
                         RuntimeMessage::RegisterCronWorkflow {
@@ -1197,11 +1073,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!(
-                                "THREAD: Received register cron workflow request for: {}",
-                                workflow_name
-                            );
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -1222,8 +1093,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list cron schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone
@@ -1237,8 +1106,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set cron schedule enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1259,8 +1126,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received delete cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1279,8 +1144,6 @@ impl PyDefaultRunner {
                             schedule_id,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1301,8 +1164,6 @@ impl PyDefaultRunner {
                             timezone,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received update cron schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1329,8 +1190,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get cron execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = match schedule_id.parse::<uuid::Uuid>() {
@@ -1352,8 +1211,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::GetCronExecutionStats { since, response_tx } => {
-                            eprintln!("THREAD: Received get cron execution stats request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = runner_clone.get_cron_execution_stats(since).await;
@@ -1367,8 +1224,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received list trigger schedules request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1390,8 +1245,6 @@ impl PyDefaultRunner {
                             trigger_name,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger schedule request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1409,8 +1262,6 @@ impl PyDefaultRunner {
                             enabled,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received set trigger enabled request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let result = async {
@@ -1453,8 +1304,6 @@ impl PyDefaultRunner {
                             offset,
                             response_tx,
                         } => {
-                            eprintln!("THREAD: Received get trigger execution history request");
-
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
                                 let dal = runner_clone.dal();
@@ -1487,9 +1336,6 @@ impl PyDefaultRunner {
                             });
                         }
                         RuntimeMessage::Shutdown => {
-                            eprintln!(
-                                "THREAD: Received shutdown message, breaking from event loop"
-                            );
                             info!("Received shutdown message, breaking from event loop");
                             break;
                         }
@@ -1497,7 +1343,6 @@ impl PyDefaultRunner {
                 }
             });
 
-            eprintln!("THREAD: Event loop finished, thread ending");
             info!("Event loop finished, thread ending");
         });
 
@@ -1520,11 +1365,6 @@ impl PyDefaultRunner {
         let rust_context = context.clone_inner();
         let workflow_name = workflow_name.to_string();
 
-        eprintln!(
-            "THREADS: Python execute() called for workflow: {}",
-            workflow_name
-        );
-
         // Create a oneshot channel for the response
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -1537,7 +1377,6 @@ impl PyDefaultRunner {
 
         // Send message without holding the GIL
         let result = py.allow_threads(|| {
-            eprintln!("THREADS: Sending execute message to runtime thread");
             self.runtime_handle
                 .lock()
                 .unwrap()
@@ -1545,17 +1384,14 @@ impl PyDefaultRunner {
                 .send(message)
                 .map_err(|_| PyValueError::new_err("Failed to send message to runtime thread"))?;
 
-            eprintln!("THREADS: Waiting for response from runtime thread");
             // Wait for the response
             let result = response_rx.blocking_recv().map_err(|_| {
                 PyValueError::new_err("Failed to receive response from runtime thread")
             })?;
 
-            eprintln!("THREADS: Received response from runtime thread");
             result.map_err(|e| PyValueError::new_err(format!("Workflow execution failed: {}", e)))
         })?;
 
-        eprintln!("THREADS: Execution completed successfully");
         Ok(PyPipelineResult::from_result(result))
     }
 

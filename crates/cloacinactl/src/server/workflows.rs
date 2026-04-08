@@ -65,6 +65,26 @@ pub async fn upload_workflow(
             .into_response();
     }
 
+    // Signature verification gate: when require_signatures is enabled,
+    // reject uploads. The package must be signed and uploaded with its
+    // signature via the package signing workflow before it can be loaded.
+    // This prevents unsigned native code from being dlopen'd by the reconciler.
+    if state.security_config.require_signatures {
+        // TODO: implement full signature verification at upload time.
+        // For now, reject all uploads when signatures are required —
+        // packages must be pre-signed and loaded through the signing pipeline.
+        warn!(
+            "Package upload rejected: signature verification is required (require_signatures=true)"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "package signature verification is required — sign the package before uploading"
+            })),
+        )
+            .into_response();
+    }
+
     // Register via WorkflowRegistry
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let mut registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {

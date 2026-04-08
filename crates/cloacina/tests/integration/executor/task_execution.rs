@@ -462,6 +462,39 @@ async fn test_task_executor_timeout_handling() {
         "Task should have failed due to timeout"
     );
 
+    // COR-01: Verify PIPELINE status reflects the task failure.
+    // Previously, pipelines were always marked "Completed" even with failed tasks.
+    crate::fixtures::poll_until(
+        Duration::from_secs(10),
+        Duration::from_millis(100),
+        "pipeline should be marked as terminal (Failed or Completed)",
+        || {
+            let dal = dal.clone();
+            async move {
+                if let Ok(exec) = dal
+                    .pipeline_execution()
+                    .get_by_id(UniversalUuid(pipeline_id))
+                    .await
+                {
+                    exec.status == "Failed" || exec.status == "Completed"
+                } else {
+                    false
+                }
+            }
+        },
+    )
+    .await;
+
+    let pipeline_exec = dal
+        .pipeline_execution()
+        .get_by_id(UniversalUuid(pipeline_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        pipeline_exec.status, "Failed",
+        "Pipeline with failed task(s) must be marked Failed, not Completed"
+    );
+
     // Cleanup
     runner.shutdown().await.unwrap();
 }
@@ -1016,4 +1049,227 @@ async fn test_task_executor_context_loading_with_dependencies() {
 
     // Cleanup
     runner.shutdown().await.unwrap();
+}
+
+// =============================================================================
+// COR-01 Regression Tests: Pipeline completion status must reflect task outcomes
+// =============================================================================
+
+/// A task that always fails immediately.
+#[task(id = "always_fails_task", dependencies = [], retry_attempts = 0)]
+async fn always_fails_task(_context: &mut Context<Value>) -> Result<(), TaskError> {
+    Err(TaskError::Unknown {
+        task_id: "always_fails_task".to_string(),
+        message: "intentional failure for COR-01 test".to_string(),
+    })
+}
+
+/// A task that always succeeds.
+#[task(id = "always_succeeds_task", dependencies = [])]
+async fn always_succeeds_task(context: &mut Context<Value>) -> Result<(), TaskError> {
+    context.insert("success", Value::Bool(true))?;
+    Ok(())
+}
+
+/// A task that depends on always_fails_task (will be skipped when dep fails).
+#[task(id = "downstream_of_failure", dependencies = ["always_fails_task"])]
+async fn downstream_of_failure(context: &mut Context<Value>) -> Result<(), TaskError> {
+    context.insert("downstream_ran", Value::Bool(true))?;
+    Ok(())
+}
+
+/// Helper to set up a runner with registered tasks and workflow, execute, and
+/// return the final pipeline status string.
+async fn run_pipeline_and_get_status(
+    workflow_name: &str,
+    task_defs: Vec<(&str, Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>)>,
+    dep_map: Vec<(&str, Vec<&str>)>,
+) -> String {
+    let fixture = get_or_init_fixture().await;
+    let mut fixture = fixture.lock().unwrap_or_else(|e| e.into_inner());
+    fixture.reset_database().await;
+    fixture.initialize().await;
+
+    let database_url = fixture.get_database_url();
+    let database = fixture.get_database();
+
+    let unique_name = format!(
+        "{}_{}",
+        workflow_name,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+
+    let mut builder = Workflow::builder(&unique_name).description("COR-01 regression test");
+
+    for (task_id, deps) in &dep_map {
+        builder = builder
+            .add_task(Arc::new(WorkflowTask::new(task_id, deps.clone())))
+            .unwrap();
+    }
+    let workflow = builder.build().unwrap();
+
+    // Register tasks
+    for (task_id, constructor) in &task_defs {
+        let namespace = TaskNamespace::new(
+            workflow.tenant(),
+            workflow.package(),
+            workflow.name(),
+            task_id,
+        );
+        let ctor = constructor();
+        register_task_constructor(namespace, move || ctor.clone());
+    }
+
+    // Register workflow
+    register_workflow_constructor(workflow.name().to_string(), {
+        let workflow = workflow.clone();
+        move || workflow.clone()
+    });
+
+    let schema = fixture.get_schema();
+    let runner = DefaultRunner::builder()
+        .database_url(&database_url)
+        .schema(&schema)
+        .build()
+        .await
+        .unwrap();
+
+    let execution = runner
+        .execute_async(&unique_name, Context::new())
+        .await
+        .unwrap();
+    let pipeline_id = execution.execution_id;
+
+    // Poll until pipeline reaches a terminal state
+    let dal = cloacina::dal::DAL::new(database.clone());
+    crate::fixtures::poll_until(
+        Duration::from_secs(15),
+        Duration::from_millis(100),
+        "pipeline should reach terminal state",
+        || {
+            let dal = dal.clone();
+            async move {
+                if let Ok(exec) = dal
+                    .pipeline_execution()
+                    .get_by_id(UniversalUuid(pipeline_id))
+                    .await
+                {
+                    exec.status == "Failed" || exec.status == "Completed"
+                } else {
+                    false
+                }
+            }
+        },
+    )
+    .await;
+
+    let exec = dal
+        .pipeline_execution()
+        .get_by_id(UniversalUuid(pipeline_id))
+        .await
+        .unwrap();
+
+    runner.shutdown().await.unwrap();
+    exec.status
+}
+
+/// COR-01: Pipeline where all tasks succeed must be marked "Completed".
+#[tokio::test]
+#[serial_test::serial]
+async fn test_pipeline_all_tasks_succeed_marked_completed() {
+    let status = run_pipeline_and_get_status(
+        "cor01_all_succeed",
+        vec![(
+            "always_succeeds_task",
+            Box::new(|| Arc::new(always_succeeds_task_task())),
+        )],
+        vec![("always_succeeds_task", vec![])],
+    )
+    .await;
+
+    assert_eq!(
+        status, "Completed",
+        "Pipeline with all successful tasks must be Completed"
+    );
+}
+
+/// COR-01: Pipeline where a task fails must be marked "Failed".
+#[tokio::test]
+#[serial_test::serial]
+async fn test_pipeline_task_fails_marked_failed() {
+    let status = run_pipeline_and_get_status(
+        "cor01_task_fails",
+        vec![(
+            "always_fails_task",
+            Box::new(|| Arc::new(always_fails_task_task())),
+        )],
+        vec![("always_fails_task", vec![])],
+    )
+    .await;
+
+    assert_eq!(
+        status, "Failed",
+        "Pipeline with failed task must be Failed, not Completed"
+    );
+}
+
+/// COR-01: Pipeline with mixed results (one succeeds, one fails) must be "Failed".
+#[tokio::test]
+#[serial_test::serial]
+async fn test_pipeline_mixed_results_marked_failed() {
+    let status = run_pipeline_and_get_status(
+        "cor01_mixed",
+        vec![
+            (
+                "always_succeeds_task",
+                Box::new(|| Arc::new(always_succeeds_task_task())),
+            ),
+            (
+                "always_fails_task",
+                Box::new(|| Arc::new(always_fails_task_task())),
+            ),
+        ],
+        vec![
+            ("always_succeeds_task", vec![]),
+            ("always_fails_task", vec![]),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        status, "Failed",
+        "Pipeline with any failed task must be Failed"
+    );
+}
+
+/// COR-01: Pipeline where a task fails and downstream tasks are skipped must be "Failed".
+#[tokio::test]
+#[serial_test::serial]
+async fn test_pipeline_skipped_downstream_marked_failed() {
+    let status = run_pipeline_and_get_status(
+        "cor01_skipped_downstream",
+        vec![
+            (
+                "always_fails_task",
+                Box::new(|| Arc::new(always_fails_task_task())),
+            ),
+            (
+                "downstream_of_failure",
+                Box::new(|| Arc::new(downstream_of_failure_task())),
+            ),
+        ],
+        vec![
+            ("always_fails_task", vec![]),
+            ("downstream_of_failure", vec!["always_fails_task"]),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        status, "Failed",
+        "Pipeline with failed task + skipped dependents must be Failed"
+    );
 }

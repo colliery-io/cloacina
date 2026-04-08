@@ -257,6 +257,42 @@ def auth_integration_test():
         s, _ = api_request("DELETE", f"{base_url}/auth/keys/{dummy_id}", token=write_key)
         check("write key cannot revoke → 403", s == 403, f"got {s}")
 
+        # -- Privilege escalation prevention (SEC-01) --
+        # Read key cannot create keys
+        s, _ = api_request("POST", f"{base_url}/auth/keys", token=read_key,
+                           data={"name": "escalation-attempt", "role": "admin"})
+        check("read key cannot create key → 403", s == 403, f"got {s}")
+
+        # Write key cannot create keys
+        s, _ = api_request("POST", f"{base_url}/auth/keys", token=write_key,
+                           data={"name": "escalation-attempt", "role": "read"})
+        check("write key cannot create key → 403", s == 403, f"got {s}")
+
+        # Write key cannot list keys
+        s, _ = api_request("GET", f"{base_url}/auth/keys", token=write_key)
+        check("write key cannot list keys → 403", s == 403, f"got {s}")
+
+        # Read key cannot list keys
+        s, _ = api_request("GET", f"{base_url}/auth/keys", token=read_key)
+        check("read key cannot list keys → 403", s == 403, f"got {s}")
+
+        # -- Tenant enumeration prevention (SEC-04) --
+        # Write key cannot list tenants
+        s, _ = api_request("GET", f"{base_url}/tenants", token=write_key)
+        check("write key cannot list tenants → 403", s == 403, f"got {s}")
+
+        # Read key cannot list tenants
+        s, _ = api_request("GET", f"{base_url}/tenants", token=read_key)
+        check("read key cannot list tenants → 403", s == 403, f"got {s}")
+
+        # Bootstrap (god mode) CAN still list tenants and create keys
+        s, _ = api_request("GET", f"{base_url}/tenants", token=token)
+        check("bootstrap can list tenants", s == 200, f"got {s}")
+
+        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+                              data={"name": "admin-created-key", "role": "admin"})
+        check("bootstrap can create admin key", s == 201, f"got {s}")
+
         # =================================================================
         # Test group 5: Tenant-scoped key isolation
         # =================================================================

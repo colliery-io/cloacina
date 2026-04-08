@@ -243,14 +243,30 @@ impl<'a> SchedulerLoop<'a> {
             );
         }
 
-        self.dal
-            .pipeline_execution()
-            .mark_completed(execution.id)
-            .await?;
-        info!(
-            "Pipeline completed: {} (name: {}, {} completed, {} failed, {} skipped)",
-            execution.id, execution.pipeline_name, completed_count, failed_count, skipped_count
-        );
+        // Determine final pipeline status based on task outcomes
+        if failed_count > 0 {
+            let reason = format!(
+                "{} task(s) failed, {} completed, {} skipped",
+                failed_count, completed_count, skipped_count
+            );
+            self.dal
+                .pipeline_execution()
+                .mark_failed(execution.id, &reason)
+                .await?;
+            info!(
+                "Pipeline failed: {} (name: {}, {})",
+                execution.id, execution.pipeline_name, reason
+            );
+        } else {
+            self.dal
+                .pipeline_execution()
+                .mark_completed(execution.id)
+                .await?;
+            info!(
+                "Pipeline completed: {} (name: {}, {} completed, {} skipped)",
+                execution.id, execution.pipeline_name, completed_count, skipped_count
+            );
+        }
 
         Ok(())
     }

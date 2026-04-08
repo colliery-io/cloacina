@@ -120,7 +120,14 @@ pub async fn remove_tenant(
 }
 
 /// GET /tenants — list tenant schemas.
-pub async fn list_tenants(State(state): State<AppState>) -> impl IntoResponse {
+/// Requires admin role — only admins can enumerate tenants.
+pub async fn list_tenants(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    if !auth.is_admin {
+        return AuthenticatedKey::admin_required_response().into_response();
+    }
     let admin = DatabaseAdmin::new(state.database.clone());
 
     match admin.list_tenant_schemas().await {
