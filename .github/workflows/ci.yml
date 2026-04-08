@@ -49,10 +49,12 @@ jobs:
             rust:
               - 'crates/cloacina/**'
               - 'crates/cloacina-build/**'
+              - 'crates/cloacina-computation-graph/**'
               - 'crates/cloacinactl/**'
               - 'crates/cloacina-macros/**'
               - 'crates/cloacina-testing/**'
               - 'crates/cloacina-workflow/**'
+              - 'crates/cloacina-workflow-plugin/**'
               - 'Cargo.*'
               - 'rust-toolchain.toml'
             workflows:

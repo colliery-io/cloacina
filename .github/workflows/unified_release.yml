@@ -69,6 +69,8 @@ jobs:
         run: |
           cargo package -p cloacina-macros --allow-dirty
           cargo package -p cloacina-workflow --allow-dirty
+          cargo package -p cloacina-computation-graph --allow-dirty
+          cargo package -p cloacina-workflow-plugin --allow-dirty
           cargo package -p cloacina --allow-dirty
 
       - name: Upload Rust package artifacts
@@ -113,6 +115,10 @@ jobs:
           cargo publish -p cloacina-macros || echo "cloacina-macros may already be published"
           sleep 30  # Wait for crates.io to propagate
           cargo publish -p cloacina-workflow || echo "cloacina-workflow may already be published"
+          sleep 30  # Wait for crates.io to propagate
+          cargo publish -p cloacina-computation-graph || echo "cloacina-computation-graph may already be published"
+          sleep 30  # Wait for crates.io to propagate
+          cargo publish -p cloacina-workflow-plugin || echo "cloacina-workflow-plugin may already be published"
           sleep 30  # Wait for crates.io to propagate
           cargo publish -p cloacina || echo "cloacina may already be published"
         env:

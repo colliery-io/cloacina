@@ -72,7 +72,7 @@ jobs:
         run: |
           cargo tarpaulin \
             -p cloacina \
-            --features postgres,sqlite,macros \
+            --features postgres,sqlite,macros,kafka \
             --out xml \
             --output-dir target/coverage \
             --skip-clean \
@@ -148,7 +148,7 @@ jobs:
           shared-key: "cloacina-nightly-macos"
 
       - name: Build workspace
-        run: cargo build --features "postgres,sqlite,macros"
+        run: cargo build --features "postgres,sqlite,macros,kafka"
 
       - name: Run unit tests
         run: angreal cloacina unit
