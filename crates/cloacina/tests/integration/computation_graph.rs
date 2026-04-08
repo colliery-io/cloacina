@@ -915,981 +915,993 @@ async fn test_sequential_input_strategy() {
 
 // =============================================================================
 // Resilience Tests (T-0414)
+// These tests use in-memory SQLite for DAL, so they require the sqlite feature.
 // =============================================================================
+#[cfg(feature = "sqlite")]
+mod resilience_tests {
+    use super::*;
 
-/// Helper: create an in-memory SQLite DAL for testing.
-/// Uses shared-cache in-memory DB so the pool can have multiple connections
-/// to the same database without creating temp files on disk.
-async fn test_dal() -> cloacina::dal::unified::DAL {
-    let url = format!(
-        "file:resilience_test_{}?mode=memory&cache=shared",
-        uuid::Uuid::new_v4()
-    );
-    let db = cloacina::database::Database::new(&url, "", 5);
-    db.run_migrations()
-        .await
-        .expect("migrations should succeed");
-    cloacina::dal::unified::DAL::new(db)
-}
+    /// Helper: create an in-memory SQLite DAL for testing.
+    /// Uses shared-cache in-memory DB so the pool can have multiple connections
+    /// to the same database without creating temp files on disk.
+    async fn test_dal() -> cloacina::dal::unified::DAL {
+        let url = format!(
+            "file:resilience_test_{}?mode=memory&cache=shared",
+            uuid::Uuid::new_v4()
+        );
+        let db = cloacina::database::Database::new(&url, "", 5);
+        db.run_migrations()
+            .await
+            .expect("migrations should succeed");
+        cloacina::dal::unified::DAL::new(db)
+    }
 
-#[tokio::test]
-async fn test_boundary_sender_sequence_numbers() {
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    let sender =
-        cloacina::computation_graph::accumulator::BoundarySender::new(tx, SourceName::new("test"));
+    #[tokio::test]
+    async fn test_boundary_sender_sequence_numbers() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        let sender = cloacina::computation_graph::accumulator::BoundarySender::new(
+            tx,
+            SourceName::new("test"),
+        );
 
-    assert_eq!(sender.sequence_number(), 0);
+        assert_eq!(sender.sequence_number(), 0);
 
-    sender.send(&AlphaData { value: 1.0 }).await.unwrap();
-    assert_eq!(sender.sequence_number(), 1);
+        sender.send(&AlphaData { value: 1.0 }).await.unwrap();
+        assert_eq!(sender.sequence_number(), 1);
 
-    sender.send(&AlphaData { value: 2.0 }).await.unwrap();
-    assert_eq!(sender.sequence_number(), 2);
+        sender.send(&AlphaData { value: 2.0 }).await.unwrap();
+        assert_eq!(sender.sequence_number(), 2);
 
-    // Drain the channel
-    let _ = rx.recv().await;
-    let _ = rx.recv().await;
-}
+        // Drain the channel
+        let _ = rx.recv().await;
+        let _ = rx.recv().await;
+    }
 
-#[tokio::test]
-async fn test_boundary_sender_with_sequence_recovery() {
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    let sender = cloacina::computation_graph::accumulator::BoundarySender::with_sequence(
-        tx,
-        SourceName::new("test"),
-        42,
-    );
+    #[tokio::test]
+    async fn test_boundary_sender_with_sequence_recovery() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+        let sender = cloacina::computation_graph::accumulator::BoundarySender::with_sequence(
+            tx,
+            SourceName::new("test"),
+            42,
+        );
 
-    assert_eq!(sender.sequence_number(), 42);
+        assert_eq!(sender.sequence_number(), 42);
 
-    sender.send(&AlphaData { value: 1.0 }).await.unwrap();
-    assert_eq!(sender.sequence_number(), 43);
+        sender.send(&AlphaData { value: 1.0 }).await.unwrap();
+        assert_eq!(sender.sequence_number(), 43);
 
-    let _ = rx.recv().await;
-}
+        let _ = rx.recv().await;
+    }
 
-#[tokio::test]
-async fn test_accumulator_health_channel() {
-    use cloacina::computation_graph::accumulator::{health_channel, AccumulatorHealth};
+    #[tokio::test]
+    async fn test_accumulator_health_channel() {
+        use cloacina::computation_graph::accumulator::{health_channel, AccumulatorHealth};
 
-    let (tx, rx) = health_channel();
+        let (tx, rx) = health_channel();
 
-    // Initial state is Starting
-    assert_eq!(*rx.borrow(), AccumulatorHealth::Starting);
+        // Initial state is Starting
+        assert_eq!(*rx.borrow(), AccumulatorHealth::Starting);
 
-    // Transition to Live
-    tx.send(AccumulatorHealth::Live).unwrap();
-    assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
+        // Transition to Live
+        tx.send(AccumulatorHealth::Live).unwrap();
+        assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
 
-    // Transition to Disconnected
-    tx.send(AccumulatorHealth::Disconnected).unwrap();
-    assert_eq!(*rx.borrow(), AccumulatorHealth::Disconnected);
+        // Transition to Disconnected
+        tx.send(AccumulatorHealth::Disconnected).unwrap();
+        assert_eq!(*rx.borrow(), AccumulatorHealth::Disconnected);
 
-    // Back to Live
-    tx.send(AccumulatorHealth::Live).unwrap();
-    assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
-}
+        // Back to Live
+        tx.send(AccumulatorHealth::Live).unwrap();
+        assert_eq!(*rx.borrow(), AccumulatorHealth::Live);
+    }
 
-#[tokio::test]
-async fn test_checkpoint_dal_round_trip() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_checkpoint_dal_round_trip() {
+        let dal = test_dal().await;
 
-    // Save a checkpoint
-    dal.checkpoint()
-        .save_checkpoint("test_graph", "alpha", b"hello world".to_vec())
-        .await
-        .unwrap();
+        // Save a checkpoint
+        dal.checkpoint()
+            .save_checkpoint("test_graph", "alpha", b"hello world".to_vec())
+            .await
+            .unwrap();
 
-    // Load it back
-    let loaded = dal
-        .checkpoint()
-        .load_checkpoint("test_graph", "alpha")
-        .await
-        .unwrap();
-    assert_eq!(loaded, Some(b"hello world".to_vec()));
+        // Load it back
+        let loaded = dal
+            .checkpoint()
+            .load_checkpoint("test_graph", "alpha")
+            .await
+            .unwrap();
+        assert_eq!(loaded, Some(b"hello world".to_vec()));
 
-    // Non-existent returns None
-    let missing = dal
-        .checkpoint()
-        .load_checkpoint("test_graph", "nonexistent")
-        .await
-        .unwrap();
-    assert_eq!(missing, None);
-}
+        // Non-existent returns None
+        let missing = dal
+            .checkpoint()
+            .load_checkpoint("test_graph", "nonexistent")
+            .await
+            .unwrap();
+        assert_eq!(missing, None);
+    }
 
-#[tokio::test]
-async fn test_checkpoint_dal_upsert() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_checkpoint_dal_upsert() {
+        let dal = test_dal().await;
 
-    // Save initial
-    dal.checkpoint()
-        .save_checkpoint("g", "a", b"v1".to_vec())
-        .await
-        .unwrap();
+        // Save initial
+        dal.checkpoint()
+            .save_checkpoint("g", "a", b"v1".to_vec())
+            .await
+            .unwrap();
 
-    // Upsert with new data
-    dal.checkpoint()
-        .save_checkpoint("g", "a", b"v2".to_vec())
-        .await
-        .unwrap();
+        // Upsert with new data
+        dal.checkpoint()
+            .save_checkpoint("g", "a", b"v2".to_vec())
+            .await
+            .unwrap();
 
-    // Should get v2
-    let loaded = dal.checkpoint().load_checkpoint("g", "a").await.unwrap();
-    assert_eq!(loaded, Some(b"v2".to_vec()));
-}
+        // Should get v2
+        let loaded = dal.checkpoint().load_checkpoint("g", "a").await.unwrap();
+        assert_eq!(loaded, Some(b"v2".to_vec()));
+    }
 
-#[tokio::test]
-async fn test_boundary_dal_with_sequence() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_boundary_dal_with_sequence() {
+        let dal = test_dal().await;
 
-    // Save boundary with sequence 5
-    dal.checkpoint()
-        .save_boundary("g", "alpha", b"data1".to_vec(), 5)
-        .await
-        .unwrap();
+        // Save boundary with sequence 5
+        dal.checkpoint()
+            .save_boundary("g", "alpha", b"data1".to_vec(), 5)
+            .await
+            .unwrap();
 
-    let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
-    assert_eq!(loaded, Some((b"data1".to_vec(), 5)));
+        let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
+        assert_eq!(loaded, Some((b"data1".to_vec(), 5)));
 
-    // Upsert with higher sequence
-    dal.checkpoint()
-        .save_boundary("g", "alpha", b"data2".to_vec(), 10)
-        .await
-        .unwrap();
+        // Upsert with higher sequence
+        dal.checkpoint()
+            .save_boundary("g", "alpha", b"data2".to_vec(), 10)
+            .await
+            .unwrap();
 
-    let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
-    assert_eq!(loaded, Some((b"data2".to_vec(), 10)));
-}
+        let loaded = dal.checkpoint().load_boundary("g", "alpha").await.unwrap();
+        assert_eq!(loaded, Some((b"data2".to_vec(), 10)));
+    }
 
-#[tokio::test]
-async fn test_reactor_state_dal_round_trip() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_reactor_state_dal_round_trip() {
+        let dal = test_dal().await;
 
-    // Save reactor state
-    dal.checkpoint()
-        .save_reactor_state("test_graph", b"cache".to_vec(), b"flags".to_vec(), None)
-        .await
-        .unwrap();
+        // Save reactor state
+        dal.checkpoint()
+            .save_reactor_state("test_graph", b"cache".to_vec(), b"flags".to_vec(), None)
+            .await
+            .unwrap();
 
-    let loaded = dal
-        .checkpoint()
-        .load_reactor_state("test_graph")
-        .await
-        .unwrap();
-    assert!(loaded.is_some());
-    let (cache, flags, queue) = loaded.unwrap();
-    assert_eq!(cache, b"cache");
-    assert_eq!(flags, b"flags");
-    assert_eq!(queue, None);
-}
+        let loaded = dal
+            .checkpoint()
+            .load_reactor_state("test_graph")
+            .await
+            .unwrap();
+        assert!(loaded.is_some());
+        let (cache, flags, queue) = loaded.unwrap();
+        assert_eq!(cache, b"cache");
+        assert_eq!(flags, b"flags");
+        assert_eq!(queue, None);
+    }
 
-#[tokio::test]
-async fn test_reactor_state_dal_with_sequential_queue() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_reactor_state_dal_with_sequential_queue() {
+        let dal = test_dal().await;
 
-    dal.checkpoint()
-        .save_reactor_state(
-            "g",
-            b"cache".to_vec(),
-            b"flags".to_vec(),
-            Some(b"queue_data".to_vec()),
-        )
-        .await
-        .unwrap();
+        dal.checkpoint()
+            .save_reactor_state(
+                "g",
+                b"cache".to_vec(),
+                b"flags".to_vec(),
+                Some(b"queue_data".to_vec()),
+            )
+            .await
+            .unwrap();
 
-    let loaded = dal.checkpoint().load_reactor_state("g").await.unwrap();
-    let (_, _, queue) = loaded.unwrap();
-    assert_eq!(queue, Some(b"queue_data".to_vec()));
-}
+        let loaded = dal.checkpoint().load_reactor_state("g").await.unwrap();
+        let (_, _, queue) = loaded.unwrap();
+        assert_eq!(queue, Some(b"queue_data".to_vec()));
+    }
 
-#[tokio::test]
-async fn test_state_buffer_dal_round_trip() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_state_buffer_dal_round_trip() {
+        let dal = test_dal().await;
 
-    dal.checkpoint()
-        .save_state_buffer("g", "prev_outputs", b"[1,2,3]".to_vec(), 10)
-        .await
-        .unwrap();
+        dal.checkpoint()
+            .save_state_buffer("g", "prev_outputs", b"[1,2,3]".to_vec(), 10)
+            .await
+            .unwrap();
 
-    let loaded = dal
-        .checkpoint()
-        .load_state_buffer("g", "prev_outputs")
-        .await
-        .unwrap();
-    assert_eq!(loaded, Some((b"[1,2,3]".to_vec(), 10)));
-}
+        let loaded = dal
+            .checkpoint()
+            .load_state_buffer("g", "prev_outputs")
+            .await
+            .unwrap();
+        assert_eq!(loaded, Some((b"[1,2,3]".to_vec(), 10)));
+    }
 
-#[tokio::test]
-async fn test_delete_graph_state() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_delete_graph_state() {
+        let dal = test_dal().await;
 
-    // Populate all tables for a graph
-    dal.checkpoint()
-        .save_checkpoint("g", "a", b"cp".to_vec())
-        .await
-        .unwrap();
-    dal.checkpoint()
-        .save_boundary("g", "a", b"bd".to_vec(), 1)
-        .await
-        .unwrap();
-    dal.checkpoint()
-        .save_reactor_state("g", b"c".to_vec(), b"d".to_vec(), None)
-        .await
-        .unwrap();
-    dal.checkpoint()
-        .save_state_buffer("g", "s", b"buf".to_vec(), 5)
-        .await
-        .unwrap();
+        // Populate all tables for a graph
+        dal.checkpoint()
+            .save_checkpoint("g", "a", b"cp".to_vec())
+            .await
+            .unwrap();
+        dal.checkpoint()
+            .save_boundary("g", "a", b"bd".to_vec(), 1)
+            .await
+            .unwrap();
+        dal.checkpoint()
+            .save_reactor_state("g", b"c".to_vec(), b"d".to_vec(), None)
+            .await
+            .unwrap();
+        dal.checkpoint()
+            .save_state_buffer("g", "s", b"buf".to_vec(), 5)
+            .await
+            .unwrap();
 
-    // Delete all state for the graph
-    dal.checkpoint().delete_graph_state("g").await.unwrap();
+        // Delete all state for the graph
+        dal.checkpoint().delete_graph_state("g").await.unwrap();
 
-    // All should be None now
-    assert_eq!(
-        dal.checkpoint().load_checkpoint("g", "a").await.unwrap(),
-        None
-    );
-    assert_eq!(
-        dal.checkpoint().load_boundary("g", "a").await.unwrap(),
-        None
-    );
-    assert_eq!(
-        dal.checkpoint().load_reactor_state("g").await.unwrap(),
-        None
-    );
-    assert_eq!(
-        dal.checkpoint().load_state_buffer("g", "s").await.unwrap(),
-        None
-    );
-}
+        // All should be None now
+        assert_eq!(
+            dal.checkpoint().load_checkpoint("g", "a").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            dal.checkpoint().load_boundary("g", "a").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            dal.checkpoint().load_reactor_state("g").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            dal.checkpoint().load_state_buffer("g", "s").await.unwrap(),
+            None
+        );
+    }
 
-#[tokio::test]
-async fn test_checkpoint_handle_typed_round_trip() {
-    let dal = test_dal().await;
+    #[tokio::test]
+    async fn test_checkpoint_handle_typed_round_trip() {
+        let dal = test_dal().await;
 
-    let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
-        dal,
-        "test_graph".to_string(),
-        "alpha".to_string(),
-    );
-
-    // Save a typed value
-    let value = AlphaData { value: 42.0 };
-    handle.save(&value).await.unwrap();
-
-    // Load it back with correct type
-    let loaded: Option<AlphaData> = handle.load().await.unwrap();
-    assert_eq!(loaded, Some(AlphaData { value: 42.0 }));
-}
-
-#[tokio::test]
-async fn test_checkpoint_handle_load_empty() {
-    let dal = test_dal().await;
-
-    let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
-        dal,
-        "test_graph".to_string(),
-        "nonexistent".to_string(),
-    );
-
-    let loaded: Option<AlphaData> = handle.load().await.unwrap();
-    assert_eq!(loaded, None);
-}
-
-// =============================================================================
-// T-0421: End-to-end resilience validation tests
-// =============================================================================
-
-use cloacina::computation_graph::accumulator::{
-    health_channel, AccumulatorHealth, CheckpointHandle,
-};
-use cloacina::computation_graph::reactor::{reactor_health_channel, ReactorHealth};
-
-/// Test: Reactor cache persists to DAL and survives restart.
-///
-/// Pushes events through an accumulator → reactor with DAL wired → verifies
-/// the reactor persists its cache → creates a new reactor with the same DAL →
-/// verifies the cache is restored and the graph can fire with restored state.
-#[tokio::test]
-async fn test_reactor_cache_recovery_across_restart() {
-    let dal = test_dal().await;
-
-    // --- First run: push events, reactor persists cache ---
-    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
-    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(10);
-    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
-    let (shutdown_tx, shutdown_rx) = shutdown_signal();
-
-    let acc_sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
-    let acc_ctx = AccumulatorContext {
-        output: acc_sender,
-        name: "alpha".to_string(),
-        shutdown: shutdown_rx.clone(),
-        checkpoint: Some(CheckpointHandle::new(
-            dal.clone(),
-            "recovery_test".to_string(),
+        let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
+            dal,
+            "test_graph".to_string(),
             "alpha".to_string(),
-        )),
-        health: None,
+        );
+
+        // Save a typed value
+        let value = AlphaData { value: 42.0 };
+        handle.save(&value).await.unwrap();
+
+        // Load it back with correct type
+        let loaded: Option<AlphaData> = handle.load().await.unwrap();
+        assert_eq!(loaded, Some(AlphaData { value: 42.0 }));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_handle_load_empty() {
+        let dal = test_dal().await;
+
+        let handle = cloacina::computation_graph::accumulator::CheckpointHandle::new(
+            dal,
+            "test_graph".to_string(),
+            "nonexistent".to_string(),
+        );
+
+        let loaded: Option<AlphaData> = handle.load().await.unwrap();
+        assert_eq!(loaded, None);
+    }
+
+    // =============================================================================
+    // T-0421: End-to-end resilience validation tests
+    // =============================================================================
+
+    use cloacina::computation_graph::accumulator::{
+        health_channel, AccumulatorHealth, CheckpointHandle,
     };
-
-    let _acc_handle = tokio::spawn(accumulator_runtime(
-        TestPassthroughAccumulator,
-        acc_ctx,
-        socket_rx,
-        AccumulatorRuntimeConfig::default(),
-    ));
-
-    let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let fc = fire_count.clone();
-
-    let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
-        let fc = fc.clone();
-        Box::pin(async move {
-            fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            linear_chain_compiled(&cache).await
-        })
-    });
-
-    let reactor = Reactor::new(
-        graph_fn.clone(),
-        ReactionCriteria::WhenAny,
-        InputStrategy::Latest,
-        boundary_rx,
-        manual_rx,
-        shutdown_rx,
-    )
-    .with_graph_name("recovery_test".to_string())
-    .with_dal(dal.clone());
-
-    let _reactor_handle = tokio::spawn(reactor.run());
-
-    // Push event → accumulator → reactor → graph fires → cache persisted
-    socket_tx
-        .send(serialize(&AlphaData { value: 7.0 }).unwrap())
-        .await
-        .unwrap();
-
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    assert_eq!(
-        fire_count.load(std::sync::atomic::Ordering::SeqCst),
-        1,
-        "graph should have fired once"
-    );
-
-    // Shut down cleanly (triggers final persist)
-    shutdown_tx.send(true).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Verify cache was persisted in DAL
-    let persisted = dal
-        .checkpoint()
-        .load_reactor_state("recovery_test")
-        .await
-        .unwrap();
-    assert!(
-        persisted.is_some(),
-        "reactor state should be persisted in DAL"
-    );
-
-    // --- Second run: new reactor, same DAL → cache should be restored ---
-    let (_boundary_tx2, boundary_rx2) = tokio::sync::mpsc::channel(10);
-    let (_manual_tx2, manual_rx2) = tokio::sync::mpsc::channel(10);
-    let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
-
-    let fire_count2 = Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let fc2 = fire_count2.clone();
-    let captured_cache: Arc<tokio::sync::Mutex<Option<InputCache>>> =
-        Arc::new(tokio::sync::Mutex::new(None));
-    let cc = captured_cache.clone();
-
-    let graph_fn2: CompiledGraphFn = Arc::new(move |cache: InputCache| {
-        let fc2 = fc2.clone();
-        let cc = cc.clone();
-        Box::pin(async move {
-            fc2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            *cc.lock().await = Some(cache.clone());
-            linear_chain_compiled(&cache).await
-        })
-    });
-
-    let reactor2 = Reactor::new(
-        graph_fn2,
-        ReactionCriteria::WhenAny,
-        InputStrategy::Latest,
-        boundary_rx2,
-        manual_rx2,
-        shutdown_rx2,
-    )
-    .with_graph_name("recovery_test".to_string())
-    .with_dal(dal.clone());
-
-    let _reactor_handle2 = tokio::spawn(reactor2.run());
-
-    // Give it a moment to load cache from DAL
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    // Force-fire to verify the restored cache has data
-    _manual_tx2
-        .send(cloacina::computation_graph::reactor::ManualCommand::ForceFire)
-        .await
-        .unwrap();
-
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    assert_eq!(
-        fire_count2.load(std::sync::atomic::Ordering::SeqCst),
-        1,
-        "graph should fire with restored cache"
-    );
-
-    // Verify the cache had the alpha source from the first run
-    let snapshot = captured_cache.lock().await;
-    assert!(
-        snapshot.as_ref().unwrap().has("alpha"),
-        "restored cache should contain 'alpha' from first run"
-    );
-
-    shutdown_tx2.send(true).unwrap();
-}
-
-/// Test: Health state machine transitions — Starting → Warming → Live.
-///
-/// Creates a reactor with accumulator health channels, verifies it starts in
-/// Starting, transitions to Warming while waiting for accumulators, then to
-/// Live when all accumulators report healthy.
-#[tokio::test]
-async fn test_reactor_health_warming_to_live() {
-    let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
-    let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
-    let (shutdown_tx, shutdown_rx) = shutdown_signal();
-
-    let graph_fn: CompiledGraphFn = Arc::new(|_cache: InputCache| {
-        Box::pin(async { cloacina::computation_graph::types::GraphResult::completed(vec![]) })
-    });
-
-    let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
-
-    // Create accumulator health channels (simulating 2 accumulators)
-    let (alpha_health_tx, alpha_health_rx) = health_channel();
-    let (beta_health_tx, beta_health_rx) = health_channel();
-
-    let reactor = Reactor::new(
-        graph_fn,
-        ReactionCriteria::WhenAny,
-        InputStrategy::Latest,
-        boundary_rx,
-        manual_rx,
-        shutdown_rx,
-    )
-    .with_health(reactor_health_tx)
-    .with_accumulator_health(vec![
-        ("alpha".to_string(), alpha_health_rx),
-        ("beta".to_string(), beta_health_rx),
-    ]);
-
-    // Reactor starts — should report Starting then Warming
-    let _reactor_handle = tokio::spawn(reactor.run());
-
-    // Give it a moment to enter the gating loop
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Should be Warming (both accumulators are still in Starting state)
-    let health = reactor_health_rx.borrow().clone();
-    assert!(
-        matches!(health, ReactorHealth::Warming { .. }),
-        "reactor should be Warming, got {:?}",
-        health
-    );
-
-    // Alpha goes Live
-    alpha_health_tx.send(AccumulatorHealth::Live).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Should still be Warming (beta not yet healthy)
-    let health = reactor_health_rx.borrow().clone();
-    assert!(
-        matches!(health, ReactorHealth::Warming { .. }),
-        "reactor should still be Warming with only alpha live, got {:?}",
-        health
-    );
-
-    // Beta goes SocketOnly (passthrough — healthy by definition)
-    beta_health_tx.send(AccumulatorHealth::SocketOnly).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Now both healthy ��� should be Live
-    let health = reactor_health_rx.borrow().clone();
-    assert_eq!(
-        health,
-        ReactorHealth::Live,
-        "reactor should be Live when all accumulators healthy"
-    );
-
-    shutdown_tx.send(true).unwrap();
-}
-
-/// Test: Boundary sequence continuity across restart.
-///
-/// Pushes events through an accumulator with DAL → verifies boundary+sequence
-/// persisted → creates new BoundarySender with restored sequence → verifies
-/// continuity (no gap).
-#[tokio::test]
-async fn test_boundary_sequence_continuity_across_restart() {
-    let dal = test_dal().await;
-
-    // --- First run: push 5 events, persist boundaries with sequence ---
-    let (boundary_tx, mut boundary_rx) = tokio::sync::mpsc::channel(32);
-    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
-    let (shutdown_tx, shutdown_rx) = shutdown_signal();
-
-    let checkpoint =
-        CheckpointHandle::new(dal.clone(), "seq_test".to_string(), "alpha".to_string());
-
-    let sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
-    let ctx = AccumulatorContext {
-        output: sender,
-        name: "alpha".to_string(),
-        shutdown: shutdown_rx.clone(),
-        checkpoint: Some(checkpoint),
-        health: None,
-    };
-
-    let _acc_handle = tokio::spawn(accumulator_runtime(
-        TestPassthroughAccumulator,
-        ctx,
-        socket_rx,
-        AccumulatorRuntimeConfig::default(),
-    ));
-
-    // Push 5 events
-    for i in 1..=5 {
-        socket_tx
-            .send(serialize(&AlphaData { value: i as f64 }).unwrap())
-            .await
-            .unwrap();
-    }
-
-    // Drain receiver to let processing complete
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let mut received = 0;
-    while boundary_rx.try_recv().is_ok() {
-        received += 1;
-    }
-    assert_eq!(received, 5, "should receive all 5 boundaries");
-
-    // Shut down
-    shutdown_tx.send(true).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    // Check persisted boundary has sequence number
-    let persisted = dal
-        .checkpoint()
-        .load_boundary("seq_test", "alpha")
-        .await
-        .unwrap();
-    assert!(persisted.is_some(), "boundary should be persisted");
-    let (_, seq) = persisted.unwrap();
-    assert_eq!(seq, 5, "persisted sequence should be 5 after 5 events");
-
-    // --- Second run: create new sender starting from persisted sequence ---
-    let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
-    let sender2 = BoundarySender::with_sequence(boundary_tx2, SourceName::new("alpha"), seq as u64);
-
-    assert_eq!(
-        sender2.sequence_number(),
-        5,
-        "restored sender should start at 5"
-    );
-
-    // Send one more event
-    sender2.send(&AlphaData { value: 99.0 }).await.unwrap();
-    assert_eq!(
-        sender2.sequence_number(),
-        6,
-        "after one more send, sequence should be 6"
-    );
-
-    let _ = boundary_rx2.recv().await;
-}
-
-/// Test: State accumulator persists VecDeque to DAL and restores on restart.
-///
-/// Writes values to a state accumulator → verifies persisted in DAL → restarts
-/// runtime with same DAL → verifies VecDeque loaded and initial boundary emitted.
-#[tokio::test]
-async fn test_state_accumulator_survives_restart() {
-    use cloacina::computation_graph::accumulator::{state_accumulator_runtime, StateAccumulator};
-
-    let dal = test_dal().await;
-
-    // --- First run: push 3 values into state accumulator ---
-    let (boundary_tx, mut boundary_rx) = tokio::sync::mpsc::channel(32);
-    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
-    let (shutdown_tx, shutdown_rx) = shutdown_signal();
-
-    let checkpoint = CheckpointHandle::new(
-        dal.clone(),
-        "state_test".to_string(),
-        "prev_outputs".to_string(),
-    );
-
-    let sender = BoundarySender::new(boundary_tx, SourceName::new("prev_outputs"));
-    let ctx = AccumulatorContext {
-        output: sender,
-        name: "prev_outputs".to_string(),
-        shutdown: shutdown_rx,
-        checkpoint: Some(checkpoint),
-        health: None,
-    };
-
-    let acc = StateAccumulator::<AlphaData>::new(10); // capacity 10
-
-    let _handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
-
-    // Push 3 values
-    for v in [1.0, 2.0, 3.0] {
-        socket_tx
-            .send(serialize(&AlphaData { value: v }).unwrap())
-            .await
-            .unwrap();
-    }
-
-    // Wait for processing + persistence
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-    // Drain boundaries (each write emits the full list)
-    let mut last_boundary: Option<Vec<AlphaData>> = None;
-    while let Ok((_, bytes)) = boundary_rx.try_recv() {
-        if let Ok(list) = cloacina::computation_graph::types::deserialize::<Vec<AlphaData>>(&bytes)
-        {
-            last_boundary = Some(list);
-        }
-    }
-
-    // Last boundary should be the full list [1.0, 2.0, 3.0]
-    let list = last_boundary.expect("should have received boundary");
-    assert_eq!(list.len(), 3);
-    assert_eq!(list[0].value, 1.0);
-    assert_eq!(list[1].value, 2.0);
-    assert_eq!(list[2].value, 3.0);
-
-    // Shut down
-    shutdown_tx.send(true).unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    // Verify persisted in DAL
-    let persisted = dal
-        .checkpoint()
-        .load_state_buffer("state_test", "prev_outputs")
-        .await
-        .unwrap();
-    assert!(persisted.is_some(), "state buffer should be persisted");
-
-    // --- Second run: new state accumulator, same DAL → should restore ---
-    let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
-    let (_socket_tx2, socket_rx2) = tokio::sync::mpsc::channel(32);
-    let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
-
-    let checkpoint2 = CheckpointHandle::new(
-        dal.clone(),
-        "state_test".to_string(),
-        "prev_outputs".to_string(),
-    );
-
-    let sender2 = BoundarySender::new(boundary_tx2, SourceName::new("prev_outputs"));
-    let ctx2 = AccumulatorContext {
-        output: sender2,
-        name: "prev_outputs".to_string(),
-        shutdown: shutdown_rx2,
-        checkpoint: Some(checkpoint2),
-        health: None,
-    };
-
-    let acc2 = StateAccumulator::<AlphaData>::new(10);
-    let _handle2 = tokio::spawn(state_accumulator_runtime(acc2, ctx2, socket_rx2));
-
-    // On startup, state_accumulator_runtime loads from DAL and emits the list
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-    // Should receive the restored list as initial boundary
-    let (_, bytes) = boundary_rx2
-        .try_recv()
-        .expect("should receive initial boundary from restored state");
-    let restored: Vec<AlphaData> = cloacina::computation_graph::types::deserialize(&bytes).unwrap();
-
-    assert_eq!(restored.len(), 3, "restored list should have 3 items");
-    assert_eq!(restored[0].value, 1.0);
-    assert_eq!(restored[1].value, 2.0);
-    assert_eq!(restored[2].value, 3.0);
-
-    shutdown_tx2.send(true).unwrap();
-}
-
-/// Test: Batch buffer survives crash via checkpoint.
-///
-/// Buffers events in a batch accumulator → drops the runtime without flushing
-/// (simulating crash) → restarts with same DAL → verifies buffered events
-/// are restored from checkpoint.
-#[tokio::test]
-async fn test_batch_buffer_crash_recovery() {
-    let dal = test_dal().await;
-
-    // --- First run: buffer events, then "crash" (drop without flush) ---
-    let (boundary_tx, _boundary_rx) = tokio::sync::mpsc::channel(32);
-    let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
-    let (_shutdown_tx, shutdown_rx) = shutdown_signal(); // never send shutdown = simulate crash
-
-    let checkpoint = CheckpointHandle::new(
-        dal.clone(),
-        "batch_crash_test".to_string(),
-        "batcher".to_string(),
-    );
-
-    let sender = BoundarySender::new(boundary_tx, SourceName::new("batcher"));
-    let ctx = AccumulatorContext {
-        output: sender,
-        name: "batcher".to_string(),
-        shutdown: shutdown_rx,
-        checkpoint: Some(checkpoint),
-        health: None,
-    };
-
-    struct SumBatcher;
-    #[async_trait::async_trait]
-    impl cloacina::computation_graph::BatchAccumulator for SumBatcher {
-        type Event = AlphaData;
-        type Output = AlphaData;
-        fn process_batch(&mut self, events: Vec<AlphaData>) -> Option<AlphaData> {
-            let sum: f64 = events.iter().map(|e| e.value).sum();
-            Some(AlphaData { value: sum })
-        }
-    }
-
-    let (_flush_tx, flush_rx) = cloacina::computation_graph::flush_signal();
-    let config = cloacina::computation_graph::BatchAccumulatorConfig::default();
-
-    let handle = tokio::spawn(cloacina::computation_graph::batch_accumulator_runtime(
-        SumBatcher, ctx, socket_rx, flush_rx, config,
-    ));
-
-    // Push 4 events — they buffer without flushing
-    for v in [10.0, 20.0, 30.0, 40.0] {
-        socket_tx
-            .send(serialize(&AlphaData { value: v }).unwrap())
-            .await
-            .unwrap();
-    }
-
-    // Wait for events to be buffered and checkpointed
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-    // "Crash" — abort the task without sending shutdown (no flush)
-    handle.abort();
-    let _ = handle.await; // wait for abort to complete
-
-    // Verify the buffer was checkpointed in DAL
-    let cp = dal
-        .checkpoint()
-        .load_checkpoint("batch_crash_test", "batcher")
-        .await
-        .unwrap();
-    assert!(
-        cp.is_some(),
-        "batch buffer should be checkpointed even without flush"
-    );
-
-    // --- Second run: new batch accumulator, same DAL → buffer should restore ---
-    let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
-    let (_socket_tx2, socket_rx2) = tokio::sync::mpsc::channel(32);
-    let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
-
-    let checkpoint2 = CheckpointHandle::new(
-        dal.clone(),
-        "batch_crash_test".to_string(),
-        "batcher".to_string(),
-    );
-
-    let sender2 = BoundarySender::new(boundary_tx2, SourceName::new("batcher"));
-    let ctx2 = AccumulatorContext {
-        output: sender2,
-        name: "batcher".to_string(),
-        shutdown: shutdown_rx2,
-        checkpoint: Some(checkpoint2),
-        health: None,
-    };
-
-    let (flush_tx2, flush_rx2) = cloacina::computation_graph::flush_signal();
-    let config2 = cloacina::computation_graph::BatchAccumulatorConfig::default();
-
-    let _handle2 = tokio::spawn(cloacina::computation_graph::batch_accumulator_runtime(
-        SumBatcher, ctx2, socket_rx2, flush_rx2, config2,
-    ));
-
-    // Wait for restore
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Flush the restored buffer
-    flush_tx2.send(()).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Should get a boundary with the sum of the 4 restored events
-    let (_, bytes) = boundary_rx2
-        .try_recv()
-        .expect("should receive boundary from restored+flushed buffer");
-    let result: AlphaData = cloacina::computation_graph::types::deserialize(&bytes).unwrap();
-    assert_eq!(
-        result.value, 100.0,
-        "restored batch should sum to 100 (10+20+30+40)"
-    );
-
-    shutdown_tx2.send(true).unwrap();
-}
-
-/// Test: Supervisor restarts crashed accumulator individually.
-///
-/// Uses the ReactiveScheduler with an accumulator factory that produces
-/// an accumulator which panics after N events. Verifies the supervisor
-/// detects the crash and respawns the accumulator.
-#[tokio::test]
-async fn test_supervisor_individual_accumulator_restart() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    let registry = EndpointRegistry::new();
-    let scheduler = Arc::new(ReactiveScheduler::new(registry.clone()));
-
-    let fire_count = Arc::new(AtomicU32::new(0));
-    let fc = fire_count.clone();
-
-    let graph_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
-        let fc = fc.clone();
-        Box::pin(async move {
-            fc.fetch_add(1, Ordering::SeqCst);
-            cloacina::computation_graph::types::GraphResult::completed(vec![])
-        })
-    });
-
-    /// Factory that produces accumulators that panic after 2 events on first spawn,
-    /// then work normally on subsequent spawns.
-    struct PanicAfterTwoFactory {
-        spawn_count: std::sync::atomic::AtomicU32,
-    }
-
-    impl AccumulatorFactory for PanicAfterTwoFactory {
-        fn spawn(
-            &self,
-            name: String,
-            boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>,
-            shutdown_rx: tokio::sync::watch::Receiver<bool>,
-            config: AccumulatorSpawnConfig,
-        ) -> (tokio_mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
-            let (socket_tx, socket_rx) = tokio_mpsc::channel(64);
-            let spawn_num = self
-                .spawn_count
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-            struct MaybePanicAccumulator {
-                count: u32,
-                should_panic: bool,
-            }
-
-            #[async_trait::async_trait]
-            impl cloacina::computation_graph::Accumulator for MaybePanicAccumulator {
-                type Event = AlphaData;
-                type Output = AlphaData;
-                fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
-                    self.count += 1;
-                    if self.should_panic && self.count >= 2 {
-                        panic!("intentional test panic after 2 events");
-                    }
-                    Some(event)
-                }
-            }
-
-            let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
-            let ctx = AccumulatorContext {
-                output: sender,
-                name: name.clone(),
-                shutdown: shutdown_rx,
-                checkpoint: None,
-                health: config.health_tx,
-            };
-
-            let handle = tokio::spawn(accumulator_runtime(
-                MaybePanicAccumulator {
-                    count: 0,
-                    should_panic: spawn_num == 0, // only panic on first spawn
-                },
-                ctx,
-                socket_rx,
-                AccumulatorRuntimeConfig::default(),
-            ));
-
-            (socket_tx, handle)
-        }
-    }
-
-    let decl = ComputationGraphDeclaration {
-        name: "restart_test".to_string(),
-        accumulators: vec![AccumulatorDeclaration {
+    use cloacina::computation_graph::reactor::{reactor_health_channel, ReactorHealth};
+
+    /// Test: Reactor cache persists to DAL and survives restart.
+    ///
+    /// Pushes events through an accumulator → reactor with DAL wired → verifies
+    /// the reactor persists its cache → creates a new reactor with the same DAL →
+    /// verifies the cache is restored and the graph can fire with restored state.
+    #[tokio::test]
+    async fn test_reactor_cache_recovery_across_restart() {
+        let dal = test_dal().await;
+
+        // --- First run: push events, reactor persists cache ---
+        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(10);
+        let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let acc_sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
+        let acc_ctx = AccumulatorContext {
+            output: acc_sender,
             name: "alpha".to_string(),
-            factory: Arc::new(PanicAfterTwoFactory {
-                spawn_count: AtomicU32::new(0),
-            }),
-        }],
-        reactor: ReactorDeclaration {
-            criteria: ReactionCriteria::WhenAny,
-            strategy: InputStrategy::Latest,
+            shutdown: shutdown_rx.clone(),
+            checkpoint: Some(CheckpointHandle::new(
+                dal.clone(),
+                "recovery_test".to_string(),
+                "alpha".to_string(),
+            )),
+            health: None,
+        };
+
+        let _acc_handle = tokio::spawn(accumulator_runtime(
+            TestPassthroughAccumulator,
+            acc_ctx,
+            socket_rx,
+            AccumulatorRuntimeConfig::default(),
+        ));
+
+        let fire_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let fc = fire_count.clone();
+
+        let graph_fn: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+            let fc = fc.clone();
+            Box::pin(async move {
+                fc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                linear_chain_compiled(&cache).await
+            })
+        });
+
+        let reactor = Reactor::new(
+            graph_fn.clone(),
+            ReactionCriteria::WhenAny,
+            InputStrategy::Latest,
+            boundary_rx,
+            manual_rx,
+            shutdown_rx,
+        )
+        .with_graph_name("recovery_test".to_string())
+        .with_dal(dal.clone());
+
+        let _reactor_handle = tokio::spawn(reactor.run());
+
+        // Push event → accumulator → reactor → graph fires → cache persisted
+        socket_tx
+            .send(serialize(&AlphaData { value: 7.0 }).unwrap())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            fire_count.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "graph should have fired once"
+        );
+
+        // Shut down cleanly (triggers final persist)
+        shutdown_tx.send(true).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Verify cache was persisted in DAL
+        let persisted = dal
+            .checkpoint()
+            .load_reactor_state("recovery_test")
+            .await
+            .unwrap();
+        assert!(
+            persisted.is_some(),
+            "reactor state should be persisted in DAL"
+        );
+
+        // --- Second run: new reactor, same DAL → cache should be restored ---
+        let (_boundary_tx2, boundary_rx2) = tokio::sync::mpsc::channel(10);
+        let (_manual_tx2, manual_rx2) = tokio::sync::mpsc::channel(10);
+        let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
+
+        let fire_count2 = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let fc2 = fire_count2.clone();
+        let captured_cache: Arc<tokio::sync::Mutex<Option<InputCache>>> =
+            Arc::new(tokio::sync::Mutex::new(None));
+        let cc = captured_cache.clone();
+
+        let graph_fn2: CompiledGraphFn = Arc::new(move |cache: InputCache| {
+            let fc2 = fc2.clone();
+            let cc = cc.clone();
+            Box::pin(async move {
+                fc2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                *cc.lock().await = Some(cache.clone());
+                linear_chain_compiled(&cache).await
+            })
+        });
+
+        let reactor2 = Reactor::new(
+            graph_fn2,
+            ReactionCriteria::WhenAny,
+            InputStrategy::Latest,
+            boundary_rx2,
+            manual_rx2,
+            shutdown_rx2,
+        )
+        .with_graph_name("recovery_test".to_string())
+        .with_dal(dal.clone());
+
+        let _reactor_handle2 = tokio::spawn(reactor2.run());
+
+        // Give it a moment to load cache from DAL
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Force-fire to verify the restored cache has data
+        _manual_tx2
+            .send(cloacina::computation_graph::reactor::ManualCommand::ForceFire)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        assert_eq!(
+            fire_count2.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "graph should fire with restored cache"
+        );
+
+        // Verify the cache had the alpha source from the first run
+        let snapshot = captured_cache.lock().await;
+        assert!(
+            snapshot.as_ref().unwrap().has("alpha"),
+            "restored cache should contain 'alpha' from first run"
+        );
+
+        shutdown_tx2.send(true).unwrap();
+    }
+
+    /// Test: Health state machine transitions — Starting → Warming → Live.
+    ///
+    /// Creates a reactor with accumulator health channels, verifies it starts in
+    /// Starting, transitions to Warming while waiting for accumulators, then to
+    /// Live when all accumulators report healthy.
+    #[tokio::test]
+    async fn test_reactor_health_warming_to_live() {
+        let (boundary_tx, boundary_rx) = tokio::sync::mpsc::channel(10);
+        let (_manual_tx, manual_rx) = tokio::sync::mpsc::channel(10);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let graph_fn: CompiledGraphFn = Arc::new(|_cache: InputCache| {
+            Box::pin(async { cloacina::computation_graph::types::GraphResult::completed(vec![]) })
+        });
+
+        let (reactor_health_tx, reactor_health_rx) = reactor_health_channel();
+
+        // Create accumulator health channels (simulating 2 accumulators)
+        let (alpha_health_tx, alpha_health_rx) = health_channel();
+        let (beta_health_tx, beta_health_rx) = health_channel();
+
+        let reactor = Reactor::new(
             graph_fn,
-        },
-        tenant_id: None,
-    };
+            ReactionCriteria::WhenAny,
+            InputStrategy::Latest,
+            boundary_rx,
+            manual_rx,
+            shutdown_rx,
+        )
+        .with_health(reactor_health_tx)
+        .with_accumulator_health(vec![
+            ("alpha".to_string(), alpha_health_rx),
+            ("beta".to_string(), beta_health_rx),
+        ]);
 
-    scheduler.load_graph(decl).await.unwrap();
+        // Reactor starts — should report Starting then Warming
+        let _reactor_handle = tokio::spawn(reactor.run());
 
-    // Push 2 events — accumulator will panic on the 2nd process()
-    let event = AlphaData { value: 1.0 };
-    registry
-        .send_to_accumulator("alpha", serialize(&event).unwrap())
-        .await
-        .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // Give it a moment to enter the gating loop
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    registry
-        .send_to_accumulator("alpha", serialize(&AlphaData { value: 2.0 }).unwrap())
-        .await
-        .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // Should be Warming (both accumulators are still in Starting state)
+        let health = reactor_health_rx.borrow().clone();
+        assert!(
+            matches!(health, ReactorHealth::Warming { .. }),
+            "reactor should be Warming, got {:?}",
+            health
+        );
 
-    // At this point the accumulator task has panicked. The first event should have fired.
-    let fires_before = fire_count.load(Ordering::SeqCst);
-    assert!(
-        fires_before >= 1,
-        "should have at least 1 fire before panic"
-    );
+        // Alpha goes Live
+        alpha_health_tx.send(AccumulatorHealth::Live).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    // Trigger supervisor check — should detect crash and restart
-    let restarted = scheduler.check_and_restart_failed().await;
-    assert_eq!(restarted, 1, "supervisor should restart 1 accumulator");
+        // Should still be Warming (beta not yet healthy)
+        let health = reactor_health_rx.borrow().clone();
+        assert!(
+            matches!(health, ReactorHealth::Warming { .. }),
+            "reactor should still be Warming with only alpha live, got {:?}",
+            health
+        );
 
-    // Wait for the restart to settle
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // Beta goes SocketOnly (passthrough — healthy by definition)
+        beta_health_tx.send(AccumulatorHealth::SocketOnly).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-    // Push another event — the respawned accumulator (spawn_num=1) won't panic
-    registry
-        .send_to_accumulator("alpha", serialize(&AlphaData { value: 3.0 }).unwrap())
-        .await
-        .unwrap();
+        // Now both healthy ��� should be Live
+        let health = reactor_health_rx.borrow().clone();
+        assert_eq!(
+            health,
+            ReactorHealth::Live,
+            "reactor should be Live when all accumulators healthy"
+        );
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        shutdown_tx.send(true).unwrap();
+    }
 
-    let fires_after = fire_count.load(Ordering::SeqCst);
-    assert!(
-        fires_after > fires_before,
-        "graph should fire after accumulator restart (before={}, after={})",
-        fires_before,
-        fires_after
-    );
+    /// Test: Boundary sequence continuity across restart.
+    ///
+    /// Pushes events through an accumulator with DAL → verifies boundary+sequence
+    /// persisted → creates new BoundarySender with restored sequence → verifies
+    /// continuity (no gap).
+    #[tokio::test]
+    async fn test_boundary_sequence_continuity_across_restart() {
+        let dal = test_dal().await;
 
-    scheduler.shutdown_all().await;
-}
+        // --- First run: push 5 events, persist boundaries with sequence ---
+        let (boundary_tx, mut boundary_rx) = tokio::sync::mpsc::channel(32);
+        let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let checkpoint =
+            CheckpointHandle::new(dal.clone(), "seq_test".to_string(), "alpha".to_string());
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("alpha"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "alpha".to_string(),
+            shutdown: shutdown_rx.clone(),
+            checkpoint: Some(checkpoint),
+            health: None,
+        };
+
+        let _acc_handle = tokio::spawn(accumulator_runtime(
+            TestPassthroughAccumulator,
+            ctx,
+            socket_rx,
+            AccumulatorRuntimeConfig::default(),
+        ));
+
+        // Push 5 events
+        for i in 1..=5 {
+            socket_tx
+                .send(serialize(&AlphaData { value: i as f64 }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Drain receiver to let processing complete
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let mut received = 0;
+        while boundary_rx.try_recv().is_ok() {
+            received += 1;
+        }
+        assert_eq!(received, 5, "should receive all 5 boundaries");
+
+        // Shut down
+        shutdown_tx.send(true).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Check persisted boundary has sequence number
+        let persisted = dal
+            .checkpoint()
+            .load_boundary("seq_test", "alpha")
+            .await
+            .unwrap();
+        assert!(persisted.is_some(), "boundary should be persisted");
+        let (_, seq) = persisted.unwrap();
+        assert_eq!(seq, 5, "persisted sequence should be 5 after 5 events");
+
+        // --- Second run: create new sender starting from persisted sequence ---
+        let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
+        let sender2 =
+            BoundarySender::with_sequence(boundary_tx2, SourceName::new("alpha"), seq as u64);
+
+        assert_eq!(
+            sender2.sequence_number(),
+            5,
+            "restored sender should start at 5"
+        );
+
+        // Send one more event
+        sender2.send(&AlphaData { value: 99.0 }).await.unwrap();
+        assert_eq!(
+            sender2.sequence_number(),
+            6,
+            "after one more send, sequence should be 6"
+        );
+
+        let _ = boundary_rx2.recv().await;
+    }
+
+    /// Test: State accumulator persists VecDeque to DAL and restores on restart.
+    ///
+    /// Writes values to a state accumulator → verifies persisted in DAL → restarts
+    /// runtime with same DAL → verifies VecDeque loaded and initial boundary emitted.
+    #[tokio::test]
+    async fn test_state_accumulator_survives_restart() {
+        use cloacina::computation_graph::accumulator::{
+            state_accumulator_runtime, StateAccumulator,
+        };
+
+        let dal = test_dal().await;
+
+        // --- First run: push 3 values into state accumulator ---
+        let (boundary_tx, mut boundary_rx) = tokio::sync::mpsc::channel(32);
+        let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
+        let (shutdown_tx, shutdown_rx) = shutdown_signal();
+
+        let checkpoint = CheckpointHandle::new(
+            dal.clone(),
+            "state_test".to_string(),
+            "prev_outputs".to_string(),
+        );
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("prev_outputs"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "prev_outputs".to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: Some(checkpoint),
+            health: None,
+        };
+
+        let acc = StateAccumulator::<AlphaData>::new(10); // capacity 10
+
+        let _handle = tokio::spawn(state_accumulator_runtime(acc, ctx, socket_rx));
+
+        // Push 3 values
+        for v in [1.0, 2.0, 3.0] {
+            socket_tx
+                .send(serialize(&AlphaData { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Wait for processing + persistence
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // Drain boundaries (each write emits the full list)
+        let mut last_boundary: Option<Vec<AlphaData>> = None;
+        while let Ok((_, bytes)) = boundary_rx.try_recv() {
+            if let Ok(list) =
+                cloacina::computation_graph::types::deserialize::<Vec<AlphaData>>(&bytes)
+            {
+                last_boundary = Some(list);
+            }
+        }
+
+        // Last boundary should be the full list [1.0, 2.0, 3.0]
+        let list = last_boundary.expect("should have received boundary");
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].value, 1.0);
+        assert_eq!(list[1].value, 2.0);
+        assert_eq!(list[2].value, 3.0);
+
+        // Shut down
+        shutdown_tx.send(true).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Verify persisted in DAL
+        let persisted = dal
+            .checkpoint()
+            .load_state_buffer("state_test", "prev_outputs")
+            .await
+            .unwrap();
+        assert!(persisted.is_some(), "state buffer should be persisted");
+
+        // --- Second run: new state accumulator, same DAL → should restore ---
+        let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
+        let (_socket_tx2, socket_rx2) = tokio::sync::mpsc::channel(32);
+        let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
+
+        let checkpoint2 = CheckpointHandle::new(
+            dal.clone(),
+            "state_test".to_string(),
+            "prev_outputs".to_string(),
+        );
+
+        let sender2 = BoundarySender::new(boundary_tx2, SourceName::new("prev_outputs"));
+        let ctx2 = AccumulatorContext {
+            output: sender2,
+            name: "prev_outputs".to_string(),
+            shutdown: shutdown_rx2,
+            checkpoint: Some(checkpoint2),
+            health: None,
+        };
+
+        let acc2 = StateAccumulator::<AlphaData>::new(10);
+        let _handle2 = tokio::spawn(state_accumulator_runtime(acc2, ctx2, socket_rx2));
+
+        // On startup, state_accumulator_runtime loads from DAL and emits the list
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // Should receive the restored list as initial boundary
+        let (_, bytes) = boundary_rx2
+            .try_recv()
+            .expect("should receive initial boundary from restored state");
+        let restored: Vec<AlphaData> =
+            cloacina::computation_graph::types::deserialize(&bytes).unwrap();
+
+        assert_eq!(restored.len(), 3, "restored list should have 3 items");
+        assert_eq!(restored[0].value, 1.0);
+        assert_eq!(restored[1].value, 2.0);
+        assert_eq!(restored[2].value, 3.0);
+
+        shutdown_tx2.send(true).unwrap();
+    }
+
+    /// Test: Batch buffer survives crash via checkpoint.
+    ///
+    /// Buffers events in a batch accumulator → drops the runtime without flushing
+    /// (simulating crash) → restarts with same DAL → verifies buffered events
+    /// are restored from checkpoint.
+    #[tokio::test]
+    async fn test_batch_buffer_crash_recovery() {
+        let dal = test_dal().await;
+
+        // --- First run: buffer events, then "crash" (drop without flush) ---
+        let (boundary_tx, _boundary_rx) = tokio::sync::mpsc::channel(32);
+        let (socket_tx, socket_rx) = tokio::sync::mpsc::channel(32);
+        let (_shutdown_tx, shutdown_rx) = shutdown_signal(); // never send shutdown = simulate crash
+
+        let checkpoint = CheckpointHandle::new(
+            dal.clone(),
+            "batch_crash_test".to_string(),
+            "batcher".to_string(),
+        );
+
+        let sender = BoundarySender::new(boundary_tx, SourceName::new("batcher"));
+        let ctx = AccumulatorContext {
+            output: sender,
+            name: "batcher".to_string(),
+            shutdown: shutdown_rx,
+            checkpoint: Some(checkpoint),
+            health: None,
+        };
+
+        struct SumBatcher;
+        #[async_trait::async_trait]
+        impl cloacina::computation_graph::BatchAccumulator for SumBatcher {
+            type Event = AlphaData;
+            type Output = AlphaData;
+            fn process_batch(&mut self, events: Vec<AlphaData>) -> Option<AlphaData> {
+                let sum: f64 = events.iter().map(|e| e.value).sum();
+                Some(AlphaData { value: sum })
+            }
+        }
+
+        let (_flush_tx, flush_rx) = cloacina::computation_graph::flush_signal();
+        let config = cloacina::computation_graph::BatchAccumulatorConfig::default();
+
+        let handle = tokio::spawn(cloacina::computation_graph::batch_accumulator_runtime(
+            SumBatcher, ctx, socket_rx, flush_rx, config,
+        ));
+
+        // Push 4 events — they buffer without flushing
+        for v in [10.0, 20.0, 30.0, 40.0] {
+            socket_tx
+                .send(serialize(&AlphaData { value: v }).unwrap())
+                .await
+                .unwrap();
+        }
+
+        // Wait for events to be buffered and checkpointed
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // "Crash" — abort the task without sending shutdown (no flush)
+        handle.abort();
+        let _ = handle.await; // wait for abort to complete
+
+        // Verify the buffer was checkpointed in DAL
+        let cp = dal
+            .checkpoint()
+            .load_checkpoint("batch_crash_test", "batcher")
+            .await
+            .unwrap();
+        assert!(
+            cp.is_some(),
+            "batch buffer should be checkpointed even without flush"
+        );
+
+        // --- Second run: new batch accumulator, same DAL → buffer should restore ---
+        let (boundary_tx2, mut boundary_rx2) = tokio::sync::mpsc::channel(32);
+        let (_socket_tx2, socket_rx2) = tokio::sync::mpsc::channel(32);
+        let (shutdown_tx2, shutdown_rx2) = shutdown_signal();
+
+        let checkpoint2 = CheckpointHandle::new(
+            dal.clone(),
+            "batch_crash_test".to_string(),
+            "batcher".to_string(),
+        );
+
+        let sender2 = BoundarySender::new(boundary_tx2, SourceName::new("batcher"));
+        let ctx2 = AccumulatorContext {
+            output: sender2,
+            name: "batcher".to_string(),
+            shutdown: shutdown_rx2,
+            checkpoint: Some(checkpoint2),
+            health: None,
+        };
+
+        let (flush_tx2, flush_rx2) = cloacina::computation_graph::flush_signal();
+        let config2 = cloacina::computation_graph::BatchAccumulatorConfig::default();
+
+        let _handle2 = tokio::spawn(cloacina::computation_graph::batch_accumulator_runtime(
+            SumBatcher, ctx2, socket_rx2, flush_rx2, config2,
+        ));
+
+        // Wait for restore
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Flush the restored buffer
+        flush_tx2.send(()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Should get a boundary with the sum of the 4 restored events
+        let (_, bytes) = boundary_rx2
+            .try_recv()
+            .expect("should receive boundary from restored+flushed buffer");
+        let result: AlphaData = cloacina::computation_graph::types::deserialize(&bytes).unwrap();
+        assert_eq!(
+            result.value, 100.0,
+            "restored batch should sum to 100 (10+20+30+40)"
+        );
+
+        shutdown_tx2.send(true).unwrap();
+    }
+
+    /// Test: Supervisor restarts crashed accumulator individually.
+    ///
+    /// Uses the ReactiveScheduler with an accumulator factory that produces
+    /// an accumulator which panics after N events. Verifies the supervisor
+    /// detects the crash and respawns the accumulator.
+    #[tokio::test]
+    async fn test_supervisor_individual_accumulator_restart() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let registry = EndpointRegistry::new();
+        let scheduler = Arc::new(ReactiveScheduler::new(registry.clone()));
+
+        let fire_count = Arc::new(AtomicU32::new(0));
+        let fc = fire_count.clone();
+
+        let graph_fn: CompiledGraphFn = Arc::new(move |_cache: InputCache| {
+            let fc = fc.clone();
+            Box::pin(async move {
+                fc.fetch_add(1, Ordering::SeqCst);
+                cloacina::computation_graph::types::GraphResult::completed(vec![])
+            })
+        });
+
+        /// Factory that produces accumulators that panic after 2 events on first spawn,
+        /// then work normally on subsequent spawns.
+        struct PanicAfterTwoFactory {
+            spawn_count: std::sync::atomic::AtomicU32,
+        }
+
+        impl AccumulatorFactory for PanicAfterTwoFactory {
+            fn spawn(
+                &self,
+                name: String,
+                boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>,
+                shutdown_rx: tokio::sync::watch::Receiver<bool>,
+                config: AccumulatorSpawnConfig,
+            ) -> (tokio_mpsc::Sender<Vec<u8>>, JoinHandle<()>) {
+                let (socket_tx, socket_rx) = tokio_mpsc::channel(64);
+                let spawn_num = self
+                    .spawn_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                struct MaybePanicAccumulator {
+                    count: u32,
+                    should_panic: bool,
+                }
+
+                #[async_trait::async_trait]
+                impl cloacina::computation_graph::Accumulator for MaybePanicAccumulator {
+                    type Event = AlphaData;
+                    type Output = AlphaData;
+                    fn process(&mut self, event: AlphaData) -> Option<AlphaData> {
+                        self.count += 1;
+                        if self.should_panic && self.count >= 2 {
+                            panic!("intentional test panic after 2 events");
+                        }
+                        Some(event)
+                    }
+                }
+
+                let sender = BoundarySender::new(boundary_tx, SourceName::new(&name));
+                let ctx = AccumulatorContext {
+                    output: sender,
+                    name: name.clone(),
+                    shutdown: shutdown_rx,
+                    checkpoint: None,
+                    health: config.health_tx,
+                };
+
+                let handle = tokio::spawn(accumulator_runtime(
+                    MaybePanicAccumulator {
+                        count: 0,
+                        should_panic: spawn_num == 0, // only panic on first spawn
+                    },
+                    ctx,
+                    socket_rx,
+                    AccumulatorRuntimeConfig::default(),
+                ));
+
+                (socket_tx, handle)
+            }
+        }
+
+        let decl = ComputationGraphDeclaration {
+            name: "restart_test".to_string(),
+            accumulators: vec![AccumulatorDeclaration {
+                name: "alpha".to_string(),
+                factory: Arc::new(PanicAfterTwoFactory {
+                    spawn_count: AtomicU32::new(0),
+                }),
+            }],
+            reactor: ReactorDeclaration {
+                criteria: ReactionCriteria::WhenAny,
+                strategy: InputStrategy::Latest,
+                graph_fn,
+            },
+            tenant_id: None,
+        };
+
+        scheduler.load_graph(decl).await.unwrap();
+
+        // Push 2 events — accumulator will panic on the 2nd process()
+        let event = AlphaData { value: 1.0 };
+        registry
+            .send_to_accumulator("alpha", serialize(&event).unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        registry
+            .send_to_accumulator("alpha", serialize(&AlphaData { value: 2.0 }).unwrap())
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // At this point the accumulator task has panicked. The first event should have fired.
+        let fires_before = fire_count.load(Ordering::SeqCst);
+        assert!(
+            fires_before >= 1,
+            "should have at least 1 fire before panic"
+        );
+
+        // Trigger supervisor check — should detect crash and restart
+        let restarted = scheduler.check_and_restart_failed().await;
+        assert_eq!(restarted, 1, "supervisor should restart 1 accumulator");
+
+        // Wait for the restart to settle
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Push another event — the respawned accumulator (spawn_num=1) won't panic
+        registry
+            .send_to_accumulator("alpha", serialize(&AlphaData { value: 3.0 }).unwrap())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let fires_after = fire_count.load(Ordering::SeqCst);
+        assert!(
+            fires_after > fires_before,
+            "graph should fire after accumulator restart (before={}, after={})",
+            fires_before,
+            fires_after
+        );
+
+        scheduler.shutdown_all().await;
+    }
+} // mod resilience_tests
