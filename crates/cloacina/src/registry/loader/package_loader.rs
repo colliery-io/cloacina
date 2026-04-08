@@ -463,7 +463,8 @@ mod tests {
         match result.unwrap_err() {
             LoaderError::LibraryLoad { path, error } => {
                 let library_extension = get_library_extension();
-                assert!(path.contains(&format!("workflow_package.{}", library_extension)));
+                assert!(path.contains(&format!(".{}", library_extension)));
+                assert!(path.contains("pkg_"));
                 assert!(!error.is_empty());
             }
             other => panic!("Expected LibraryLoad error, got: {:?}", other),
