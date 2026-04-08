@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-08T00:52:03Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-08T10:04:14Z | 422 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -3483,24 +3483,24 @@
 -  `convert_plugin_metadata_to_rust` function L248-306 — `( &self, meta: cloacina_workflow_plugin::PackageTasksMetadata, ) -> Result<Packa...` — Convert `PackageTasksMetadata` from the fidius plugin into the `PackageMetadata`
 -  `PackageLoader` type L408-412 — `impl Default for PackageLoader` — via the fidius-host plugin API and extract package metadata.
 -  `default` function L409-411 — `() -> Self` — via the fidius-host plugin API and extract package metadata.
--  `tests` module L415-635 — `-` — via the fidius-host plugin API and extract package metadata.
+-  `tests` module L415-636 — `-` — via the fidius-host plugin API and extract package metadata.
 -  `create_invalid_binary_data` function L419-421 — `() -> Vec<u8>` — Helper to create invalid binary data
 -  `create_mock_elf_data` function L424-440 — `(size: usize) -> Vec<u8>` — Helper to create a mock ELF-like binary for testing
 -  `test_package_loader_creation` function L443-447 — `()` — via the fidius-host plugin API and extract package metadata.
 -  `test_package_loader_default` function L450-453 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_invalid_elf` function L456-471 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_empty_data` function L474-485 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_extract_metadata_with_large_invalid_data` function L488-499 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_invalid_data` function L502-513 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_validate_package_symbols_with_empty_data` function L516-523 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_dir_isolation` function L526-533 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_concurrent_package_loading` function L536-560 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_file_system_operations` function L563-572 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_error_types_and_messages` function L575-593 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_memory_safety` function L596-602 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_temp_directory_cleanup` function L605-612 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_package_loader_sync_creation` function L615-621 — `()` — via the fidius-host plugin API and extract package metadata.
--  `test_get_library_extension` function L624-634 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_invalid_elf` function L456-472 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_empty_data` function L475-486 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_extract_metadata_with_large_invalid_data` function L489-500 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_invalid_data` function L503-514 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_validate_package_symbols_with_empty_data` function L517-524 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_dir_isolation` function L527-534 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_concurrent_package_loading` function L537-561 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_file_system_operations` function L564-573 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_error_types_and_messages` function L576-594 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_memory_safety` function L597-603 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_temp_directory_cleanup` function L606-613 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_package_loader_sync_creation` function L616-622 — `()` — via the fidius-host plugin API and extract package metadata.
+-  `test_get_library_extension` function L625-635 — `()` — via the fidius-host plugin API and extract package metadata.
 
 #### crates/cloacina/src/registry/loader/python_loader.rs
 
@@ -3716,25 +3716,25 @@
 -  `unregister_package_workflow` function L772-783 — `( &self, workflow_name: &str, ) -> Result<(), RegistryError>` — Unregister a workflow from the global workflow registry
 -  `register_package_triggers` function L791-833 — `( &self, metadata: &WorkflowMetadata, cloacina_metadata: &cloacina_workflow_plug...` — Verify and track triggers declared in a package's `CloacinaMetadata`.
 -  `unregister_package_triggers` function L836-844 — `(&self, trigger_names: &[String])` — Unregister triggers from the global trigger registry.
--  `tests` module L848-1144 — `-` — Package loading, unloading, and task/workflow registration.
+-  `tests` module L848-1145 — `-` — Package loading, unloading, and task/workflow registration.
 -  `make_test_reconciler` function L857-862 — `() -> RegistryReconciler` — Create a minimal RegistryReconciler for testing.
 -  `make_test_metadata` function L864-877 — `() -> WorkflowMetadata` — Package loading, unloading, and task/workflow registration.
--  `make_cloacina_metadata_with_triggers` function L879-895 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_with_no_triggers_returns_empty` function L903-912 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_tracks_registered_triggers` function L916-947 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_skips_unregistered_triggers` function L951-971 — `()` — Package loading, unloading, and task/workflow registration.
--  `register_triggers_mixed_registered_and_missing` function L975-1014 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_removes_from_global_registry` function L1022-1041 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_handles_already_removed` function L1045-1052 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_triggers_empty_list_is_noop` function L1056-1059 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_removes_from_global_registry` function L1067-1102 — `()` — Package loading, unloading, and task/workflow registration.
--  `unregister_workflow_nonexistent_is_ok` function L1106-1113 — `()` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` struct L1120-1122 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
--  `DummyTrigger` type L1125-1143 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
--  `name` function L1126-1128 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
--  `poll_interval` function L1130-1132 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
--  `allow_concurrent` function L1134-1136 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
--  `poll` function L1138-1142 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
+-  `make_cloacina_metadata_with_triggers` function L879-896 — `( triggers: Vec<cloacina_workflow_plugin::TriggerDefinition>, ) -> cloacina_work...` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_with_no_triggers_returns_empty` function L904-913 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_tracks_registered_triggers` function L917-948 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_skips_unregistered_triggers` function L952-972 — `()` — Package loading, unloading, and task/workflow registration.
+-  `register_triggers_mixed_registered_and_missing` function L976-1015 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_removes_from_global_registry` function L1023-1042 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_handles_already_removed` function L1046-1053 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_triggers_empty_list_is_noop` function L1057-1060 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_removes_from_global_registry` function L1068-1103 — `()` — Package loading, unloading, and task/workflow registration.
+-  `unregister_workflow_nonexistent_is_ok` function L1107-1114 — `()` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` struct L1121-1123 — `{ name: String }` — Package loading, unloading, and task/workflow registration.
+-  `DummyTrigger` type L1126-1144 — `= DummyTrigger` — Package loading, unloading, and task/workflow registration.
+-  `name` function L1127-1129 — `(&self) -> &str` — Package loading, unloading, and task/workflow registration.
+-  `poll_interval` function L1131-1133 — `(&self) -> std::time::Duration` — Package loading, unloading, and task/workflow registration.
+-  `allow_concurrent` function L1135-1137 — `(&self) -> bool` — Package loading, unloading, and task/workflow registration.
+-  `poll` function L1139-1143 — `( &self, ) -> Result<crate::trigger::TriggerResult, crate::trigger::TriggerError...` — Package loading, unloading, and task/workflow registration.
 
 #### crates/cloacina/src/registry/reconciler/mod.rs
 
@@ -4792,38 +4792,39 @@
 -  `Output` type L731 — `= BetaData` — graph, and generates a callable async function that routes data correctly.
 -  `process` function L732-734 — `(&mut self, event: BetaData) -> Option<BetaData>` — graph, and generates a callable async function that routes data correctly.
 -  `test_sequential_input_strategy` function L831-914 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_dal` function L923-933 — `() -> cloacina::dal::unified::DAL` — Helper: create an in-memory SQLite DAL for testing.
--  `test_boundary_sender_sequence_numbers` function L936-952 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_boundary_sender_with_sequence_recovery` function L955-969 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_accumulator_health_channel` function L972-991 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_dal_round_trip` function L994-1018 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_dal_upsert` function L1021-1039 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_boundary_dal_with_sequence` function L1042-1062 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_state_dal_round_trip` function L1065-1084 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_state_dal_with_sequential_queue` function L1087-1103 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_state_buffer_dal_round_trip` function L1106-1120 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_delete_graph_state` function L1123-1164 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_handle_typed_round_trip` function L1167-1183 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_checkpoint_handle_load_empty` function L1186-1197 — `()` — graph, and generates a callable async function that routes data correctly.
--  `test_reactor_cache_recovery_across_restart` function L1214-1354 — `()` — Test: Reactor cache persists to DAL and survives restart.
--  `test_reactor_health_warming_to_live` function L1362-1430 — `()` — Test: Health state machine transitions — Starting → Warming → Live.
--  `test_boundary_sequence_continuity_across_restart` function L1438-1514 — `()` — Test: Boundary sequence continuity across restart.
--  `test_state_accumulator_survives_restart` function L1521-1627 — `()` — Test: State accumulator persists VecDeque to DAL and restores on restart.
--  `test_batch_buffer_crash_recovery` function L1635-1747 — `()` — Test: Batch buffer survives crash via checkpoint.
--  `SumBatcher` struct L1658 — `-` — graph, and generates a callable async function that routes data correctly.
--  `SumBatcher` type L1660-1667 — `= SumBatcher` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L1661 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L1662 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process_batch` function L1663-1666 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
--  `test_supervisor_individual_accumulator_restart` function L1755-1895 — `()` — Test: Supervisor restarts crashed accumulator individually.
--  `PanicAfterTwoFactory` struct L1774-1776 — `{ spawn_count: std::sync::atomic::AtomicU32 }` — Factory that produces accumulators that panic after 2 events on first spawn,
--  `PanicAfterTwoFactory` type L1778-1830 — `impl AccumulatorFactory for PanicAfterTwoFactory` — graph, and generates a callable async function that routes data correctly.
--  `spawn` function L1779-1829 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
--  `MaybePanicAccumulator` struct L1791-1794 — `{ count: u32, should_panic: bool }` — graph, and generates a callable async function that routes data correctly.
--  `MaybePanicAccumulator` type L1797-1807 — `= MaybePanicAccumulator` — graph, and generates a callable async function that routes data correctly.
--  `Event` type L1798 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `Output` type L1799 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
--  `process` function L1800-1806 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `resilience_tests` module L921-1907 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `test_dal` function L927-937 — `() -> cloacina::dal::unified::DAL` — Helper: create an in-memory SQLite DAL for testing.
+-  `test_boundary_sender_sequence_numbers` function L940-958 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_boundary_sender_with_sequence_recovery` function L961-975 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_accumulator_health_channel` function L978-997 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_dal_round_trip` function L1000-1024 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_dal_upsert` function L1027-1045 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_boundary_dal_with_sequence` function L1048-1068 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_state_dal_round_trip` function L1071-1090 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_state_dal_with_sequential_queue` function L1093-1109 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_state_buffer_dal_round_trip` function L1112-1126 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_delete_graph_state` function L1129-1170 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_handle_typed_round_trip` function L1173-1189 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_checkpoint_handle_load_empty` function L1192-1203 — `()` — graph, and generates a callable async function that routes data correctly.
+-  `test_reactor_cache_recovery_across_restart` function L1220-1360 — `()` — Test: Reactor cache persists to DAL and survives restart.
+-  `test_reactor_health_warming_to_live` function L1368-1436 — `()` — Test: Health state machine transitions — Starting → Warming → Live.
+-  `test_boundary_sequence_continuity_across_restart` function L1444-1521 — `()` — Test: Boundary sequence continuity across restart.
+-  `test_state_accumulator_survives_restart` function L1528-1638 — `()` — Test: State accumulator persists VecDeque to DAL and restores on restart.
+-  `test_batch_buffer_crash_recovery` function L1646-1758 — `()` — Test: Batch buffer survives crash via checkpoint.
+-  `SumBatcher` struct L1669 — `-` — graph, and generates a callable async function that routes data correctly.
+-  `SumBatcher` type L1671-1678 — `= SumBatcher` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L1672 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L1673 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process_batch` function L1674-1677 — `(&mut self, events: Vec<AlphaData>) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
+-  `test_supervisor_individual_accumulator_restart` function L1766-1906 — `()` — Test: Supervisor restarts crashed accumulator individually.
+-  `PanicAfterTwoFactory` struct L1785-1787 — `{ spawn_count: std::sync::atomic::AtomicU32 }` — Factory that produces accumulators that panic after 2 events on first spawn,
+-  `PanicAfterTwoFactory` type L1789-1841 — `impl AccumulatorFactory for PanicAfterTwoFactory` — graph, and generates a callable async function that routes data correctly.
+-  `spawn` function L1790-1840 — `( &self, name: String, boundary_tx: tokio_mpsc::Sender<(SourceName, Vec<u8>)>, s...` — graph, and generates a callable async function that routes data correctly.
+-  `MaybePanicAccumulator` struct L1802-1805 — `{ count: u32, should_panic: bool }` — graph, and generates a callable async function that routes data correctly.
+-  `MaybePanicAccumulator` type L1808-1818 — `= MaybePanicAccumulator` — graph, and generates a callable async function that routes data correctly.
+-  `Event` type L1809 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `Output` type L1810 — `= AlphaData` — graph, and generates a callable async function that routes data correctly.
+-  `process` function L1811-1817 — `(&mut self, event: AlphaData) -> Option<AlphaData>` — graph, and generates a callable async function that routes data correctly.
 
 #### crates/cloacina/tests/integration/context.rs
 
@@ -6316,48 +6317,48 @@
 -  `shutdown_signal` function L343-365 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
 -  `bootstrap_admin_key` function L371-419 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
 -  `mask_db_url` function L422-431 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L434-1258 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `tests` module L434-1260 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 -  `TEST_DB_URL` variable L442 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L445-459 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L462-470 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L473-488 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_health_returns_200` function L494-506 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L510-522 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_200` function L526-549 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L555-567 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L571-584 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L588-601 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L605-618 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L624-642 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L646-662 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L666-681 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L685-710 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L714-729 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L733-747 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L753-779 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L783-797 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L801-817 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L821-858 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L862-877 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L883-897 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L901-914 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L918-942 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L946-970 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L973-978 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L981-992 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L995-1005 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1009-1035 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1039-1065 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1069-1089 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1095-1109 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1113-1126 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1130-1144 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1148-1161 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1165-1180 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1184-1202 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1208-1222 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1226-1239 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1245-1257 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L445-461 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L464-472 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L475-490 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_health_returns_200` function L496-508 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L512-524 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_200` function L528-551 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L557-569 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L573-586 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L590-603 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L607-620 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L626-644 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L648-664 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L668-683 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L687-712 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L716-731 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L735-749 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L755-781 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L785-799 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L803-819 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L823-860 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L864-879 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L885-899 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L903-916 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L920-944 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L948-972 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L975-980 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L983-994 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L997-1007 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1011-1037 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1041-1067 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1071-1091 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1097-1111 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1115-1128 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1132-1146 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1150-1163 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1167-1182 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1186-1204 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1210-1224 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1228-1241 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1247-1259 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
