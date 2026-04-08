@@ -455,6 +455,8 @@ mod tests {
             database: runner.database().clone(),
             runner: Arc::new(runner),
             key_cache: Arc::new(crate::server::auth::KeyCache::default_cache()),
+            endpoint_registry: EndpointRegistry::new(),
+            reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
         }
     }
 

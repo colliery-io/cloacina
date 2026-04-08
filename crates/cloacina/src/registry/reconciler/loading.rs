@@ -891,6 +891,7 @@ mod tests {
             triggers,
             reaction_mode: None,
             input_strategy: None,
+            accumulators: Vec::new(),
         }
     }
 
