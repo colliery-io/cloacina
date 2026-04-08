@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -115,8 +115,9 @@ pub async fn run(
     // Bootstrap: create initial admin key if none exist
     bootstrap_admin_key(&state, &home, bootstrap_key.as_deref()).await?;
 
-    // Keep a reference to the scheduler for shutdown
+    // Keep references for shutdown
     let scheduler_for_shutdown = state.reactive_scheduler.clone();
+    let runner_for_shutdown = state.runner.clone();
 
     // Build router
     let app = build_router(state);
@@ -157,10 +158,22 @@ pub async fn run(
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             shutdown_signal().await;
-            // Signal the scheduler to shut down first
+            // Signal the reactive scheduler to shut down first
             let _ = shutdown_tx.send(true);
-            // Wait for scheduler to finish flushing/persisting
+            // Wait for reactive scheduler to finish flushing/persisting
             let _ = scheduler_handle.await;
+            // Shut down the workflow runner (scheduler loop, executor, stale claim sweeper)
+            info!("Shutting down workflow runner...");
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                runner_for_shutdown.shutdown(),
+            )
+            .await
+            {
+                Ok(Ok(())) => info!("Workflow runner shutdown complete"),
+                Ok(Err(e)) => warn!("Workflow runner shutdown error: {}", e),
+                Err(_) => warn!("Workflow runner shutdown timed out after 30s"),
+            }
         })
         .await
         .context("Server error")?;

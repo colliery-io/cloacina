@@ -159,6 +159,10 @@ impl From<cloacina_workflow::ContextError> for ContextError {
             cloacina_workflow::ContextError::KeyNotFound(k) => ContextError::KeyNotFound(k),
             cloacina_workflow::ContextError::TypeMismatch(k) => ContextError::TypeMismatch(k),
             cloacina_workflow::ContextError::KeyExists(k) => ContextError::KeyExists(k),
+            cloacina_workflow::ContextError::Database(msg) => ContextError::ConnectionPool(msg),
+            cloacina_workflow::ContextError::ConnectionPool(msg) => {
+                ContextError::ConnectionPool(msg)
+            }
         }
     }
 }
@@ -359,16 +363,14 @@ impl From<ContextError> for TaskError {
             ContextError::KeyNotFound(k) => cloacina_workflow::ContextError::KeyNotFound(k),
             ContextError::TypeMismatch(k) => cloacina_workflow::ContextError::TypeMismatch(k),
             ContextError::KeyExists(k) => cloacina_workflow::ContextError::KeyExists(k),
-            // Database and ConnectionPool errors don't have workflow equivalents,
-            // so convert them to a generic message
             ContextError::Database(e) => {
-                cloacina_workflow::ContextError::KeyNotFound(format!("Database error: {}", e))
+                cloacina_workflow::ContextError::Database(format!("{}", e))
             }
-            ContextError::ConnectionPool(msg) => cloacina_workflow::ContextError::KeyNotFound(
-                format!("Connection pool error: {}", msg),
-            ),
+            ContextError::ConnectionPool(msg) => {
+                cloacina_workflow::ContextError::ConnectionPool(msg)
+            }
             ContextError::InvalidScope(msg) => {
-                cloacina_workflow::ContextError::KeyNotFound(format!("Invalid scope: {}", msg))
+                cloacina_workflow::ContextError::Database(format!("Invalid scope: {}", msg))
             }
         };
         TaskError::ContextError {

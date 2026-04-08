@@ -484,28 +484,42 @@ impl ThreadTaskExecutor {
         Ok(())
     }
 
-    /// Completes a task by saving its context and marking it as completed in a single transaction.
+    /// Completes a task by saving its context and marking it as completed.
     ///
-    /// This method groups the context save and status update operations into a single
-    /// atomic transaction, ensuring consistency and reducing database roundtrips.
+    /// These two operations (context save + status update) are performed sequentially.
+    /// If context save succeeds but mark_completed fails, the error is logged at
+    /// ERROR level with the context_id so the inconsistency can be diagnosed. The
+    /// stale claim sweeper will eventually reset the task to Ready, but the context
+    /// is already persisted and will not be lost.
     ///
     /// # Arguments
     /// * `claimed_task` - The task to complete
     /// * `context` - The execution context to save
     ///
     /// # Returns
-    /// Result indicating success or failure of the transaction
+    /// Result indicating success or failure of the operation
     async fn complete_task_transaction(
         &self,
         claimed_task: &ClaimedTask,
         context: Context<serde_json::Value>,
     ) -> Result<(), ExecutorError> {
-        // Save context and update metadata
+        // Save context and update metadata first (idempotent via upsert)
         self.save_task_context(claimed_task, context).await?;
 
-        // Mark task as completed
-        self.mark_task_completed(claimed_task.task_execution_id)
-            .await?;
+        // Mark task as completed — if this fails after context save, log critically
+        if let Err(e) = self
+            .mark_task_completed(claimed_task.task_execution_id)
+            .await
+        {
+            error!(
+                task_id = %claimed_task.task_execution_id,
+                task_name = %claimed_task.task_name,
+                pipeline_id = %claimed_task.pipeline_execution_id,
+                error = %e,
+                "CRITICAL: Context saved but mark_completed failed — task may be re-executed by stale claim sweeper"
+            );
+            return Err(e);
+        }
 
         Ok(())
     }

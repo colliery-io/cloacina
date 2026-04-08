@@ -189,6 +189,8 @@ pub struct TaskScheduler {
     poll_interval: Duration,
     /// Optional dispatcher for push-based task execution
     dispatcher: Option<Arc<dyn Dispatcher>>,
+    /// Shutdown signal for graceful termination of the scheduling loop.
+    shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 impl TaskScheduler {
@@ -259,7 +261,14 @@ impl TaskScheduler {
             instance_id: Uuid::new_v4(),
             poll_interval,
             dispatcher: None,
+            shutdown_rx: None,
         }
+    }
+
+    /// Sets the shutdown receiver for graceful termination of the scheduling loop.
+    pub fn with_shutdown(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = Some(shutdown_rx);
+        self
     }
 
     /// Sets the dispatcher for push-based task execution.
@@ -580,12 +589,15 @@ impl TaskScheduler {
     /// The scheduling loop is designed to be run in a separate thread or task.
     /// Multiple instances should not be run simultaneously.
     pub async fn run_scheduling_loop(&self) -> Result<(), ValidationError> {
-        let scheduler_loop = SchedulerLoop::with_dispatcher(
+        let mut scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
             self.instance_id,
             self.poll_interval,
             self.dispatcher.clone(),
         );
+        if let Some(ref shutdown_rx) = self.shutdown_rx {
+            scheduler_loop = scheduler_loop.with_shutdown(shutdown_rx.clone());
+        }
         scheduler_loop.run().await
     }
 

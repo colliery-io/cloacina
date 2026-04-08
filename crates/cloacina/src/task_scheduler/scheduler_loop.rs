@@ -36,6 +36,12 @@ use crate::models::task_execution::TaskExecution;
 
 use super::state_manager::StateManager;
 
+/// Maximum backoff interval during sustained errors (30 seconds).
+const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Number of consecutive errors before logging a circuit-open warning.
+const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
+
 /// Scheduler loop operations.
 pub struct SchedulerLoop<'a> {
     dal: &'a DAL,
@@ -43,6 +49,10 @@ pub struct SchedulerLoop<'a> {
     poll_interval: Duration,
     /// Optional dispatcher for push-based task execution
     dispatcher: Option<Arc<dyn Dispatcher>>,
+    /// Shutdown signal — when the sender drops or sends, the loop exits cleanly.
+    shutdown_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    /// Consecutive error count for circuit breaker / backoff.
+    consecutive_errors: u32,
 }
 
 impl<'a> SchedulerLoop<'a> {
@@ -54,6 +64,8 @@ impl<'a> SchedulerLoop<'a> {
             instance_id,
             poll_interval,
             dispatcher: None,
+            shutdown_rx: None,
+            consecutive_errors: 0,
         }
     }
 
@@ -69,7 +81,15 @@ impl<'a> SchedulerLoop<'a> {
             instance_id,
             poll_interval,
             dispatcher,
+            shutdown_rx: None,
+            consecutive_errors: 0,
         }
+    }
+
+    /// Set the shutdown receiver for graceful termination.
+    pub fn with_shutdown(mut self, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = Some(shutdown_rx);
+        self
     }
 
     /// Runs the main scheduling loop that continuously processes active pipeline executions.
@@ -79,7 +99,7 @@ impl<'a> SchedulerLoop<'a> {
     /// 2. Updates task readiness based on dependencies and trigger rules
     /// 3. Marks completed pipelines
     /// 4. Repeats at the configured poll interval
-    pub async fn run(&self) -> Result<(), ValidationError> {
+    pub async fn run(&mut self) -> Result<(), ValidationError> {
         info!(
             "Starting task scheduler loop (instance: {}, poll_interval: {:?})",
             self.instance_id, self.poll_interval
@@ -87,13 +107,61 @@ impl<'a> SchedulerLoop<'a> {
         let mut interval = time::interval(self.poll_interval);
 
         loop {
-            interval.tick().await;
+            if let Some(ref mut shutdown_rx) = self.shutdown_rx {
+                tokio::select! {
+                    _ = interval.tick() => {}
+                    _ = shutdown_rx.changed() => {
+                        info!("SchedulerLoop shutting down");
+                        break;
+                    }
+                }
+            } else {
+                interval.tick().await;
+            }
 
             match self.process_active_pipelines().await {
-                Ok(_) => debug!("Scheduling loop completed successfully"),
-                Err(e) => error!("Scheduling loop error: {}", e),
+                Ok(_) => {
+                    if self.consecutive_errors > 0 {
+                        info!(
+                            "Scheduler loop recovered after {} consecutive errors",
+                            self.consecutive_errors
+                        );
+                        self.consecutive_errors = 0;
+                    }
+                    debug!("Scheduling loop completed successfully");
+                }
+                Err(e) => {
+                    self.consecutive_errors += 1;
+
+                    if self.consecutive_errors == CIRCUIT_OPEN_THRESHOLD {
+                        warn!(
+                            "Scheduler loop circuit open: {} consecutive errors — backing off (latest: {})",
+                            self.consecutive_errors, e
+                        );
+                    } else if self.consecutive_errors % 10 == 0 {
+                        // Rate-limited logging: every 10th error after circuit opens
+                        warn!(
+                            "Scheduler loop still failing: {} consecutive errors (latest: {})",
+                            self.consecutive_errors, e
+                        );
+                    } else if self.consecutive_errors < CIRCUIT_OPEN_THRESHOLD {
+                        error!("Scheduling loop error: {}", e);
+                    }
+
+                    // Exponential backoff: poll_interval * 2^min(errors, 8) capped at MAX_BACKOFF
+                    let backoff_exp = self.consecutive_errors.min(8);
+                    let backoff = self
+                        .poll_interval
+                        .saturating_mul(1u32 << backoff_exp)
+                        .min(MAX_BACKOFF);
+                    if backoff > self.poll_interval {
+                        time::sleep(backoff - self.poll_interval).await;
+                    }
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Processes all active pipeline executions to update task readiness.
