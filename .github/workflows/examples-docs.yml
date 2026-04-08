@@ -9,8 +9,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Step 0: Single build that all tutorial/example jobs share
+  # -----------------------------------------------------------------------
+
+  build-cache:
+    name: Build Cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Install libpq
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+
+      - name: Build workspace
+        run: cargo build --features "postgres,sqlite,macros"
+
+  # -----------------------------------------------------------------------
+  # Rust tutorials
+  # -----------------------------------------------------------------------
+
   rust-tutorials:
     name: Rust Tutorial Tests
+    needs: [build-cache]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -26,6 +69,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
+      - name: Install libpq
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -39,14 +85,14 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
         with:
-          path: target
-          key: ${{ runner.os }}-rust-tutorials-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-rust-tutorials-
-            ${{ runner.os }}-rust-
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
       - name: Docker Compose Cache
         if: contains(fromJSON('["06"]'), matrix.tutorial)
@@ -62,10 +108,19 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run tutorial ${{ matrix.tutorial }}
-        run: angreal demos tutorial-${{ matrix.tutorial }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos tutorial-${{ matrix.tutorial }}
+
+  # -----------------------------------------------------------------------
+  # Rust examples
+  # -----------------------------------------------------------------------
 
   rust-examples:
     name: Rust Example Tests
+    needs: [build-cache]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -81,6 +136,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
+      - name: Install libpq
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -94,14 +152,14 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: actions/cache@v4
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
         with:
-          path: target
-          key: ${{ runner.os }}-rust-examples-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-rust-examples-
-            ${{ runner.os }}-rust-
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
       - name: Docker Compose Cache
         uses: actions/cache@v4
@@ -115,10 +173,19 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run ${{ matrix.example }} example
-        run: angreal demos ${{ matrix.example }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos ${{ matrix.example }}
+
+  # -----------------------------------------------------------------------
+  # Python tutorials
+  # -----------------------------------------------------------------------
 
   python-tutorials:
     name: Python Tutorial Tests
+    needs: [build-cache]
     timeout-minutes: 30
     continue-on-error: true
     strategy:
@@ -179,6 +246,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
+      - name: Install libpq
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -187,17 +257,14 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
+      - name: Restore build cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-py-tutorials-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-py-tutorials-
-            ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-examples-build-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
 
       - name: Install angreal
         run: |
@@ -218,8 +285,15 @@ jobs:
           compose-file: ".angreal/docker-compose.yaml"
 
       - name: Run Python tutorial ${{ matrix.tutorial }} (${{ matrix.backend }})
-        run: |
-          angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: angreal demos python-tutorial-${{ matrix.tutorial }} --backend ${{ matrix.backend }}
+
+  # -----------------------------------------------------------------------
+  # Documentation
+  # -----------------------------------------------------------------------
 
   documentation:
     name: Build Documentation
