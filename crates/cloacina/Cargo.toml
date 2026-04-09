@@ -66,6 +66,7 @@ tokio-postgres = { version = "0.7", optional = true }
 futures = { version = "0.3" }
 tracing = { version = "0.1" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+metrics = { version = "0.24" }
 tracing-test = { version = "0.2" }
 url = { version = "2.5" }
 urlencoding = { version = "2.1" }

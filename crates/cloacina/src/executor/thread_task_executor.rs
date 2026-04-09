@@ -377,6 +377,7 @@ impl ThreadTaskExecutor {
                 self.complete_task_transaction(&claimed_task, result_context)
                     .await?;
 
+                metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(1);
                 info!("Task completed successfully: {}", claimed_task.task_name);
             }
             Err(error) => {
@@ -403,6 +404,7 @@ impl ThreadTaskExecutor {
                     // Mark task as permanently failed
                     self.mark_task_failed(claimed_task.task_execution_id, &error)
                         .await?;
+                    metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(1);
                     error!(
                         "Task failed permanently: {} - {}",
                         claimed_task.task_name, error

@@ -321,6 +321,7 @@ impl<'a> SchedulerLoop<'a> {
                 .pipeline_execution()
                 .mark_failed(execution.id, &reason)
                 .await?;
+            metrics::counter!("cloacina_pipelines_total", "status" => "failed").increment(1);
             info!(
                 "Pipeline failed: {} (name: {}, {})",
                 execution.id, execution.pipeline_name, reason
@@ -330,6 +331,7 @@ impl<'a> SchedulerLoop<'a> {
                 .pipeline_execution()
                 .mark_completed(execution.id)
                 .await?;
+            metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(1);
             info!(
                 "Pipeline completed: {} (name: {}, {} completed, {} skipped)",
                 execution.id, execution.pipeline_name, completed_count, skipped_count

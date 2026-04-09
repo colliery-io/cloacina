@@ -44,6 +44,8 @@ pub struct AppState {
     pub security_config: SecurityConfig,
     /// Short-lived WebSocket auth tickets (single-use, TTL-based).
     pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
+    /// Prometheus metrics handle for rendering /metrics endpoint.
+    pub metrics_handle: metrics_exporter_prometheus::PrometheusHandle,
 }
 
 /// Run the API server.
@@ -71,17 +73,81 @@ pub async fn run(
     let file_appender = rolling::daily(&logs_dir, "cloacina-server.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    tracing_subscriber::registry()
+    // Build the base subscriber with stderr + file layers
+    let subscriber = tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_writer(std::io::stderr))
-        .with(fmt::layer().json().with_writer(non_blocking))
-        .init();
+        .with(fmt::layer().json().with_writer(non_blocking));
+
+    // Conditionally add OpenTelemetry tracing layer
+    #[cfg(feature = "telemetry")]
+    {
+        if std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").is_ok() {
+            use opentelemetry::trace::TracerProvider;
+            use opentelemetry_otlp::WithExportConfig;
+
+            let service_name =
+                std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "cloacina".to_string());
+
+            let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .build()
+                .context("Failed to create OTLP exporter")?;
+
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(otlp_exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name(service_name)
+                        .build(),
+                )
+                .build();
+
+            let tracer = provider.tracer("cloacina");
+            let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+            subscriber.with(otel_layer).init();
+            // Provider is kept alive by the global registry
+            opentelemetry::global::set_tracer_provider(provider);
+        } else {
+            subscriber.init();
+        }
+    }
+
+    #[cfg(not(feature = "telemetry"))]
+    {
+        subscriber.init();
+    }
 
     info!("Starting API server");
     info!("  Bind:     {}", bind);
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
     warn!("Server running without TLS -- use a TLS-terminating reverse proxy (nginx, Caddy, Envoy) in production");
+
+    // Initialize Prometheus metrics recorder
+    let metrics_builder = metrics_exporter_prometheus::PrometheusBuilder::new();
+    let metrics_handle = metrics_builder
+        .install_recorder()
+        .context("Failed to install Prometheus metrics recorder")?;
+
+    // Register metric descriptions
+    metrics::describe_counter!(
+        "cloacina_pipelines_total",
+        "Total pipeline executions by status"
+    );
+    metrics::describe_counter!("cloacina_tasks_total", "Total task executions by status");
+    metrics::describe_counter!(
+        "cloacina_api_requests_total",
+        "Total API requests by method, path, and status"
+    );
+    metrics::describe_histogram!(
+        "cloacina_pipeline_duration_seconds",
+        "Pipeline execution duration"
+    );
+    metrics::describe_histogram!("cloacina_task_duration_seconds", "Task execution duration");
+    metrics::describe_gauge!("cloacina_active_pipelines", "Currently active pipelines");
+    metrics::describe_gauge!("cloacina_active_tasks", "Currently active tasks");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let runner_config = DefaultRunnerConfig::builder()
@@ -116,6 +182,7 @@ pub async fn run(
         ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
             std::time::Duration::from_secs(60),
         )),
+        metrics_handle,
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -192,6 +259,35 @@ pub async fn run(
 ///
 /// Public routes (health/ready/metrics) have no auth.
 /// Authenticated routes use `route_layer` (not `layer`) so unmatched paths still 404.
+/// A request ID attached to each incoming request.
+#[derive(Clone, Debug)]
+pub struct RequestId(pub String);
+
+/// Middleware that generates a UUID request ID, creates a tracing span,
+/// and adds the X-Request-Id response header.
+async fn request_id_middleware(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let id = uuid::Uuid::new_v4().to_string();
+    request.extensions_mut().insert(RequestId(id.clone()));
+
+    let span = tracing::info_span!(
+        "request",
+        request_id = %id,
+        method = %request.method(),
+        path = %request.uri().path(),
+    );
+    let mut response = {
+        use tracing::Instrument;
+        next.run(request).instrument(span).await
+    };
+    if let Ok(val) = id.parse() {
+        response.headers_mut().insert("x-request-id", val);
+    }
+    response
+}
+
 fn build_router(state: AppState) -> Router {
     use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
     use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -320,6 +416,8 @@ fn build_router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
         // Rate limiting: per-IP
         .layer(rate_limit_layer)
+        // Request ID + tracing span (outermost — wraps everything)
+        .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
 }
 
@@ -361,15 +459,15 @@ async fn ready(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// GET /metrics — Prometheus metrics (placeholder for now)
-async fn metrics() -> impl IntoResponse {
-    // TODO: Wire in prometheus metrics in a future task
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let body = state.metrics_handle.render();
     (
         StatusCode::OK,
         [(
             axum::http::header::CONTENT_TYPE,
-            "text/plain; version=0.0.4",
+            "text/plain; version=0.0.4; charset=utf-8",
         )],
-        "# HELP cloacina_up Server is running\n# TYPE cloacina_up gauge\ncloacina_up 1\n",
+        body,
     )
 }
 
@@ -487,6 +585,16 @@ mod tests {
             .await
             .expect("Failed to connect to test database");
 
+        // Create a test-scoped metrics handle (won't conflict with global recorder)
+        let test_metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+            .install_recorder()
+            .unwrap_or_else(|_| {
+                // If a recorder is already installed (from another test), create a no-op handle
+                metrics_exporter_prometheus::PrometheusBuilder::new()
+                    .build_recorder()
+                    .handle()
+            });
+
         AppState {
             database: runner.database().clone(),
             runner: Arc::new(runner),
@@ -497,6 +605,7 @@ mod tests {
             ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
                 std::time::Duration::from_secs(60),
             )),
+            metrics_handle: test_metrics_handle,
         }
     }
 
@@ -527,6 +636,38 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_slice(&body_bytes).unwrap_or(serde_json::json!({}));
         (status, body)
+    }
+
+    // ── Request ID middleware ─────────────────────────────────────────
+
+    #[tokio::test]
+    #[serial]
+    async fn test_request_id_header_present() {
+        let state = test_state().await;
+        let app = build_router(state);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request failed");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let request_id = response.headers().get("x-request-id");
+        assert!(
+            request_id.is_some(),
+            "Response should include X-Request-Id header"
+        );
+        let id_str = request_id.unwrap().to_str().unwrap();
+        assert!(
+            uuid::Uuid::parse_str(id_str).is_ok(),
+            "X-Request-Id should be a valid UUID, got: {}",
+            id_str
+        );
     }
 
     // ── Health / Ready / Metrics ──────────────────────────────────────
@@ -565,8 +706,14 @@ mod tests {
 
     #[tokio::test]
     #[serial]
-    async fn test_metrics_returns_200() {
+    async fn test_metrics_returns_prometheus_format() {
         let state = test_state().await;
+
+        // Record some test metrics so the output isn't empty
+        metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(3);
+        metrics::counter!("cloacina_tasks_total", "status" => "completed").increment(10);
+        metrics::counter!("cloacina_tasks_total", "status" => "failed").increment(2);
+
         let app = build_router(state);
 
         let response = app
@@ -580,6 +727,19 @@ mod tests {
             .expect("request failed");
 
         assert_eq!(response.status(), StatusCode::OK);
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.contains("text/plain"),
+            "Content-Type should be text/plain for Prometheus, got: {}",
+            content_type
+        );
+
         let body_bytes = response
             .into_body()
             .collect()
@@ -587,7 +747,18 @@ mod tests {
             .expect("failed to read body")
             .to_bytes();
         let text = String::from_utf8_lossy(&body_bytes);
-        assert!(text.contains("cloacina_up"));
+
+        // Verify Prometheus text format: HELP, TYPE, and metric lines
+        assert!(
+            text.contains("cloacina_pipelines_total"),
+            "Metrics should contain pipeline counters. Got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cloacina_tasks_total"),
+            "Metrics should contain task counters. Got:\n{}",
+            text
+        );
     }
 
     // ── Auth middleware ───────────────────────────────────────────────

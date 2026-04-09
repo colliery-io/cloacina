@@ -4,14 +4,14 @@ level: initiative
 title: "Reliability — Shutdown Channels, Atomic Completions, and Error Handling"
 short_code: "CLOACI-I-0086"
 created_at: 2026-04-08T10:46:48.310014+00:00
-updated_at: 2026-04-08T23:30:00.723897+00:00
+updated_at: 2026-04-09T12:06:28.776234+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

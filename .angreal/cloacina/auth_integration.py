@@ -344,6 +344,26 @@ def auth_integration_test():
         check("revoked key → 401", s == 401, f"got {s}")
 
         # =================================================================
+        # Test group 7: Metrics endpoint
+        # =================================================================
+        print_section_header("Test group 7: Metrics endpoint (Prometheus)")
+
+        # /metrics is public (no auth required)
+        s, _ = api_request("GET", f"{base_url}/metrics")
+        check("metrics endpoint returns 200", s == 200, f"got {s}")
+
+        # Verify it returns Prometheus text format with real metrics
+        import urllib.request
+        req = urllib.request.Request(f"{base_url}/metrics")
+        with urllib.request.urlopen(req) as resp:
+            metrics_text = resp.read().decode()
+        check("metrics contains HELP lines", "# HELP" in metrics_text or "# TYPE" in metrics_text,
+              f"no HELP/TYPE lines in metrics output (length={len(metrics_text)})")
+        check("metrics contains pipeline counter",
+              "cloacina_pipelines_total" in metrics_text or "cloacina_tasks_total" in metrics_text,
+              "no cloacina counters found in metrics output")
+
+        # =================================================================
         # Results
         # =================================================================
         print_section_header("Results")

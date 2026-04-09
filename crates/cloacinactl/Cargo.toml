@@ -19,6 +19,7 @@ default = ["postgres", "sqlite", "kafka"]
 postgres = ["cloacina/postgres"]
 sqlite = ["cloacina/sqlite"]
 kafka = ["cloacina/kafka"]
+telemetry = ["tracing-opentelemetry", "opentelemetry", "opentelemetry-otlp", "opentelemetry_sdk"]
 
 [dependencies]
 cloacina = { path = "../cloacina", default-features = false }
@@ -44,6 +45,12 @@ chrono = { version = "0.4" }
 tracing = { version = "0.1" }
 tracing-appender = { version = "0.2" }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+tracing-opentelemetry = { version = "0.32", optional = true }
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry-otlp = { version = "0.31", optional = true, features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.31", optional = true, features = ["rt-tokio"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
