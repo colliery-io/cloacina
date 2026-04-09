@@ -172,11 +172,11 @@ def auth_integration_test():
         print_section_header("Test group 1: Deny scenarios")
 
         # No auth → 401
-        s, _ = api_request("GET", f"{base_url}/auth/keys")
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys")
         check("no auth → 401", s == 401, f"got {s}")
 
         # Invalid token → 401
-        s, _ = api_request("GET", f"{base_url}/auth/keys", token="clk_bogus_invalid_key")
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token="clk_bogus_invalid_key")
         check("invalid token → 401", s == 401, f"got {s}")
 
         # =================================================================
@@ -185,7 +185,7 @@ def auth_integration_test():
         print_section_header("Test group 2: Bootstrap key (god mode)")
 
         # Bootstrap can list keys
-        s, body = api_request("GET", f"{base_url}/auth/keys", token=token)
+        s, body = api_request("GET", f"{base_url}/v1/auth/keys", token=token)
         check("bootstrap lists keys", s == 200, f"got {s}")
 
         # Bootstrap key response includes is_admin and tenant_id
@@ -199,7 +199,7 @@ def auth_integration_test():
                   f"got {bootstrap_info.get('tenant_id')}")
 
         # Bootstrap can access public tenant
-        s, _ = api_request("GET", f"{base_url}/tenants/public/workflows", token=token)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=token)
         check("bootstrap accesses public tenant", s == 200, f"got {s}")
 
         # =================================================================
@@ -207,17 +207,17 @@ def auth_integration_test():
         # =================================================================
         print_section_header("Test group 3: Global key")
 
-        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
                               data={"name": "global-key"})
         check("create global key", s == 201, f"got {s}")
         global_key = body.get("key", "")
 
         # Global key can access public tenant
-        s, _ = api_request("GET", f"{base_url}/tenants/public/workflows", token=global_key)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=global_key)
         check("global key → public tenant", s == 200, f"got {s}")
 
         # Global key cannot create tenants (not admin)
-        s, _ = api_request("POST", f"{base_url}/tenants", token=global_key,
+        s, _ = api_request("POST", f"{base_url}/v1/tenants", token=global_key,
                            data={"schema_name": "denied_tenant", "username": "denied_user"})
         check("global key cannot create tenant", s == 403, f"got {s}")
 
@@ -227,69 +227,69 @@ def auth_integration_test():
         print_section_header("Test group 4: Role enforcement")
 
         # Create a read-only key
-        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
                               data={"name": "read-only-key", "role": "read"})
         check("create read-only key", s == 201, f"got {s}")
         read_key = body.get("key", "")
 
         # Read key can list workflows
-        s, _ = api_request("GET", f"{base_url}/tenants/public/workflows", token=read_key)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=read_key)
         check("read key lists workflows", s == 200, f"got {s}")
 
         # Read key cannot execute workflow (needs write)
-        s, _ = api_request("POST", f"{base_url}/tenants/public/workflows/nonexistent/execute",
+        s, _ = api_request("POST", f"{base_url}/v1/tenants/public/workflows/nonexistent/execute",
                            token=read_key, data={"context": {}})
         check("read key cannot execute → 403", s == 403, f"got {s}")
 
         # Create a write key
-        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
                               data={"name": "write-key", "role": "write"})
         check("create write key", s == 201, f"got {s}")
         write_key = body.get("key", "")
 
         # Write key can execute (even if workflow doesn't exist, should get past auth)
-        s, _ = api_request("POST", f"{base_url}/tenants/public/workflows/nonexistent/execute",
+        s, _ = api_request("POST", f"{base_url}/v1/tenants/public/workflows/nonexistent/execute",
                            token=write_key, data={"context": {}})
         check("write key can attempt execute (not 403)", s != 403, f"got {s}")
 
         # Write key cannot revoke keys (needs admin)
         dummy_id = "00000000-0000-0000-0000-000000000000"
-        s, _ = api_request("DELETE", f"{base_url}/auth/keys/{dummy_id}", token=write_key)
+        s, _ = api_request("DELETE", f"{base_url}/v1/auth/keys/{dummy_id}", token=write_key)
         check("write key cannot revoke → 403", s == 403, f"got {s}")
 
         # -- Privilege escalation prevention (SEC-01) --
         # Read key cannot create keys
-        s, _ = api_request("POST", f"{base_url}/auth/keys", token=read_key,
+        s, _ = api_request("POST", f"{base_url}/v1/auth/keys", token=read_key,
                            data={"name": "escalation-attempt", "role": "admin"})
         check("read key cannot create key → 403", s == 403, f"got {s}")
 
         # Write key cannot create keys
-        s, _ = api_request("POST", f"{base_url}/auth/keys", token=write_key,
+        s, _ = api_request("POST", f"{base_url}/v1/auth/keys", token=write_key,
                            data={"name": "escalation-attempt", "role": "read"})
         check("write key cannot create key → 403", s == 403, f"got {s}")
 
         # Write key cannot list keys
-        s, _ = api_request("GET", f"{base_url}/auth/keys", token=write_key)
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=write_key)
         check("write key cannot list keys → 403", s == 403, f"got {s}")
 
         # Read key cannot list keys
-        s, _ = api_request("GET", f"{base_url}/auth/keys", token=read_key)
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=read_key)
         check("read key cannot list keys → 403", s == 403, f"got {s}")
 
         # -- Tenant enumeration prevention (SEC-04) --
         # Write key cannot list tenants
-        s, _ = api_request("GET", f"{base_url}/tenants", token=write_key)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants", token=write_key)
         check("write key cannot list tenants → 403", s == 403, f"got {s}")
 
         # Read key cannot list tenants
-        s, _ = api_request("GET", f"{base_url}/tenants", token=read_key)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants", token=read_key)
         check("read key cannot list tenants → 403", s == 403, f"got {s}")
 
         # Bootstrap (god mode) CAN still list tenants and create keys
-        s, _ = api_request("GET", f"{base_url}/tenants", token=token)
+        s, _ = api_request("GET", f"{base_url}/v1/tenants", token=token)
         check("bootstrap can list tenants", s == 200, f"got {s}")
 
-        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
                               data={"name": "admin-created-key", "role": "admin"})
         check("bootstrap can create admin key", s == 201, f"got {s}")
 
@@ -299,7 +299,7 @@ def auth_integration_test():
         print_section_header("Test group 5: Tenant isolation")
 
         # Create a tenant-scoped key via bootstrap (admin)
-        s, body = api_request("POST", f"{base_url}/tenants/public/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/tenants/public/keys", token=token,
                               data={"name": "public-tenant-key"})
         check("create tenant-scoped key", s == 201, f"got {s}")
         tenant_key = body.get("key", "")
@@ -310,11 +310,11 @@ def auth_integration_test():
 
         # Tenant key can access its own tenant
         if tenant_key:
-            s, _ = api_request("GET", f"{base_url}/tenants/public/workflows", token=tenant_key)
+            s, _ = api_request("GET", f"{base_url}/v1/tenants/public/workflows", token=tenant_key)
             check("tenant key → own tenant", s == 200, f"got {s}")
 
             # Tenant key cannot access a different tenant
-            s, _ = api_request("GET", f"{base_url}/tenants/other_tenant/workflows", token=tenant_key)
+            s, _ = api_request("GET", f"{base_url}/v1/tenants/other_tenant/workflows", token=tenant_key)
             check("tenant key → other tenant → 403", s == 403, f"got {s}")
 
         # =================================================================
@@ -323,24 +323,24 @@ def auth_integration_test():
         print_section_header("Test group 6: Revoked key")
 
         # Create a key to revoke
-        s, body = api_request("POST", f"{base_url}/auth/keys", token=token,
+        s, body = api_request("POST", f"{base_url}/v1/auth/keys", token=token,
                               data={"name": "to-revoke"})
         revoke_key_token = body.get("key", "")
         revoke_key_id = body.get("id", "")
 
         # Verify it works before revocation
-        s, _ = api_request("GET", f"{base_url}/auth/keys", token=revoke_key_token)
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=revoke_key_token)
         check("key works before revoke", s == 200, f"got {s}")
 
         # Revoke it
-        s, _ = api_request("DELETE", f"{base_url}/auth/keys/{revoke_key_id}", token=token)
+        s, _ = api_request("DELETE", f"{base_url}/v1/auth/keys/{revoke_key_id}", token=token)
         check("revoke key", s == 200, f"got {s}")
 
         # Wait for cache to expire (cache TTL is 30s, but clear happens on revoke)
         time.sleep(1)
 
         # Revoked key → 401
-        s, _ = api_request("GET", f"{base_url}/auth/keys", token=revoke_key_token)
+        s, _ = api_request("GET", f"{base_url}/v1/auth/keys", token=revoke_key_token)
         check("revoked key → 401", s == 401, f"got {s}")
 
         # =================================================================

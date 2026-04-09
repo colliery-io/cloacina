@@ -30,6 +30,7 @@ use tracing::{info, warn};
 
 use crate::commands::serve::AppState;
 use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// Request body for creating a new API key.
 #[derive(Deserialize)]
@@ -89,11 +90,7 @@ pub async fn create_key(
             .into_response(),
         Err(e) => {
             warn!("Failed to create API key: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "failed to create API key"})),
-            )
-                .into_response()
+            ApiError::internal("failed to create API key").into_response()
         }
     }
 }
@@ -128,11 +125,7 @@ pub async fn list_keys(
         }
         Err(e) => {
             warn!("Failed to list API keys: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "failed to list API keys"})),
-            )
-                .into_response()
+            ApiError::internal("failed to list API keys").into_response()
         }
     }
 }
@@ -150,11 +143,7 @@ pub async fn revoke_key(
     let id = match uuid::Uuid::parse_str(&key_id) {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid key ID format"})),
-            )
-                .into_response()
+            return ApiError::bad_request("invalid_key_id", "invalid key ID format").into_response()
         }
     };
 
@@ -165,18 +154,12 @@ pub async fn revoke_key(
             state.key_cache.clear().await;
             Json(serde_json::json!({"status": "revoked", "id": key_id})).into_response()
         }
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "key not found or already revoked"})),
-        )
-            .into_response(),
+        Ok(false) => {
+            ApiError::not_found("key_not_found", "key not found or already revoked").into_response()
+        }
         Err(e) => {
             warn!("Failed to revoke API key: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "failed to revoke API key"})),
-            )
-                .into_response()
+            ApiError::internal("failed to revoke API key").into_response()
         }
     }
 }
@@ -222,11 +205,23 @@ pub async fn create_tenant_key(
         }
         Err(e) => {
             warn!("Failed to create tenant key: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "failed to create API key"})),
-            )
-                .into_response()
+            ApiError::internal("failed to create API key").into_response()
         }
     }
+}
+
+/// POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+///
+/// Returns a short-lived ticket that can be used as a query parameter for
+/// WebSocket upgrade requests, avoiding long-lived API keys in URLs.
+pub async fn create_ws_ticket(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedKey>,
+) -> impl IntoResponse {
+    let ticket = state.ws_tickets.issue(auth).await;
+    let expires_in_seconds = 60;
+    Json(serde_json::json!({
+        "ticket": ticket,
+        "expires_in_seconds": expires_in_seconds,
+    }))
 }

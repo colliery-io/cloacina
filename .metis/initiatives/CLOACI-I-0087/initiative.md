@@ -4,14 +4,14 @@ level: initiative
 title: "API Hardening — TLS, Rate Limiting, Error Format, and Versioning"
 short_code: "CLOACI-I-0087"
 created_at: 2026-04-08T10:46:49.259470+00:00
-updated_at: 2026-04-08T10:46:49.259470+00:00
+updated_at: 2026-04-08T23:46:51.505857+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false

@@ -30,6 +30,7 @@ use cloacina::registry::workflow_registry::WorkflowRegistryImpl;
 
 use crate::commands::serve::AppState;
 use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
 pub async fn upload_workflow(
@@ -48,21 +49,11 @@ pub async fn upload_workflow(
     // Extract file from multipart
     let package_data = match extract_file_field(&mut multipart).await {
         Ok(data) => data,
-        Err(msg) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": msg})),
-            )
-                .into_response()
-        }
+        Err(msg) => return ApiError::bad_request("invalid_request", msg).into_response(),
     };
 
     if package_data.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "empty package file"})),
-        )
-            .into_response();
+        return ApiError::bad_request("invalid_request", "empty package file").into_response();
     }
 
     // Signature verification gate: when require_signatures is enabled,
@@ -76,13 +67,11 @@ pub async fn upload_workflow(
         warn!(
             "Package upload rejected: signature verification is required (require_signatures=true)"
         );
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "package signature verification is required — sign the package before uploading"
-            })),
+        return ApiError::forbidden(
+            "signature_required",
+            "package signature verification is required — sign the package before uploading",
         )
-            .into_response();
+        .into_response();
     }
 
     // Register via WorkflowRegistry
@@ -91,11 +80,7 @@ pub async fn upload_workflow(
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to create registry: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": "internal registry error"})),
-            )
-                .into_response();
+            return ApiError::internal("internal registry error").into_response();
         }
     };
 
@@ -119,11 +104,7 @@ pub async fn upload_workflow(
                 "Failed to register workflow for tenant '{}': {}",
                 tenant_id, e
             );
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("upload_failed", format!("{}", e)).into_response()
         }
     }
 }
@@ -141,13 +122,7 @@ pub async fn list_workflows(
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
-        }
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
     match registry.list_workflows().await {
@@ -173,11 +148,7 @@ pub async fn list_workflows(
         }
         Err(e) => {
             warn!("Failed to list workflows for tenant '{}': {}", tenant_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("{}", e)).into_response()
         }
     }
 }
@@ -195,13 +166,7 @@ pub async fn get_workflow(
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
-        }
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
     match registry.list_workflows().await {
@@ -218,18 +183,14 @@ pub async fn get_workflow(
                     "created_at": w.created_at.to_rfc3339(),
                 }))
                 .into_response(),
-                None => (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"error": format!("workflow '{}' not found", name)})),
+                None => ApiError::not_found(
+                    "workflow_not_found",
+                    format!("workflow '{}' not found", name),
                 )
-                    .into_response(),
+                .into_response(),
             }
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{}", e)})),
-        )
-            .into_response(),
+        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
     }
 }
 
@@ -249,13 +210,7 @@ pub async fn delete_workflow(
     let storage = UnifiedRegistryStorage::new(state.database.clone());
     let mut registry = match WorkflowRegistryImpl::new(storage, state.database.clone()) {
         Ok(r) => r,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
-        }
+        Err(e) => return ApiError::internal(format!("{}", e)).into_response(),
     };
 
     match registry
@@ -279,11 +234,7 @@ pub async fn delete_workflow(
                 "Failed to delete workflow '{}' v{} for tenant '{}': {}",
                 name, version, tenant_id, e
             );
-            (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::not_found("workflow_not_found", format!("{}", e)).into_response()
         }
     }
 }

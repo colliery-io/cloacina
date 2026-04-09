@@ -24,9 +24,7 @@
 
 use axum::{
     extract::{Path, Query, State, WebSocketUpgrade},
-    http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Deserialize;
 use tracing::{debug, info, warn};
@@ -38,6 +36,7 @@ use cloacina::computation_graph::SourceName;
 
 use super::auth::{validate_token, AuthenticatedKey};
 use crate::commands::serve::AppState;
+use crate::server::error::ApiError;
 
 /// Query parameter for passing the auth token on WebSocket upgrade.
 ///
@@ -78,11 +77,7 @@ pub async fn accumulator_ws(
     let token = match extract_ws_token(request.headers(), &query) {
         Some(t) => t,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "missing auth token"})),
-            )
-                .into_response();
+            return ApiError::unauthorized("missing auth token").into_response();
         }
     };
 
@@ -102,13 +97,11 @@ pub async fn accumulator_ws(
         .check_accumulator_auth(&name, &ctx)
         .await
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(
-                serde_json::json!({"error": format!("not authorized for accumulator '{}'", name)}),
-            ),
+        return ApiError::forbidden(
+            "endpoint_access_denied",
+            format!("not authorized for accumulator '{}'", name),
         )
-            .into_response();
+        .into_response();
     }
 
     info!(
@@ -136,11 +129,7 @@ pub async fn reactor_ws(
     let token = match extract_ws_token(request.headers(), &query) {
         Some(t) => t,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "missing auth token"})),
-            )
-                .into_response();
+            return ApiError::unauthorized("missing auth token").into_response();
         }
     };
 
@@ -160,11 +149,11 @@ pub async fn reactor_ws(
         .check_reactor_auth(&name, &ctx)
         .await
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": format!("not authorized for reactor '{}'", name)})),
+        return ApiError::forbidden(
+            "endpoint_access_denied",
+            format!("not authorized for reactor '{}'", name),
         )
-            .into_response();
+        .into_response();
     }
 
     info!(

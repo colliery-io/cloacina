@@ -777,18 +777,18 @@ def server_soak():
         print_section_header("Step 5: Test auth")
 
         # No auth → 401
-        status, body = api_request("GET", f"{base_url}/auth/keys")
+        status, body = api_request("GET", f"{base_url}/v1/auth/keys")
         assert status == 401, f"Expected 401, got {status}"
         print("  No auth → 401 ✓")
 
         # Valid auth → 200
-        status, body = api_request("GET", f"{base_url}/auth/keys", token=token)
+        status, body = api_request("GET", f"{base_url}/v1/auth/keys", token=token)
         assert status == 200, f"Expected 200, got {status}: {body}"
         print(f"  Valid auth → 200 ✓ ({len(body.get('keys', []))} keys)")
 
         # Step 6: Create another key
         print_section_header("Step 6: Create API key")
-        status, body = api_request("POST", f"{base_url}/auth/keys",
+        status, body = api_request("POST", f"{base_url}/v1/auth/keys",
                                    token=token, data={"name": "test-key"})
         assert status == 201, f"Expected 201, got {status}: {body}"
         new_key = body.get("key", "")
@@ -798,7 +798,7 @@ def server_soak():
         # Step 7: Upload workflow package
         print_section_header("Step 7: Upload workflow package")
         package_data = create_test_source_package()
-        status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
+        status, body = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
                                    token=token, files=package_data)
         print(f"  Upload status: {status}")
         if status == 201:
@@ -828,7 +828,7 @@ def server_soak():
         # Step 8b: Upload and load Python workflow package
         print_section_header("Step 8b: Upload Python workflow package")
         py_package_data = create_python_source_package()
-        status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
+        status, body = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
                                    token=token, files=py_package_data)
         print(f"  Python upload status: {status}")
         if status == 201:
@@ -858,7 +858,7 @@ def server_soak():
             print("  Executing Python workflow...")
             s, b = api_request(
                 "POST",
-                f"{base_url}/tenants/public/workflows/soak_server_python/execute",
+                f"{base_url}/v1/tenants/public/workflows/soak_server_python/execute",
                 token=token,
                 data={"context": {"test": "python_soak"}},
             )
@@ -879,7 +879,7 @@ def server_soak():
         # Step 8d: Upload and load computation graph package
         print_section_header("Step 8d: Upload computation graph package")
         cg_package_data = create_cg_source_package()
-        status, body = api_request("POST", f"{base_url}/tenants/public/workflows",
+        status, body = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
                                    token=token, files=cg_package_data)
         print(f"  CG upload status: {status}")
         cg_loaded = False
@@ -950,7 +950,7 @@ def server_soak():
             stream_pkg = create_kafka_cg_source_package(
                 "soak-kafka-stream", "kafka_stream_graph", "stream_source", "soak.stream", "stream"
             )
-            s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
+            s, b = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
                                token=token, files=stream_pkg)
             if s == 201:
                 print("  Kafka stream CG package uploaded ✓")
@@ -961,7 +961,7 @@ def server_soak():
             batch_pkg = create_kafka_cg_source_package(
                 "soak-kafka-batch", "kafka_batch_graph", "batch_source", "soak.batch", "stream"
             )
-            s, b = api_request("POST", f"{base_url}/tenants/public/workflows",
+            s, b = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
                                token=token, files=batch_pkg)
             if s == 201:
                 print("  Kafka batch CG package uploaded ✓")
@@ -1115,7 +1115,7 @@ def server_soak():
                     stats["executions_triggered"] += 1
                     s, b = api_request(
                         "POST",
-                        f"{base_url}/tenants/public/workflows/soak_server_test/execute",
+                        f"{base_url}/v1/tenants/public/workflows/soak_server_test/execute",
                         token=token,
                         data={"context": {"iteration": iteration}},
                     )
@@ -1129,7 +1129,7 @@ def server_soak():
                     stats["py_executions_triggered"] += 1
                     s, b = api_request(
                         "POST",
-                        f"{base_url}/tenants/public/workflows/soak_server_python/execute",
+                        f"{base_url}/v1/tenants/public/workflows/soak_server_python/execute",
                         token=token,
                         data={"context": {"iteration": iteration, "lang": "python"}},
                     )
@@ -1140,7 +1140,7 @@ def server_soak():
 
                 # Query executions list
                 s, b = api_request(
-                    "GET", f"{base_url}/tenants/public/executions", token=token
+                    "GET", f"{base_url}/v1/tenants/public/executions", token=token
                 )
                 if s == 200:
                     stats["list_queries"] += 1
@@ -1149,7 +1149,7 @@ def server_soak():
 
                 # Query triggers
                 s, _ = api_request(
-                    "GET", f"{base_url}/tenants/public/triggers", token=token
+                    "GET", f"{base_url}/v1/tenants/public/triggers", token=token
                 )
                 if s == 200:
                     stats["list_queries"] += 1
@@ -1158,7 +1158,7 @@ def server_soak():
 
                 # Query workflows
                 s, _ = api_request(
-                    "GET", f"{base_url}/tenants/public/workflows", token=token
+                    "GET", f"{base_url}/v1/tenants/public/workflows", token=token
                 )
                 if s == 200:
                     stats["list_queries"] += 1

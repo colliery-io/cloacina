@@ -32,6 +32,7 @@ use cloacina::database::{DatabaseAdmin, TenantConfig};
 
 use crate::commands::serve::AppState;
 use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// Request body for creating a tenant.
 #[derive(Deserialize)]
@@ -66,24 +67,22 @@ pub async fn create_tenant(
     match admin.create_tenant(config).await {
         Ok(credentials) => {
             info!("Created tenant: {}", body.schema_name);
+            // Note: password and connection_string intentionally excluded from
+            // response to prevent credential leakage (SEC-08). The caller should
+            // supply their own password via the request body, or retrieve it
+            // through a secure channel.
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({
                     "schema_name": credentials.schema_name,
                     "username": credentials.username,
-                    "password": credentials.password,
-                    "connection_string": credentials.connection_string,
                 })),
             )
                 .into_response()
         }
         Err(e) => {
             warn!("Failed to create tenant '{}': {}", body.schema_name, e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("tenant_creation_failed", format!("{}", e)).into_response()
         }
     }
 }
@@ -110,11 +109,7 @@ pub async fn remove_tenant(
         }
         Err(e) => {
             warn!("Failed to remove tenant '{}': {}", schema_name, e);
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("tenant_removal_failed", format!("{}", e)).into_response()
         }
     }
 }
@@ -140,11 +135,7 @@ pub async fn list_tenants(
         }
         Err(e) => {
             warn!("Failed to list tenants: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("failed to list tenants: {}", e)).into_response()
         }
     }
 }

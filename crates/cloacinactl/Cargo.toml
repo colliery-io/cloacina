@@ -34,6 +34,7 @@ notify = { version = "7", default-features = false, features = ["macos_kqueue"] 
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tower_governor = "0.8"
 hyper = { version = "1.0" }
 lru = "0.12"
 uuid = { version = "1.0", features = ["v4"] }

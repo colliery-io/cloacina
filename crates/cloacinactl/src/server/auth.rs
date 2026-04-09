@@ -36,6 +36,7 @@ use tracing::warn;
 use cloacina::dal::unified::api_keys::ApiKeyInfo;
 
 use crate::commands::serve::AppState;
+use crate::server::error::ApiError;
 
 /// Authenticated key info inserted into request extensions.
 #[derive(Clone, Debug)]
@@ -179,10 +180,7 @@ pub async fn require_auth(
     let token = match extract_bearer_token(&request) {
         Some(t) => t.to_string(),
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "missing or malformed Authorization header"})),
-            )
+            return ApiError::unauthorized("missing or malformed Authorization header")
                 .into_response();
         }
     };
@@ -227,19 +225,13 @@ impl AuthenticatedKey {
     }
 
     /// Returns a 403 response for tenant access denied.
-    pub fn forbidden_response() -> (StatusCode, Json<serde_json::Value>) {
-        (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "access denied for this tenant"})),
-        )
+    pub fn forbidden_response() -> ApiError {
+        ApiError::forbidden("tenant_access_denied", "access denied for this tenant")
     }
 
     /// Returns a 403 response for admin-only operations.
-    pub fn admin_required_response() -> (StatusCode, Json<serde_json::Value>) {
-        (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "admin access required"})),
-        )
+    pub fn admin_required_response() -> ApiError {
+        ApiError::forbidden("admin_required", "admin access required")
     }
 
     /// Check if this key has at least write permission.
@@ -256,10 +248,61 @@ impl AuthenticatedKey {
     }
 
     /// Returns a 403 response for insufficient role.
-    pub fn insufficient_role_response() -> (StatusCode, Json<serde_json::Value>) {
-        (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "insufficient permissions"})),
-        )
+    pub fn insufficient_role_response() -> ApiError {
+        ApiError::forbidden("insufficient_permissions", "insufficient permissions")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket ticket store — short-lived, single-use tickets for WS auth
+// ---------------------------------------------------------------------------
+
+use std::collections::HashMap;
+
+/// A single-use, time-limited ticket for WebSocket authentication.
+/// Avoids exposing long-lived API keys in query parameters.
+struct WsTicket {
+    auth: AuthenticatedKey,
+    expires_at: Instant,
+}
+
+/// Thread-safe store for WebSocket auth tickets.
+pub struct WsTicketStore {
+    tickets: Mutex<HashMap<String, WsTicket>>,
+    ttl: Duration,
+}
+
+impl WsTicketStore {
+    /// Create a new ticket store with the given TTL (e.g., 60 seconds).
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            tickets: Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Issue a new ticket for the given authenticated key.
+    /// Returns the ticket string (UUID).
+    pub async fn issue(&self, auth: AuthenticatedKey) -> String {
+        let ticket = uuid::Uuid::new_v4().to_string();
+        let entry = WsTicket {
+            auth,
+            expires_at: Instant::now() + self.ttl,
+        };
+        let mut store = self.tickets.lock().await;
+        store.insert(ticket.clone(), entry);
+        ticket
+    }
+
+    /// Consume a ticket — returns the authenticated key if valid and not expired.
+    /// The ticket is removed on use (single-use).
+    pub async fn consume(&self, ticket: &str) -> Option<AuthenticatedKey> {
+        let mut store = self.tickets.lock().await;
+        if let Some(entry) = store.remove(ticket) {
+            if entry.expires_at > Instant::now() {
+                return Some(entry.auth);
+            }
+        }
+        None
     }
 }

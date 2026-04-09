@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-08T23:42:57Z | 422 files | JavaScript, Python, Rust
+> Generated: 2026-04-09T01:06:35Z | 423 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -332,6 +332,7 @@
 │           ├── main.rs
 │           └── server/
 │               ├── auth.rs
+│               ├── error.rs
 │               ├── executions.rs
 │               ├── health_reactive.rs
 │               ├── keys.rs
@@ -6320,58 +6321,58 @@
 
 #### crates/cloacinactl/src/commands/serve.rs
 
-- pub `AppState` struct L38-45 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
-- pub `run` function L48-183 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
--  `build_router` function L189-298 — `(state: AppState) -> Router` — Build the axum router with all routes.
--  `health` function L301-303 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
--  `ready` function L306-335 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
--  `metrics` function L338-348 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
--  `fallback_404` function L351-356 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
--  `shutdown_signal` function L359-381 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
--  `bootstrap_admin_key` function L387-435 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
--  `mask_db_url` function L439-441 — `(url: &str) -> String` — Mask password in database URL for logging
--  `tests` module L444-1271 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `TEST_DB_URL` variable L452 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_state` function L455-472 — `() -> AppState` — Create a test AppState with a real Postgres connection.
--  `create_test_api_key` function L475-483 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
--  `send_request` function L486-501 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
--  `test_health_returns_200` function L507-519 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_ready_returns_200_with_db` function L523-535 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_metrics_returns_200` function L539-562 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_no_token_returns_401` function L568-580 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_invalid_token_returns_401` function L584-597 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_valid_token_passes` function L601-614 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_auth_malformed_header_returns_401` function L618-631 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_returns_201` function L637-655 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_key_missing_name_returns_422` function L659-675 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_keys_returns_list` function L679-694 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_valid` function L698-723 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_nonexistent_returns_404` function L727-742 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_revoke_key_invalid_uuid_returns_400` function L746-760 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_returns_201` function L766-792 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_tenants` function L796-810 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_remove_tenant_nonexistent_succeeds` function L814-830 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_then_delete_tenant` function L834-871 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_create_tenant_missing_fields_returns_422` function L875-890 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_workflows_returns_list` function L896-910 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_workflow_nonexistent_returns_404` function L914-927 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_empty_file_returns_400` function L931-955 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_workflow_no_file_field_returns_400` function L959-983 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `fixture_path` function L986-991 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
--  `multipart_file_body` function L994-1005 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
--  `delete_workflow_if_exists` function L1008-1018 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
--  `test_upload_valid_python_workflow_returns_201` function L1022-1048 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_valid_rust_workflow_returns_201` function L1052-1078 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_upload_corrupt_package_returns_400` function L1082-1102 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_executions_returns_list` function L1108-1122 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_invalid_uuid_returns_400` function L1126-1139 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_nonexistent_returns_404` function L1143-1157 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_invalid_uuid_returns_400` function L1161-1174 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_execute_nonexistent_workflow_returns_error` function L1178-1193 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_execution_events_valid_uuid_no_events` function L1197-1215 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_list_triggers_returns_list` function L1221-1235 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_get_trigger_nonexistent_returns_404` function L1239-1252 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
--  `test_unknown_route_returns_404` function L1258-1270 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+- pub `AppState` struct L38-47 — `{ database: Database, runner: Arc<DefaultRunner>, key_cache: Arc<crate::server::...` — Shared application state accessible from all route handlers.
+- pub `run` function L50-189 — `( home: std::path::PathBuf, bind: SocketAddr, database_url: String, verbose: boo...` — Run the API server.
+-  `build_router` function L195-324 — `(state: AppState) -> Router` — Build the axum router with all routes.
+-  `health` function L327-329 — `() -> impl IntoResponse` — GET /health — liveness check (no auth, no DB)
+-  `ready` function L332-361 — `(State(state): State<AppState>) -> impl IntoResponse` — GET /ready — readiness check (verifies DB connection pool is healthy)
+-  `metrics` function L364-374 — `() -> impl IntoResponse` — GET /metrics — Prometheus metrics (placeholder for now)
+-  `fallback_404` function L377-382 — `() -> impl IntoResponse` — Fallback for unmatched routes — returns 404 JSON
+-  `shutdown_signal` function L385-407 — `()` — Wait for shutdown signal (SIGINT or SIGTERM)
+-  `bootstrap_admin_key` function L413-461 — `( state: &AppState, home: &std::path::Path, provided_key: Option<&str>, ) -> Res...` — Bootstrap: create an admin API key on first startup if none exist.
+-  `mask_db_url` function L465-467 — `(url: &str) -> String` — Mask password in database URL for logging
+-  `tests` module L470-1300 — `-` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `TEST_DB_URL` variable L478 — `: &str` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_state` function L481-501 — `() -> AppState` — Create a test AppState with a real Postgres connection.
+-  `create_test_api_key` function L504-512 — `(state: &AppState) -> String` — Create a bootstrap API key and return the plaintext token.
+-  `send_request` function L515-530 — `( app: Router, request: axum::http::Request<Body>, ) -> (StatusCode, serde_json:...` — Send a request to the router and return (status, body as serde_json::Value).
+-  `test_health_returns_200` function L536-548 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_ready_returns_200_with_db` function L552-564 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_metrics_returns_200` function L568-591 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_no_token_returns_401` function L597-609 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_invalid_token_returns_401` function L613-626 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_valid_token_passes` function L630-643 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_auth_malformed_header_returns_401` function L647-660 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_returns_201` function L666-684 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_key_missing_name_returns_422` function L688-704 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_keys_returns_list` function L708-723 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_valid` function L727-752 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_nonexistent_returns_404` function L756-771 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_revoke_key_invalid_uuid_returns_400` function L775-789 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_returns_201` function L795-821 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_tenants` function L825-839 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_remove_tenant_nonexistent_succeeds` function L843-859 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_then_delete_tenant` function L863-900 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_create_tenant_missing_fields_returns_422` function L904-919 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_workflows_returns_list` function L925-939 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_workflow_nonexistent_returns_404` function L943-956 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_empty_file_returns_400` function L960-984 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_workflow_no_file_field_returns_400` function L988-1012 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `fixture_path` function L1015-1020 — `(name: &str) -> std::path::PathBuf` — Path to test fixture directory (relative to workspace root).
+-  `multipart_file_body` function L1023-1034 — `(data: &[u8]) -> (String, Vec<u8>)` — Build a multipart request body with a file field.
+-  `delete_workflow_if_exists` function L1037-1047 — `(state: &AppState, token: &str, name: &str, version: &str)` — Delete a workflow by name/version if it exists (cleanup for idempotent tests).
+-  `test_upload_valid_python_workflow_returns_201` function L1051-1077 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_valid_rust_workflow_returns_201` function L1081-1107 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_upload_corrupt_package_returns_400` function L1111-1131 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_executions_returns_list` function L1137-1151 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_invalid_uuid_returns_400` function L1155-1168 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_nonexistent_returns_404` function L1172-1186 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_invalid_uuid_returns_400` function L1190-1203 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_execute_nonexistent_workflow_returns_error` function L1207-1222 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_execution_events_valid_uuid_no_events` function L1226-1244 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_list_triggers_returns_list` function L1250-1264 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_get_trigger_nonexistent_returns_404` function L1268-1281 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
+-  `test_unknown_route_returns_404` function L1287-1299 — `()` — Later tasks add auth, tenant management, workflow upload, and execution APIs.
 
 #### crates/cloacinactl/src/commands/watcher.rs
 
@@ -6414,34 +6415,54 @@
 
 #### crates/cloacinactl/src/server/auth.rs
 
-- pub `AuthenticatedKey` struct L42-48 — `{ key_id: uuid::Uuid, name: String, permissions: String, tenant_id: Option<Strin...` — Authenticated key info inserted into request extensions.
-- pub `KeyCache` struct L57-60 — `{ cache: Mutex<LruCache<String, CachedEntry>>, ttl: Duration }` — LRU cache for validated API key hashes with TTL expiry.
-- pub `new` function L65-72 — `(capacity: usize, ttl: Duration) -> Self` — Create a new key cache.
-- pub `default_cache` function L75-77 — `() -> Self` — Create with default settings (256 entries, 30s TTL).
-- pub `get` function L80-90 — `(&self, hash: &str) -> Option<ApiKeyInfo>` — Look up a key hash.
-- pub `insert` function L93-102 — `(&self, hash: String, info: ApiKeyInfo)` — Insert a validated key into the cache.
-- pub `evict` function L106-109 — `(&self, hash: &str)` — Evict a specific key (used after revocation).
-- pub `clear` function L112-115 — `(&self)` — Clear all entries.
-- pub `validate_token` function L122-168 — `( state: &AppState, token: &str, ) -> Result<AuthenticatedKey, (StatusCode, Json...` — Validate a bearer token and return the authenticated key info.
-- pub `require_auth` function L174-197 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
-- pub `can_access_tenant` function L219-227 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
-- pub `forbidden_response` function L230-235 — `() -> (StatusCode, Json<serde_json::Value>)` — Returns a 403 response for tenant access denied.
-- pub `admin_required_response` function L238-243 — `() -> (StatusCode, Json<serde_json::Value>)` — Returns a 403 response for admin-only operations.
-- pub `can_write` function L248-250 — `(&self) -> bool` — Check if this key has at least write permission.
-- pub `can_admin` function L254-256 — `(&self) -> bool` — Check if this key has admin role within its tenant.
-- pub `insufficient_role_response` function L259-264 — `() -> (StatusCode, Json<serde_json::Value>)` — Returns a 403 response for insufficient role.
--  `CachedEntry` struct L51-54 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
--  `KeyCache` type L62-116 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
--  `extract_bearer_token` function L200-207 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
--  `AuthenticatedKey` type L213-265 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+- pub `AuthenticatedKey` struct L43-49 — `{ key_id: uuid::Uuid, name: String, permissions: String, tenant_id: Option<Strin...` — Authenticated key info inserted into request extensions.
+- pub `KeyCache` struct L58-61 — `{ cache: Mutex<LruCache<String, CachedEntry>>, ttl: Duration }` — LRU cache for validated API key hashes with TTL expiry.
+- pub `new` function L66-73 — `(capacity: usize, ttl: Duration) -> Self` — Create a new key cache.
+- pub `default_cache` function L76-78 — `() -> Self` — Create with default settings (256 entries, 30s TTL).
+- pub `get` function L81-91 — `(&self, hash: &str) -> Option<ApiKeyInfo>` — Look up a key hash.
+- pub `insert` function L94-103 — `(&self, hash: String, info: ApiKeyInfo)` — Insert a validated key into the cache.
+- pub `evict` function L107-110 — `(&self, hash: &str)` — Evict a specific key (used after revocation).
+- pub `clear` function L113-116 — `(&self)` — Clear all entries.
+- pub `validate_token` function L123-169 — `( state: &AppState, token: &str, ) -> Result<AuthenticatedKey, (StatusCode, Json...` — Validate a bearer token and return the authenticated key info.
+- pub `require_auth` function L175-195 — `( State(state): State<AppState>, mut request: Request, next: Next, ) -> Response` — Auth middleware — validates Bearer token against cache then DAL.
+- pub `can_access_tenant` function L217-225 — `(&self, tenant_id: &str) -> bool` — Check if this key can access the given tenant's resources.
+- pub `forbidden_response` function L228-230 — `() -> ApiError` — Returns a 403 response for tenant access denied.
+- pub `admin_required_response` function L233-235 — `() -> ApiError` — Returns a 403 response for admin-only operations.
+- pub `can_write` function L240-242 — `(&self) -> bool` — Check if this key has at least write permission.
+- pub `can_admin` function L246-248 — `(&self) -> bool` — Check if this key has admin role within its tenant.
+- pub `insufficient_role_response` function L251-253 — `() -> ApiError` — Returns a 403 response for insufficient role.
+- pub `WsTicketStore` struct L270-273 — `{ tickets: Mutex<HashMap<String, WsTicket>>, ttl: Duration }` — Thread-safe store for WebSocket auth tickets.
+- pub `new` function L277-282 — `(ttl: Duration) -> Self` — Create a new ticket store with the given TTL (e.g., 60 seconds).
+- pub `issue` function L286-295 — `(&self, auth: AuthenticatedKey) -> String` — Issue a new ticket for the given authenticated key.
+- pub `consume` function L299-307 — `(&self, ticket: &str) -> Option<AuthenticatedKey>` — Consume a ticket — returns the authenticated key if valid and not expired.
+-  `CachedEntry` struct L52-55 — `{ info: ApiKeyInfo, inserted_at: Instant }` — A cached entry with TTL tracking.
+-  `KeyCache` type L63-117 — `= KeyCache` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `extract_bearer_token` function L198-205 — `(request: &Request) -> Option<&str>` — Extract the Bearer token from the Authorization header.
+-  `AuthenticatedKey` type L211-254 — `= AuthenticatedKey` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+-  `WsTicket` struct L264-267 — `{ auth: AuthenticatedKey, expires_at: Instant }` — A single-use, time-limited ticket for WebSocket authentication.
+-  `WsTicketStore` type L275-308 — `= WsTicketStore` — Applied via `route_layer` so unauthenticated routes still 404 correctly.
+
+#### crates/cloacinactl/src/server/error.rs
+
+- pub `ApiError` struct L39-43 — `{ status: StatusCode, code: &'static str, message: String }` — Standardized API error response.
+- pub `new` function L47-53 — `(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self` — Create a new API error.
+- pub `bad_request` function L57-59 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `not_found` function L61-63 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `forbidden` function L65-67 — `(code: &'static str, message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `unauthorized` function L69-71 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `internal` function L73-79 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+- pub `too_many_requests` function L81-83 — `(message: impl Into<String>) -> Self` — error responses with request correlation IDs.
+-  `ApiError` type L45-84 — `= ApiError` — error responses with request correlation IDs.
+-  `ApiError` type L86-94 — `impl IntoResponse for ApiError` — error responses with request correlation IDs.
+-  `into_response` function L87-93 — `(self) -> Response` — error responses with request correlation IDs.
 
 #### crates/cloacinactl/src/server/executions.rs
 
-- pub `ExecuteRequest` struct L36-40 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
-- pub `execute_workflow` function L43-96 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
-- pub `list_executions` function L99-142 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list pipeline executions.
-- pub `get_execution` function L145-178 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
-- pub `get_execution_events` function L181-231 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
+- pub `ExecuteRequest` struct L37-41 — `{ context: Option<serde_json::Value> }` — Request body for executing a workflow.
+- pub `execute_workflow` function L44-93 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows/:name/execute — execute a workflow.
+- pub `list_executions` function L96-135 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions — list pipeline executions.
+- pub `get_execution` function L138-163 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id — get execution details.
+- pub `get_execution_events` function L166-208 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/executions/:id/events — execution event log.
 
 #### crates/cloacinactl/src/server/health_reactive.rs
 
@@ -6451,54 +6472,56 @@
 
 #### crates/cloacinactl/src/server/keys.rs
 
-- pub `CreateKeyRequest` struct L36-41 — `{ name: String, role: String }` — Request body for creating a new API key.
-- pub `create_key` function L52-99 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
-- pub `list_keys` function L103-138 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
-- pub `revoke_key` function L142-182 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
-- pub `create_tenant_key` function L186-232 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
--  `default_role` function L43-45 — `() -> String` — The bootstrap key is created automatically on first server startup.
+- pub `CreateKeyRequest` struct L37-42 — `{ name: String, role: String }` — Request body for creating a new API key.
+- pub `create_key` function L53-96 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /auth/keys — create a new API key.
+- pub `list_keys` function L100-131 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /auth/keys — list all API keys (no hashes or plaintext).
+- pub `revoke_key` function L135-166 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /auth/keys/:key_id — revoke an API key.
+- pub `create_tenant_key` function L170-212 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/keys — create a key scoped to a tenant.
+- pub `create_ws_ticket` function L218-228 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — POST /auth/ws-ticket — exchange a Bearer token for a single-use WebSocket ticket.
+-  `default_role` function L44-46 — `() -> String` — The bootstrap key is created automatically on first server startup.
 
 #### crates/cloacinactl/src/server/mod.rs
 
 - pub `auth` module L19 — `-` — API server route handlers and middleware.
-- pub `executions` module L20 — `-` — API server route handlers and middleware.
-- pub `health_reactive` module L21 — `-` — API server route handlers and middleware.
-- pub `keys` module L22 — `-` — API server route handlers and middleware.
-- pub `tenants` module L23 — `-` — API server route handlers and middleware.
-- pub `triggers` module L24 — `-` — API server route handlers and middleware.
-- pub `workflows` module L25 — `-` — API server route handlers and middleware.
-- pub `ws` module L26 — `-` — API server route handlers and middleware.
+- pub `error` module L20 — `-` — API server route handlers and middleware.
+- pub `executions` module L21 — `-` — API server route handlers and middleware.
+- pub `health_reactive` module L22 — `-` — API server route handlers and middleware.
+- pub `keys` module L23 — `-` — API server route handlers and middleware.
+- pub `tenants` module L24 — `-` — API server route handlers and middleware.
+- pub `triggers` module L25 — `-` — API server route handlers and middleware.
+- pub `workflows` module L26 — `-` — API server route handlers and middleware.
+- pub `ws` module L27 — `-` — API server route handlers and middleware.
 
 #### crates/cloacinactl/src/server/tenants.rs
 
-- pub `CreateTenantRequest` struct L38-46 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
-- pub `create_tenant` function L50-89 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
-- pub `remove_tenant` function L93-120 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
-- pub `list_tenants` function L124-150 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
+- pub `CreateTenantRequest` struct L39-47 — `{ schema_name: String, username: String, password: String }` — Request body for creating a tenant.
+- pub `create_tenant` function L51-88 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, J...` — POST /tenants — create a new tenant (Postgres schema + user + migrations).
+- pub `remove_tenant` function L92-115 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:schema_name — remove a tenant (drop schema + user).
+- pub `list_tenants` function L119-141 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, )...` — GET /tenants — list tenant schemas.
 
 #### crates/cloacinactl/src/server/triggers.rs
 
-- pub `list_triggers` function L31-76 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
-- pub `get_trigger` function L79-147 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
+- pub `list_triggers` function L31-72 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers — list all schedules (cron + trigger).
+- pub `get_trigger` function L75-135 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/triggers/:name — trigger details + recent executions.
 
 #### crates/cloacinactl/src/server/workflows.rs
 
-- pub `upload_workflow` function L35-129 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
-- pub `list_workflows` function L132-183 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
-- pub `get_workflow` function L186-234 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
-- pub `delete_workflow` function L237-289 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
--  `extract_file_field` function L292-303 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
+- pub `upload_workflow` function L36-108 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — POST /tenants/:tenant_id/workflows — multipart upload of .cloacina source package.
+- pub `list_workflows` function L111-154 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows — list registered workflows.
+- pub `get_workflow` function L157-193 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — GET /tenants/:tenant_id/workflows/:name — get workflow details.
+- pub `delete_workflow` function L196-240 — `( State(state): State<AppState>, Extension(auth): Extension<AuthenticatedKey>, P...` — DELETE /tenants/:tenant_id/workflows/:name/:version — unregister workflow.
+-  `extract_file_field` function L243-254 — `(multipart: &mut Multipart) -> Result<Vec<u8>, String>` — Extract the first file field from a multipart request.
 
 #### crates/cloacinactl/src/server/ws.rs
 
-- pub `WsAuthQuery` struct L48-50 — `{ token: Option<String> }` — Query parameter for passing the auth token on WebSocket upgrade.
-- pub `accumulator_ws` function L71-122 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
-- pub `reactor_ws` function L129-178 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
--  `extract_ws_token` function L53-64 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
--  `handle_accumulator_socket` function L184-255 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
--  `handle_reactor_socket` function L262-321 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
--  `command_to_op` function L324-333 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
--  `process_reactor_command` function L336-413 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
+- pub `WsAuthQuery` struct L47-49 — `{ token: Option<String> }` — Query parameter for passing the auth token on WebSocket upgrade.
+- pub `accumulator_ws` function L70-111 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for accumulator endpoints.
+- pub `reactor_ws` function L118-159 — `( State(state): State<AppState>, Path(name): Path<String>, Query(query): Query<W...` — WebSocket handler for reactor endpoints.
+-  `extract_ws_token` function L52-63 — `(headers: &axum::http::HeaderMap, query: &WsAuthQuery) -> Option<String>` — Extract the auth token from either the Authorization header or query param.
+-  `handle_accumulator_socket` function L165-236 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted accumulator WebSocket connection.
+-  `handle_reactor_socket` function L243-302 — `( mut socket: axum::extract::ws::WebSocket, name: String, auth: AuthenticatedKey...` — Handle an accepted reactor WebSocket connection.
+-  `command_to_op` function L305-314 — `(cmd: &ReactorCommand) -> cloacina::computation_graph::registry::ReactorOp` — Map a ReactorCommand to its corresponding ReactorOp for authZ checks.
+-  `process_reactor_command` function L317-394 — `( name: &str, cmd: ReactorCommand, registry: &EndpointRegistry, handle: &Option<...` — Process a single reactor command and return the response.
 
 ### docs/themes/hugo-geekdoc/static/js
 

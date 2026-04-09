@@ -42,6 +42,8 @@ pub struct AppState {
     pub endpoint_registry: EndpointRegistry,
     pub reactive_scheduler: Arc<ReactiveScheduler>,
     pub security_config: SecurityConfig,
+    /// Short-lived WebSocket auth tickets (single-use, TTL-based).
+    pub ws_tickets: Arc<crate::server::auth::WsTicketStore>,
 }
 
 /// Run the API server.
@@ -79,6 +81,7 @@ pub async fn run(
     info!("  Bind:     {}", bind);
     info!("  Database: {}", mask_db_url(&database_url));
     info!("  Home:     {}", home.display());
+    warn!("Server running without TLS -- use a TLS-terminating reverse proxy (nginx, Caddy, Envoy) in production");
 
     // Connect to Postgres with DB-backed registry (so uploaded packages get compiled + loaded)
     let runner_config = DefaultRunnerConfig::builder()
@@ -110,6 +113,9 @@ pub async fn run(
         endpoint_registry,
         reactive_scheduler,
         security_config: SecurityConfig::default(),
+        ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+            std::time::Duration::from_secs(60),
+        )),
     };
 
     // Bootstrap: create initial admin key if none exist
@@ -187,7 +193,8 @@ pub async fn run(
 /// Public routes (health/ready/metrics) have no auth.
 /// Authenticated routes use `route_layer` (not `layer`) so unmatched paths still 404.
 fn build_router(state: AppState) -> Router {
-    use axum::{middleware, routing::delete, routing::post};
+    use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
+    use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
@@ -197,6 +204,11 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/auth/keys/{key_id}",
             delete(crate::server::keys::revoke_key),
+        )
+        // WebSocket ticket exchange (single-use, short-lived)
+        .route(
+            "/auth/ws-ticket",
+            post(crate::server::keys::create_ws_ticket),
         )
         // Tenant management
         .route("/tenants", post(crate::server::tenants::create_tenant))
@@ -285,15 +297,29 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/v1/ws/reactor/{name}", get(crate::server::ws::reactor_ws));
 
+    // Rate limiting — per-IP, applied globally
+    // 30 requests per second burst, replenishes 10/sec
+    let rate_limit_config = GovernorConfigBuilder::default()
+        .per_second(10)
+        .burst_size(30)
+        .finish()
+        .expect("Failed to build rate limit config");
+    let rate_limit_layer = GovernorLayer::new(std::sync::Arc::new(rate_limit_config));
+
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
         .route("/metrics", get(metrics))
-        .merge(auth_routes)
+        // All authenticated routes under /v1/
+        .nest("/v1", auth_routes)
         .merge(reactive_health_routes)
         .merge(ws_routes)
         .fallback(fallback_404)
+        // Body size limit: 100MB (matches PackageValidator)
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
+        // Rate limiting: per-IP
+        .layer(rate_limit_layer)
         .with_state(state)
 }
 
@@ -468,6 +494,9 @@ mod tests {
             endpoint_registry: EndpointRegistry::new(),
             reactive_scheduler: Arc::new(ReactiveScheduler::new(EndpointRegistry::new())),
             security_config: SecurityConfig::default(),
+            ws_tickets: Arc::new(crate::server::auth::WsTicketStore::new(
+                std::time::Duration::from_secs(60),
+            )),
         }
     }
 

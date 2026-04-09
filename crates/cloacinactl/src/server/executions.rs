@@ -30,6 +30,7 @@ use cloacina::Context;
 
 use crate::commands::serve::AppState;
 use crate::server::auth::AuthenticatedKey;
+use crate::server::error::ApiError;
 
 /// Request body for executing a workflow.
 #[derive(Deserialize)]
@@ -86,11 +87,7 @@ pub async fn execute_workflow(
                 "Failed to execute workflow '{}' for tenant '{}': {}",
                 name, tenant_id, e
             );
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::bad_request("execution_failed", format!("{}", e)).into_response()
         }
     }
 }
@@ -132,11 +129,7 @@ pub async fn list_executions(
                 "Failed to list executions for tenant '{}': {}",
                 tenant_id, e
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("{}", e)})),
-            )
-                .into_response()
+            ApiError::internal(format!("{}", e)).into_response()
         }
     }
 }
@@ -154,11 +147,7 @@ pub async fn get_execution(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid execution ID"})),
-            )
-                .into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
         }
     };
 
@@ -169,11 +158,7 @@ pub async fn get_execution(
             "status": format!("{:?}", status),
         }))
         .into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{}", e)})),
-        )
-            .into_response(),
+        Err(e) => ApiError::not_found("execution_not_found", format!("{}", e)).into_response(),
     }
 }
 
@@ -190,11 +175,7 @@ pub async fn get_execution_events(
     let id = match uuid::Uuid::parse_str(&exec_id) {
         Ok(id) => id,
         Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid execution ID"})),
-            )
-                .into_response()
+            return ApiError::bad_request("invalid_request", "invalid execution ID").into_response()
         }
     };
 
@@ -222,10 +203,6 @@ pub async fn get_execution_events(
             }))
             .into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{}", e)})),
-        )
-            .into_response(),
+        Err(e) => ApiError::internal(format!("{}", e)).into_response(),
     }
 }
