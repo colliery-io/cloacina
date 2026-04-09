@@ -138,6 +138,7 @@ use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::dispatcher::Dispatcher;
 use crate::error::ValidationError;
 use crate::task::TaskNamespace;
+use crate::Runtime;
 use crate::{Context, Database, Workflow};
 
 use recovery::RecoveryManager;
@@ -185,6 +186,7 @@ use scheduler_loop::SchedulerLoop;
 /// ```
 pub struct TaskScheduler {
     dal: DAL,
+    runtime: Arc<Runtime>,
     instance_id: Uuid,
     poll_interval: Duration,
     /// Optional dispatcher for push-based task execution
@@ -247,7 +249,7 @@ impl TaskScheduler {
         poll_interval: Duration,
     ) -> Result<Self, ValidationError> {
         let scheduler = Self::with_poll_interval_sync(database, poll_interval);
-        let recovery_manager = RecoveryManager::new(&scheduler.dal);
+        let recovery_manager = RecoveryManager::new(&scheduler.dal, scheduler.runtime.clone());
         recovery_manager.recover_orphaned_tasks().await?;
         Ok(scheduler)
     }
@@ -258,11 +260,23 @@ impl TaskScheduler {
 
         Self {
             dal,
+            runtime: Arc::new(Runtime::from_global()),
             instance_id: Uuid::new_v4(),
             poll_interval,
             dispatcher: None,
             shutdown_rx: None,
         }
+    }
+
+    /// Sets the runtime for this scheduler, replacing the default.
+    pub fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self {
+        self.runtime = runtime;
+        self
+    }
+
+    /// Returns a reference to the runtime used by this scheduler.
+    pub fn runtime(&self) -> &Arc<Runtime> {
+        &self.runtime
     }
 
     /// Sets the shutdown receiver for graceful termination of the scheduling loop.
@@ -343,16 +357,10 @@ impl TaskScheduler {
     ) -> Result<Uuid, ValidationError> {
         info!("Scheduling workflow execution: {}", workflow_name);
 
-        // Look up workflow in global registry
-        let workflow = {
-            let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read();
-
-            if let Some(constructor) = registry_guard.get(workflow_name) {
-                constructor()
-            } else {
-                return Err(ValidationError::WorkflowNotFound(workflow_name.to_string()));
-            }
+        // Look up workflow in scoped runtime registry
+        let workflow = match self.runtime.get_workflow(workflow_name) {
+            Some(wf) => wf,
+            None => return Err(ValidationError::WorkflowNotFound(workflow_name.to_string())),
         };
 
         let current_version = workflow.metadata().version.clone();
@@ -591,6 +599,7 @@ impl TaskScheduler {
     pub async fn run_scheduling_loop(&self) -> Result<(), ValidationError> {
         let mut scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
+            self.runtime.clone(),
             self.instance_id,
             self.poll_interval,
             self.dispatcher.clone(),
@@ -605,6 +614,7 @@ impl TaskScheduler {
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
         let scheduler_loop = SchedulerLoop::with_dispatcher(
             &self.dal,
+            self.runtime.clone(),
             self.instance_id,
             self.poll_interval,
             self.dispatcher.clone(),

@@ -48,7 +48,7 @@ use crate::dispatcher::{
 };
 use crate::error::ExecutorError;
 use crate::retry::{RetryCondition, RetryPolicy};
-use crate::task::get_task;
+use crate::Runtime;
 use crate::{parse_namespace, Context, Database, Task, TaskRegistry};
 use async_trait::async_trait;
 
@@ -75,6 +75,8 @@ pub struct ThreadTaskExecutor {
     dal: DAL,
     /// Registry of available task implementations
     task_registry: Arc<TaskRegistry>,
+    /// Scoped runtime for task lookup (used in dispatcher execute path)
+    runtime: Arc<Runtime>,
     /// Unique identifier for this executor instance
     instance_id: UniversalUuid,
     /// Configuration parameters for executor behavior
@@ -109,12 +111,19 @@ impl ThreadTaskExecutor {
             database,
             dal,
             task_registry,
+            runtime: Arc::new(Runtime::from_global()),
             instance_id: UniversalUuid::new_v4(),
             config,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
             total_executed: AtomicU64::new(0),
             total_failed: AtomicU64::new(0),
         }
+    }
+
+    /// Sets the runtime for this executor, replacing the default.
+    pub fn with_runtime(mut self, runtime: Arc<Runtime>) -> Self {
+        self.runtime = runtime;
+        self
     }
 
     /// Creates a TaskExecutor using the global task registry.
@@ -386,7 +395,7 @@ impl ThreadTaskExecutor {
                 // in the registry, default to no retries (mark as permanently failed).
                 let retry_policy = parse_namespace(&claimed_task.task_name)
                     .ok()
-                    .and_then(|ns| get_task(&ns))
+                    .and_then(|ns| self.runtime.get_task(&ns))
                     .map(|task| task.retry_policy())
                     .unwrap_or_default();
 
@@ -684,6 +693,7 @@ impl Clone for ThreadTaskExecutor {
             database: self.database.clone(),
             dal: self.dal.clone(),
             task_registry: Arc::clone(&self.task_registry),
+            runtime: Arc::clone(&self.runtime),
             instance_id: self.instance_id,
             config: self.config.clone(),
             // Shared semaphore — clones coordinate on the same concurrency limit
@@ -803,7 +813,7 @@ impl TaskExecutor for ThreadTaskExecutor {
             }
         };
 
-        let task = match get_task(&namespace) {
+        let task = match self.runtime.get_task(&namespace) {
             Some(t) => t,
             None => {
                 self.total_failed.fetch_add(1, Ordering::SeqCst);

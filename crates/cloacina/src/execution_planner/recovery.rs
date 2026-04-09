@@ -21,11 +21,14 @@
 
 use tracing::{debug, error, info, warn};
 
+use std::sync::Arc;
+
 use crate::dal::DAL;
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
 use crate::models::task_execution::TaskExecution;
+use crate::Runtime;
 
 /// Result of attempting to recover a task.
 #[derive(Debug)]
@@ -42,12 +45,13 @@ const MAX_RECOVERY_ATTEMPTS: i32 = 3;
 /// Recovery operations for the scheduler.
 pub struct RecoveryManager<'a> {
     dal: &'a DAL,
+    runtime: Arc<Runtime>,
 }
 
 impl<'a> RecoveryManager<'a> {
     /// Creates a new RecoveryManager.
-    pub fn new(dal: &'a DAL) -> Self {
-        Self { dal }
+    pub fn new(dal: &'a DAL, runtime: Arc<Runtime>) -> Self {
+        Self { dal, runtime }
     }
 
     /// Detects and recovers tasks orphaned by system interruptions.
@@ -98,11 +102,7 @@ impl<'a> RecoveryManager<'a> {
         let mut recovered_count = 0;
         let mut abandoned_count = 0;
         let mut failed_pipelines = 0;
-        let mut available_workflows: Vec<String> = {
-            let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read();
-            registry_guard.keys().cloned().collect()
-        };
+        let mut available_workflows = self.runtime.workflow_names();
         available_workflows.sort();
 
         debug!(
@@ -112,11 +112,7 @@ impl<'a> RecoveryManager<'a> {
 
         // Process each pipeline's orphaned tasks
         for (pipeline_id, (pipeline, tasks)) in tasks_by_pipeline {
-            let workflow_exists = {
-                let global_registry = crate::workflow::global_workflow_registry();
-                let registry_guard = global_registry.read();
-                registry_guard.contains_key(&pipeline.pipeline_name)
-            };
+            let workflow_exists = self.runtime.get_workflow(&pipeline.pipeline_name).is_some();
 
             if workflow_exists {
                 // Known workflow - use existing recovery logic

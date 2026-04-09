@@ -33,6 +33,7 @@ use crate::dispatcher::{Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
 use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::task_execution::TaskExecution;
+use crate::Runtime;
 
 use super::state_manager::StateManager;
 
@@ -45,6 +46,7 @@ const CIRCUIT_OPEN_THRESHOLD: u32 = 5;
 /// Scheduler loop operations.
 pub struct SchedulerLoop<'a> {
     dal: &'a DAL,
+    runtime: Arc<Runtime>,
     instance_id: Uuid,
     poll_interval: Duration,
     /// Optional dispatcher for push-based task execution
@@ -58,9 +60,15 @@ pub struct SchedulerLoop<'a> {
 impl<'a> SchedulerLoop<'a> {
     /// Creates a new SchedulerLoop.
     #[allow(dead_code)]
-    pub fn new(dal: &'a DAL, instance_id: Uuid, poll_interval: Duration) -> Self {
+    pub fn new(
+        dal: &'a DAL,
+        runtime: Arc<Runtime>,
+        instance_id: Uuid,
+        poll_interval: Duration,
+    ) -> Self {
         Self {
             dal,
+            runtime,
             instance_id,
             poll_interval,
             dispatcher: None,
@@ -72,12 +80,14 @@ impl<'a> SchedulerLoop<'a> {
     /// Creates a new SchedulerLoop with an optional dispatcher.
     pub fn with_dispatcher(
         dal: &'a DAL,
+        runtime: Arc<Runtime>,
         instance_id: Uuid,
         poll_interval: Duration,
         dispatcher: Option<Arc<dyn Dispatcher>>,
     ) -> Self {
         Self {
             dal,
+            runtime,
             instance_id,
             poll_interval,
             dispatcher,
@@ -219,7 +229,7 @@ impl<'a> SchedulerLoop<'a> {
                 .push(task);
         }
 
-        let state_manager = StateManager::new(self.dal);
+        let state_manager = StateManager::new(self.dal, self.runtime.clone());
 
         // Process each pipeline's tasks
         for execution in &active_executions {

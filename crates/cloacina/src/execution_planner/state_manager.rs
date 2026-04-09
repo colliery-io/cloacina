@@ -22,10 +22,13 @@
 
 use tracing::{debug, info, warn};
 
+use std::sync::Arc;
+
 use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
+use crate::Runtime;
 
 use super::context_manager::ContextManager;
 use super::trigger_rules::{TriggerCondition, TriggerRule};
@@ -33,12 +36,13 @@ use super::trigger_rules::{TriggerCondition, TriggerRule};
 /// State management operations for the scheduler.
 pub struct StateManager<'a> {
     dal: &'a DAL,
+    runtime: Arc<Runtime>,
 }
 
 impl<'a> StateManager<'a> {
     /// Creates a new StateManager.
-    pub fn new(dal: &'a DAL) -> Self {
-        Self { dal }
+    pub fn new(dal: &'a DAL, runtime: Arc<Runtime>) -> Self {
+        Self { dal, runtime }
     }
 
     /// Updates task readiness for a specific pipeline using pre-loaded tasks.
@@ -94,13 +98,9 @@ impl<'a> StateManager<'a> {
             .workflow_execution()
             .get_by_id(task_execution.pipeline_execution_id)
             .await?;
-        let workflow = {
-            let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read();
-
-            if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
-                constructor()
-            } else {
+        let workflow = match self.runtime.get_workflow(&pipeline.pipeline_name) {
+            Some(wf) => wf,
+            None => {
                 return Err(ValidationError::WorkflowNotFound(
                     pipeline.pipeline_name.clone(),
                 ));
@@ -304,7 +304,7 @@ impl<'a> StateManager<'a> {
                 operator,
                 value,
             } => {
-                let context_manager = ContextManager::new(self.dal);
+                let context_manager = ContextManager::new(self.dal, self.runtime.clone());
                 let context = context_manager
                     .load_context_for_task(task_execution)
                     .await?;

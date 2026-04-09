@@ -45,6 +45,7 @@ use crate::executor::ThreadTaskExecutor;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::RegistryReconciler;
 use crate::Database;
+use crate::Runtime;
 use crate::Scheduler;
 use crate::TaskScheduler;
 
@@ -66,6 +67,8 @@ use crate::TaskScheduler;
 /// background tasks and release database connections.
 #[must_use = "DefaultRunner runs background tasks; call shutdown() before dropping"]
 pub struct DefaultRunner {
+    /// Scoped runtime holding isolated registries for tasks, workflows, and triggers
+    pub(super) runtime: Arc<Runtime>,
     /// Database connection for persistence and state management
     pub(super) database: Database,
     /// Configuration parameters for the runner
@@ -194,11 +197,15 @@ impl DefaultRunner {
             .await
             .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
 
-        // Create scheduler with global workflow registry (always dynamic)
+        // Snapshot global registries into a scoped runtime
+        let runtime = Arc::new(Runtime::from_global());
+
+        // Create scheduler with the scoped runtime
         let scheduler =
             TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval())
                 .await
-                .map_err(|e| WorkflowExecutionError::Executor(e.into()))?;
+                .map_err(|e| WorkflowExecutionError::Executor(e.into()))?
+                .with_runtime(runtime.clone());
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -211,7 +218,8 @@ impl DefaultRunner {
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
             .map_err(|e| WorkflowExecutionError::Configuration {
                 message: e.to_string(),
-            })?;
+            })?
+            .with_runtime(runtime.clone());
 
         // Configure dispatcher for push-based task execution
         let dal = DAL::new(database.clone());
@@ -227,6 +235,7 @@ impl DefaultRunner {
         let scheduler = scheduler.with_dispatcher(Arc::new(dispatcher));
 
         let default_runner = Self {
+            runtime,
             database,
             config,
             scheduler: Arc::new(scheduler),
@@ -332,6 +341,7 @@ impl DefaultRunner {
 impl Clone for DefaultRunner {
     fn clone(&self) -> Self {
         Self {
+            runtime: self.runtime.clone(),
             database: self.database.clone(),
             config: self.config.clone(),
             scheduler: self.scheduler.clone(),

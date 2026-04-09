@@ -4,14 +4,14 @@ level: task
 title: "Wire Runtime into DefaultRunner and execution engine"
 short_code: "CLOACI-T-0466"
 created_at: 2026-04-09T16:59:30.906683+00:00
-updated_at: 2026-04-09T16:59:30.906683+00:00
+updated_at: 2026-04-09T17:40:28.601459+00:00
 parent: CLOACI-I-0091
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -31,6 +31,10 @@ initiative_id: CLOACI-I-0091
 Thread `Runtime` through `DefaultRunner`, `TaskScheduler`, executor, and all internal call sites that currently read from globals via `get_task()`, `global_task_registry()`, etc. The runner uses `Runtime::from_global()` by default (backward compat) but accepts an injected `Runtime` for isolation.
 
 **Effort**: 2-3 days
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -68,4 +72,4 @@ After T-0465 (Runtime struct must exist first).
 
 ## Status Updates
 
-*To be added during implementation*
+- **2026-04-09**: Wired `Arc<Runtime>` into DefaultRunner (field + from_global default), DefaultRunnerBuilder (optional .runtime() method), TaskScheduler (with_runtime setter, replaces global_workflow_registry reads), RecoveryManager, ContextManager, StateManager, SchedulerLoop (all receive runtime from scheduler), ThreadTaskExecutor (with_runtime setter, replaces get_task globals). Both DefaultRunner::with_config() and DefaultRunnerBuilder::build() pass runtime to scheduler and executor. All global reads in execution_planner/ replaced with self.runtime.get_workflow(). Compiles clean on both backends.

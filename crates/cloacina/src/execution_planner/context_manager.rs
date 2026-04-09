@@ -21,22 +21,26 @@
 
 use tracing::debug;
 
+use std::sync::Arc;
+
 use crate::dal::DAL;
 use crate::error::ValidationError;
 use crate::models::task_execution::TaskExecution;
 use crate::Context;
+use crate::Runtime;
 
 use super::trigger_rules::ValueOperator;
 
 /// Context management operations for the scheduler.
 pub struct ContextManager<'a> {
     dal: &'a DAL,
+    runtime: Arc<Runtime>,
 }
 
 impl<'a> ContextManager<'a> {
     /// Creates a new ContextManager.
-    pub fn new(dal: &'a DAL) -> Self {
-        Self { dal }
+    pub fn new(dal: &'a DAL, runtime: Arc<Runtime>) -> Self {
+        Self { dal, runtime }
     }
 
     /// Loads the context for a specific task based on its dependencies.
@@ -50,13 +54,9 @@ impl<'a> ContextManager<'a> {
             .workflow_execution()
             .get_by_id(task_execution.pipeline_execution_id)
             .await?;
-        let workflow = {
-            let global_registry = crate::workflow::global_workflow_registry();
-            let registry_guard = global_registry.read();
-
-            if let Some(constructor) = registry_guard.get(&pipeline.pipeline_name) {
-                constructor()
-            } else {
+        let workflow = match self.runtime.get_workflow(&pipeline.pipeline_name) {
+            Some(wf) => wf,
+            None => {
                 return Err(ValidationError::WorkflowNotFound(
                     pipeline.pipeline_name.clone(),
                 ));
