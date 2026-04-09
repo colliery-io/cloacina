@@ -4,14 +4,14 @@ level: initiative
 title: "Architectural — Scoped Registries and DAL Consolidation Investigation"
 short_code: "CLOACI-I-0091"
 created_at: 2026-04-08T10:46:55.307166+00:00
-updated_at: 2026-04-08T10:46:55.307166+00:00
+updated_at: 2026-04-09T16:59:22.486908+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false
@@ -32,12 +32,10 @@ The architecture review identified two root causes (RC-01, RC-03) that are the h
 **Goals:**
 - Introduce scoped registries via a `Runtime` struct (EVO-02, EVO-10, PERF-11)
 - Enable parallel test execution by removing need for `#[serial]`
-- Investigate whether DAL duplication can be consolidated (EVO-03, LEG-03)
 
 **Non-Goals:**
 - Removing `#[ctor]` entirely (keep as convenience, add explicit alternative)
-- Adding a third database backend
-- Full DAL rewrite
+- DAL consolidation (deferred to separate initiative — known Diesel constraint, see ADR-0001)
 
 ## Detailed Design
 

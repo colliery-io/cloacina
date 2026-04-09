@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-04-09T16:43:45Z | 423 files | JavaScript, Python, Rust
+> Generated: 2026-04-09T17:25:45Z | 424 files | JavaScript, Python, Rust
 
 ## Project Structure
 
@@ -185,6 +185,7 @@
 │   │   │   │   │   ├── pipeline_result.rs
 │   │   │   │   │   └── services.rs
 │   │   │   │   └── mod.rs
+│   │   │   ├── runtime.rs
 │   │   │   ├── security/
 │   │   │   │   ├── api_keys.rs
 │   │   │   │   ├── audit.rs
@@ -1021,18 +1022,18 @@
 - pub `new` function L104-117 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: CronRecoveryConfig...` — Creates a new cron recovery service.
 - pub `with_defaults` function L120-126 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new recovery service with default configuration.
 - pub `run_recovery_loop` function L132-160 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the recovery service loop.
-- pub `clear_recovery_attempts` function L363-367 — `(&self)` — Clears the recovery attempts cache.
-- pub `get_recovery_attempts` function L370-376 — `( &self, execution_id: crate::database::UniversalUuid, ) -> usize` — Gets the current recovery attempts for an execution.
+- pub `clear_recovery_attempts` function L366-370 — `(&self)` — Clears the recovery attempts cache.
+- pub `get_recovery_attempts` function L373-379 — `( &self, execution_id: crate::database::UniversalUuid, ) -> usize` — Gets the current recovery attempts for an execution.
 -  `CronRecoveryConfig` type L70-80 — `impl Default for CronRecoveryConfig` — - The execution is too old (beyond recovery window)
 -  `default` function L71-79 — `() -> Self` — - The execution is too old (beyond recovery window)
--  `CronRecoveryService` type L96-377 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
+-  `CronRecoveryService` type L96-380 — `= CronRecoveryService` — - The execution is too old (beyond recovery window)
 -  `check_and_recover_lost_executions` function L163-195 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for lost executions and attempts to recover them.
--  `recover_execution` function L198-357 — `(&self, execution: &ScheduleExecution) -> Result<(), WorkflowExecutionError>` — Attempts to recover a single lost execution.
--  `tests` module L380-427 — `-` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_default` function L384-391 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_custom` function L394-408 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_clone` function L411-417 — `()` — - The execution is too old (beyond recovery window)
--  `test_recovery_config_default_recovery_window` function L420-426 — `()` — - The execution is too old (beyond recovery window)
+-  `recover_execution` function L198-360 — `( &self, execution: &ScheduleExecution, ) -> Result<(), WorkflowExecutionError>` — Attempts to recover a single lost execution.
+-  `tests` module L383-430 — `-` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default` function L387-394 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_custom` function L397-411 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_clone` function L414-420 — `()` — - The execution is too old (beyond recovery window)
+-  `test_recovery_config_default_recovery_window` function L423-429 — `()` — - The execution is too old (beyond recovery window)
 
 #### crates/cloacina/src/cron_trigger_scheduler.rs
 
@@ -1041,46 +1042,46 @@
 - pub `new` function L133-147 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, config: SchedulerConfig, s...` — Creates a new unified scheduler.
 - pub `with_defaults` function L150-156 — `( dal: Arc<DAL>, executor: Arc<dyn WorkflowExecutor>, shutdown: watch::Receiver<...` — Creates a new unified scheduler with default configuration.
 - pub `run_polling_loop` function L170-212 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Runs the main polling loop.
-- pub `register_trigger` function L779-792 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
-- pub `disable_trigger` function L795-806 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
-- pub `enable_trigger` function L809-820 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
+- pub `register_trigger` function L780-793 — `( &self, trigger: &dyn Trigger, workflow_name: &str, ) -> Result<Schedule, Valid...` — Registers a trigger with the scheduler.
+- pub `disable_trigger` function L796-807 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Disables a trigger by name.
+- pub `enable_trigger` function L810-821 — `(&self, trigger_name: &str) -> Result<(), ValidationError>` — Enables a trigger by name.
 -  `SchedulerConfig` type L77-87 — `impl Default for SchedulerConfig` — ```
 -  `default` function L78-86 — `() -> Self` — ```
--  `Scheduler` type L125-821 — `= Scheduler` — ```
+-  `Scheduler` type L125-822 — `= Scheduler` — ```
 -  `check_and_execute_cron_schedules` function L219-246 — `(&self) -> Result<(), WorkflowExecutionError>` — Checks for due cron schedules and executes them.
 -  `process_cron_schedule` function L249-357 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<(), WorkflowExecut...` — Processes a single cron schedule using the saga pattern.
 -  `is_cron_schedule_active` function L360-372 — `(&self, schedule: &Schedule, now: DateTime<Utc>) -> bool` — Checks if a cron schedule is within its active time window.
 -  `calculate_execution_times` function L375-420 — `( &self, schedule: &Schedule, now: DateTime<Utc>, ) -> Result<Vec<DateTime<Utc>>...` — Calculates execution times based on the schedule's catchup policy.
--  `calculate_next_run` function L423-441 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
--  `execute_cron_workflow` function L444-496 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the pipeline executor.
--  `create_cron_execution_audit` function L499-520 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
--  `check_and_process_triggers` function L527-578 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
--  `process_trigger` function L581-703 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
--  `create_trigger_execution_audit` function L706-732 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
--  `execute_trigger_workflow` function L735-764 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the pipeline executor.
--  `tests` module L824-1112 — `-` — ```
--  `create_test_cron_schedule` function L828-849 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
--  `create_test_trigger_schedule` function L851-872 — `(trigger_name: &str) -> Schedule` — ```
--  `test_scheduler_config_default` function L875-882 — `()` — ```
--  `test_is_cron_schedule_active_no_window` function L885-905 — `()` — ```
--  `test_is_cron_schedule_active_with_start_date_future` function L908-918 — `()` — ```
--  `test_is_cron_schedule_active_with_end_date_past` function L921-931 — `()` — ```
--  `test_catchup_policy_from_schedule` function L934-939 — `()` — ```
--  `test_catchup_policy_run_all` function L942-948 — `()` — ```
--  `test_trigger_schedule_helpers` function L951-958 — `()` — ```
--  `test_trigger_schedule_trigger_name_fallback` function L961-973 — `()` — ```
--  `test_scheduler_config_custom` function L980-993 — `()` — ```
--  `test_scheduler_config_clone` function L996-1007 — `()` — ```
--  `test_scheduler_config_debug` function L1010-1015 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_containing_now` function L1022-1033 — `()` — ```
--  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1036-1048 — `()` — ```
--  `test_catchup_policy_unknown_defaults_to_skip` function L1055-1058 — `()` — ```
--  `test_catchup_policy_none_defaults_to_skip` function L1061-1066 — `()` — ```
--  `test_catchup_policy_missing_defaults_correctly` function L1069-1075 — `()` — ```
--  `test_cron_schedule_helpers` function L1082-1089 — `()` — ```
--  `test_trigger_schedule_no_poll_interval` function L1092-1097 — `()` — ```
--  `test_trigger_schedule_allows_concurrent` function L1100-1104 — `()` — ```
--  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1107-1111 — `()` — ```
+-  `calculate_next_run` function L423-442 — `( &self, schedule: &Schedule, after: DateTime<Utc>, ) -> Result<DateTime<Utc>, W...` — Calculates the next run time for a cron schedule.
+-  `execute_cron_workflow` function L445-497 — `( &self, schedule: &Schedule, scheduled_time: DateTime<Utc>, ) -> Result<Univers...` — Executes a cron workflow by handing it off to the pipeline executor.
+-  `create_cron_execution_audit` function L500-521 — `( &self, schedule_id: UniversalUuid, scheduled_time: DateTime<Utc>, ) -> Result<...` — Creates an audit record for a cron execution.
+-  `check_and_process_triggers` function L528-579 — `(&mut self) -> Result<(), WorkflowExecutionError>` — Checks all enabled triggers and processes those that are due.
+-  `process_trigger` function L582-704 — `(&self, schedule: &Schedule) -> Result<(), TriggerError>` — Processes a single trigger schedule.
+-  `create_trigger_execution_audit` function L707-733 — `( &self, schedule_id: UniversalUuid, context_hash: &str, ) -> Result<crate::mode...` — Creates an audit record for a trigger execution.
+-  `execute_trigger_workflow` function L736-765 — `( &self, schedule: &Schedule, mut context: Context<serde_json::Value>, ) -> Resu...` — Executes a trigger workflow by handing it off to the pipeline executor.
+-  `tests` module L825-1113 — `-` — ```
+-  `create_test_cron_schedule` function L829-850 — `(cron_expr: &str, timezone: &str) -> Schedule` — ```
+-  `create_test_trigger_schedule` function L852-873 — `(trigger_name: &str) -> Schedule` — ```
+-  `test_scheduler_config_default` function L876-883 — `()` — ```
+-  `test_is_cron_schedule_active_no_window` function L886-906 — `()` — ```
+-  `test_is_cron_schedule_active_with_start_date_future` function L909-919 — `()` — ```
+-  `test_is_cron_schedule_active_with_end_date_past` function L922-932 — `()` — ```
+-  `test_catchup_policy_from_schedule` function L935-940 — `()` — ```
+-  `test_catchup_policy_run_all` function L943-949 — `()` — ```
+-  `test_trigger_schedule_helpers` function L952-959 — `()` — ```
+-  `test_trigger_schedule_trigger_name_fallback` function L962-974 — `()` — ```
+-  `test_scheduler_config_custom` function L981-994 — `()` — ```
+-  `test_scheduler_config_clone` function L997-1008 — `()` — ```
+-  `test_scheduler_config_debug` function L1011-1016 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_containing_now` function L1023-1034 — `()` — ```
+-  `test_is_cron_schedule_active_both_bounds_excluding_now` function L1037-1049 — `()` — ```
+-  `test_catchup_policy_unknown_defaults_to_skip` function L1056-1059 — `()` — ```
+-  `test_catchup_policy_none_defaults_to_skip` function L1062-1067 — `()` — ```
+-  `test_catchup_policy_missing_defaults_correctly` function L1070-1076 — `()` — ```
+-  `test_cron_schedule_helpers` function L1083-1090 — `()` — ```
+-  `test_trigger_schedule_no_poll_interval` function L1093-1098 — `()` — ```
+-  `test_trigger_schedule_allows_concurrent` function L1101-1105 — `()` — ```
+-  `test_trigger_schedule_no_concurrent_flag_defaults_false` function L1108-1112 — `()` — ```
 
 #### crates/cloacina/src/error.rs
 
@@ -1140,33 +1141,34 @@
 
 #### crates/cloacina/src/lib.rs
 
-- pub `prelude` module L453-484 — `-` — Prelude module for convenient imports.
-- pub `computation_graph` module L488 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `context` module L489 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_evaluator` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_recovery` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `crypto` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dal` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `database` module L494 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `dispatcher` module L495 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `error` module L496 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `executor` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `graph` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `logging` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `models` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `packaging` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `python` module L502 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `registry` module L503 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `retry` module L504 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `runner` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `cron_trigger_scheduler` module L508 — `-` — Cron and event-trigger schedule management.
-- pub `security` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `task` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `execution_planner` module L513 — `-` — Task readiness evaluation, pipeline processing, and stale claim sweeping.
-- pub `trigger` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `workflow` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
-- pub `setup_test` function L523-525 — `()` — - [`retry`]: Retry policies and backoff strategies
--  `cloaca` function L587-649 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
+- pub `prelude` module L453-486 — `-` — Prelude module for convenient imports.
+- pub `computation_graph` module L490 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `context` module L491 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_evaluator` module L492 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_recovery` module L493 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `cron_trigger_scheduler` module L496 — `-` — Cron and event-trigger schedule management.
+- pub `crypto` module L497 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dal` module L498 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `database` module L499 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `dispatcher` module L500 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `error` module L501 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `execution_planner` module L504 — `-` — Task readiness evaluation, pipeline processing, and stale claim sweeping.
+- pub `executor` module L505 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `graph` module L506 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `logging` module L507 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `models` module L508 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `packaging` module L509 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `python` module L510 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `registry` module L511 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `retry` module L512 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runner` module L513 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `runtime` module L514 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `security` module L515 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `task` module L516 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `trigger` module L517 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `workflow` module L518 — `-` — - [`retry`]: Retry policies and backoff strategies
+- pub `setup_test` function L526-528 — `()` — - [`retry`]: Retry policies and backoff strategies
+-  `cloaca` function L590-652 — `(m: &Bound<'_, PyModule>) -> PyResult<()>` — - [`retry`]: Retry policies and backoff strategies
 
 #### crates/cloacina/src/logging.rs
 
@@ -1175,6 +1177,40 @@
 - pub `mask_db_url` function L211-220 — `(url: &str) -> String` — Mask the password in a database URL for safe logging.
 -  `tests` module L178-191 — `-` — - Test logging initialization is idempotent and safe to call multiple times
 -  `test_logging_levels` function L183-190 — `()` — - Test logging initialization is idempotent and safe to call multiple times
+
+#### crates/cloacina/src/runtime.rs
+
+- pub `TaskConstructorFn` type L47 — `= Box<dyn Fn() -> Arc<dyn Task> + Send + Sync>` — Type alias for task constructor functions.
+- pub `WorkflowConstructorFn` type L50 — `= Box<dyn Fn() -> Workflow + Send + Sync>` — Type alias for workflow constructor functions.
+- pub `TriggerConstructorFn` type L53 — `= Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>` — Type alias for trigger constructor functions.
+- pub `Runtime` struct L64-66 — `{ inner: Arc<RuntimeInner> }` — A scoped runtime holding isolated registries for tasks, workflows, and triggers.
+- pub `new` function L76-84 — `() -> Self` — Create an empty runtime with no registered tasks, workflows, or triggers.
+- pub `from_global` function L94-131 — `() -> Self` — Snapshot the current process-global registries into a new scoped runtime.
+- pub `register_task` function L138-144 — `(&self, namespace: TaskNamespace, constructor: F)` — Register a task constructor for the given namespace.
+- pub `get_task` function L147-150 — `(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>>` — Look up and instantiate a task by namespace.
+- pub `has_task` function L153-156 — `(&self, namespace: &TaskNamespace) -> bool` — Check if a task is registered for the given namespace.
+- pub `register_workflow` function L163-169 — `(&self, name: String, constructor: F)` — Register a workflow constructor by name.
+- pub `get_workflow` function L172-175 — `(&self, name: &str) -> Option<Workflow>` — Look up and instantiate a workflow by name.
+- pub `workflow_names` function L178-181 — `(&self) -> Vec<String>` — Get all registered workflow names.
+- pub `all_workflows` function L184-187 — `(&self) -> Vec<Workflow>` — Get all registered workflows (instantiated).
+- pub `register_trigger` function L194-200 — `(&self, name: String, constructor: F)` — Register a trigger constructor by name.
+- pub `get_trigger` function L203-206 — `(&self, name: &str) -> Option<Arc<dyn Trigger>>` — Look up and instantiate a trigger by name.
+- pub `trigger_names` function L209-212 — `(&self) -> Vec<String>` — Get all registered trigger names.
+- pub `all_triggers` function L215-221 — `(&self) -> HashMap<String, Arc<dyn Trigger>>` — Get all registered triggers (instantiated).
+-  `RuntimeInner` struct L68-72 — `{ tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>, workflows: RwLock<Ha...` — ```
+-  `Runtime` type L74-222 — `= Runtime` — ```
+-  `Runtime` type L224-228 — `impl Default for Runtime` — ```
+-  `default` function L225-227 — `() -> Self` — ```
+-  `Runtime` type L230-241 — `= Runtime` — ```
+-  `fmt` function L231-240 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — ```
+-  `tests` module L244-325 — `-` — ```
+-  `test_empty_runtime` function L249-256 — `()` — ```
+-  `test_register_and_get_workflow` function L259-267 — `()` — ```
+-  `test_scoped_mutations_dont_affect_other_runtimes` function L270-279 — `()` — ```
+-  `test_clone_is_shared` function L282-291 — `()` — ```
+-  `test_from_global_captures_workflows` function L294-303 — `()` — ```
+-  `test_workflow_names` function L306-316 — `()` — ```
+-  `test_debug_format` function L319-324 — `()` — ```
 
 #### crates/cloacina/src/task.rs
 
@@ -1525,46 +1561,46 @@
 #### crates/cloacina/src/dal/unified/pipeline_execution.rs
 
 - pub `WorkflowExecutionDAL` struct L35-37 — `{ dal: &'a DAL }` — Data access layer for workflow execution operations with compile-time backend selection.
-- pub `new` function L41-43 — `(dal: &'a DAL) -> Self` — are written atomically.
-- pub `create` function L49-58 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — Creates a new pipeline execution record in the database.
-- pub `get_by_id` function L186-192 — `(&self, id: UniversalUuid) -> Result<WorkflowExecutionRecord, ValidationError>` — are written atomically.
-- pub `get_active_executions` function L234-240 — `(&self) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
-- pub `update_status` function L288-298 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `mark_completed` function L362-368 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a pipeline execution as completed.
-- pub `get_last_version` function L464-473 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
-- pub `mark_failed` function L535-545 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
-- pub `increment_recovery_attempts` function L655-664 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
-- pub `cancel` function L724-730 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
-- pub `pause` function L739-749 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
-- pub `resume` function L865-871 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
-- pub `update_final_context` function L1019-1030 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
-- pub `list_recent` function L1088-1094 — `(&self, limit: i64) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `create_postgres` function L61-121 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
--  `create_sqlite` function L124-184 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
--  `get_by_id_postgres` function L195-212 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
--  `get_by_id_sqlite` function L215-232 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
--  `get_active_executions_postgres` function L243-263 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `get_active_executions_sqlite` function L266-286 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `update_status_postgres` function L301-327 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `update_status_sqlite` function L330-356 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_postgres` function L371-415 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `mark_completed_sqlite` function L418-462 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `get_last_version_postgres` function L476-501 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `get_last_version_sqlite` function L504-529 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
--  `mark_failed_postgres` function L548-599 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `mark_failed_sqlite` function L602-653 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_postgres` function L667-693 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `increment_recovery_attempts_sqlite` function L696-722 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
--  `pause_postgres` function L752-803 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `pause_sqlite` function L806-857 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
--  `resume_postgres` function L874-919 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `resume_sqlite` function L922-967 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_postgres` function L970-992 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `cancel_sqlite` function L995-1017 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
--  `update_final_context_postgres` function L1033-1058 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `update_final_context_sqlite` function L1061-1086 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
--  `list_recent_postgres` function L1097-1119 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
--  `list_recent_sqlite` function L1122-1144 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+- pub `new` function L40-42 — `(dal: &'a DAL) -> Self` — are written atomically.
+- pub `create` function L48-57 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — Creates a new pipeline execution record in the database.
+- pub `get_by_id` function L185-194 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+- pub `get_active_executions` function L236-244 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+- pub `update_status` function L292-302 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `mark_completed` function L366-372 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Marks a pipeline execution as completed.
+- pub `get_last_version` function L468-477 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+- pub `mark_failed` function L539-549 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — Marks a pipeline execution as failed with an error reason.
+- pub `increment_recovery_attempts` function L659-668 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+- pub `cancel` function L728-734 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+- pub `pause` function L743-753 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — Pauses a running pipeline execution.
+- pub `resume` function L869-875 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — Resumes a paused pipeline execution.
+- pub `update_final_context` function L1023-1034 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+- pub `list_recent` function L1092-1101 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `create_postgres` function L60-120 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
+-  `create_sqlite` function L123-183 — `( &self, new_execution: NewWorkflowExecution, ) -> Result<WorkflowExecutionRecor...` — are written atomically.
+-  `get_by_id_postgres` function L197-214 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+-  `get_by_id_sqlite` function L217-234 — `( &self, id: UniversalUuid, ) -> Result<WorkflowExecutionRecord, ValidationError...` — are written atomically.
+-  `get_active_executions_postgres` function L247-267 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `get_active_executions_sqlite` function L270-290 — `( &self, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `update_status_postgres` function L305-331 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `update_status_sqlite` function L334-360 — `( &self, id: UniversalUuid, status: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_postgres` function L375-419 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_completed_sqlite` function L422-466 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `get_last_version_postgres` function L480-505 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `get_last_version_sqlite` function L508-533 — `( &self, pipeline_name: &str, ) -> Result<Option<String>, ValidationError>` — are written atomically.
+-  `mark_failed_postgres` function L552-603 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `mark_failed_sqlite` function L606-657 — `( &self, id: UniversalUuid, reason: &str, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_postgres` function L671-697 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `increment_recovery_attempts_sqlite` function L700-726 — `( &self, id: UniversalUuid, ) -> Result<(), ValidationError>` — are written atomically.
+-  `pause_postgres` function L756-807 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `pause_sqlite` function L810-861 — `( &self, id: UniversalUuid, reason: Option<&str>, ) -> Result<(), ValidationErro...` — are written atomically.
+-  `resume_postgres` function L878-923 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `resume_sqlite` function L926-971 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_postgres` function L974-996 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `cancel_sqlite` function L999-1021 — `(&self, id: UniversalUuid) -> Result<(), ValidationError>` — are written atomically.
+-  `update_final_context_postgres` function L1037-1062 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `update_final_context_sqlite` function L1065-1090 — `( &self, id: UniversalUuid, final_context_id: UniversalUuid, ) -> Result<(), Val...` — are written atomically.
+-  `list_recent_postgres` function L1104-1126 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
+-  `list_recent_sqlite` function L1129-1151 — `( &self, limit: i64, ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError>` — are written atomically.
 
 #### crates/cloacina/src/dal/unified/recovery_event.rs
 
@@ -2524,36 +2560,36 @@
 - pub `WorkflowExecutionResult` struct L164-183 — `{ execution_id: Uuid, workflow_name: String, status: WorkflowStatus, start_time:...` — Contains the complete result of a workflow execution.
 - pub `WorkflowExecution` struct L189-195 — `{ execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Handle for managing an asynchronous workflow execution.
 - pub `new` function L205-215 — `( execution_id: Uuid, workflow_name: String, executor: crate::runner::DefaultRun...` — Creates a new workflow execution handle.
-- pub `wait_for_completion` function L225-227 — `(self) -> Result<WorkflowExecutionResult, WorkflowExecutionError>` — Waits for the workflow to complete execution.
-- pub `wait_for_completion_with_timeout` function L239-269 — `( self, timeout: Option<Duration>, ) -> Result<WorkflowExecutionResult, Workflow...` — Waits for completion with a specified timeout.
-- pub `get_status` function L277-279 — `(&self) -> Result<WorkflowStatus, WorkflowExecutionError>` — Gets the current status of the workflow execution.
-- pub `cancel` function L289-291 — `(&self) -> Result<(), WorkflowExecutionError>` — Cancels the workflow execution.
-- pub `pause` function L306-310 — `(&self, reason: Option<&str>) -> Result<(), WorkflowExecutionError>` — Pauses the workflow execution.
-- pub `resume` function L321-323 — `(&self) -> Result<(), WorkflowExecutionError>` — Resumes a paused workflow execution.
-- pub `WorkflowExecutor` interface L332-484 — `{ fn execute(), fn execute_async(), fn get_execution_status(), fn get_execution_...` — Core trait defining the interface for workflow execution engines.
+- pub `wait_for_completion` function L225-229 — `( self, ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>` — Waits for the workflow to complete execution.
+- pub `wait_for_completion_with_timeout` function L241-271 — `( self, timeout: Option<Duration>, ) -> Result<WorkflowExecutionResult, Workflow...` — Waits for completion with a specified timeout.
+- pub `get_status` function L279-281 — `(&self) -> Result<WorkflowStatus, WorkflowExecutionError>` — Gets the current status of the workflow execution.
+- pub `cancel` function L291-293 — `(&self) -> Result<(), WorkflowExecutionError>` — Cancels the workflow execution.
+- pub `pause` function L308-312 — `(&self, reason: Option<&str>) -> Result<(), WorkflowExecutionError>` — Pauses the workflow execution.
+- pub `resume` function L323-325 — `(&self) -> Result<(), WorkflowExecutionError>` — Resumes a paused workflow execution.
+- pub `WorkflowExecutor` interface L334-487 — `{ fn execute(), fn execute_async(), fn get_execution_status(), fn get_execution_...` — Core trait defining the interface for workflow execution engines.
 -  `WorkflowStatus` type L143-157 — `= WorkflowStatus` — ```
--  `WorkflowExecution` type L197-324 — `= WorkflowExecution` — ```
--  `WorkflowStatus` type L486-519 — `= WorkflowStatus` — ```
--  `from_str` function L508-518 — `(s: &str) -> Self` — Creates a WorkflowStatus from a string representation.
--  `tests` module L523-775 — `-` — ```
--  `test_pipeline_status_is_terminal` function L532-536 — `()` — ```
--  `test_pipeline_status_is_not_terminal` function L539-543 — `()` — ```
--  `test_pipeline_status_from_str_valid` function L546-559 — `()` — ```
--  `test_pipeline_status_from_str_invalid_defaults_to_failed` function L562-567 — `()` — ```
--  `test_pipeline_status_eq` function L570-573 — `()` — ```
--  `test_pipeline_status_clone` function L576-580 — `()` — ```
--  `test_pipeline_status_debug` function L583-586 — `()` — ```
--  `test_pipeline_error_display_database_connection` function L593-601 — `()` — ```
--  `test_pipeline_error_display_workflow_not_found` function L604-609 — `()` — ```
--  `test_pipeline_error_display_execution_failed` function L612-620 — `()` — ```
--  `test_pipeline_error_display_timeout` function L623-628 — `()` — ```
--  `test_pipeline_error_display_configuration` function L631-636 — `()` — ```
--  `test_task_result_construction` function L643-659 — `()` — ```
--  `test_task_result_with_error` function L662-677 — `()` — ```
--  `test_task_result_clone` function L680-692 — `()` — ```
--  `test_pipeline_result_construction` function L699-715 — `()` — ```
--  `test_pipeline_result_with_tasks` function L718-756 — `()` — ```
--  `test_pipeline_result_debug` function L759-774 — `()` — ```
+-  `WorkflowExecution` type L197-326 — `= WorkflowExecution` — ```
+-  `WorkflowStatus` type L489-522 — `= WorkflowStatus` — ```
+-  `from_str` function L511-521 — `(s: &str) -> Self` — Creates a WorkflowStatus from a string representation.
+-  `tests` module L525-777 — `-` — ```
+-  `test_pipeline_status_is_terminal` function L534-538 — `()` — ```
+-  `test_pipeline_status_is_not_terminal` function L541-545 — `()` — ```
+-  `test_pipeline_status_from_str_valid` function L548-561 — `()` — ```
+-  `test_pipeline_status_from_str_invalid_defaults_to_failed` function L564-569 — `()` — ```
+-  `test_pipeline_status_eq` function L572-575 — `()` — ```
+-  `test_pipeline_status_clone` function L578-582 — `()` — ```
+-  `test_pipeline_status_debug` function L585-588 — `()` — ```
+-  `test_pipeline_error_display_database_connection` function L595-603 — `()` — ```
+-  `test_pipeline_error_display_workflow_not_found` function L606-611 — `()` — ```
+-  `test_pipeline_error_display_execution_failed` function L614-622 — `()` — ```
+-  `test_pipeline_error_display_timeout` function L625-630 — `()` — ```
+-  `test_pipeline_error_display_configuration` function L633-638 — `()` — ```
+-  `test_task_result_construction` function L645-661 — `()` — ```
+-  `test_task_result_with_error` function L664-679 — `()` — ```
+-  `test_task_result_clone` function L682-694 — `()` — ```
+-  `test_pipeline_result_construction` function L701-717 — `()` — ```
+-  `test_pipeline_result_with_tasks` function L720-758 — `()` — ```
+-  `test_pipeline_result_debug` function L761-776 — `()` — ```
 
 #### crates/cloacina/src/executor/slot_token.rs
 
@@ -2740,7 +2776,7 @@
 #### crates/cloacina/src/models/pipeline_execution.rs
 
 - pub `WorkflowExecutionRecord` struct L27-42 — `{ id: UniversalUuid, pipeline_name: String, pipeline_version: String, status: St...` — Represents a workflow execution record (domain type).
-- pub `NewWorkflowExecution` struct L47-52 — `{ pipeline_name: String, pipeline_version: String, status: String, context_id: O...` — Structure for creating new workflow executions (domain type).
+- pub `NewWorkflowExecution` struct L46-51 — `{ pipeline_name: String, pipeline_version: String, status: String, context_id: O...` — Structure for creating new workflow executions (domain type).
 
 #### crates/cloacina/src/models/recovery_event.rs
 
@@ -3068,84 +3104,84 @@
 #### crates/cloacina/src/python/bindings/runner.rs
 
 - pub `ShutdownError` enum L34-46 — `ChannelClosed | ThreadPanic | Timeout` — Errors that can occur during async runtime shutdown
-- pub `PyWorkflowResult` struct L215-217 — `{ inner: crate::executor::WorkflowExecutionResult }` — Python wrapper for WorkflowExecutionResult
-- pub `status` function L223-225 — `(&self) -> String` — Get the execution status
-- pub `start_time` function L229-231 — `(&self) -> String` — Get execution start time as ISO string
-- pub `end_time` function L235-237 — `(&self) -> Option<String>` — Get execution end time as ISO string
-- pub `final_context` function L241-245 — `(&self) -> PyContext` — Get the final context
-- pub `error_message` function L249-251 — `(&self) -> Option<&str>` — Get error message if execution failed
-- pub `__repr__` function L254-260 — `(&self) -> String` — String representation
-- pub `PyDefaultRunner` struct L265-267 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
-- pub `new` function L273-618 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
-- pub `with_config` function L622-957 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
-- pub `with_schema` function L988-1356 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
-- pub `execute` function L1359-1396 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
-- pub `start` function L1399-1406 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
-- pub `stop` function L1409-1416 — `(&self) -> PyResult<()>` — Stop the runner
-- pub `shutdown` function L1426-1445 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
-- pub `register_cron_workflow` function L1465-1497 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
-- pub `list_cron_schedules` function L1508-1573 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
-- pub `set_cron_schedule_enabled` function L1580-1610 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L1616-1640 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
-- pub `get_cron_schedule` function L1649-1695 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
-- pub `update_cron_schedule` function L1703-1735 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
-- pub `get_cron_execution_history` function L1746-1807 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
-- pub `get_cron_execution_stats` function L1816-1855 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
-- pub `list_trigger_schedules` function L1871-1935 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
-- pub `get_trigger_schedule` function L1944-1993 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
-- pub `set_trigger_enabled` function L2000-2028 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
-- pub `get_trigger_execution_history` function L2040-2101 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
-- pub `__repr__` function L2104-2106 — `(&self) -> String` — String representation
-- pub `__enter__` function L2109-2111 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
-- pub `__exit__` function L2114-2123 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
-- pub `from_result` function L2127-2129 — `(result: crate::executor::WorkflowExecutionResult) -> Self`
+- pub `PyWorkflowResult` struct L227-229 — `{ inner: crate::executor::WorkflowExecutionResult }` — Python wrapper for WorkflowExecutionResult
+- pub `status` function L235-237 — `(&self) -> String` — Get the execution status
+- pub `start_time` function L241-243 — `(&self) -> String` — Get execution start time as ISO string
+- pub `end_time` function L247-249 — `(&self) -> Option<String>` — Get execution end time as ISO string
+- pub `final_context` function L253-257 — `(&self) -> PyContext` — Get the final context
+- pub `error_message` function L261-263 — `(&self) -> Option<&str>` — Get error message if execution failed
+- pub `__repr__` function L266-272 — `(&self) -> String` — String representation
+- pub `PyDefaultRunner` struct L277-279 — `{ runtime_handle: Mutex<AsyncRuntimeHandle> }` — Python wrapper for DefaultRunner
+- pub `new` function L285-630 — `(database_url: &str) -> PyResult<Self>` — Create a new DefaultRunner with database connection
+- pub `with_config` function L634-969 — `( database_url: &str, config: &super::context::PyDefaultRunnerConfig, ) -> PyRes...` — Create a new DefaultRunner with custom configuration
+- pub `with_schema` function L1000-1368 — `(database_url: &str, schema: &str) -> PyResult<PyDefaultRunner>` — Create a new DefaultRunner with PostgreSQL schema-based multi-tenancy
+- pub `execute` function L1371-1408 — `( &self, workflow_name: &str, context: &PyContext, py: Python, ) -> PyResult<PyW...` — Execute a workflow by name with context
+- pub `start` function L1411-1418 — `(&self) -> PyResult<()>` — Start the runner (task scheduler and executor)
+- pub `stop` function L1421-1428 — `(&self) -> PyResult<()>` — Stop the runner
+- pub `shutdown` function L1438-1457 — `(&self, py: Python) -> PyResult<()>` — Shutdown the runner and cleanup resources
+- pub `register_cron_workflow` function L1477-1509 — `( &self, workflow_name: String, cron_expression: String, timezone: String, py: P...` — Register a cron workflow for automatic execution at scheduled times
+- pub `list_cron_schedules` function L1520-1585 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all cron schedules
+- pub `set_cron_schedule_enabled` function L1592-1622 — `( &self, schedule_id: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L1628-1652 — `(&self, schedule_id: String, py: Python) -> PyResult<()>` — Delete a cron schedule
+- pub `get_cron_schedule` function L1661-1707 — `(&self, schedule_id: String, py: Python) -> PyResult<PyObject>` — Get details of a specific cron schedule
+- pub `update_cron_schedule` function L1715-1747 — `( &self, schedule_id: String, cron_expression: String, timezone: String, py: Pyt...` — Update a cron schedule's expression and timezone
+- pub `get_cron_execution_history` function L1758-1819 — `( &self, schedule_id: String, limit: Option<i64>, offset: Option<i64>, py: Pytho...` — Get execution history for a specific cron schedule
+- pub `get_cron_execution_stats` function L1828-1867 — `(&self, since: String, py: Python) -> PyResult<PyObject>` — Get execution statistics for cron schedules
+- pub `list_trigger_schedules` function L1883-1947 — `( &self, enabled_only: Option<bool>, limit: Option<i64>, offset: Option<i64>, py...` — List all trigger schedules
+- pub `get_trigger_schedule` function L1956-2005 — `( &self, trigger_name: String, py: Python, ) -> PyResult<Option<PyObject>>` — Get details of a specific trigger schedule
+- pub `set_trigger_enabled` function L2012-2040 — `( &self, trigger_name: String, enabled: bool, py: Python, ) -> PyResult<()>` — Enable or disable a trigger
+- pub `get_trigger_execution_history` function L2052-2113 — `( &self, trigger_name: String, limit: Option<i64>, offset: Option<i64>, py: Pyth...` — Get execution history for a specific trigger
+- pub `__repr__` function L2116-2118 — `(&self) -> String` — String representation
+- pub `__enter__` function L2121-2123 — `(slf: PyRef<Self>) -> PyRef<Self>` — Context manager entry
+- pub `__exit__` function L2126-2135 — `( &self, py: Python, _exc_type: Option<&Bound<PyAny>>, _exc_value: Option<&Bound...` — Context manager exit - automatically shutdown
+- pub `from_result` function L2139-2141 — `(result: crate::executor::WorkflowExecutionResult) -> Self`
 -  `SHUTDOWN_TIMEOUT` variable L30 — `: Duration` — Timeout for waiting on runtime thread shutdown
--  `RuntimeMessage` enum L49-135 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
--  `AsyncRuntimeHandle` struct L138-141 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
--  `AsyncRuntimeHandle` type L143-202 — `= AsyncRuntimeHandle`
--  `shutdown` function L148-201 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
--  `AsyncRuntimeHandle` type L204-211 — `impl Drop for AsyncRuntimeHandle`
--  `drop` function L205-210 — `(&mut self)`
--  `PyWorkflowResult` type L220-261 — `= PyWorkflowResult`
--  `PyDefaultRunner` type L270-2124 — `= PyDefaultRunner`
--  `PyWorkflowResult` type L2126-2130 — `= PyWorkflowResult`
--  `tests` module L2134-2724 — `-`
--  `TEST_PG_URL` variable L2138 — `: &str`
--  `unique_sqlite_url` function L2140-2145 — `() -> String`
--  `test_runner_repr` function L2149-2157 — `()`
--  `test_runner_start_returns_not_implemented` function L2161-2166 — `()`
--  `test_runner_stop_returns_not_implemented` function L2170-2175 — `()`
--  `test_runner_shutdown` function L2179-2185 — `()`
--  `test_runner_context_manager` function L2189-2203 — `()`
--  `test_runner_list_cron_schedules_empty` function L2207-2217 — `()`
--  `test_runner_list_trigger_schedules_empty` function L2221-2231 — `()`
--  `test_runner_get_trigger_schedule_not_found` function L2235-2245 — `()`
--  `test_runner_register_cron_workflow` function L2249-2269 — `()`
--  `test_runner_list_cron_schedules_after_register` function L2273-2296 — `()`
--  `test_runner_get_cron_schedule` function L2300-2322 — `()`
--  `test_runner_set_cron_schedule_enabled` function L2326-2352 — `()`
--  `test_runner_delete_cron_schedule` function L2356-2380 — `()`
--  `test_runner_update_cron_schedule` function L2384-2409 — `()`
--  `test_runner_get_cron_execution_history_empty` function L2413-2434 — `()`
--  `test_runner_get_cron_execution_stats` function L2438-2451 — `()`
--  `test_runner_set_cron_schedule_enabled_invalid_id` function L2455-2465 — `()`
--  `test_runner_set_trigger_enabled` function L2469-2481 — `()`
--  `test_runner_get_trigger_execution_history` function L2485-2497 — `()`
--  `test_pipeline_result_completed` function L2501-2532 — `()`
--  `test_pipeline_result_failed` function L2536-2555 — `()`
--  `test_runner_execute_nonexistent_workflow` function L2559-2573 — `()`
--  `test_runner_execute_registered_workflow` function L2577-2627 — `()`
--  `NoOpTask` struct L2585 — `-`
--  `NoOpTask` type L2588-2601 — `= NoOpTask`
--  `execute` function L2589-2594 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
--  `id` function L2595-2597 — `(&self) -> &str`
--  `dependencies` function L2598-2600 — `(&self) -> &[crate::TaskNamespace]`
--  `test_runner_get_cron_execution_stats_invalid_date` function L2631-2641 — `()`
--  `test_runner_list_cron_schedules_enabled_only` function L2645-2678 — `()`
--  `test_with_schema_rejects_sqlite` function L2684-2688 — `()`
--  `test_with_schema_rejects_empty_schema` function L2692-2699 — `()`
--  `test_with_schema_rejects_invalid_chars` function L2703-2710 — `()`
--  `test_shutdown_error_display` function L2714-2723 — `()`
+-  `RuntimeMessage` enum L49-147 — `Execute | RegisterCronWorkflow | ListCronSchedules | SetCronScheduleEnabled | De...` — Message types for communication with the async runtime thread
+-  `AsyncRuntimeHandle` struct L150-153 — `{ tx: mpsc::UnboundedSender<RuntimeMessage>, thread_handle: Option<thread::JoinH...` — Handle to the background async runtime thread
+-  `AsyncRuntimeHandle` type L155-214 — `= AsyncRuntimeHandle`
+-  `shutdown` function L160-213 — `(&mut self) -> Result<(), ShutdownError>` — Shutdown the runtime thread and wait for it to complete
+-  `AsyncRuntimeHandle` type L216-223 — `impl Drop for AsyncRuntimeHandle`
+-  `drop` function L217-222 — `(&mut self)`
+-  `PyWorkflowResult` type L232-273 — `= PyWorkflowResult`
+-  `PyDefaultRunner` type L282-2136 — `= PyDefaultRunner`
+-  `PyWorkflowResult` type L2138-2142 — `= PyWorkflowResult`
+-  `tests` module L2146-2736 — `-`
+-  `TEST_PG_URL` variable L2150 — `: &str`
+-  `unique_sqlite_url` function L2152-2157 — `() -> String`
+-  `test_runner_repr` function L2161-2169 — `()`
+-  `test_runner_start_returns_not_implemented` function L2173-2178 — `()`
+-  `test_runner_stop_returns_not_implemented` function L2182-2187 — `()`
+-  `test_runner_shutdown` function L2191-2197 — `()`
+-  `test_runner_context_manager` function L2201-2215 — `()`
+-  `test_runner_list_cron_schedules_empty` function L2219-2229 — `()`
+-  `test_runner_list_trigger_schedules_empty` function L2233-2243 — `()`
+-  `test_runner_get_trigger_schedule_not_found` function L2247-2257 — `()`
+-  `test_runner_register_cron_workflow` function L2261-2281 — `()`
+-  `test_runner_list_cron_schedules_after_register` function L2285-2308 — `()`
+-  `test_runner_get_cron_schedule` function L2312-2334 — `()`
+-  `test_runner_set_cron_schedule_enabled` function L2338-2364 — `()`
+-  `test_runner_delete_cron_schedule` function L2368-2392 — `()`
+-  `test_runner_update_cron_schedule` function L2396-2421 — `()`
+-  `test_runner_get_cron_execution_history_empty` function L2425-2446 — `()`
+-  `test_runner_get_cron_execution_stats` function L2450-2463 — `()`
+-  `test_runner_set_cron_schedule_enabled_invalid_id` function L2467-2477 — `()`
+-  `test_runner_set_trigger_enabled` function L2481-2493 — `()`
+-  `test_runner_get_trigger_execution_history` function L2497-2509 — `()`
+-  `test_pipeline_result_completed` function L2513-2544 — `()`
+-  `test_pipeline_result_failed` function L2548-2567 — `()`
+-  `test_runner_execute_nonexistent_workflow` function L2571-2585 — `()`
+-  `test_runner_execute_registered_workflow` function L2589-2639 — `()`
+-  `NoOpTask` struct L2597 — `-`
+-  `NoOpTask` type L2600-2613 — `= NoOpTask`
+-  `execute` function L2601-2606 — `( &self, context: crate::Context<serde_json::Value>, ) -> Result<crate::Context<...`
+-  `id` function L2607-2609 — `(&self) -> &str`
+-  `dependencies` function L2610-2612 — `(&self) -> &[crate::TaskNamespace]`
+-  `test_runner_get_cron_execution_stats_invalid_date` function L2643-2653 — `()`
+-  `test_runner_list_cron_schedules_enabled_only` function L2657-2690 — `()`
+-  `test_with_schema_rejects_sqlite` function L2696-2700 — `()`
+-  `test_with_schema_rejects_empty_schema` function L2704-2711 — `()`
+-  `test_with_schema_rejects_invalid_chars` function L2715-2722 — `()`
+-  `test_shutdown_error_display` function L2726-2735 — `()`
 
 #### crates/cloacina/src/python/bindings/trigger.rs
 
@@ -4073,8 +4109,8 @@
 - pub `database_url` function L531-534 — `(mut self, url: &str) -> Self` — Sets the database URL
 - pub `schema` function L540-543 — `(mut self, schema: &str) -> Self` — Sets the PostgreSQL schema for multi-tenant isolation
 - pub `with_config` function L546-549 — `(mut self, config: DefaultRunnerConfig) -> Self` — Sets the full configuration
-- pub `build` function L563-679 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
-- pub `routing_config` function L697-700 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
+- pub `build` function L563-678 — `(self) -> Result<DefaultRunner, WorkflowExecutionError>` — Builds the DefaultRunner
+- pub `routing_config` function L696-699 — `(mut self, config: RoutingConfig) -> Self` — Sets custom routing configuration for task dispatch.
 -  `DefaultRunnerConfig` type L91-241 — `= DefaultRunnerConfig` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerConfigBuilder` type L258-294 — `impl Default for DefaultRunnerConfigBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L259-293 — `() -> Self` — configuring the DefaultRunner's behavior.
@@ -4083,27 +4119,27 @@
 -  `default` function L477-479 — `() -> Self` — configuring the DefaultRunner's behavior.
 -  `DefaultRunnerBuilder` type L514-518 — `impl Default for DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `default` function L515-517 — `() -> Self` — configuring the DefaultRunner's behavior.
--  `DefaultRunnerBuilder` type L520-701 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
+-  `DefaultRunnerBuilder` type L520-700 — `= DefaultRunnerBuilder` — configuring the DefaultRunner's behavior.
 -  `validate_schema_name` function L552-560 — `(schema: &str) -> Result<(), WorkflowExecutionError>` — Validates the schema name contains only alphanumeric characters and underscores
--  `tests` module L704-870 — `-` — configuring the DefaultRunner's behavior.
--  `test_default_runner_config` function L708-723 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_storage_backend_configuration` function L726-749 — `()` — configuring the DefaultRunner's behavior.
--  `test_runner_identification` function L752-760 — `()` — configuring the DefaultRunner's behavior.
--  `test_registry_configuration_options` function L763-784 — `()` — configuring the DefaultRunner's behavior.
--  `test_cron_configuration` function L787-802 — `()` — configuring the DefaultRunner's behavior.
--  `test_db_pool_size_default` function L805-808 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_clone` function L811-824 — `()` — configuring the DefaultRunner's behavior.
--  `test_config_debug` function L827-835 — `()` — configuring the DefaultRunner's behavior.
--  `test_builder_all_fields` function L838-869 — `()` — configuring the DefaultRunner's behavior.
+-  `tests` module L703-869 — `-` — configuring the DefaultRunner's behavior.
+-  `test_default_runner_config` function L707-722 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_storage_backend_configuration` function L725-748 — `()` — configuring the DefaultRunner's behavior.
+-  `test_runner_identification` function L751-759 — `()` — configuring the DefaultRunner's behavior.
+-  `test_registry_configuration_options` function L762-783 — `()` — configuring the DefaultRunner's behavior.
+-  `test_cron_configuration` function L786-801 — `()` — configuring the DefaultRunner's behavior.
+-  `test_db_pool_size_default` function L804-807 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_clone` function L810-823 — `()` — configuring the DefaultRunner's behavior.
+-  `test_config_debug` function L826-834 — `()` — configuring the DefaultRunner's behavior.
+-  `test_builder_all_fields` function L837-868 — `()` — configuring the DefaultRunner's behavior.
 
 #### crates/cloacina/src/runner/default_runner/cron_api.rs
 
-- pub `register_cron_workflow` function L40-92 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — Register a workflow to run on a cron schedule
-- pub `list_cron_schedules` function L103-122 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<crate::mod...` — List all registered cron schedules
-- pub `set_cron_schedule_enabled` function L132-153 — `( &self, schedule_id: UniversalUuid, enabled: bool, ) -> Result<(), WorkflowExec...` — Enable or disable a cron schedule
-- pub `delete_cron_schedule` function L162-179 — `( &self, schedule_id: UniversalUuid, ) -> Result<(), WorkflowExecutionError>` — Delete a cron schedule
-- pub `get_cron_schedule` function L188-205 — `( &self, schedule_id: UniversalUuid, ) -> Result<crate::models::schedule::Schedu...` — Get a specific cron schedule by ID
-- pub `update_cron_schedule` function L216-275 — `( &self, schedule_id: UniversalUuid, cron_expression: Option<&str>, timezone: Op...` — Update a cron schedule's expression and/or timezone
+- pub `register_cron_workflow` function L40-93 — `( &self, workflow_name: &str, cron_expression: &str, timezone: &str, ) -> Result...` — Register a workflow to run on a cron schedule
+- pub `list_cron_schedules` function L104-123 — `( &self, enabled_only: bool, limit: i64, offset: i64, ) -> Result<Vec<crate::mod...` — List all registered cron schedules
+- pub `set_cron_schedule_enabled` function L133-154 — `( &self, schedule_id: UniversalUuid, enabled: bool, ) -> Result<(), WorkflowExec...` — Enable or disable a cron schedule
+- pub `delete_cron_schedule` function L163-179 — `( &self, schedule_id: UniversalUuid, ) -> Result<(), WorkflowExecutionError>` — Delete a cron schedule
+- pub `get_cron_schedule` function L188-204 — `( &self, schedule_id: UniversalUuid, ) -> Result<crate::models::schedule::Schedu...` — Get a specific cron schedule by ID
+- pub `update_cron_schedule` function L215-275 — `( &self, schedule_id: UniversalUuid, cron_expression: Option<&str>, timezone: Op...` — Update a cron schedule's expression and/or timezone
 - pub `get_cron_execution_history` function L286-305 — `( &self, schedule_id: UniversalUuid, limit: i64, offset: i64, ) -> Result<Vec<cr...` — Get execution history for a cron schedule
 - pub `get_cron_execution_stats` function L314-331 — `( &self, since: chrono::DateTime<chrono::Utc>, ) -> Result<crate::dal::ScheduleE...` — Get cron execution statistics
 - pub `get_workflow_registry` function L338-341 — `(&self) -> Option<Arc<dyn WorkflowRegistry>>` — Get access to the workflow registry (if enabled)
@@ -4116,28 +4152,28 @@
 - pub `DefaultRunner` struct L68-88 — `{ database: Database, config: DefaultRunnerConfig, scheduler: Arc<TaskScheduler>...` — Default runner that coordinates workflow scheduling and task execution
 - pub `new` function L122-124 — `(database_url: &str) -> Result<Self, WorkflowExecutionError>` — Creates a new default runner with default configuration
 - pub `builder` function L138-140 — `() -> DefaultRunnerBuilder` — Creates a builder for configuring the executor
-- pub `with_schema` function L158-164 — `(database_url: &str, schema: &str) -> Result<Self, WorkflowExecutionError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
-- pub `with_config` function L181-249 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
-- pub `database` function L252-254 — `(&self) -> &Database` — Returns a reference to the database.
-- pub `dal` function L257-259 — `(&self) -> DAL` — Returns the DAL for database operations.
-- pub `unified_scheduler` function L265-267 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
-- pub `set_reactive_scheduler` function L271-277 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,...` — Set the reactive scheduler for computation graph package routing.
-- pub `shutdown` function L289-326 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services
+- pub `with_schema` function L158-167 — `( database_url: &str, schema: &str, ) -> Result<Self, WorkflowExecutionError>` — Creates a new executor with PostgreSQL schema-based multi-tenancy
+- pub `with_config` function L184-252 — `( database_url: &str, config: DefaultRunnerConfig, ) -> Result<Self, WorkflowExe...` — Creates a new unified executor with custom configuration
+- pub `database` function L255-257 — `(&self) -> &Database` — Returns a reference to the database.
+- pub `dal` function L260-262 — `(&self) -> DAL` — Returns the DAL for database operations.
+- pub `unified_scheduler` function L268-270 — `(&self) -> Option<Arc<Scheduler>>` — Returns the unified scheduler if enabled.
+- pub `set_reactive_scheduler` function L274-280 — `( &self, scheduler: Arc<crate::computation_graph::scheduler::ReactiveScheduler>,...` — Set the reactive scheduler for computation graph package routing.
+- pub `shutdown` function L292-329 — `(&self) -> Result<(), WorkflowExecutionError>` — Gracefully shuts down the executor and its background services
 -  `config` module L29 — `-` — Default runner for workflow execution.
 -  `cron_api` module L30 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_executor_impl` module L31 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `pipeline_result` module L32 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `services` module L33 — `-` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 -  `RuntimeHandles` struct L94-107 — `{ scheduler_handle: Option<tokio::task::JoinHandle<()>>, executor_handle: Option...` — Internal structure for managing runtime handles of background services
--  `DefaultRunner` type L109-327 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L329-343 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `clone` function L330-342 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `DefaultRunner` type L346-352 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
--  `drop` function L347-351 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L109-330 — `= DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L332-346 — `impl Clone for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `clone` function L333-345 — `(&self) -> Self` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `DefaultRunner` type L349-355 — `impl Drop for DefaultRunner` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
+-  `drop` function L350-354 — `(&mut self)` — - `DefaultRunnerBuilder`: Builder for creating runners with custom settings
 
 #### crates/cloacina/src/runner/default_runner/pipeline_executor_impl.rs
 
--  `DefaultRunner` type L44-369 — `impl WorkflowExecutor for DefaultRunner` — Implementation of WorkflowExecutor trait for DefaultRunner
+-  `DefaultRunner` type L44-371 — `impl WorkflowExecutor for DefaultRunner` — Implementation of WorkflowExecutor trait for DefaultRunner
 -  `execute` function L55-101 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — Executes a workflow synchronously and waits for completion
 -  `execute_async` function L114-133 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, ) -> Result<W...` — Executes a workflow asynchronously
 -  `execute_with_callback` function L147-175 — `( &self, workflow_name: &str, context: Context<serde_json::Value>, callback: Box...` — Executes a workflow with status callbacks
@@ -4146,13 +4182,13 @@
 -  `cancel_execution` function L231-244 — `(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — Cancels an in-progress workflow execution
 -  `pause_execution` function L257-292 — `( &self, execution_id: Uuid, reason: Option<&str>, ) -> Result<(), WorkflowExecu...` — Pauses a running workflow execution
 -  `resume_execution` function L304-333 — `(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError>` — Resumes a paused workflow execution
--  `list_executions` function L341-360 — `(&self) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — Lists recent workflow executions
--  `shutdown` function L366-368 — `(&self) -> Result<(), WorkflowExecutionError>` — Shuts down the executor
+-  `list_executions` function L341-362 — `( &self, ) -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>` — Lists recent workflow executions
+-  `shutdown` function L368-370 — `(&self) -> Result<(), WorkflowExecutionError>` — Shuts down the executor
 
 #### crates/cloacina/src/runner/default_runner/pipeline_result.rs
 
--  `DefaultRunner` type L35-177 — `= DefaultRunner` — from database records.
--  `build_pipeline_result` function L50-176 — `( &self, execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecut...` — Builds a workflow execution result from an execution ID
+-  `DefaultRunner` type L35-176 — `= DefaultRunner` — from database records.
+-  `build_pipeline_result` function L50-175 — `( &self, execution_id: Uuid, ) -> Result<WorkflowExecutionResult, WorkflowExecut...` — Builds a workflow execution result from an execution ID
 
 #### crates/cloacina/src/runner/default_runner/services.rs
 
@@ -5310,19 +5346,19 @@
 
 #### crates/cloacina/tests/integration/executor/multi_tenant.rs
 
--  `postgres_multi_tenant_tests` module L19-290 — `-` — Integration tests for multi-tenant functionality
+-  `postgres_multi_tenant_tests` module L19-293 — `-` — Integration tests for multi-tenant functionality
 -  `tenant_marker_task` function L33-37 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task that marks its tenant in the context
 -  `setup_tenant_workflow` function L40-67 — `(tenant_schema: &str) -> Workflow` — Helper to create and register a workflow for a specific tenant schema
 -  `test_schema_isolation` function L71-159 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that schema-based multi-tenancy provides complete data isolation
 -  `test_independent_execution` function L163-235 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that the same workflow can execute independently in different tenants
 -  `test_invalid_schema_names` function L239-260 — `()` — Test that invalid schema names are rejected
--  `test_sqlite_schema_rejection` function L264-272 — `()` — Test that schema isolation is only supported for PostgreSQL
--  `test_builder_pattern` function L276-289 — `() -> Result<(), Box<dyn std::error::Error>>` — Test builder pattern for multi-tenant setup
--  `sqlite_multi_tenant_tests` module L292-435 — `-` — Integration tests for multi-tenant functionality
--  `sqlite_tenant_task` function L305-308 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task for SQLite tests
--  `setup_sqlite_workflow` function L311-337 — `(db_name: &str) -> Workflow` — Helper to create and register a workflow for SQLite tests
--  `test_sqlite_file_isolation` function L341-417 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
--  `test_sqlite_separate_files` function L421-434 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
+-  `test_sqlite_schema_rejection` function L264-275 — `()` — Test that schema isolation is only supported for PostgreSQL
+-  `test_builder_pattern` function L279-292 — `() -> Result<(), Box<dyn std::error::Error>>` — Test builder pattern for multi-tenant setup
+-  `sqlite_multi_tenant_tests` module L295-438 — `-` — Integration tests for multi-tenant functionality
+-  `sqlite_tenant_task` function L308-311 — `(context: &mut Context<Value>) -> Result<(), TaskError>` — Simple task for SQLite tests
+-  `setup_sqlite_workflow` function L314-340 — `(db_name: &str) -> Workflow` — Helper to create and register a workflow for SQLite tests
+-  `test_sqlite_file_isolation` function L344-420 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite multi-tenancy works with separate database files
+-  `test_sqlite_separate_files` function L424-437 — `() -> Result<(), Box<dyn std::error::Error>>` — Test that SQLite creates separate database files
 
 #### crates/cloacina/tests/integration/executor/pause_resume.rs
 
@@ -5446,13 +5482,13 @@
 
 #### crates/cloacina/tests/integration/scheduler/stale_claims.rs
 
--  `test_sweeper` function L30-37 — `(dal: Arc<DAL>, threshold: Duration) -> StaleClaimSweeper` — Create a sweeper with a very short stale threshold for testing.
--  `create_claimed_task` function L43-82 — `( dal: &DAL, pipeline_name: &str, task_name: &str, ) -> (UniversalUuid, Universa...` — Helper: create a pipeline + task in "Running" state with a runner claim.
--  `test_sweep_during_grace_period_is_noop` function L85-119 — `()` — Integration tests for the stale claim sweeper.
--  `test_sweep_after_grace_period_no_stale_claims` function L122-146 — `()` — Integration tests for the stale claim sweeper.
--  `test_sweep_resets_stale_task_to_ready` function L149-184 — `()` — Integration tests for the stale claim sweeper.
--  `test_sweep_multiple_stale_tasks` function L187-225 — `()` — Integration tests for the stale claim sweeper.
--  `test_sweeper_run_loop_stops_on_shutdown` function L228-264 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweeper` function L32-39 — `(dal: Arc<DAL>, threshold: Duration) -> StaleClaimSweeper` — Create a sweeper with a very short stale threshold for testing.
+-  `create_claimed_task` function L45-84 — `( dal: &DAL, pipeline_name: &str, task_name: &str, ) -> (UniversalUuid, Universa...` — Helper: create a pipeline + task in "Running" state with a runner claim.
+-  `test_sweep_during_grace_period_is_noop` function L87-121 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_after_grace_period_no_stale_claims` function L124-148 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_resets_stale_task_to_ready` function L151-186 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweep_multiple_stale_tasks` function L189-227 — `()` — Integration tests for the stale claim sweeper.
+-  `test_sweeper_run_loop_stops_on_shutdown` function L230-266 — `()` — Integration tests for the stale claim sweeper.
 
 #### crates/cloacina/tests/integration/scheduler/trigger_rules.rs
 
