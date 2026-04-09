@@ -1126,7 +1126,10 @@ async fn run_pipeline_and_get_status(
     }
     let workflow = builder.build().unwrap();
 
-    // Register tasks
+    // Create a scoped Runtime for test isolation (no global registry pollution)
+    let runtime = cloacina::Runtime::new();
+
+    // Register tasks on the scoped runtime
     for (task_id, constructor) in &task_defs {
         let namespace = TaskNamespace::new(
             workflow.tenant(),
@@ -1135,11 +1138,11 @@ async fn run_pipeline_and_get_status(
             task_id,
         );
         let ctor = constructor();
-        register_task_constructor(namespace, move || ctor.clone());
+        runtime.register_task(namespace, move || ctor.clone());
     }
 
-    // Register workflow
-    register_workflow_constructor(workflow.name().to_string(), {
+    // Register workflow on the scoped runtime
+    runtime.register_workflow(workflow.name().to_string(), {
         let workflow = workflow.clone();
         move || workflow.clone()
     });
@@ -1148,6 +1151,7 @@ async fn run_pipeline_and_get_status(
     let runner = DefaultRunner::builder()
         .database_url(&database_url)
         .schema(&schema)
+        .runtime(runtime)
         .build()
         .await
         .unwrap();

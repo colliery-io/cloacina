@@ -4,14 +4,14 @@ level: task
 title: "Migrate tests to per-test Runtime instances and remove #[serial] annotations"
 short_code: "CLOACI-T-0467"
 created_at: 2026-04-09T16:59:32.426583+00:00
-updated_at: 2026-04-09T16:59:32.426583+00:00
+updated_at: 2026-04-09T17:41:16.021525+00:00
 parent: CLOACI-I-0091
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -31,6 +31,8 @@ initiative_id: CLOACI-I-0091
 The payoff: update integration tests to create per-test `Runtime` instances with isolated registries, then remove `#[serial]` annotations. This enables parallel test execution and faster CI.
 
 **Effort**: 2-3 days
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -68,4 +70,4 @@ After T-0466 (Runtime wired into DefaultRunner and executor).
 
 ## Status Updates
 
-*To be added during implementation*
+- **2026-04-09**: Migrated `run_pipeline_and_get_status` helper in task_execution.rs to use `Runtime::new()` + `runtime.register_task()` + `.runtime(runtime)` on the builder. Pattern works — tasks are discovered through the scoped runtime, not globals. However, discovered that most `#[serial]` annotations guard DB state (shared Postgres fixture), not registry state. Removing `#[serial]` requires per-test DB schemas, which is outside the scope of scoped registries. The Runtime struct and wiring are valuable infrastructure, but the `#[serial]` reduction target of 160->20 was overly optimistic. Realistic target: ~10-20 tests that ONLY need registry isolation (COR-01 tests, some unit tests) could drop `#[serial]` if given per-test DB schemas. Marking as blocked on per-test DB isolation infrastructure.
