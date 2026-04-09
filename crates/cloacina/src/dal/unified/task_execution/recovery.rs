@@ -270,7 +270,7 @@ mod tests {
     use crate::dal::DAL;
     use crate::database::universal_types::UniversalUuid;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
 
     #[cfg(feature = "sqlite")]
@@ -289,8 +289,8 @@ mod tests {
     /// Helper: create a pipeline and return its ID.
     #[cfg(feature = "sqlite")]
     async fn create_pipeline(dal: &DAL) -> UniversalUuid {
-        dal.pipeline_execution()
-            .create(NewPipelineExecution {
+        dal.workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "recovery_pipeline".into(),
                 pipeline_version: "1.0".into(),
                 status: "Running".into(),

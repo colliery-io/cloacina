@@ -14,31 +14,31 @@
  *  limitations under the License.
  */
 
-//! Pipeline execution engine for workflow orchestration.
+//! Workflow execution engine for workflow orchestration.
 //!
-//! This module provides the core functionality for executing workflows as pipelines,
+//! This module provides the core functionality for executing workflows,
 //! managing their lifecycle, and handling execution results. It includes support for
 //! both synchronous and asynchronous execution, status monitoring, and error handling.
 //!
 //! # Key Components
 //!
-//! - `PipelineExecutor`: Core trait defining the execution engine interface
-//! - `PipelineExecution`: Handle for managing asynchronous pipeline executions
-//! - `PipelineStatus`: Represents the current state of a pipeline
-//! - `PipelineResult`: Contains the final outcome of a pipeline execution
+//! - `WorkflowExecutor`: Core trait defining the execution engine interface
+//! - `WorkflowExecution`: Handle for managing asynchronous workflow executions
+//! - `WorkflowStatus`: Represents the current state of a workflow
+//! - `WorkflowExecutionResult`: Contains the final outcome of a workflow execution
 //! - `TaskResult`: Represents the outcome of individual task execution
 //!
 //! # Example
 //!
 //! ```rust,ignore
-//! use cloacina::executor::PipelineExecutor;
+//! use cloacina::executor::WorkflowExecutor;
 //! use cloacina::Context;
 //!
-//! async fn run_pipeline(executor: &impl PipelineExecutor) {
+//! async fn run_workflow(executor: &impl WorkflowExecutor) {
 //!     let context = Context::new(serde_json::json!({}));
 //!     match executor.execute("my_workflow", context).await {
-//!         Ok(result) => println!("Pipeline completed: {:?}", result),
-//!         Err(e) => println!("Pipeline failed: {}", e),
+//!         Ok(result) => println!("Workflow completed: {:?}", result),
+//!         Err(e) => println!("Workflow failed: {}", e),
 //!     }
 //! }
 //! ```
@@ -52,17 +52,17 @@ use crate::error::{ExecutorError, TaskError, ValidationError};
 use crate::task::TaskState;
 use crate::Context;
 
-/// Callback trait for receiving real-time status updates during pipeline execution.
+/// Callback trait for receiving real-time status updates during workflow execution.
 ///
-/// Implement this trait to receive notifications about status changes in a running pipeline.
+/// Implement this trait to receive notifications about status changes in a running workflow.
 /// This is useful for monitoring progress, updating UI, or triggering dependent actions.
 pub trait StatusCallback: Send + Sync {
-    /// Called whenever the pipeline status changes.
+    /// Called whenever the workflow status changes.
     ///
     /// # Arguments
     ///
-    /// * `status` - The new status of the pipeline
-    fn on_status_change(&self, status: PipelineStatus);
+    /// * `status` - The new status of the workflow
+    fn on_status_change(&self, status: WorkflowStatus);
 }
 
 /// Represents the outcome of a single task execution within a pipeline.
@@ -87,13 +87,13 @@ pub struct TaskResult {
     pub error_message: Option<String>,
 }
 
-/// Unified error type for pipeline execution operations.
+/// Unified error type for workflow execution operations.
 ///
 /// This enum represents all possible error conditions that can occur during
-/// pipeline execution, including database errors, workflow not found errors,
+/// workflow execution, including database errors, workflow not found errors,
 /// execution failures, timeouts, and various other error types.
 #[derive(Debug, thiserror::Error)]
-pub enum PipelineError {
+pub enum WorkflowExecutionError {
     #[error("Database connection failed: {message}")]
     DatabaseConnection { message: String },
 
@@ -119,31 +119,31 @@ pub enum PipelineError {
     Configuration { message: String },
 }
 
-/// Represents the current state of a pipeline execution.
+/// Represents the current state of a workflow execution.
 ///
-/// The status transitions through these states during the lifecycle of a pipeline:
+/// The status transitions through these states during the lifecycle of a workflow:
 /// Pending -> Running -> (Completed | Failed | Cancelled)
 ///                    <-> Paused (can resume back to Running)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PipelineStatus {
-    /// Pipeline is queued but not yet started
+pub enum WorkflowStatus {
+    /// Workflow is queued but not yet started
     Pending,
-    /// Pipeline is currently executing
+    /// Workflow is currently executing
     Running,
-    /// Pipeline completed successfully
+    /// Workflow completed successfully
     Completed,
-    /// Pipeline failed during execution
+    /// Workflow failed during execution
     Failed,
-    /// Pipeline was cancelled before completion
+    /// Workflow was cancelled before completion
     Cancelled,
-    /// Pipeline is paused and can be resumed
+    /// Workflow is paused and can be resumed
     Paused,
 }
 
-impl PipelineStatus {
+impl WorkflowStatus {
     /// Determines if this status represents a terminal state.
     ///
-    /// Terminal states are those from which the pipeline cannot transition to another state.
+    /// Terminal states are those from which the workflow cannot transition to another state.
     ///
     /// # Returns
     ///
@@ -151,42 +151,42 @@ impl PipelineStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            PipelineStatus::Completed | PipelineStatus::Failed | PipelineStatus::Cancelled
+            WorkflowStatus::Completed | WorkflowStatus::Failed | WorkflowStatus::Cancelled
         )
     }
 }
 
-/// Contains the complete result of a pipeline execution.
+/// Contains the complete result of a workflow execution.
 ///
-/// This struct provides comprehensive information about a completed pipeline execution,
+/// This struct provides comprehensive information about a completed workflow execution,
 /// including timing information, final context state, and results of all tasks.
 #[derive(Debug)]
-pub struct PipelineResult {
+pub struct WorkflowExecutionResult {
     /// Unique identifier for this execution
     pub execution_id: Uuid,
     /// Name of the workflow that was executed
     pub workflow_name: String,
-    /// Final status of the pipeline
-    pub status: PipelineStatus,
-    /// When the pipeline started execution
+    /// Final status of the workflow
+    pub status: WorkflowStatus,
+    /// When the workflow started execution
     pub start_time: DateTime<Utc>,
-    /// When the pipeline completed execution
+    /// When the workflow completed execution
     pub end_time: Option<DateTime<Utc>>,
-    /// Total duration of the pipeline execution
+    /// Total duration of the workflow execution
     pub duration: Option<Duration>,
     /// Final state of the execution context
     pub final_context: Context<serde_json::Value>,
-    /// Results of all tasks in the pipeline
+    /// Results of all tasks in the workflow
     pub task_results: Vec<TaskResult>,
-    /// Error message if the pipeline failed
+    /// Error message if the workflow failed
     pub error_message: Option<String>,
 }
 
-/// Handle for managing an asynchronous pipeline execution.
+/// Handle for managing an asynchronous workflow execution.
 ///
-/// This struct provides methods to monitor and control a running pipeline execution.
+/// This struct provides methods to monitor and control a running workflow execution.
 /// It can be used to check status, wait for completion, or cancel the execution.
-pub struct PipelineExecution {
+pub struct WorkflowExecution {
     /// Unique identifier for this execution
     pub execution_id: Uuid,
     /// Name of the workflow being executed
@@ -194,8 +194,8 @@ pub struct PipelineExecution {
     executor: crate::runner::DefaultRunner,
 }
 
-impl PipelineExecution {
-    /// Creates a new pipeline execution handle.
+impl WorkflowExecution {
+    /// Creates a new workflow execution handle.
     ///
     /// # Arguments
     ///
@@ -214,15 +214,17 @@ impl PipelineExecution {
         }
     }
 
-    /// Waits for the pipeline to complete execution.
+    /// Waits for the workflow to complete execution.
     ///
-    /// This method blocks until the pipeline reaches a terminal state.
+    /// This method blocks until the workflow reaches a terminal state.
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineResult)` - The final result of the pipeline execution
-    /// * `Err(PipelineError)` - If the execution fails or encounters an error
-    pub async fn wait_for_completion(self) -> Result<PipelineResult, PipelineError> {
+    /// * `Ok(WorkflowExecutionResult)` - The final result of the workflow execution
+    /// * `Err(WorkflowExecutionError)` - If the execution fails or encounters an error
+    pub async fn wait_for_completion(
+        self,
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         self.wait_for_completion_with_timeout(None).await
     }
 
@@ -234,19 +236,19 @@ impl PipelineExecution {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineResult)` - The final result of the pipeline execution
-    /// * `Err(PipelineError)` - If the execution fails, times out, or encounters an error
+    /// * `Ok(WorkflowExecutionResult)` - The final result of the workflow execution
+    /// * `Err(WorkflowExecutionError)` - If the execution fails, times out, or encounters an error
     pub async fn wait_for_completion_with_timeout(
         self,
         timeout: Option<Duration>,
-    ) -> Result<PipelineResult, PipelineError> {
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         let start_time = std::time::Instant::now();
 
         loop {
             // Check timeout
             if let Some(timeout_duration) = timeout {
                 if start_time.elapsed() > timeout_duration {
-                    return Err(PipelineError::Timeout {
+                    return Err(WorkflowExecutionError::Timeout {
                         timeout_seconds: timeout_duration.as_secs(),
                     });
                 }
@@ -268,32 +270,32 @@ impl PipelineExecution {
         }
     }
 
-    /// Gets the current status of the pipeline execution.
+    /// Gets the current status of the workflow execution.
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineStatus)` - The current status of the execution
-    /// * `Err(PipelineError)` - If the status cannot be retrieved
-    pub async fn get_status(&self) -> Result<PipelineStatus, PipelineError> {
+    /// * `Ok(WorkflowStatus)` - The current status of the execution
+    /// * `Err(WorkflowExecutionError)` - If the status cannot be retrieved
+    pub async fn get_status(&self) -> Result<WorkflowStatus, WorkflowExecutionError> {
         self.executor.get_execution_status(self.execution_id).await
     }
 
-    /// Cancels the pipeline execution.
+    /// Cancels the workflow execution.
     ///
-    /// This method attempts to gracefully stop the pipeline execution.
+    /// This method attempts to gracefully stop the workflow execution.
     ///
     /// # Returns
     ///
     /// * `Ok(())` - If the cancellation was successful
-    /// * `Err(PipelineError)` - If the cancellation failed
-    pub async fn cancel(&self) -> Result<(), PipelineError> {
+    /// * `Err(WorkflowExecutionError)` - If the cancellation failed
+    pub async fn cancel(&self) -> Result<(), WorkflowExecutionError> {
         self.executor.cancel_execution(self.execution_id).await
     }
 
-    /// Pauses the pipeline execution.
+    /// Pauses the workflow execution.
     ///
     /// When paused, no new tasks will be scheduled, but in-flight tasks will
-    /// complete normally. The pipeline can be resumed later.
+    /// complete normally. The workflow can be resumed later.
     ///
     /// # Arguments
     ///
@@ -302,34 +304,34 @@ impl PipelineExecution {
     /// # Returns
     ///
     /// * `Ok(())` - If the pause was successful
-    /// * `Err(PipelineError)` - If the pause failed
-    pub async fn pause(&self, reason: Option<&str>) -> Result<(), PipelineError> {
+    /// * `Err(WorkflowExecutionError)` - If the pause failed
+    pub async fn pause(&self, reason: Option<&str>) -> Result<(), WorkflowExecutionError> {
         self.executor
             .pause_execution(self.execution_id, reason)
             .await
     }
 
-    /// Resumes a paused pipeline execution.
+    /// Resumes a paused workflow execution.
     ///
-    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// The scheduler will resume scheduling tasks for this workflow on the next
     /// poll cycle.
     ///
     /// # Returns
     ///
     /// * `Ok(())` - If the resume was successful
-    /// * `Err(PipelineError)` - If the resume failed
-    pub async fn resume(&self) -> Result<(), PipelineError> {
+    /// * `Err(WorkflowExecutionError)` - If the resume failed
+    pub async fn resume(&self) -> Result<(), WorkflowExecutionError> {
         self.executor.resume_execution(self.execution_id).await
     }
 }
 
-/// Core trait defining the interface for pipeline execution engines.
+/// Core trait defining the interface for workflow execution engines.
 ///
 /// This trait provides the fundamental operations for executing and managing
-/// workflow pipelines. Implementations should handle the actual execution
+/// workflows. Implementations should handle the actual execution
 /// logic, state management, and error handling.
 #[async_trait]
-pub trait PipelineExecutor: Send + Sync {
+pub trait WorkflowExecutor: Send + Sync {
     /// Executes a workflow and waits for completion.
     ///
     /// # Arguments
@@ -339,13 +341,13 @@ pub trait PipelineExecutor: Send + Sync {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineResult)` - The final result of the pipeline execution
-    /// * `Err(PipelineError)` - If the execution fails or encounters an error
+    /// * `Ok(WorkflowExecutionResult)` - The final result of the workflow execution
+    /// * `Err(WorkflowExecutionError)` - If the execution fails or encounters an error
     async fn execute(
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-    ) -> Result<PipelineResult, PipelineError>;
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>;
 
     /// Executes a workflow asynchronously.
     ///
@@ -359,13 +361,13 @@ pub trait PipelineExecutor: Send + Sync {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineExecution)` - Handle to the running execution
-    /// * `Err(PipelineError)` - If the execution cannot be started
+    /// * `Ok(WorkflowExecution)` - Handle to the running execution
+    /// * `Err(WorkflowExecutionError)` - If the execution cannot be started
     async fn execute_async(
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
-    ) -> Result<PipelineExecution, PipelineError>;
+    ) -> Result<WorkflowExecution, WorkflowExecutionError>;
 
     /// Gets the current status of a running execution.
     ///
@@ -375,12 +377,12 @@ pub trait PipelineExecutor: Send + Sync {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineStatus)` - Current status of the execution
-    /// * `Err(PipelineError)` - If the status cannot be retrieved
+    /// * `Ok(WorkflowStatus)` - Current status of the execution
+    /// * `Err(WorkflowExecutionError)` - If the status cannot be retrieved
     async fn get_execution_status(
         &self,
         execution_id: Uuid,
-    ) -> Result<PipelineStatus, PipelineError>;
+    ) -> Result<WorkflowStatus, WorkflowExecutionError>;
 
     /// Gets the final result of a completed execution.
     ///
@@ -390,12 +392,12 @@ pub trait PipelineExecutor: Send + Sync {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineResult)` - The final result of the execution
-    /// * `Err(PipelineError)` - If the result cannot be retrieved
+    /// * `Ok(WorkflowExecutionResult)` - The final result of the execution
+    /// * `Err(WorkflowExecutionError)` - If the result cannot be retrieved
     async fn get_execution_result(
         &self,
         execution_id: Uuid,
-    ) -> Result<PipelineResult, PipelineError>;
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>;
 
     /// Cancels a running execution.
     ///
@@ -406,13 +408,13 @@ pub trait PipelineExecutor: Send + Sync {
     /// # Returns
     ///
     /// * `Ok(())` - If the cancellation was successful
-    /// * `Err(PipelineError)` - If the cancellation failed
-    async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), PipelineError>;
+    /// * `Err(WorkflowExecutionError)` - If the cancellation failed
+    async fn cancel_execution(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError>;
 
-    /// Pauses a running pipeline execution.
+    /// Pauses a running workflow execution.
     ///
     /// When paused, no new tasks will be scheduled, but in-flight tasks will
-    /// complete normally. The pipeline can be resumed later.
+    /// complete normally. The workflow can be resumed later.
     ///
     /// # Arguments
     ///
@@ -422,16 +424,16 @@ pub trait PipelineExecutor: Send + Sync {
     /// # Returns
     ///
     /// * `Ok(())` - If the pause was successful
-    /// * `Err(PipelineError)` - If the pause failed (e.g., pipeline not running)
+    /// * `Err(WorkflowExecutionError)` - If the pause failed (e.g., workflow not running)
     async fn pause_execution(
         &self,
         execution_id: Uuid,
         reason: Option<&str>,
-    ) -> Result<(), PipelineError>;
+    ) -> Result<(), WorkflowExecutionError>;
 
-    /// Resumes a paused pipeline execution.
+    /// Resumes a paused workflow execution.
     ///
-    /// The scheduler will resume scheduling tasks for this pipeline on the next
+    /// The scheduler will resume scheduling tasks for this workflow on the next
     /// poll cycle.
     ///
     /// # Arguments
@@ -441,8 +443,8 @@ pub trait PipelineExecutor: Send + Sync {
     /// # Returns
     ///
     /// * `Ok(())` - If the resume was successful
-    /// * `Err(PipelineError)` - If the resume failed (e.g., pipeline not paused)
-    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), PipelineError>;
+    /// * `Err(WorkflowExecutionError)` - If the resume failed (e.g., workflow not paused)
+    async fn resume_execution(&self, execution_id: Uuid) -> Result<(), WorkflowExecutionError>;
 
     /// Executes a workflow with status updates via callback.
     ///
@@ -454,22 +456,23 @@ pub trait PipelineExecutor: Send + Sync {
     ///
     /// # Returns
     ///
-    /// * `Ok(PipelineResult)` - The final result of the pipeline execution
-    /// * `Err(PipelineError)` - If the execution fails or encounters an error
+    /// * `Ok(WorkflowExecutionResult)` - The final result of the workflow execution
+    /// * `Err(WorkflowExecutionError)` - If the execution fails or encounters an error
     async fn execute_with_callback(
         &self,
         workflow_name: &str,
         context: Context<serde_json::Value>,
         callback: Box<dyn StatusCallback>,
-    ) -> Result<PipelineResult, PipelineError>;
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError>;
 
-    /// Lists recent pipeline executions.
+    /// Lists recent workflow executions.
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<PipelineResult>)` - List of recent execution results
-    /// * `Err(PipelineError)` - If the list cannot be retrieved
-    async fn list_executions(&self) -> Result<Vec<PipelineResult>, PipelineError>;
+    /// * `Ok(Vec<WorkflowExecutionResult>)` - List of recent execution results
+    /// * `Err(WorkflowExecutionError)` - If the list cannot be retrieved
+    async fn list_executions(&self)
+        -> Result<Vec<WorkflowExecutionResult>, WorkflowExecutionError>;
 
     /// Shuts down the executor and its background services.
     ///
@@ -479,16 +482,16 @@ pub trait PipelineExecutor: Send + Sync {
     /// # Returns
     ///
     /// * `Ok(())` - If shutdown was successful
-    /// * `Err(PipelineError)` - If shutdown failed
-    async fn shutdown(&self) -> Result<(), PipelineError>;
+    /// * `Err(WorkflowExecutionError)` - If shutdown failed
+    async fn shutdown(&self) -> Result<(), WorkflowExecutionError>;
 }
 
-impl PipelineStatus {
-    /// Creates a PipelineStatus from a string representation.
+impl WorkflowStatus {
+    /// Creates a WorkflowStatus from a string representation.
     ///
-    /// This method is used internally for deserializing pipeline statuses from
+    /// This method is used internally for deserializing workflow statuses from
     /// various sources (database, API responses, etc.). It provides a consistent
-    /// way to convert string representations of pipeline statuses into the
+    /// way to convert string representations of workflow statuses into the
     /// corresponding enum variants.
     ///
     /// # Arguments
@@ -497,7 +500,7 @@ impl PipelineStatus {
     ///
     /// # Returns
     ///
-    /// The corresponding PipelineStatus variant, or Failed if the string is invalid
+    /// The corresponding WorkflowStatus variant, or Failed if the string is invalid
     ///
     /// # Usage
     /// - Database deserialization
@@ -507,13 +510,13 @@ impl PipelineStatus {
     #[allow(dead_code)]
     pub(crate) fn from_str(s: &str) -> Self {
         match s {
-            "Pending" => PipelineStatus::Pending,
-            "Running" => PipelineStatus::Running,
-            "Completed" => PipelineStatus::Completed,
-            "Failed" => PipelineStatus::Failed,
-            "Cancelled" => PipelineStatus::Cancelled,
-            "Paused" => PipelineStatus::Paused,
-            _ => PipelineStatus::Failed,
+            "Pending" => WorkflowStatus::Pending,
+            "Running" => WorkflowStatus::Running,
+            "Completed" => WorkflowStatus::Completed,
+            "Failed" => WorkflowStatus::Failed,
+            "Cancelled" => WorkflowStatus::Cancelled,
+            "Paused" => WorkflowStatus::Paused,
+            _ => WorkflowStatus::Failed,
         }
     }
 }
@@ -524,73 +527,73 @@ mod tests {
     use chrono::Utc;
 
     // -----------------------------------------------------------------------
-    // PipelineStatus tests
+    // WorkflowStatus tests
     // -----------------------------------------------------------------------
 
     #[test]
     fn test_pipeline_status_is_terminal() {
-        assert!(PipelineStatus::Completed.is_terminal());
-        assert!(PipelineStatus::Failed.is_terminal());
-        assert!(PipelineStatus::Cancelled.is_terminal());
+        assert!(WorkflowStatus::Completed.is_terminal());
+        assert!(WorkflowStatus::Failed.is_terminal());
+        assert!(WorkflowStatus::Cancelled.is_terminal());
     }
 
     #[test]
     fn test_pipeline_status_is_not_terminal() {
-        assert!(!PipelineStatus::Pending.is_terminal());
-        assert!(!PipelineStatus::Running.is_terminal());
-        assert!(!PipelineStatus::Paused.is_terminal());
+        assert!(!WorkflowStatus::Pending.is_terminal());
+        assert!(!WorkflowStatus::Running.is_terminal());
+        assert!(!WorkflowStatus::Paused.is_terminal());
     }
 
     #[test]
     fn test_pipeline_status_from_str_valid() {
-        assert_eq!(PipelineStatus::from_str("Pending"), PipelineStatus::Pending);
-        assert_eq!(PipelineStatus::from_str("Running"), PipelineStatus::Running);
+        assert_eq!(WorkflowStatus::from_str("Pending"), WorkflowStatus::Pending);
+        assert_eq!(WorkflowStatus::from_str("Running"), WorkflowStatus::Running);
         assert_eq!(
-            PipelineStatus::from_str("Completed"),
-            PipelineStatus::Completed
+            WorkflowStatus::from_str("Completed"),
+            WorkflowStatus::Completed
         );
-        assert_eq!(PipelineStatus::from_str("Failed"), PipelineStatus::Failed);
+        assert_eq!(WorkflowStatus::from_str("Failed"), WorkflowStatus::Failed);
         assert_eq!(
-            PipelineStatus::from_str("Cancelled"),
-            PipelineStatus::Cancelled
+            WorkflowStatus::from_str("Cancelled"),
+            WorkflowStatus::Cancelled
         );
-        assert_eq!(PipelineStatus::from_str("Paused"), PipelineStatus::Paused);
+        assert_eq!(WorkflowStatus::from_str("Paused"), WorkflowStatus::Paused);
     }
 
     #[test]
     fn test_pipeline_status_from_str_invalid_defaults_to_failed() {
-        assert_eq!(PipelineStatus::from_str("garbage"), PipelineStatus::Failed);
-        assert_eq!(PipelineStatus::from_str(""), PipelineStatus::Failed);
-        assert_eq!(PipelineStatus::from_str("running"), PipelineStatus::Failed);
+        assert_eq!(WorkflowStatus::from_str("garbage"), WorkflowStatus::Failed);
+        assert_eq!(WorkflowStatus::from_str(""), WorkflowStatus::Failed);
+        assert_eq!(WorkflowStatus::from_str("running"), WorkflowStatus::Failed);
         // case-sensitive
     }
 
     #[test]
     fn test_pipeline_status_eq() {
-        assert_eq!(PipelineStatus::Running, PipelineStatus::Running);
-        assert_ne!(PipelineStatus::Running, PipelineStatus::Pending);
+        assert_eq!(WorkflowStatus::Running, WorkflowStatus::Running);
+        assert_ne!(WorkflowStatus::Running, WorkflowStatus::Pending);
     }
 
     #[test]
     fn test_pipeline_status_clone() {
-        let status = PipelineStatus::Paused;
+        let status = WorkflowStatus::Paused;
         let cloned = status.clone();
         assert_eq!(status, cloned);
     }
 
     #[test]
     fn test_pipeline_status_debug() {
-        let debug_str = format!("{:?}", PipelineStatus::Running);
+        let debug_str = format!("{:?}", WorkflowStatus::Running);
         assert_eq!(debug_str, "Running");
     }
 
     // -----------------------------------------------------------------------
-    // PipelineError tests
+    // WorkflowExecutionError tests
     // -----------------------------------------------------------------------
 
     #[test]
     fn test_pipeline_error_display_database_connection() {
-        let err = PipelineError::DatabaseConnection {
+        let err = WorkflowExecutionError::DatabaseConnection {
             message: "connection refused".to_string(),
         };
         assert_eq!(
@@ -601,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_error_display_workflow_not_found() {
-        let err = PipelineError::WorkflowNotFound {
+        let err = WorkflowExecutionError::WorkflowNotFound {
             workflow_name: "my_workflow".to_string(),
         };
         assert_eq!(err.to_string(), "Workflow not found: my_workflow");
@@ -609,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_error_display_execution_failed() {
-        let err = PipelineError::ExecutionFailed {
+        let err = WorkflowExecutionError::ExecutionFailed {
             message: "something broke".to_string(),
         };
         assert_eq!(
@@ -620,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_error_display_timeout() {
-        let err = PipelineError::Timeout {
+        let err = WorkflowExecutionError::Timeout {
             timeout_seconds: 300,
         };
         assert_eq!(err.to_string(), "Pipeline timeout after 300s");
@@ -628,7 +631,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_error_display_configuration() {
-        let err = PipelineError::Configuration {
+        let err = WorkflowExecutionError::Configuration {
             message: "bad config".to_string(),
         };
         assert_eq!(err.to_string(), "Configuration error: bad config");
@@ -691,15 +694,15 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // PipelineResult tests
+    // WorkflowExecutionResult tests
     // -----------------------------------------------------------------------
 
     #[test]
     fn test_pipeline_result_construction() {
-        let result = PipelineResult {
+        let result = WorkflowExecutionResult {
             execution_id: Uuid::new_v4(),
             workflow_name: "etl_pipeline".to_string(),
-            status: PipelineStatus::Completed,
+            status: WorkflowStatus::Completed,
             start_time: Utc::now(),
             end_time: Some(Utc::now()),
             duration: Some(Duration::from_secs(10)),
@@ -708,7 +711,7 @@ mod tests {
             error_message: None,
         };
         assert_eq!(result.workflow_name, "etl_pipeline");
-        assert_eq!(result.status, PipelineStatus::Completed);
+        assert_eq!(result.status, WorkflowStatus::Completed);
         assert!(result.error_message.is_none());
         assert!(result.task_results.is_empty());
     }
@@ -738,10 +741,10 @@ mod tests {
             attempt_count: 2,
             error_message: Some("oops".to_string()),
         };
-        let result = PipelineResult {
+        let result = WorkflowExecutionResult {
             execution_id: Uuid::new_v4(),
             workflow_name: "two_step".to_string(),
-            status: PipelineStatus::Failed,
+            status: WorkflowStatus::Failed,
             start_time: Utc::now(),
             end_time: Some(Utc::now()),
             duration: Some(Duration::from_secs(3)),
@@ -756,10 +759,10 @@ mod tests {
 
     #[test]
     fn test_pipeline_result_debug() {
-        let result = PipelineResult {
+        let result = WorkflowExecutionResult {
             execution_id: Uuid::new_v4(),
             workflow_name: "debug_wf".to_string(),
-            status: PipelineStatus::Running,
+            status: WorkflowStatus::Running,
             start_time: Utc::now(),
             end_time: None,
             duration: None,
@@ -768,7 +771,7 @@ mod tests {
             error_message: None,
         };
         let debug_str = format!("{:?}", result);
-        assert!(debug_str.contains("PipelineResult"));
+        assert!(debug_str.contains("WorkflowExecutionResult"));
         assert!(debug_str.contains("debug_wf"));
     }
 }

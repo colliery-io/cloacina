@@ -66,7 +66,7 @@ pub use api_keys::{ApiKeyDAL, ApiKeyInfo};
 pub use checkpoint::CheckpointDAL;
 pub use context::ContextDAL;
 pub use execution_event::ExecutionEventDAL;
-pub use pipeline_execution::PipelineExecutionDAL;
+pub use pipeline_execution::WorkflowExecutionDAL;
 pub use recovery_event::RecoveryEventDAL;
 pub use schedule::ScheduleDAL;
 pub use schedule_execution::{ScheduleExecutionDAL, ScheduleExecutionStats};
@@ -142,9 +142,9 @@ impl DAL {
         ContextDAL::new(self)
     }
 
-    /// Returns a pipeline execution DAL for pipeline operations.
-    pub fn pipeline_execution(&self) -> PipelineExecutionDAL<'_> {
-        PipelineExecutionDAL::new(self)
+    /// Returns a workflow execution DAL for workflow execution operations.
+    pub fn workflow_execution(&self) -> WorkflowExecutionDAL<'_> {
+        WorkflowExecutionDAL::new(self)
     }
 
     /// Returns a task execution DAL for task operations.

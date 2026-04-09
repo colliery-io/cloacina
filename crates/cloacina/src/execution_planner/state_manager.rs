@@ -91,7 +91,7 @@ impl<'a> StateManager<'a> {
         // Get workflow to check dependencies
         let pipeline = self
             .dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(task_execution.pipeline_execution_id)
             .await?;
         let workflow = {

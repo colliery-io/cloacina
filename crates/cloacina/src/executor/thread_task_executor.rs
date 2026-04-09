@@ -195,7 +195,7 @@ impl ThreadTaskExecutor {
         if dependencies.is_empty() {
             if let Ok(pipeline_execution) = self
                 .dal
-                .pipeline_execution()
+                .workflow_execution()
                 .get_by_id(claimed_task.pipeline_execution_id)
                 .await
             {

@@ -43,7 +43,7 @@
 
 use crate::context::Context;
 use crate::dal::DAL;
-use crate::executor::{PipelineError, PipelineExecutor};
+use crate::executor::{WorkflowExecutionError, WorkflowExecutor};
 use crate::models::schedule::ScheduleExecution;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -86,7 +86,7 @@ impl Default for CronRecoveryConfig {
 #[derive(Clone)]
 pub struct CronRecoveryService {
     dal: Arc<DAL>,
-    executor: Arc<dyn PipelineExecutor>,
+    executor: Arc<dyn WorkflowExecutor>,
     config: CronRecoveryConfig,
     shutdown: watch::Receiver<bool>,
     /// Tracks recovery attempts per execution ID
@@ -103,7 +103,7 @@ impl CronRecoveryService {
     /// * `shutdown` - Shutdown signal receiver
     pub fn new(
         dal: Arc<DAL>,
-        executor: Arc<dyn PipelineExecutor>,
+        executor: Arc<dyn WorkflowExecutor>,
         config: CronRecoveryConfig,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
@@ -119,7 +119,7 @@ impl CronRecoveryService {
     /// Creates a new recovery service with default configuration.
     pub fn with_defaults(
         dal: Arc<DAL>,
-        executor: Arc<dyn PipelineExecutor>,
+        executor: Arc<dyn WorkflowExecutor>,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
         Self::new(dal, executor, CronRecoveryConfig::default(), shutdown)
@@ -129,7 +129,7 @@ impl CronRecoveryService {
     ///
     /// This method starts an infinite loop that periodically checks for and
     /// recovers lost executions until a shutdown signal is received.
-    pub async fn run_recovery_loop(&mut self) -> Result<(), PipelineError> {
+    pub async fn run_recovery_loop(&mut self) -> Result<(), WorkflowExecutionError> {
         info!(
             "Starting cron recovery service (interval: {:?}, threshold: {} minutes)",
             self.config.check_interval, self.config.lost_threshold_minutes
@@ -160,7 +160,7 @@ impl CronRecoveryService {
     }
 
     /// Checks for lost executions and attempts to recover them.
-    async fn check_and_recover_lost_executions(&self) -> Result<(), PipelineError> {
+    async fn check_and_recover_lost_executions(&self) -> Result<(), WorkflowExecutionError> {
         debug!("Checking for lost cron executions");
 
         // Find lost executions
@@ -169,7 +169,7 @@ impl CronRecoveryService {
             .schedule_execution()
             .find_lost_executions(self.config.lost_threshold_minutes)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to find lost executions: {}", e),
             })?;
 
@@ -195,7 +195,10 @@ impl CronRecoveryService {
     }
 
     /// Attempts to recover a single lost execution.
-    async fn recover_execution(&self, execution: &ScheduleExecution) -> Result<(), PipelineError> {
+    async fn recover_execution(
+        &self,
+        execution: &ScheduleExecution,
+    ) -> Result<(), WorkflowExecutionError> {
         // Use scheduled_time if available; fall back to created_at
         let scheduled_time = execution
             .scheduled_time
@@ -259,12 +262,12 @@ impl CronRecoveryService {
         // Add recovery metadata
         context
             .insert("is_recovery", serde_json::json!(true))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
             .insert("recovery_attempt", serde_json::json!(attempt_count))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
@@ -272,7 +275,7 @@ impl CronRecoveryService {
                 "original_execution_id",
                 serde_json::json!(execution.id.to_string()),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
 
@@ -282,12 +285,12 @@ impl CronRecoveryService {
                 "scheduled_time",
                 serde_json::json!(scheduled_time.to_rfc3339()),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
             .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
@@ -295,7 +298,7 @@ impl CronRecoveryService {
                 "schedule_timezone",
                 serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
@@ -303,7 +306,7 @@ impl CronRecoveryService {
                 "schedule_expression",
                 serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
 

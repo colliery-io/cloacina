@@ -31,7 +31,7 @@ use crate::dal::DAL;
 use crate::database::universal_types::UniversalUuid;
 use crate::dispatcher::{Dispatcher, TaskReadyEvent};
 use crate::error::ValidationError;
-use crate::models::pipeline_execution::PipelineExecution;
+use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::task_execution::TaskExecution;
 
 use super::state_manager::StateManager;
@@ -168,7 +168,7 @@ impl<'a> SchedulerLoop<'a> {
     pub async fn process_active_pipelines(&self) -> Result<(), ValidationError> {
         let active_executions = self
             .dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_active_executions()
             .await?;
 
@@ -199,7 +199,7 @@ impl<'a> SchedulerLoop<'a> {
     /// 3. Batch checking pipeline completion
     async fn process_pipelines_batch(
         &self,
-        active_executions: Vec<PipelineExecution>,
+        active_executions: Vec<WorkflowExecutionRecord>,
     ) -> Result<(), ValidationError> {
         let pipeline_ids: Vec<UniversalUuid> = active_executions.iter().map(|e| e.id).collect();
 
@@ -288,7 +288,7 @@ impl<'a> SchedulerLoop<'a> {
     /// Completes a pipeline by updating its final context and marking it as completed.
     async fn complete_pipeline(
         &self,
-        execution: &PipelineExecution,
+        execution: &WorkflowExecutionRecord,
     ) -> Result<(), ValidationError> {
         // Get task summary for logging
         let all_tasks = self
@@ -318,7 +318,7 @@ impl<'a> SchedulerLoop<'a> {
                 failed_count, completed_count, skipped_count
             );
             self.dal
-                .pipeline_execution()
+                .workflow_execution()
                 .mark_failed(execution.id, &reason)
                 .await?;
             metrics::counter!("cloacina_pipelines_total", "status" => "failed").increment(1);
@@ -328,7 +328,7 @@ impl<'a> SchedulerLoop<'a> {
             );
         } else {
             self.dal
-                .pipeline_execution()
+                .workflow_execution()
                 .mark_completed(execution.id)
                 .await?;
             metrics::counter!("cloacina_pipelines_total", "status" => "completed").increment(1);
@@ -345,7 +345,7 @@ impl<'a> SchedulerLoop<'a> {
     ///
     /// This method finds the context from the final task(s) that produced output
     /// and updates the pipeline's context_id to point to that final context,
-    /// ensuring that PipelineResult.final_context returns the correct data.
+    /// ensuring that WorkflowExecutionResult.final_context returns the correct data.
     async fn update_pipeline_final_context(
         &self,
         pipeline_execution_id: UniversalUuid,
@@ -392,7 +392,7 @@ impl<'a> SchedulerLoop<'a> {
                 pipeline_execution_id, context_id
             );
             self.dal
-                .pipeline_execution()
+                .workflow_execution()
                 .update_final_context(pipeline_execution_id, context_id)
                 .await?;
         } else {

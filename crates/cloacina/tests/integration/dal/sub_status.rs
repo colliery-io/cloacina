@@ -24,7 +24,7 @@
 
 use crate::fixtures::get_all_fixtures;
 use cloacina::dal::DAL;
-use cloacina::models::pipeline_execution::NewPipelineExecution;
+use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use serde_json::json;
 
@@ -49,8 +49,8 @@ async fn test_sub_status_crud_operations() {
 
         // Create a pipeline and task
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "sub-status-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),

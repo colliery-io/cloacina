@@ -49,14 +49,16 @@ The architecture review identified two root causes (RC-01, RC-03) that are the h
 
 **Phase 3 (future)**: Introduce `RuntimeBuilder` for explicit `runtime.register_task(...)` calls. The `#[ctor]` path remains as convenience for the simple embedded case.
 
-### REC-23: DAL Consolidation Investigation (EVO-03) — Investigation: Days, Implementation: Weeks if feasible
+### REC-23: DAL Consolidation — DEFERRED (known Diesel constraint)
 
-Investigate whether Diesel's `MultiConnection` or generic connection abstractions can write DAL methods once rather than as `_postgres`/`_sqlite` pairs. Pilot on one simple module (`checkpoint.rs`).
+**Status**: Investigated and deferred. Diesel's `MultiConnection` does not support generic connection abstractions that would allow writing DAL methods once. This is an inherent limitation of the Diesel ORM design (documented in ADR-0001). The dual-backend `_postgres`/`_sqlite` pattern is the necessary cost of runtime backend selection.
 
-If not feasible, apply mitigations:
-1. Consolidate on single `dispatch_backend!` macro (remove `backend_dispatch!`, `connection_match!`)
-2. Add CI check verifying both backends produce equivalent results
-3. Document the architectural constraint
+**Mitigations already applied (I-0089)**:
+1. Consolidated on single `dispatch_backend!` macro (removed `backend_dispatch!` and `connection_match!`)
+
+**Remaining mitigations (backlog)**:
+- CI equivalence check verifying both backends produce identical results for a standard test suite
+- This initiative stays on the backlog for future reconsideration if Diesel adds generic connection support
 
 ## Implementation Plan
 

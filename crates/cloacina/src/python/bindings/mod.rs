@@ -17,7 +17,7 @@
 //! Python API wrapper types for the cloaca wheel.
 //!
 //! These types wrap cloacina's Rust API for Python consumers:
-//! - `PyDefaultRunner` / `PyPipelineResult` — workflow execution
+//! - `PyDefaultRunner` / `PyWorkflowResult` — workflow execution
 //! - `PyDefaultRunnerConfig` — runner configuration
 //! - `PyDatabaseAdmin` / `PyTenantConfig` / `PyTenantCredentials` — admin
 //! - `PyTriggerResult` — trigger results
@@ -33,6 +33,6 @@ pub mod value_objects;
 #[cfg(feature = "postgres")]
 pub use admin::{PyDatabaseAdmin, PyTenantConfig, PyTenantCredentials};
 pub use context::PyDefaultRunnerConfig;
-pub use runner::{PyDefaultRunner, PyPipelineResult};
+pub use runner::{PyDefaultRunner, PyWorkflowResult};
 pub use trigger::PyTriggerResult;
 pub use value_objects::{PyBackoffStrategy, PyRetryCondition, PyRetryPolicy, PyRetryPolicyBuilder};

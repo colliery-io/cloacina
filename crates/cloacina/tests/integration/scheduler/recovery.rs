@@ -22,7 +22,7 @@ mod postgres_tests {
     use crate::fixtures::get_or_init_postgres_fixture;
     use cloacina::dal::DAL;
     use cloacina::database::schema::postgres::task_executions;
-    use cloacina::models::pipeline_execution::NewPipelineExecution;
+    use cloacina::models::pipeline_execution::NewWorkflowExecution;
     use cloacina::models::task_execution::NewTaskExecution;
     use cloacina::*;
     use diesel::prelude::*;
@@ -42,8 +42,8 @@ mod postgres_tests {
         info!("Creating test pipeline with orphaned task");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -85,7 +85,7 @@ mod postgres_tests {
         assert!(abandoned_task.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -120,8 +120,8 @@ mod postgres_tests {
         info!("Creating test pipeline with task at max recovery attempts");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "abandonment-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -175,7 +175,7 @@ mod postgres_tests {
         assert!(abandoned_task.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -204,8 +204,8 @@ mod postgres_tests {
         info!("Creating test pipeline with normal task states");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "no-recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Completed".to_string(),
@@ -284,8 +284,8 @@ mod postgres_tests {
         info!("Creating test pipeline with multiple orphaned tasks");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "multi-recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -390,7 +390,7 @@ mod postgres_tests {
             .contains("Workflow 'multi-recovery-test' no longer available"));
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -424,8 +424,8 @@ mod postgres_tests {
         info!("Creating test pipeline to verify recovery event details");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "event-details-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -489,8 +489,8 @@ mod postgres_tests {
         info!("Creating test pipeline with unknown workflow");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "unknown-workflow".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -558,7 +558,7 @@ mod postgres_tests {
         assert!(abandoned_task2.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -606,7 +606,7 @@ mod sqlite_tests {
     use crate::fixtures::get_or_init_sqlite_fixture;
     use cloacina::dal::DAL;
     use cloacina::database::schema::sqlite::task_executions;
-    use cloacina::models::pipeline_execution::NewPipelineExecution;
+    use cloacina::models::pipeline_execution::NewWorkflowExecution;
     use cloacina::models::task_execution::NewTaskExecution;
     use cloacina::*;
     use diesel::prelude::*;
@@ -626,8 +626,8 @@ mod sqlite_tests {
         info!("Creating test pipeline with orphaned task (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -669,7 +669,7 @@ mod sqlite_tests {
         assert!(abandoned_task.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -704,8 +704,8 @@ mod sqlite_tests {
         info!("Creating test pipeline with task at max recovery attempts (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "abandonment-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -763,7 +763,7 @@ mod sqlite_tests {
         assert!(abandoned_task.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -792,8 +792,8 @@ mod sqlite_tests {
         info!("Creating test pipeline with normal task states (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "no-recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Completed".to_string(),
@@ -872,8 +872,8 @@ mod sqlite_tests {
         info!("Creating test pipeline with multiple orphaned tasks (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "multi-recovery-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -982,7 +982,7 @@ mod sqlite_tests {
             .contains("Workflow 'multi-recovery-test' no longer available"));
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();
@@ -1016,8 +1016,8 @@ mod sqlite_tests {
         info!("Creating test pipeline to verify recovery event details (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "event-details-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -1081,8 +1081,8 @@ mod sqlite_tests {
         info!("Creating test pipeline with unknown workflow (SQLite)");
 
         let pipeline_execution = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "unknown-workflow".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -1150,7 +1150,7 @@ mod sqlite_tests {
         assert!(abandoned_task2.completed_at.is_some());
 
         let failed_pipeline = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(pipeline_execution.id)
             .await
             .unwrap();

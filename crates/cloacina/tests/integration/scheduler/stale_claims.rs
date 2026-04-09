@@ -19,9 +19,11 @@
 use crate::fixtures::get_all_fixtures;
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalUuid;
-use cloacina::models::pipeline_execution::NewPipelineExecution;
+use cloacina::execution_planner::stale_claim_sweeper::{
+    StaleClaimSweeper, StaleClaimSweeperConfig,
+};
+use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
-use cloacina::task_scheduler::stale_claim_sweeper::{StaleClaimSweeper, StaleClaimSweeperConfig};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -46,8 +48,8 @@ async fn create_claimed_task(
     task_name: &str,
 ) -> (UniversalUuid, UniversalUuid) {
     let pipeline = dal
-        .pipeline_execution()
-        .create(NewPipelineExecution {
+        .workflow_execution()
+        .create(NewWorkflowExecution {
             pipeline_name: pipeline_name.to_string(),
             pipeline_version: "1.0".to_string(),
             status: "Running".to_string(),

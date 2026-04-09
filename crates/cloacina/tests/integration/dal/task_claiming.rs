@@ -25,7 +25,7 @@ use crate::fixtures::get_all_fixtures;
 use cloacina::dal::unified::task_execution::{HeartbeatResult, RunnerClaimResult};
 use cloacina::dal::DAL;
 use cloacina::database::universal_types::UniversalUuid;
-use cloacina::models::pipeline_execution::NewPipelineExecution;
+use cloacina::models::pipeline_execution::NewWorkflowExecution;
 use cloacina::models::task_execution::NewTaskExecution;
 use serde_json::json;
 use std::collections::HashSet;
@@ -58,8 +58,8 @@ async fn test_concurrent_task_claiming_no_duplicates() {
 
         // Create a test pipeline
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "concurrent-claim-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -214,8 +214,8 @@ async fn test_claimed_tasks_marked_running() {
 
         // Create a test pipeline
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "claim-status-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -301,8 +301,8 @@ async fn test_running_tasks_not_claimable() {
 
         // Create a test pipeline
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "running-not-claimable-test".to_string(),
                 pipeline_version: "1.0".to_string(),
                 status: "Running".to_string(),
@@ -350,8 +350,8 @@ async fn test_running_tasks_not_claimable() {
 /// Helper: create a pipeline and a Running task for runner claiming tests.
 async fn create_running_task(dal: &DAL) -> (UniversalUuid, UniversalUuid) {
     let pipeline = dal
-        .pipeline_execution()
-        .create(NewPipelineExecution {
+        .workflow_execution()
+        .create(NewWorkflowExecution {
             pipeline_name: "runner-claim-test".to_string(),
             pipeline_version: "1.0".to_string(),
             status: "Running".to_string(),

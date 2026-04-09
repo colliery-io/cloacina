@@ -23,7 +23,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::dal::DAL;
 use crate::error::ValidationError;
-use crate::models::pipeline_execution::PipelineExecution;
+use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::{NewRecoveryEvent, RecoveryType};
 use crate::models::task_execution::TaskExecution;
 
@@ -79,13 +79,13 @@ impl<'a> RecoveryManager<'a> {
         // Group tasks by pipeline to handle workflow availability
         let mut tasks_by_pipeline: std::collections::HashMap<
             crate::database::universal_types::UniversalUuid,
-            (PipelineExecution, Vec<TaskExecution>),
+            (WorkflowExecutionRecord, Vec<TaskExecution>),
         > = std::collections::HashMap::new();
 
         for task in orphaned_tasks {
             let pipeline = self
                 .dal
-                .pipeline_execution()
+                .workflow_execution()
                 .get_by_id(task.pipeline_execution_id)
                 .await?;
             tasks_by_pipeline
@@ -206,7 +206,7 @@ impl<'a> RecoveryManager<'a> {
     /// Abandons tasks from workflows that are no longer available in the registry.
     async fn abandon_tasks_for_unknown_workflow(
         &self,
-        pipeline: PipelineExecution,
+        pipeline: WorkflowExecutionRecord,
         tasks: Vec<TaskExecution>,
         available_workflows: &[String],
     ) -> Result<usize, ValidationError> {
@@ -249,7 +249,7 @@ impl<'a> RecoveryManager<'a> {
 
         // Mark pipeline as failed
         self.dal
-            .pipeline_execution()
+            .workflow_execution()
             .mark_failed(
                 pipeline.id,
                 &format!(
@@ -346,7 +346,7 @@ impl<'a> RecoveryManager<'a> {
 
         if pipeline_failed {
             self.dal
-                .pipeline_execution()
+                .workflow_execution()
                 .mark_failed(
                     task.pipeline_execution_id,
                     "Task abandonment caused pipeline failure",

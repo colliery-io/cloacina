@@ -86,7 +86,7 @@
 //!
 //! ```rust,ignore
 //! use cloacina::{workflow, task, Context, Database, TaskError};
-//! use cloacina::scheduler::TaskScheduler;
+//! use cloacina::execution_planner::TaskScheduler;
 //!
 //! // Define tasks
 //! #[task(id = "fetch-data", dependencies = [])]
@@ -131,7 +131,7 @@ use diesel::Connection;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::dal::unified::models::{NewUnifiedPipelineExecution, NewUnifiedTaskExecution};
+use crate::dal::unified::models::{NewUnifiedTaskExecution, NewUnifiedWorkflowExecution};
 use crate::dal::DAL;
 use crate::database::schema::unified::{pipeline_executions, task_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
@@ -358,7 +358,7 @@ impl TaskScheduler {
         let current_version = workflow.metadata().version.clone();
         let last_version = self
             .dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_last_version(workflow_name)
             .await?;
 
@@ -450,7 +450,7 @@ impl TaskScheduler {
             conn.transaction(|conn| {
                 // Insert pipeline
                 diesel::insert_into(pipeline_executions::table)
-                    .values(&NewUnifiedPipelineExecution {
+                    .values(&NewUnifiedWorkflowExecution {
                         id: pipeline_id,
                         pipeline_name,
                         pipeline_version,
@@ -511,7 +511,7 @@ impl TaskScheduler {
             conn.transaction(|conn| {
                 // Insert pipeline
                 diesel::insert_into(pipeline_executions::table)
-                    .values(&NewUnifiedPipelineExecution {
+                    .values(&NewUnifiedWorkflowExecution {
                         id: pipeline_id,
                         pipeline_name,
                         pipeline_version,

@@ -16,7 +16,7 @@
 
 use crate::fixtures::get_or_init_fixture;
 use async_trait::async_trait;
-use cloacina::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
+use cloacina::execution_planner::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 use cloacina::*;
 use serde_json::json;
 use serial_test::serial;
@@ -125,7 +125,7 @@ async fn test_always_trigger_rule() {
     // Since we have an empty workflow, there should be no tasks
     // But the pipeline should be created successfully
     let pipeline = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(execution_id))
         .await
         .expect("Failed to get pipeline");

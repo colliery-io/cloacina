@@ -14,9 +14,9 @@
  *  limitations under the License.
  */
 
-//! Pipeline result building for the DefaultRunner.
+//! Workflow execution result building for the DefaultRunner.
 //!
-//! This module provides methods for building pipeline execution results
+//! This module provides methods for building workflow execution results
 //! from database records.
 
 use std::time::Duration;
@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::dal::DAL;
 use crate::executor::pipeline_executor::{
-    PipelineError, PipelineResult, PipelineStatus, TaskResult,
+    TaskResult, WorkflowExecutionError, WorkflowExecutionResult, WorkflowStatus,
 };
 use crate::task::TaskState;
 use crate::Context;
@@ -33,31 +33,31 @@ use crate::UniversalUuid;
 use super::DefaultRunner;
 
 impl DefaultRunner {
-    /// Builds a pipeline result from an execution ID
+    /// Builds a workflow execution result from an execution ID
     ///
     /// # Arguments
-    /// * `execution_id` - UUID of the pipeline execution
+    /// * `execution_id` - UUID of the workflow execution
     ///
     /// # Returns
-    /// * `Result<PipelineResult, PipelineError>` - The complete pipeline result or an error
+    /// * `Result<WorkflowExecutionResult, WorkflowExecutionError>` - The complete workflow result or an error
     ///
     /// This method:
-    /// 1. Retrieves pipeline execution details
+    /// 1. Retrieves workflow execution details
     /// 2. Gets all task executions
     /// 3. Retrieves the final context
     /// 4. Builds task results
-    /// 5. Constructs the complete pipeline result
+    /// 5. Constructs the complete workflow execution result
     pub(super) async fn build_pipeline_result(
         &self,
         execution_id: Uuid,
-    ) -> Result<PipelineResult, PipelineError> {
+    ) -> Result<WorkflowExecutionResult, WorkflowExecutionError> {
         let dal = DAL::new(self.database.clone());
 
         let pipeline_execution = dal
-            .pipeline_execution()
+            .workflow_execution()
             .get_by_id(UniversalUuid(execution_id))
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get pipeline execution: {}", e),
             })?;
 
@@ -65,18 +65,17 @@ impl DefaultRunner {
             .task_execution()
             .get_all_tasks_for_pipeline(UniversalUuid(execution_id))
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get task executions: {}", e),
             })?;
 
         // Get final context using DAL
         let final_context = if let Some(context_id) = pipeline_execution.context_id {
-            dal.context()
-                .read(context_id)
-                .await
-                .map_err(|e| PipelineError::ExecutionFailed {
+            dal.context().read(context_id).await.map_err(|e| {
+                WorkflowExecutionError::ExecutionFailed {
                     message: format!("Failed to get context: {}", e),
-                })?
+                }
+            })?
         } else {
             Context::new()
         };
@@ -149,11 +148,11 @@ impl DefaultRunner {
 
         // Convert status
         let status = match pipeline_execution.status.as_str() {
-            "Pending" => PipelineStatus::Pending,
-            "Running" => PipelineStatus::Running,
-            "Completed" => PipelineStatus::Completed,
-            "Failed" => PipelineStatus::Failed,
-            _ => PipelineStatus::Failed,
+            "Pending" => WorkflowStatus::Pending,
+            "Running" => WorkflowStatus::Running,
+            "Completed" => WorkflowStatus::Completed,
+            "Failed" => WorkflowStatus::Failed,
+            _ => WorkflowStatus::Failed,
         };
 
         let duration = pipeline_execution.completed_at.map(|end| {
@@ -162,7 +161,7 @@ impl DefaultRunner {
             (end_utc - start_utc).to_std().unwrap_or(Duration::ZERO)
         });
 
-        Ok(PipelineResult {
+        Ok(WorkflowExecutionResult {
             execution_id,
             workflow_name: pipeline_execution.pipeline_name,
             status,

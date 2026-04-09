@@ -60,7 +60,7 @@ pub struct NewUnifiedDbContext {
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = pipeline_executions)]
-pub struct UnifiedPipelineExecution {
+pub struct UnifiedWorkflowExecution {
     pub id: UniversalUuid,
     pub pipeline_name: String,
     pub pipeline_version: String,
@@ -79,7 +79,7 @@ pub struct UnifiedPipelineExecution {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = pipeline_executions)]
-pub struct NewUnifiedPipelineExecution {
+pub struct NewUnifiedWorkflowExecution {
     pub id: UniversalUuid,
     pub pipeline_name: String,
     pub pipeline_version: String,
@@ -492,7 +492,7 @@ use crate::models::context::DbContext;
 use crate::models::execution_event::ExecutionEvent;
 use crate::models::key_trust_acl::KeyTrustAcl;
 use crate::models::package_signature::PackageSignature;
-use crate::models::pipeline_execution::PipelineExecution;
+use crate::models::pipeline_execution::WorkflowExecutionRecord;
 use crate::models::recovery_event::RecoveryEvent;
 use crate::models::schedule::{Schedule, ScheduleExecution};
 use crate::models::signing_key::SigningKey;
@@ -513,9 +513,9 @@ impl From<UnifiedDbContext> for DbContext {
     }
 }
 
-impl From<UnifiedPipelineExecution> for PipelineExecution {
-    fn from(u: UnifiedPipelineExecution) -> Self {
-        PipelineExecution {
+impl From<UnifiedWorkflowExecution> for WorkflowExecutionRecord {
+    fn from(u: UnifiedWorkflowExecution) -> Self {
+        WorkflowExecutionRecord {
             id: u.id,
             pipeline_name: u.pipeline_name,
             pipeline_version: u.pipeline_version,

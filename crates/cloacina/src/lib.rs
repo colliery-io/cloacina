@@ -108,7 +108,7 @@
 //! ### Execution with Database Persistence
 //!
 //! ```rust,ignore
-//! use cloacina::runner::{DefaultRunner, PipelineExecutor};
+//! use cloacina::runner::{DefaultRunner, WorkflowExecutor};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -410,7 +410,7 @@
 //! - [Architecture Decisions](crate) - Why Cloacina works the way it does
 //! - [Execution Model](crate::executor) - How tasks are scheduled and run
 //! - [Versioning Strategy](crate::workflow) - Content-based workflow versioning
-//! - [Recovery Mechanisms](crate::task_scheduler) - Checkpoint and restart concepts
+//! - [Recovery Mechanisms](crate::execution_planner) - Checkpoint and restart concepts
 //!
 //! ## Modules
 //!
@@ -422,7 +422,7 @@
 //! - [`error`]: Comprehensive error types
 //! - [`models`]: Database models and schemas
 //! - [`dal`]: Data access layer
-//! - [`task_scheduler`]: Task scheduler for persistent workflow execution
+//! - [`execution_planner`]: Task scheduler for persistent workflow execution
 //! - [`executor`]: Unified execution engine
 //! - [`logging`]: Structured logging setup
 //! - [`retry`]: Retry policies and backoff strategies
@@ -448,7 +448,7 @@ pub use cloacina_computation_graph;
 /// - Error types: [`TaskError`], [`WorkflowError`], [`ExecutorError`]
 /// - Retry configuration: [`RetryPolicy`], [`BackoffStrategy`]
 /// - Task state and scheduling: [`TaskState`], [`TriggerRule`]
-/// - Execution: [`DefaultRunner`], [`PipelineExecutor`]
+/// - Execution: [`DefaultRunner`], [`WorkflowExecutor`]
 /// - Macros: `#[task]` and `workflow!` (when "macros" feature is enabled)
 pub mod prelude {
     // Core types
@@ -466,11 +466,14 @@ pub mod prelude {
     pub use crate::retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 
     // Task scheduling
-    pub use crate::task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
+    pub use crate::execution_planner::{
+        TaskScheduler, TriggerCondition, TriggerRule, ValueOperator,
+    };
 
     // Execution
     pub use crate::executor::{
-        PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus,
+        WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult, WorkflowExecutor,
+        WorkflowStatus,
     };
     pub use crate::runner::{DefaultRunner, DefaultRunnerBuilder, DefaultRunnerConfig};
 
@@ -488,11 +491,17 @@ pub mod computation_graph;
 pub mod context;
 pub mod cron_evaluator;
 pub mod cron_recovery;
+/// Cron and event-trigger schedule management.
+/// For task readiness and workflow execution planning, see [`execution_planner`].
+pub mod cron_trigger_scheduler;
 pub mod crypto;
 pub mod dal;
 pub mod database;
 pub mod dispatcher;
 pub mod error;
+/// Task readiness evaluation, pipeline processing, and stale claim sweeping.
+/// For cron and trigger scheduling, see [`cron_trigger_scheduler`].
+pub mod execution_planner;
 pub mod executor;
 pub mod graph;
 pub mod logging;
@@ -502,10 +511,8 @@ pub mod python;
 pub mod registry;
 pub mod retry;
 pub mod runner;
-pub mod scheduler;
 pub mod security;
 pub mod task;
-pub mod task_scheduler;
 pub mod trigger;
 pub mod workflow;
 
@@ -529,6 +536,7 @@ pub use computation_graph::{
 pub use context::Context;
 pub use cron_evaluator::{CronError, CronEvaluator};
 pub use cron_recovery::{CronRecoveryConfig, CronRecoveryService};
+pub use cron_trigger_scheduler::{Scheduler, SchedulerConfig};
 #[cfg(feature = "postgres")]
 pub use database::{AdminError, DatabaseAdmin, TenantConfig, TenantCredentials};
 pub use database::{UniversalBool, UniversalTimestamp, UniversalUuid};
@@ -540,10 +548,11 @@ pub use error::{
     CheckpointError, ContextError, ExecutorError, RegistrationError, SubgraphError, TaskError,
     ValidationError, WorkflowError,
 };
+pub use execution_planner::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use executor::{
-    return_task_handle, take_task_handle, with_task_handle, ExecutorConfig, PipelineError,
-    PipelineExecution, PipelineExecutor, PipelineResult, PipelineStatus, TaskHandle, TaskResult,
-    ThreadTaskExecutor,
+    return_task_handle, take_task_handle, with_task_handle, ExecutorConfig, TaskHandle, TaskResult,
+    ThreadTaskExecutor, WorkflowExecution, WorkflowExecutionError, WorkflowExecutionResult,
+    WorkflowExecutor, WorkflowStatus,
 };
 pub use graph::{
     DependencyEdge, GraphEdge, GraphMetadata, GraphNode, TaskNode, WorkflowGraph, WorkflowGraphData,
@@ -551,12 +560,10 @@ pub use graph::{
 pub use retry::{BackoffStrategy, RetryCondition, RetryPolicy, RetryPolicyBuilder};
 pub use runner::DefaultRunnerBuilder;
 pub use runner::{DefaultRunner, DefaultRunnerConfig};
-pub use scheduler::{Scheduler, SchedulerConfig};
 pub use task::namespace::parse_namespace;
 pub use task::{
     global_task_registry, register_task_constructor, Task, TaskNamespace, TaskRegistry, TaskState,
 };
-pub use task_scheduler::{TaskScheduler, TriggerCondition, TriggerRule, ValueOperator};
 pub use trigger::{
     get_trigger, global_trigger_registry, register_trigger, register_trigger_constructor, Trigger,
     TriggerConfig, TriggerError, TriggerResult,
@@ -600,7 +607,7 @@ fn cloaca(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Runner classes
     m.add_class::<python::bindings::runner::PyDefaultRunner>()?;
-    m.add_class::<python::bindings::runner::PyPipelineResult>()?;
+    m.add_class::<python::bindings::runner::PyWorkflowResult>()?;
     m.add_class::<python::bindings::context::PyDefaultRunnerConfig>()?;
 
     // Value objects

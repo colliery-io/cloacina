@@ -35,7 +35,7 @@
 //!
 //! ```text
 //! ┌───────────────┐    claim / fire   ┌──────────────────┐    execute    ┌─────────────┐
-//! │   Scheduler   │   & hand off      │ PipelineExecutor │  workflows   │   Tasks     │
+//! │   Scheduler   │   & hand off      │ WorkflowExecutor │  workflows   │   Tasks     │
 //! │               │ ─────────────────▶│                  │ ────────────▶│             │
 //! │ • Poll cron   │                   │ • Execute        │              │ • Business  │
 //! │ • Poll trigs  │                   │ • Retry          │              │   Logic     │
@@ -49,7 +49,7 @@ use crate::cron_evaluator::CronEvaluator;
 use crate::dal::DAL;
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
-use crate::executor::{PipelineError, PipelineExecutor};
+use crate::executor::{WorkflowExecutionError, WorkflowExecutor};
 use crate::models::schedule::{CatchupPolicy, NewSchedule, NewScheduleExecution, Schedule};
 use crate::trigger::{get_trigger, Trigger, TriggerError};
 use chrono::{DateTime, Utc};
@@ -113,7 +113,7 @@ impl Default for SchedulerConfig {
 #[derive(Clone)]
 pub struct Scheduler {
     dal: Arc<DAL>,
-    executor: Arc<dyn PipelineExecutor>,
+    executor: Arc<dyn WorkflowExecutor>,
     config: SchedulerConfig,
     shutdown: watch::Receiver<bool>,
     /// Tracks when each trigger was last polled (by trigger name).
@@ -132,7 +132,7 @@ impl Scheduler {
     /// * `shutdown` - Shutdown signal receiver
     pub fn new(
         dal: Arc<DAL>,
-        executor: Arc<dyn PipelineExecutor>,
+        executor: Arc<dyn WorkflowExecutor>,
         config: SchedulerConfig,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
@@ -149,7 +149,7 @@ impl Scheduler {
     /// Creates a new unified scheduler with default configuration.
     pub fn with_defaults(
         dal: Arc<DAL>,
-        executor: Arc<dyn PipelineExecutor>,
+        executor: Arc<dyn WorkflowExecutor>,
         shutdown: watch::Receiver<bool>,
     ) -> Self {
         Self::new(dal, executor, SchedulerConfig::default(), shutdown)
@@ -167,7 +167,7 @@ impl Scheduler {
     /// - Checks all enabled triggers, respecting per-trigger poll intervals.
     ///
     /// The loop continues until a shutdown signal is received.
-    pub async fn run_polling_loop(&mut self) -> Result<(), PipelineError> {
+    pub async fn run_polling_loop(&mut self) -> Result<(), WorkflowExecutionError> {
         info!(
             "Starting unified scheduler (cron interval: {:?}, trigger base interval: {:?})",
             self.config.cron_poll_interval, self.config.trigger_base_poll_interval,
@@ -216,7 +216,7 @@ impl Scheduler {
     // -----------------------------------------------------------------------
 
     /// Checks for due cron schedules and executes them.
-    async fn check_and_execute_cron_schedules(&self) -> Result<(), PipelineError> {
+    async fn check_and_execute_cron_schedules(&self) -> Result<(), WorkflowExecutionError> {
         let now = Utc::now();
         debug!("Checking for due cron schedules at {}", now);
 
@@ -225,7 +225,7 @@ impl Scheduler {
             .schedule()
             .get_due_cron_schedules(now)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: e.to_string(),
             })?;
 
@@ -250,7 +250,7 @@ impl Scheduler {
         &self,
         schedule: &Schedule,
         now: DateTime<Utc>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         debug!(
             "Processing cron schedule: {} (workflow: {})",
             schedule.id, schedule.workflow_name
@@ -284,7 +284,7 @@ impl Scheduler {
             .schedule()
             .claim_and_update_cron(schedule.id, now, now, next_run)
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: e.to_string(),
             })?;
 
@@ -376,7 +376,7 @@ impl Scheduler {
         &self,
         schedule: &Schedule,
         now: DateTime<Utc>,
-    ) -> Result<Vec<DateTime<Utc>>, PipelineError> {
+    ) -> Result<Vec<DateTime<Utc>>, WorkflowExecutionError> {
         let policy_str = schedule.catchup_policy.as_deref().unwrap_or("skip");
         let policy = CatchupPolicy::from(policy_str.to_string());
 
@@ -391,7 +391,7 @@ impl Scheduler {
                 let tz = schedule.timezone.as_deref().unwrap_or("UTC");
 
                 let evaluator = CronEvaluator::new(cron_expr, tz).map_err(|e| {
-                    PipelineError::ExecutionFailed {
+                    WorkflowExecutionError::ExecutionFailed {
                         message: format!("Cron evaluation error: {}", e),
                     }
                 })?;
@@ -403,7 +403,7 @@ impl Scheduler {
 
                 let missed_executions = evaluator
                     .executions_between(start_time, now, self.config.max_catchup_executions)
-                    .map_err(|e| PipelineError::ExecutionFailed {
+                    .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                         message: format!("Cron evaluation error: {}", e),
                     })?;
 
@@ -424,18 +424,19 @@ impl Scheduler {
         &self,
         schedule: &Schedule,
         after: DateTime<Utc>,
-    ) -> Result<DateTime<Utc>, PipelineError> {
+    ) -> Result<DateTime<Utc>, WorkflowExecutionError> {
         let cron_expr = schedule.cron_expression.as_deref().unwrap_or("* * * * *");
         let tz = schedule.timezone.as_deref().unwrap_or("UTC");
 
-        let evaluator =
-            CronEvaluator::new(cron_expr, tz).map_err(|e| PipelineError::ExecutionFailed {
+        let evaluator = CronEvaluator::new(cron_expr, tz).map_err(|e| {
+            WorkflowExecutionError::ExecutionFailed {
                 message: format!("Cron evaluation error: {}", e),
-            })?;
+            }
+        })?;
 
         evaluator
             .next_execution(after)
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Cron evaluation error: {}", e),
             })
     }
@@ -445,19 +446,19 @@ impl Scheduler {
         &self,
         schedule: &Schedule,
         scheduled_time: DateTime<Utc>,
-    ) -> Result<UniversalUuid, PipelineError> {
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let mut context = Context::new();
         context
             .insert(
                 "scheduled_time",
                 serde_json::json!(scheduled_time.to_rfc3339()),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
             .insert("schedule_id", serde_json::json!(schedule.id.to_string()))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
@@ -465,7 +466,7 @@ impl Scheduler {
                 "schedule_timezone",
                 serde_json::json!(schedule.timezone.as_deref().unwrap_or("UTC")),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
@@ -473,7 +474,7 @@ impl Scheduler {
                 "schedule_expression",
                 serde_json::json!(schedule.cron_expression.as_deref().unwrap_or("")),
             )
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
 
@@ -524,7 +525,7 @@ impl Scheduler {
     // -----------------------------------------------------------------------
 
     /// Checks all enabled triggers and processes those that are due.
-    async fn check_and_process_triggers(&mut self) -> Result<(), PipelineError> {
+    async fn check_and_process_triggers(&mut self) -> Result<(), WorkflowExecutionError> {
         debug!("Checking trigger schedules");
 
         let schedules = self
@@ -532,7 +533,7 @@ impl Scheduler {
             .schedule()
             .get_enabled_triggers()
             .await
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Failed to get trigger schedules: {}", e),
             })?;
 
@@ -736,17 +737,17 @@ impl Scheduler {
         &self,
         schedule: &Schedule,
         mut context: Context<serde_json::Value>,
-    ) -> Result<UniversalUuid, PipelineError> {
+    ) -> Result<UniversalUuid, WorkflowExecutionError> {
         let trigger_name = schedule.trigger_name.as_deref().unwrap_or("unknown");
 
         context
             .insert("trigger_name", serde_json::json!(trigger_name))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
         context
             .insert("triggered_at", serde_json::json!(Utc::now().to_rfc3339()))
-            .map_err(|e| PipelineError::ExecutionFailed {
+            .map_err(|e| WorkflowExecutionError::ExecutionFailed {
                 message: format!("Context error: {}", e),
             })?;
 
@@ -890,7 +891,7 @@ mod tests {
         let config = SchedulerConfig::default();
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         // We can test the method directly by building a minimal Scheduler
-        // but since it requires Arc<DAL> and Arc<dyn PipelineExecutor>,
+        // but since it requires Arc<DAL> and Arc<dyn WorkflowExecutor>,
         // we just verify the schedule model itself
         assert!(schedule.start_date.is_none());
         assert!(schedule.end_date.is_none());

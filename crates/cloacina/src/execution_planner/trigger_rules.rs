@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```rust,ignore
-/// use cloacina::scheduler::{TriggerRule, TriggerCondition, ValueOperator};
+/// use cloacina::execution_planner::{TriggerRule, TriggerCondition, ValueOperator};
 /// use serde_json::json;
 ///
 /// // Always execute
@@ -102,7 +102,7 @@ pub enum TriggerRule {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use cloacina::scheduler::{TriggerCondition, ValueOperator};
+/// use cloacina::execution_planner::{TriggerCondition, ValueOperator};
 /// use serde_json::json;
 ///
 /// // Task state conditions
@@ -163,7 +163,7 @@ pub enum TriggerCondition {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use cloacina::scheduler::ValueOperator;
+/// use cloacina::execution_planner::ValueOperator;
 /// use serde_json::json;
 ///
 /// // Basic comparisons

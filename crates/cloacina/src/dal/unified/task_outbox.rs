@@ -367,7 +367,7 @@ impl<'a> TaskOutboxDAL<'a> {
 mod tests {
     use super::*;
     use crate::database::Database;
-    use crate::models::pipeline_execution::NewPipelineExecution;
+    use crate::models::pipeline_execution::NewWorkflowExecution;
     use crate::models::task_execution::NewTaskExecution;
     use crate::models::task_outbox::NewTaskOutbox;
 
@@ -389,8 +389,8 @@ mod tests {
     #[cfg(feature = "sqlite")]
     async fn create_ready_task(dal: &DAL, task_name: &str) -> UniversalUuid {
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "test_pipeline".into(),
                 pipeline_version: "1.0".into(),
                 status: "Running".into(),
@@ -583,8 +583,8 @@ mod tests {
         let dal = unique_dal().await;
         // Create a pipeline + task first (FK constraint)
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "p".into(),
                 pipeline_version: "1".into(),
                 status: "Running".into(),
@@ -625,8 +625,8 @@ mod tests {
     async fn test_mark_ready_populates_outbox() {
         let dal = unique_dal().await;
         let pipeline = dal
-            .pipeline_execution()
-            .create(NewPipelineExecution {
+            .workflow_execution()
+            .create(NewWorkflowExecution {
                 pipeline_name: "p".into(),
                 pipeline_version: "1".into(),
                 status: "Running".into(),

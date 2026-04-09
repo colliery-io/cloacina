@@ -20,7 +20,7 @@ mod postgres_multi_tenant_tests {
     use cloacina::context::Context;
     use cloacina::dal::DAL;
     use cloacina::database::universal_types::UniversalUuid;
-    use cloacina::executor::PipelineExecutor;
+    use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
     use cloacina::{register_task_constructor, register_workflow_constructor};
@@ -94,7 +94,7 @@ mod postgres_multi_tenant_tests {
         let dal_b = DAL::new(runner_b.database().clone());
 
         // Verify tenant A can see their execution
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
         assert!(
             executions_a
                 .iter()
@@ -103,7 +103,7 @@ mod postgres_multi_tenant_tests {
         );
 
         // Verify tenant B cannot see tenant A's execution (isolation)
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
         assert!(
             !executions_b
                 .iter()
@@ -120,8 +120,8 @@ mod postgres_multi_tenant_tests {
         execution_b.wait_for_completion().await?;
 
         // Refresh execution lists
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Verify tenant A still only sees their execution
         assert!(
@@ -205,8 +205,8 @@ mod postgres_multi_tenant_tests {
         let dal_a = DAL::new(runner_a.database().clone());
         let dal_b = DAL::new(runner_b.database().clone());
 
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Each tenant should have their workflow execution
         let tenant_a_workflows: Vec<_> = executions_a
@@ -268,7 +268,10 @@ mod postgres_multi_tenant_tests {
             .build()
             .await;
 
-        assert!(matches!(result, Err(PipelineError::Configuration { .. })));
+        assert!(matches!(
+            result,
+            Err(WorkflowExecutionError::Configuration { .. })
+        ));
     }
 
     /// Test builder pattern for multi-tenant setup
@@ -293,7 +296,7 @@ mod sqlite_multi_tenant_tests {
     use cloacina::context::Context;
     use cloacina::dal::DAL;
     use cloacina::database::universal_types::UniversalUuid;
-    use cloacina::executor::PipelineExecutor;
+    use cloacina::executor::WorkflowExecutor;
     use cloacina::runner::DefaultRunner;
     use cloacina::*;
     use cloacina::{register_task_constructor, register_workflow_constructor};
@@ -364,7 +367,7 @@ mod sqlite_multi_tenant_tests {
         let dal_b = DAL::new(runner_b.database().clone());
 
         // Verify tenant A sees their execution
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
         assert!(
             executions_a
                 .iter()
@@ -373,7 +376,7 @@ mod sqlite_multi_tenant_tests {
         );
 
         // Verify tenant B has no executions (separate database file = isolation)
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
         assert!(
             !executions_b
                 .iter()
@@ -390,8 +393,8 @@ mod sqlite_multi_tenant_tests {
         execution_b.wait_for_completion().await?;
 
         // Verify isolation after both execute
-        let executions_a = dal_a.pipeline_execution().list_recent(100).await?;
-        let executions_b = dal_b.pipeline_execution().list_recent(100).await?;
+        let executions_a = dal_a.workflow_execution().list_recent(100).await?;
+        let executions_b = dal_b.workflow_execution().list_recent(100).await?;
 
         // Tenant A only sees A's execution
         assert!(executions_a

@@ -15,7 +15,7 @@
  */
 
 use async_trait::async_trait;
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::runner::{DefaultRunner, DefaultRunnerConfig};
 use cloacina::*;
 use serde_json::Value;
@@ -472,7 +472,7 @@ async fn test_task_executor_timeout_handling() {
             let dal = dal.clone();
             async move {
                 if let Ok(exec) = dal
-                    .pipeline_execution()
+                    .workflow_execution()
                     .get_by_id(UniversalUuid(pipeline_id))
                     .await
                 {
@@ -486,7 +486,7 @@ async fn test_task_executor_timeout_handling() {
     .await;
 
     let pipeline_exec = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(pipeline_id))
         .await
         .unwrap();
@@ -1168,7 +1168,7 @@ async fn run_pipeline_and_get_status(
             let dal = dal.clone();
             async move {
                 if let Ok(exec) = dal
-                    .pipeline_execution()
+                    .workflow_execution()
                     .get_by_id(UniversalUuid(pipeline_id))
                     .await
                 {
@@ -1182,7 +1182,7 @@ async fn run_pipeline_and_get_status(
     .await;
 
     let exec = dal
-        .pipeline_execution()
+        .workflow_execution()
         .get_by_id(UniversalUuid(pipeline_id))
         .await
         .unwrap();

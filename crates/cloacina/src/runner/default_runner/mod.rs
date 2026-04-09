@@ -39,7 +39,7 @@ use tokio::sync::{broadcast, RwLock};
 
 use crate::dal::DAL;
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::PipelineError;
+use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
 use crate::registry::traits::WorkflowRegistry;
@@ -113,13 +113,13 @@ impl DefaultRunner {
     /// * `database_url` - Connection string for the database
     ///
     /// # Returns
-    /// * `Result<Self, PipelineError>` - The initialized executor or an error
+    /// * `Result<Self, WorkflowExecutionError>` - The initialized executor or an error
     ///
     /// # Example
     /// ```rust,ignore
     /// let runner = DefaultRunner::new("postgres://localhost/db").await?;
     /// ```
-    pub async fn new(database_url: &str) -> Result<Self, PipelineError> {
+    pub async fn new(database_url: &str) -> Result<Self, WorkflowExecutionError> {
         Self::with_config(database_url, DefaultRunnerConfig::default()).await
     }
 
@@ -146,7 +146,7 @@ impl DefaultRunner {
     /// * `schema` - Schema name for tenant isolation
     ///
     /// # Returns
-    /// * `Result<Self, PipelineError>` - The initialized executor or an error
+    /// * `Result<Self, WorkflowExecutionError>` - The initialized executor or an error
     ///
     /// # Example
     /// ```rust,ignore
@@ -155,7 +155,10 @@ impl DefaultRunner {
     ///     "tenant_123"
     /// ).await?;
     /// ```
-    pub async fn with_schema(database_url: &str, schema: &str) -> Result<Self, PipelineError> {
+    pub async fn with_schema(
+        database_url: &str,
+        schema: &str,
+    ) -> Result<Self, WorkflowExecutionError> {
         Self::builder()
             .database_url(database_url)
             .schema(schema)
@@ -170,7 +173,7 @@ impl DefaultRunner {
     /// * `config` - Custom configuration for the executor
     ///
     /// # Returns
-    /// * `Result<Self, PipelineError>` - The initialized executor or an error
+    /// * `Result<Self, WorkflowExecutionError>` - The initialized executor or an error
     ///
     /// This method:
     /// 1. Initializes the database connection
@@ -181,7 +184,7 @@ impl DefaultRunner {
     pub async fn with_config(
         database_url: &str,
         config: DefaultRunnerConfig,
-    ) -> Result<Self, PipelineError> {
+    ) -> Result<Self, WorkflowExecutionError> {
         // Initialize database
         let database = Database::new(database_url, "cloacina", config.db_pool_size());
 
@@ -189,13 +192,13 @@ impl DefaultRunner {
         database
             .run_migrations()
             .await
-            .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+            .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
 
         // Create scheduler with global workflow registry (always dynamic)
         let scheduler =
             TaskScheduler::with_poll_interval(database.clone(), config.scheduler_poll_interval())
                 .await
-                .map_err(|e| PipelineError::Executor(e.into()))?;
+                .map_err(|e| WorkflowExecutionError::Executor(e.into()))?;
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -206,7 +209,7 @@ impl DefaultRunner {
         };
 
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
-            .map_err(|e| PipelineError::Configuration {
+            .map_err(|e| WorkflowExecutionError::Configuration {
                 message: e.to_string(),
             })?;
 
@@ -285,8 +288,8 @@ impl DefaultRunner {
     /// 4. Closes the database connection pool
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
-    pub async fn shutdown(&self) -> Result<(), PipelineError> {
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    pub async fn shutdown(&self) -> Result<(), WorkflowExecutionError> {
         let mut handles = self.runtime_handles.write().await;
 
         // Send shutdown signal

@@ -4,14 +4,14 @@ level: initiative
 title: "Naming and Structure — Pipeline-to-Workflow Rename and Python Crate Extraction"
 short_code: "CLOACI-I-0090"
 created_at: 2026-04-08T10:46:54.008177+00:00
-updated_at: 2026-04-08T10:46:54.008177+00:00
+updated_at: 2026-04-09T15:47:08.954638+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/decompose"
 
 
 exit_criteria_met: false

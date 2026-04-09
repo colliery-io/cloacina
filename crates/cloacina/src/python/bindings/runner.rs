@@ -51,56 +51,62 @@ enum RuntimeMessage {
         workflow_name: String,
         context: crate::Context<serde_json::Value>,
         response_tx: oneshot::Sender<
-            Result<crate::executor::PipelineResult, crate::executor::PipelineError>,
+            Result<
+                crate::executor::WorkflowExecutionResult,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     RegisterCronWorkflow {
         workflow_name: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<String, crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<String, crate::executor::WorkflowExecutionError>>,
     },
     ListCronSchedules {
         enabled_only: bool,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
         >,
     },
     SetCronScheduleEnabled {
         schedule_id: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     DeleteCronSchedule {
         schedule_id: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetCronSchedule {
         schedule_id: String,
         response_tx: oneshot::Sender<
-            Result<crate::models::schedule::Schedule, crate::executor::PipelineError>,
+            Result<crate::models::schedule::Schedule, crate::executor::WorkflowExecutionError>,
         >,
     },
     UpdateCronSchedule {
         schedule_id: String,
         cron_expression: String,
         timezone: String,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetCronExecutionHistory {
         schedule_id: String,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
+            Result<
+                Vec<crate::models::schedule::ScheduleExecution>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     GetCronExecutionStats {
         since: chrono::DateTime<chrono::Utc>,
         response_tx: oneshot::Sender<
-            Result<crate::dal::ScheduleExecutionStats, crate::executor::PipelineError>,
+            Result<crate::dal::ScheduleExecutionStats, crate::executor::WorkflowExecutionError>,
         >,
     },
     // Trigger management messages
@@ -109,26 +115,32 @@ enum RuntimeMessage {
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<Vec<crate::models::schedule::Schedule>, crate::executor::WorkflowExecutionError>,
         >,
     },
     GetTriggerSchedule {
         trigger_name: String,
         response_tx: oneshot::Sender<
-            Result<Option<crate::models::schedule::Schedule>, crate::executor::PipelineError>,
+            Result<
+                Option<crate::models::schedule::Schedule>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     SetTriggerEnabled {
         trigger_name: String,
         enabled: bool,
-        response_tx: oneshot::Sender<Result<(), crate::executor::PipelineError>>,
+        response_tx: oneshot::Sender<Result<(), crate::executor::WorkflowExecutionError>>,
     },
     GetTriggerExecutionHistory {
         trigger_name: String,
         limit: i64,
         offset: i64,
         response_tx: oneshot::Sender<
-            Result<Vec<crate::models::schedule::ScheduleExecution>, crate::executor::PipelineError>,
+            Result<
+                Vec<crate::models::schedule::ScheduleExecution>,
+                crate::executor::WorkflowExecutionError,
+            >,
         >,
     },
     Shutdown,
@@ -210,14 +222,14 @@ impl Drop for AsyncRuntimeHandle {
     }
 }
 
-/// Python wrapper for PipelineResult
-#[pyclass(name = "PipelineResult")]
-pub struct PyPipelineResult {
-    inner: crate::executor::PipelineResult,
+/// Python wrapper for WorkflowExecutionResult
+#[pyclass(name = "WorkflowResult")]
+pub struct PyWorkflowResult {
+    inner: crate::executor::WorkflowExecutionResult,
 }
 
 #[pymethods]
-impl PyPipelineResult {
+impl PyWorkflowResult {
     /// Get the execution status
     #[getter]
     pub fn status(&self) -> String {
@@ -253,7 +265,7 @@ impl PyPipelineResult {
     /// String representation
     pub fn __repr__(&self) -> String {
         format!(
-            "PipelineResult(status={}, error={})",
+            "WorkflowResult(status={}, error={})",
             self.status(),
             self.error_message().unwrap_or("None")
         )
@@ -326,7 +338,7 @@ impl PyDefaultRunner {
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
                                 // Execute the workflow in the async runtime
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
                                 // Send response back to the calling thread
@@ -381,7 +393,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -399,7 +411,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -417,7 +429,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -443,7 +455,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -469,7 +481,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -501,7 +513,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -517,7 +529,7 @@ impl PyDefaultRunner {
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -558,7 +570,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -580,7 +592,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -589,7 +601,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -665,7 +677,7 @@ impl PyDefaultRunner {
                             // Spawn the execution as a separate task to avoid blocking the message loop
                             tokio::spawn(async move {
                                 // Execute the workflow in the async runtime
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
                                 // Send response back to the calling thread
@@ -720,7 +732,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -738,7 +750,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -756,7 +768,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -782,7 +794,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -808,7 +820,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -840,7 +852,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -856,7 +868,7 @@ impl PyDefaultRunner {
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -897,7 +909,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -919,7 +931,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -928,7 +940,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -1061,7 +1073,7 @@ impl PyDefaultRunner {
                         } => {
                             let runner_clone = runner.clone();
                             tokio::spawn(async move {
-                                use crate::executor::PipelineExecutor;
+                                use crate::executor::WorkflowExecutor;
                                 let result = runner_clone.execute(&workflow_name, context).await;
 
                                 let _ = response_tx.send(result);
@@ -1115,7 +1127,7 @@ impl PyDefaultRunner {
                                             .set_cron_schedule_enabled(universal_uuid, enabled)
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1133,7 +1145,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.delete_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1151,7 +1163,7 @@ impl PyDefaultRunner {
                                         let universal_uuid = crate::UniversalUuid::from(uuid);
                                         runner_clone.get_cron_schedule(universal_uuid).await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1177,7 +1189,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1203,7 +1215,7 @@ impl PyDefaultRunner {
                                             )
                                             .await
                                     }
-                                    Err(e) => Err(crate::executor::PipelineError::Configuration {
+                                    Err(e) => Err(crate::executor::WorkflowExecutionError::Configuration {
                                         message: format!("Invalid schedule ID: {}", e),
                                     }),
                                 };
@@ -1235,7 +1247,7 @@ impl PyDefaultRunner {
                                         .await
                                 };
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1251,7 +1263,7 @@ impl PyDefaultRunner {
                                 let result =
                                     dal.schedule().get_by_trigger_name(&trigger_name).await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1292,7 +1304,7 @@ impl PyDefaultRunner {
                                 }
                                 .await;
                                 let _ = response_tx.send(result.map_err(|e| {
-                                    crate::executor::PipelineError::Configuration {
+                                    crate::executor::WorkflowExecutionError::Configuration {
                                         message: e.to_string(),
                                     }
                                 }));
@@ -1314,7 +1326,7 @@ impl PyDefaultRunner {
                                         .get_by_trigger_name(&trigger_name)
                                         .await
                                         .map_err(|e| {
-                                            crate::executor::PipelineError::Configuration {
+                                            crate::executor::WorkflowExecutionError::Configuration {
                                                 message: e.to_string(),
                                             }
                                         })?;
@@ -1323,7 +1335,7 @@ impl PyDefaultRunner {
                                             .list_by_schedule(schedule.id, limit, offset)
                                             .await
                                             .map_err(|e| {
-                                                crate::executor::PipelineError::Configuration {
+                                                crate::executor::WorkflowExecutionError::Configuration {
                                                     message: e.to_string(),
                                                 }
                                             })
@@ -1361,7 +1373,7 @@ impl PyDefaultRunner {
         workflow_name: &str,
         context: &PyContext,
         py: Python,
-    ) -> PyResult<PyPipelineResult> {
+    ) -> PyResult<PyWorkflowResult> {
         let rust_context = context.clone_inner();
         let workflow_name = workflow_name.to_string();
 
@@ -1392,7 +1404,7 @@ impl PyDefaultRunner {
             result.map_err(|e| PyValueError::new_err(format!("Workflow execution failed: {}", e)))
         })?;
 
-        Ok(PyPipelineResult::from_result(result))
+        Ok(PyWorkflowResult::from_result(result))
     }
 
     /// Start the runner (task scheduler and executor)
@@ -2123,9 +2135,9 @@ impl PyDefaultRunner {
     }
 }
 
-impl PyPipelineResult {
-    pub fn from_result(result: crate::executor::PipelineResult) -> Self {
-        PyPipelineResult { inner: result }
+impl PyWorkflowResult {
+    pub fn from_result(result: crate::executor::WorkflowExecutionResult) -> Self {
+        PyWorkflowResult { inner: result }
     }
 }
 
@@ -2503,10 +2515,10 @@ mod tests {
         let mut ctx = crate::Context::new();
         ctx.insert("result".to_string(), serde_json::json!("done"))
             .unwrap();
-        let result = crate::executor::PipelineResult {
+        let result = crate::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "test-wf".to_string(),
-            status: crate::executor::PipelineStatus::Completed,
+            status: crate::executor::WorkflowStatus::Completed,
             start_time: chrono::Utc::now(),
             end_time: Some(chrono::Utc::now()),
             duration: Some(std::time::Duration::from_secs(1)),
@@ -2514,7 +2526,7 @@ mod tests {
             task_results: vec![],
             error_message: None,
         };
-        let py_result = PyPipelineResult::from_result(result);
+        let py_result = PyWorkflowResult::from_result(result);
 
         assert_eq!(py_result.status(), "Completed");
         assert!(!py_result.start_time().is_empty());
@@ -2535,10 +2547,10 @@ mod tests {
     #[serial]
     fn test_pipeline_result_failed() {
         pyo3::prepare_freethreaded_python();
-        let result = crate::executor::PipelineResult {
+        let result = crate::executor::WorkflowExecutionResult {
             execution_id: uuid::Uuid::new_v4(),
             workflow_name: "fail-wf".to_string(),
-            status: crate::executor::PipelineStatus::Failed,
+            status: crate::executor::WorkflowStatus::Failed,
             start_time: chrono::Utc::now(),
             end_time: None,
             duration: None,
@@ -2546,7 +2558,7 @@ mod tests {
             task_results: vec![],
             error_message: Some("something broke".to_string()),
         };
-        let py_result = PyPipelineResult::from_result(result);
+        let py_result = PyWorkflowResult::from_result(result);
 
         assert_eq!(py_result.status(), "Failed");
         assert!(py_result.end_time().is_none());

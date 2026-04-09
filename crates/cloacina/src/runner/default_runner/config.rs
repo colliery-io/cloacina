@@ -24,7 +24,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::dispatcher::{DefaultDispatcher, Dispatcher, RoutingConfig, TaskExecutor};
-use crate::executor::pipeline_executor::PipelineError;
+use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::executor::types::ExecutorConfig;
 use crate::executor::ThreadTaskExecutor;
 use crate::Database;
@@ -549,9 +549,9 @@ impl DefaultRunnerBuilder {
     }
 
     /// Validates the schema name contains only alphanumeric characters and underscores
-    pub(super) fn validate_schema_name(schema: &str) -> Result<(), PipelineError> {
+    pub(super) fn validate_schema_name(schema: &str) -> Result<(), WorkflowExecutionError> {
         if !schema.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(PipelineError::Configuration {
+            return Err(WorkflowExecutionError::Configuration {
                 message: "Schema name must contain only alphanumeric characters and underscores"
                     .to_string(),
             });
@@ -560,12 +560,12 @@ impl DefaultRunnerBuilder {
     }
 
     /// Builds the DefaultRunner
-    pub async fn build(self) -> Result<DefaultRunner, PipelineError> {
-        let database_url = self
-            .database_url
-            .ok_or_else(|| PipelineError::Configuration {
-                message: "Database URL is required".to_string(),
-            })?;
+    pub async fn build(self) -> Result<DefaultRunner, WorkflowExecutionError> {
+        let database_url =
+            self.database_url
+                .ok_or_else(|| WorkflowExecutionError::Configuration {
+                    message: "Database URL is required".to_string(),
+                })?;
 
         if let Some(ref schema) = self.schema {
             Self::validate_schema_name(schema)?;
@@ -574,7 +574,7 @@ impl DefaultRunnerBuilder {
             if !database_url.starts_with("postgresql://")
                 && !database_url.starts_with("postgres://")
             {
-                return Err(PipelineError::Configuration {
+                return Err(WorkflowExecutionError::Configuration {
                     message: "Schema isolation is only supported with PostgreSQL. \
                              For SQLite multi-tenancy, use separate database files instead."
                         .to_string(),
@@ -594,18 +594,17 @@ impl DefaultRunnerBuilder {
         #[cfg(feature = "postgres")]
         {
             if let Some(ref schema) = self.schema {
-                database
-                    .setup_schema(schema)
-                    .await
-                    .map_err(|e| PipelineError::Configuration {
+                database.setup_schema(schema).await.map_err(|e| {
+                    WorkflowExecutionError::Configuration {
                         message: format!("Failed to set up schema '{}': {}", schema, e),
-                    })?;
+                    }
+                })?;
             } else {
                 // Run migrations in public schema
                 database
                     .run_migrations()
                     .await
-                    .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+                    .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
             }
         }
 
@@ -615,7 +614,7 @@ impl DefaultRunnerBuilder {
             database
                 .run_migrations()
                 .await
-                .map_err(|e| PipelineError::DatabaseConnection { message: e })?;
+                .map_err(|e| WorkflowExecutionError::DatabaseConnection { message: e })?;
         }
 
         // Create scheduler with global workflow registry (always dynamic)
@@ -624,7 +623,7 @@ impl DefaultRunnerBuilder {
             self.config.scheduler_poll_interval(),
         )
         .await
-        .map_err(|e| PipelineError::Executor(e.into()))?;
+        .map_err(|e| WorkflowExecutionError::Executor(e.into()))?;
 
         // Create task executor
         let executor_config = ExecutorConfig {
@@ -635,7 +634,7 @@ impl DefaultRunnerBuilder {
         };
 
         let executor = ThreadTaskExecutor::with_global_registry(database.clone(), executor_config)
-            .map_err(|e| PipelineError::Configuration {
+            .map_err(|e| WorkflowExecutionError::Configuration {
                 message: e.to_string(),
             })?;
 

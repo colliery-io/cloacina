@@ -27,7 +27,7 @@ use tracing::Instrument;
 use crate::dal::FilesystemRegistryStorage;
 use crate::dal::UnifiedRegistryStorage;
 use crate::dal::DAL;
-use crate::executor::pipeline_executor::PipelineError;
+use crate::executor::pipeline_executor::WorkflowExecutionError;
 use crate::registry::traits::WorkflowRegistry;
 use crate::registry::{ReconcilerConfig, RegistryReconciler, WorkflowRegistryImpl};
 use crate::{Scheduler, SchedulerConfig};
@@ -65,8 +65,8 @@ impl DefaultRunner {
     /// 4. Stores the runtime handles for later shutdown
     ///
     /// # Returns
-    /// * `Result<(), PipelineError>` - Success or error status
-    pub(super) async fn start_background_services(&self) -> Result<(), PipelineError> {
+    /// * `Result<(), WorkflowExecutionError>` - Success or error status
+    pub(super) async fn start_background_services(&self) -> Result<(), WorkflowExecutionError> {
         let mut handles = self.runtime_handles.write().await;
 
         tracing::info!("Starting scheduler and executor background services");
@@ -139,7 +139,7 @@ impl DefaultRunner {
         &self,
         handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         tracing::info!("Starting unified scheduler");
 
         // Create watch channel for unified scheduler shutdown
@@ -154,11 +154,11 @@ impl DefaultRunner {
             trigger_poll_timeout: self.config.trigger_poll_timeout(),
         };
 
-        // Create Scheduler with DefaultRunner as PipelineExecutor
+        // Create Scheduler with DefaultRunner as WorkflowExecutor
         let dal = DAL::new(self.database.clone());
         let unified_scheduler = Scheduler::new(
             Arc::new(dal),
-            Arc::new(self.clone()), // self implements PipelineExecutor!
+            Arc::new(self.clone()), // self implements WorkflowExecutor!
             scheduler_config,
             unified_shutdown_rx,
         );
@@ -199,7 +199,7 @@ impl DefaultRunner {
         &self,
         handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         tracing::info!("Starting cron recovery service");
 
         // Create watch channel for recovery service shutdown
@@ -218,7 +218,7 @@ impl DefaultRunner {
         let dal = DAL::new(self.database.clone());
         let recovery_service = crate::CronRecoveryService::new(
             Arc::new(dal),
-            Arc::new(self.clone()), // self implements PipelineExecutor!
+            Arc::new(self.clone()), // self implements WorkflowExecutor!
             recovery_config,
             recovery_shutdown_rx,
         );
@@ -259,7 +259,7 @@ impl DefaultRunner {
         &self,
         handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
-    ) -> Result<(), PipelineError> {
+    ) -> Result<(), WorkflowExecutionError> {
         tracing::info!("Starting registry reconciler");
 
         // Create watch channel for registry reconciler shutdown
@@ -312,7 +312,7 @@ impl DefaultRunner {
                     reconciler_config,
                     reconciler_shutdown_rx,
                 )
-                .map_err(|e| PipelineError::Configuration {
+                .map_err(|e| WorkflowExecutionError::Configuration {
                     message: format!("Failed to create registry reconciler: {}", e),
                 })?;
 
@@ -361,8 +361,8 @@ impl DefaultRunner {
         &self,
         _handles: &mut super::RuntimeHandles,
         shutdown_tx: &broadcast::Sender<()>,
-    ) -> Result<(), PipelineError> {
-        use crate::task_scheduler::stale_claim_sweeper::{
+    ) -> Result<(), WorkflowExecutionError> {
+        use crate::execution_planner::stale_claim_sweeper::{
             StaleClaimSweeper, StaleClaimSweeperConfig,
         };
 

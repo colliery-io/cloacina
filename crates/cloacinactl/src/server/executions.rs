@@ -25,7 +25,7 @@ use axum::{
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use cloacina::executor::PipelineExecutor;
+use cloacina::executor::WorkflowExecutor;
 use cloacina::Context;
 
 use crate::commands::serve::AppState;
@@ -104,14 +104,14 @@ pub async fn list_executions(
 
     let dal = cloacina::dal::DAL::new(state.database.clone());
 
-    match dal.pipeline_execution().get_active_executions().await {
+    match dal.workflow_execution().get_active_executions().await {
         Ok(executions) => {
             let items: Vec<_> = executions
                 .into_iter()
                 .map(|e| {
                     serde_json::json!({
                         "id": e.id.0.to_string(),
-                        "pipeline_name": e.pipeline_name,
+                        "workflow_name": e.pipeline_name,
                         "status": e.status,
                         "started_at": e.started_at.0.to_rfc3339(),
                         "completed_at": e.completed_at.map(|t| t.0.to_rfc3339()),

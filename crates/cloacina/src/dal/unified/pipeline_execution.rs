@@ -20,23 +20,23 @@
 //! are written atomically. If either fails, both are rolled back.
 
 use super::models::{
-    NewUnifiedExecutionEvent, NewUnifiedPipelineExecution, UnifiedPipelineExecution,
+    NewUnifiedExecutionEvent, NewUnifiedWorkflowExecution, UnifiedWorkflowExecution,
 };
 use super::DAL;
 use crate::database::schema::unified::{execution_events, pipeline_executions};
 use crate::database::universal_types::{UniversalTimestamp, UniversalUuid};
 use crate::error::ValidationError;
 use crate::models::execution_event::ExecutionEventType;
-use crate::models::pipeline_execution::{NewPipelineExecution, PipelineExecution};
+use crate::models::pipeline_execution::{NewWorkflowExecution, WorkflowExecutionRecord};
 use diesel::prelude::*;
 
-/// Data access layer for pipeline execution operations with compile-time backend selection.
+/// Data access layer for workflow execution operations with compile-time backend selection.
 #[derive(Clone)]
-pub struct PipelineExecutionDAL<'a> {
+pub struct WorkflowExecutionDAL<'a> {
     dal: &'a DAL,
 }
 
-impl<'a> PipelineExecutionDAL<'a> {
+impl<'a> WorkflowExecutionDAL<'a> {
     pub fn new(dal: &'a DAL) -> Self {
         Self { dal }
     }
@@ -47,8 +47,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     /// are written atomically.
     pub async fn create(
         &self,
-        new_execution: NewPipelineExecution,
-    ) -> Result<PipelineExecution, ValidationError> {
+        new_execution: NewWorkflowExecution,
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.create_postgres(new_execution).await,
@@ -59,8 +59,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     #[cfg(feature = "postgres")]
     async fn create_postgres(
         &self,
-        new_execution: NewPipelineExecution,
-    ) -> Result<PipelineExecution, ValidationError> {
+        new_execution: NewWorkflowExecution,
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -70,13 +70,13 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution: UnifiedPipelineExecution = conn
+        let execution: UnifiedWorkflowExecution = conn
             .interact(move |conn| {
                 conn.transaction::<_, diesel::result::Error, _>(|conn| {
                     let id = UniversalUuid::new_v4();
                     let now = UniversalTimestamp::now();
 
-                    let unified_new = NewUnifiedPipelineExecution {
+                    let unified_new = NewUnifiedWorkflowExecution {
                         id,
                         pipeline_name: new_execution.pipeline_name,
                         pipeline_version: new_execution.pipeline_version,
@@ -93,7 +93,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                         .execute(conn)?;
 
                     // Retrieve the created record
-                    let execution: UnifiedPipelineExecution =
+                    let execution: UnifiedWorkflowExecution =
                         pipeline_executions::table.find(id).first(conn)?;
 
                     // Insert execution event for pipeline start
@@ -122,8 +122,8 @@ impl<'a> PipelineExecutionDAL<'a> {
     #[cfg(feature = "sqlite")]
     async fn create_sqlite(
         &self,
-        new_execution: NewPipelineExecution,
-    ) -> Result<PipelineExecution, ValidationError> {
+        new_execution: NewWorkflowExecution,
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         use diesel::connection::Connection;
 
         let conn = self
@@ -133,13 +133,13 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution: UnifiedPipelineExecution = conn
+        let execution: UnifiedWorkflowExecution = conn
             .interact(move |conn| {
                 conn.transaction::<_, diesel::result::Error, _>(|conn| {
                     let id = UniversalUuid::new_v4();
                     let now = UniversalTimestamp::now();
 
-                    let unified_new = NewUnifiedPipelineExecution {
+                    let unified_new = NewUnifiedWorkflowExecution {
                         id,
                         pipeline_name: new_execution.pipeline_name,
                         pipeline_version: new_execution.pipeline_version,
@@ -156,7 +156,7 @@ impl<'a> PipelineExecutionDAL<'a> {
                         .execute(conn)?;
 
                     // Retrieve the created record
-                    let execution: UnifiedPipelineExecution =
+                    let execution: UnifiedWorkflowExecution =
                         pipeline_executions::table.find(id).first(conn)?;
 
                     // Insert execution event for pipeline start
@@ -182,7 +182,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(execution.into())
     }
 
-    pub async fn get_by_id(&self, id: UniversalUuid) -> Result<PipelineExecution, ValidationError> {
+    pub async fn get_by_id(
+        &self,
+        id: UniversalUuid,
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_by_id_postgres(id).await,
@@ -194,7 +197,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     async fn get_by_id_postgres(
         &self,
         id: UniversalUuid,
-    ) -> Result<PipelineExecution, ValidationError> {
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         let conn = self
             .dal
             .database
@@ -202,7 +205,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution: UnifiedPipelineExecution = conn
+        let execution: UnifiedWorkflowExecution = conn
             .interact(move |conn| pipeline_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -214,7 +217,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     async fn get_by_id_sqlite(
         &self,
         id: UniversalUuid,
-    ) -> Result<PipelineExecution, ValidationError> {
+    ) -> Result<WorkflowExecutionRecord, ValidationError> {
         let conn = self
             .dal
             .database
@@ -222,7 +225,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let execution: UnifiedPipelineExecution = conn
+        let execution: UnifiedWorkflowExecution = conn
             .interact(move |conn| pipeline_executions::table.find(id).first(conn))
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))??;
@@ -230,7 +233,9 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(execution.into())
     }
 
-    pub async fn get_active_executions(&self) -> Result<Vec<PipelineExecution>, ValidationError> {
+    pub async fn get_active_executions(
+        &self,
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.get_active_executions_postgres().await,
@@ -241,7 +246,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     #[cfg(feature = "postgres")]
     async fn get_active_executions_postgres(
         &self,
-    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -249,7 +254,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions: Vec<UnifiedPipelineExecution> = conn
+        let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
@@ -264,7 +269,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     #[cfg(feature = "sqlite")]
     async fn get_active_executions_sqlite(
         &self,
-    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -272,7 +277,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions: Vec<UnifiedPipelineExecution> = conn
+        let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .filter(pipeline_executions::status.eq_any(vec!["Pending", "Running"]))
@@ -1084,7 +1089,10 @@ impl<'a> PipelineExecutionDAL<'a> {
         Ok(())
     }
 
-    pub async fn list_recent(&self, limit: i64) -> Result<Vec<PipelineExecution>, ValidationError> {
+    pub async fn list_recent(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         crate::dispatch_backend!(
             self.dal.backend(),
             self.list_recent_postgres(limit).await,
@@ -1096,7 +1104,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     async fn list_recent_postgres(
         &self,
         limit: i64,
-    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -1104,7 +1112,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions: Vec<UnifiedPipelineExecution> = conn
+        let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .order(pipeline_executions::started_at.desc())
@@ -1121,7 +1129,7 @@ impl<'a> PipelineExecutionDAL<'a> {
     async fn list_recent_sqlite(
         &self,
         limit: i64,
-    ) -> Result<Vec<PipelineExecution>, ValidationError> {
+    ) -> Result<Vec<WorkflowExecutionRecord>, ValidationError> {
         let conn = self
             .dal
             .database
@@ -1129,7 +1137,7 @@ impl<'a> PipelineExecutionDAL<'a> {
             .await
             .map_err(|e| ValidationError::ConnectionPool(e.to_string()))?;
 
-        let executions: Vec<UnifiedPipelineExecution> = conn
+        let executions: Vec<UnifiedWorkflowExecution> = conn
             .interact(move |conn| {
                 pipeline_executions::table
                     .order(pipeline_executions::started_at.desc())
