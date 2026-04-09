@@ -458,6 +458,17 @@ impl DefaultRunnerConfigBuilder {
 
     /// Builds the configuration.
     pub fn build(self) -> DefaultRunnerConfig {
+        assert!(
+            self.config.max_concurrent_tasks > 0,
+            "max_concurrent_tasks must be > 0"
+        );
+        assert!(self.config.db_pool_size > 0, "db_pool_size must be > 0");
+        assert!(
+            self.config.stale_claim_threshold > self.config.heartbeat_interval,
+            "stale_claim_threshold ({:?}) must be greater than heartbeat_interval ({:?})",
+            self.config.stale_claim_threshold,
+            self.config.heartbeat_interval
+        );
         self.config
     }
 }

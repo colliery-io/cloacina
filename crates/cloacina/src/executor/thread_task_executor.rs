@@ -381,13 +381,14 @@ impl ThreadTaskExecutor {
                 info!("Task completed successfully: {}", claimed_task.task_name);
             }
             Err(error) => {
-                // Get task retry policy to determine if we should retry
-                let namespace = parse_namespace(&claimed_task.task_name).map_err(|e| {
-                    ExecutorError::TaskNotFound(format!("Invalid namespace: {}", e))
-                })?;
-                let task = get_task(&namespace)
-                    .ok_or_else(|| ExecutorError::TaskNotFound(claimed_task.task_name.clone()))?;
-                let retry_policy = task.retry_policy();
+                // Get task retry policy to determine if we should retry.
+                // If the task namespace can't be parsed or the task isn't found
+                // in the registry, default to no retries (mark as permanently failed).
+                let retry_policy = parse_namespace(&claimed_task.task_name)
+                    .ok()
+                    .and_then(|ns| get_task(&ns))
+                    .map(|task| task.retry_policy())
+                    .unwrap_or_default();
 
                 // Check if we should retry this task
                 if self

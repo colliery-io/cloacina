@@ -195,14 +195,6 @@ pub enum ValidationError {
     #[error("Missing dependency: task '{task}' depends on '{dependency}' which is not registered")]
     MissingDependency { task: String, dependency: String },
 
-    #[error(
-        "Missing dependency: task '{task_id}' depends on '{dependency}' which is not registered"
-    )]
-    MissingDependencyOld { task_id: String, dependency: String },
-
-    #[error("Circular dependency detected: {cycle}")]
-    CircularDependency { cycle: String },
-
     #[error("Duplicate task ID: {0}")]
     DuplicateTaskId(String),
 

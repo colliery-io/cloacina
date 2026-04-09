@@ -89,6 +89,16 @@ impl WorkflowBuilder {
         self.workflow.name()
     }
 
+    /// Get the workflow description (if set).
+    pub fn get_description(&self) -> Option<&str> {
+        self.workflow.metadata.description.as_deref()
+    }
+
+    /// Get the workflow tags.
+    pub fn get_tags(&self) -> &std::collections::HashMap<String, String> {
+        &self.workflow.metadata.tags
+    }
+
     /// Set the workflow description
     pub fn description(mut self, description: &str) -> Self {
         self.workflow.set_description(description);

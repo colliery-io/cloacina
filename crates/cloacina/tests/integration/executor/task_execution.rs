@@ -1102,11 +1102,26 @@ async fn run_pipeline_and_get_status(
             .as_nanos()
     );
 
+    // Workflow::builder defaults to tenant="public", package="embedded"
+    let default_tenant = "public";
+    let default_package = "embedded";
+
     let mut builder = Workflow::builder(&unique_name).description("COR-01 regression test");
 
     for (task_id, deps) in &dep_map {
+        // Convert bare dep names to fully-qualified namespaces
+        let qualified_deps: Vec<String> = deps
+            .iter()
+            .map(|d| {
+                format!(
+                    "{}::{}::{}::{}",
+                    default_tenant, default_package, unique_name, d
+                )
+            })
+            .collect();
+        let qualified_refs: Vec<&str> = qualified_deps.iter().map(|s| s.as_str()).collect();
         builder = builder
-            .add_task(Arc::new(WorkflowTask::new(task_id, deps.clone())))
+            .add_task(Arc::new(WorkflowTask::new(task_id, qualified_refs)))
             .unwrap();
     }
     let workflow = builder.build().unwrap();

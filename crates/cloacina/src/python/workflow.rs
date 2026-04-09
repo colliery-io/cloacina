@@ -178,6 +178,14 @@ impl PyWorkflowBuilder {
         workflow.set_tenant(tenant_id);
         workflow.set_package(package_name);
 
+        // Preserve description and tags set on the builder during the `with` block
+        if let Some(desc) = self.inner.get_description() {
+            workflow.set_description(desc);
+        }
+        for (key, value) in self.inner.get_tags() {
+            workflow.add_tag(key, value);
+        }
+
         let registry = crate::task::global_task_registry();
         let guard = registry.read();
 

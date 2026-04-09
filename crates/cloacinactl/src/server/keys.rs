@@ -32,17 +32,37 @@ use crate::commands::serve::AppState;
 use crate::server::auth::AuthenticatedKey;
 use crate::server::error::ApiError;
 
+/// Allowed roles for API keys.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyRole {
+    Admin,
+    Write,
+    Read,
+}
+
+impl KeyRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KeyRole::Admin => "admin",
+            KeyRole::Write => "write",
+            KeyRole::Read => "read",
+        }
+    }
+}
+
+impl Default for KeyRole {
+    fn default() -> Self {
+        KeyRole::Admin
+    }
+}
+
 /// Request body for creating a new API key.
 #[derive(Deserialize)]
 pub struct CreateKeyRequest {
     pub name: String,
-    /// Role for the key: "admin", "write", or "read". Defaults to "admin".
-    #[serde(default = "default_role")]
-    pub role: String,
-}
-
-fn default_role() -> String {
-    "admin".to_string()
+    #[serde(default)]
+    pub role: KeyRole,
 }
 
 /// POST /auth/keys — create a new API key.
@@ -72,7 +92,7 @@ pub async fn create_key(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .api_keys()
-        .create_key(&hash, &body.name, None, false, &body.role)
+        .create_key(&hash, &body.name, None, false, body.role.as_str())
         .await
     {
         Ok(info) => (
@@ -181,7 +201,13 @@ pub async fn create_tenant_key(
     let dal = cloacina::dal::DAL::new(state.database.clone());
     match dal
         .api_keys()
-        .create_key(&hash, &body.name, Some(&tenant_id), false, &body.role)
+        .create_key(
+            &hash,
+            &body.name,
+            Some(&tenant_id),
+            false,
+            body.role.as_str(),
+        )
         .await
     {
         Ok(info) => {
