@@ -1120,7 +1120,7 @@ def server_soak():
 
         if kafka_ready:
             # Create topics
-            for topic in ["soak.stream", "soak.batch"]:
+            for topic in ["soak.stream", "soak.batch", "soak.py-batch"]:
                 if kafka_create_topic(topic):
                     kafka_topics.append(topic)
                     print(f"  Topic '{topic}' created ✓")
@@ -1158,9 +1158,21 @@ def server_soak():
             else:
                 print(f"  Python Kafka stream upload: {s}")
 
+            # Upload Python Kafka CG package (batch — same topic as Rust batch)
+            py_kafka_batch_pkg = create_python_kafka_cg_source_package(
+                "soak-py-kafka-batch", "py_kafka_batch_graph", "py_batch_source", "soak.py-batch"
+            )
+            s, b = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
+                               token=token, files=py_kafka_batch_pkg)
+            if s == 201:
+                print("  Python Kafka batch CG package uploaded ✓")
+            else:
+                print(f"  Python Kafka batch upload: {s}")
+
             # Wait for Kafka CG packages to compile and load
             print("  Waiting for Kafka CG packages (up to 120s)...")
             py_kafka_stream_loaded = False
+            py_kafka_batch_loaded = False
             kafka_compile_start = time.time()
             for _ in range(60):
                 time.sleep(2)
@@ -1170,6 +1182,7 @@ def server_soak():
                 stream_ok = "kafka_stream_graph" in stderr and "loaded into ReactiveScheduler" in stderr
                 batch_ok = "kafka_batch_graph" in stderr and "loaded into ReactiveScheduler" in stderr
                 py_stream_ok = "py_kafka_stream_graph" in stderr and "loaded into ReactiveScheduler" in stderr
+                py_batch_ok = "py_kafka_batch_graph" in stderr and "loaded into ReactiveScheduler" in stderr
                 if not kafka_stream_loaded and stream_ok:
                     print(f"  Kafka stream graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
                     kafka_stream_loaded = True
@@ -1179,7 +1192,10 @@ def server_soak():
                 if not py_kafka_stream_loaded and py_stream_ok:
                     print(f"  Python Kafka stream graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
                     py_kafka_stream_loaded = True
-                if kafka_stream_loaded and kafka_batch_loaded and py_kafka_stream_loaded:
+                if not py_kafka_batch_loaded and py_batch_ok:
+                    print(f"  Python Kafka batch graph loaded ({int(time.time() - kafka_compile_start)}s) ✓")
+                    py_kafka_batch_loaded = True
+                if kafka_stream_loaded and kafka_batch_loaded and py_kafka_stream_loaded and py_kafka_batch_loaded:
                     break
             if not kafka_stream_loaded:
                 print("  WARNING: Kafka stream graph not loaded")
@@ -1187,6 +1203,8 @@ def server_soak():
                 print("  WARNING: Kafka batch graph not loaded")
             if not py_kafka_stream_loaded:
                 print("  WARNING: Python Kafka stream graph not loaded")
+            if not py_kafka_batch_loaded:
+                print("  WARNING: Python Kafka batch graph not loaded")
 
         # Step 9: Operational soak — execute workflows while querying API
         soak_duration = 60
@@ -1277,6 +1295,20 @@ def server_soak():
                 time.sleep(0.1)  # 50 msg/sec (5 per 100ms)
             producer.close()
 
+        py_kafka_batch_count = {"sent": 0}
+
+        def py_kafka_batch_worker():
+            """Produce to Python batch topic at ~50 msg/sec independently."""
+            producer = KafkaProducer("soak.py-batch")
+            seq = 0
+            while not kafka_stop_event.is_set():
+                msgs = [json.dumps({"value": float(seq + i)}) for i in range(5)]
+                if producer.send(msgs):
+                    py_kafka_batch_count["sent"] += 5
+                seq += 5
+                time.sleep(0.1)  # 50 msg/sec (5 per 100ms)
+            producer.close()
+
         def py_cg_event_worker():
             """Push events to Python CG accumulator via WebSocket at ~100 msg/sec."""
             try:
@@ -1313,6 +1345,10 @@ def server_soak():
             producer_threads.append(t)
         if kafka_batch_loaded:
             t = threading.Thread(target=kafka_batch_worker, daemon=True)
+            t.start()
+            producer_threads.append(t)
+        if py_kafka_batch_loaded:
+            t = threading.Thread(target=py_kafka_batch_worker, daemon=True)
             t.start()
             producer_threads.append(t)
 
@@ -1474,11 +1510,14 @@ def server_soak():
         kafka_stream_fires = count_graph_fires(clean_stderr, "kafka_stream_graph")
         kafka_batch_fires = count_graph_fires(clean_stderr, "kafka_batch_graph")
         py_kafka_stream_fires = count_graph_fires(clean_stderr, "py_kafka_stream_graph")
+        py_kafka_batch_fires = count_graph_fires(clean_stderr, "py_kafka_batch_graph")
         print(f"    WS graph fires:       {ws_graph_fires}")
         print(f"    Py CG graph fires:    {py_cg_fires}")
         print(f"    Kafka stream fires:   {kafka_stream_fires}")
         print(f"    Kafka batch fires:    {kafka_batch_fires}")
         print(f"    Py Kafka stream fires:{py_kafka_stream_fires}")
+        print(f"    Py Kafka batch fires: {py_kafka_batch_fires}")
+        print(f"    Py Kafka batch prod:  {py_kafka_batch_count['sent']}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
         print(f"    List queries OK:      {stats['list_queries']}")
         print(f"    API errors:           {stats['api_errors']}")
@@ -1504,6 +1543,8 @@ def server_soak():
             assert kafka_batch_fires > 0, f"Kafka batch graph never fired! ({stats['kafka_batch_produced']} messages produced)"
         if kafka_ready and py_kafka_stream_loaded:
             assert py_kafka_stream_fires > 0, "Python Kafka stream graph never fired!"
+        if kafka_ready and py_kafka_batch_loaded:
+            assert py_kafka_batch_fires > 0, f"Python Kafka batch graph never fired! ({py_kafka_batch_count['sent']} messages produced)"
 
         # Step 10: Final health check
         print_section_header("Step 10: Final health check")
