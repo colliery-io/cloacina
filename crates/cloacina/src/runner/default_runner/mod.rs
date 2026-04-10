@@ -217,12 +217,12 @@ impl DefaultRunner {
 
         // Create executor with the scoped runtime — skip with_global_registry() since
         // the runtime provides task lookups and the old TaskRegistry is unused.
-        let executor = ThreadTaskExecutor::new(
+        let executor = ThreadTaskExecutor::with_runtime_and_registry(
             database.clone(),
             Arc::new(crate::task::TaskRegistry::new()),
+            runtime.clone(),
             executor_config,
-        )
-        .with_runtime(runtime.clone());
+        );
 
         // Configure dispatcher for push-based task execution
         let dal = DAL::new(database.clone());

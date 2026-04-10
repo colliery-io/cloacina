@@ -4,15 +4,15 @@ level: task
 title: "Connection/variable registry — CLOACINA_VAR_{NAME} env convention for external connections"
 short_code: "CLOACI-T-0438"
 created_at: 2026-04-07T22:20:44.213845+00:00
-updated_at: 2026-04-07T22:20:44.213845+00:00
+updated_at: 2026-04-10T01:25:30.595075+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,6 +73,12 @@ broker = cloaca.var("KAFKA_BROKER")
 - After this task: reads `CLOACINA_VAR_KAFKA_BROKER` (or whatever name is in the accumulator config)
 - Package metadata references variables by name, runtime resolves them
 - Nodes can access variables for external API calls, credentials, config
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

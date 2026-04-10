@@ -4,15 +4,15 @@ level: task
 title: "Investigate computation graph pipeline latency — reduce channel hops for passthrough accumulators"
 short_code: "CLOACI-T-0431"
 created_at: 2026-04-07T00:50:12.855494+00:00
-updated_at: 2026-04-07T00:50:12.855494+00:00
+updated_at: 2026-04-10T01:14:11.294370+00:00
 parent:
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

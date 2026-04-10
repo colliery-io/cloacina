@@ -4,14 +4,14 @@ level: initiative
 title: "Architectural — Scoped Registries and DAL Consolidation Investigation"
 short_code: "CLOACI-I-0091"
 created_at: 2026-04-08T10:46:55.307166+00:00
-updated_at: 2026-04-09T16:59:22.486908+00:00
+updated_at: 2026-04-10T01:14:23.425501+00:00
 parent: CLOACI-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/decompose"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

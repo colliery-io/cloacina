@@ -58,8 +58,10 @@ pub type TriggerConstructorFn = Box<dyn Fn() -> Arc<dyn Trigger> + Send + Sync>;
 /// Each runtime has its own set of registered tasks, workflows, and triggers that
 /// do not interfere with other runtimes or the process-global registries.
 ///
-/// Use [`Runtime::from_global()`] to snapshot the current global registries (populated
-/// by `#[ctor]`/`#[task]` macros at startup) into a scoped instance.
+/// Two modes:
+/// - [`Runtime::new()`] — isolated, no fallback (for tests)
+/// - [`Runtime::from_global()`] — delegates to global registries for dynamic
+///   package loading (for the server)
 #[derive(Clone)]
 pub struct Runtime {
     inner: Arc<RuntimeInner>,
@@ -69,65 +71,42 @@ struct RuntimeInner {
     tasks: RwLock<HashMap<TaskNamespace, TaskConstructorFn>>,
     workflows: RwLock<HashMap<String, WorkflowConstructorFn>>,
     triggers: RwLock<HashMap<String, TriggerConstructorFn>>,
+    /// When true, `get_*()` falls back to the process-global registries
+    /// if the local map doesn't contain the entry. This enables dynamic
+    /// package loading (reconciler registers in globals after startup).
+    use_globals: bool,
 }
 
 impl Runtime {
     /// Create an empty runtime with no registered tasks, workflows, or triggers.
+    ///
+    /// Lookups only check the local maps — no fallback to globals.
+    /// Use this for test isolation.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(RuntimeInner {
                 tasks: RwLock::new(HashMap::new()),
                 workflows: RwLock::new(HashMap::new()),
                 triggers: RwLock::new(HashMap::new()),
+                use_globals: false,
             }),
         }
     }
 
-    /// Snapshot the current process-global registries into a new scoped runtime.
+    /// Create a runtime that delegates to the process-global registries.
     ///
-    /// This instantiates each registered constructor once and captures the result
-    /// into a new scoped runtime. Changes to the returned runtime do NOT affect
-    /// the globals, and vice versa.
-    ///
-    /// Note: constructors are called once during snapshot. The scoped runtime
-    /// stores closures that clone the captured instances on each `get_*()` call.
+    /// Lookups check the local maps first, then fall back to the global
+    /// task/workflow/trigger registries. This supports dynamic package
+    /// loading — packages registered after startup are visible immediately.
     pub fn from_global() -> Self {
-        let runtime = Self::new();
-
-        // Snapshot tasks: call each constructor, capture the Arc<dyn Task>
-        {
-            let global_tasks = crate::task::global_task_registry();
-            let guard = global_tasks.read();
-            let mut local = runtime.inner.tasks.write();
-            for (ns, ctor) in guard.iter() {
-                let instance = ctor();
-                local.insert(ns.clone(), Box::new(move || instance.clone()));
-            }
+        Self {
+            inner: Arc::new(RuntimeInner {
+                tasks: RwLock::new(HashMap::new()),
+                workflows: RwLock::new(HashMap::new()),
+                triggers: RwLock::new(HashMap::new()),
+                use_globals: true,
+            }),
         }
-
-        // Snapshot workflows: call each constructor, capture the Workflow
-        {
-            let global_workflows = crate::workflow::global_workflow_registry();
-            let guard = global_workflows.read();
-            let mut local = runtime.inner.workflows.write();
-            for (name, ctor) in guard.iter() {
-                let instance = ctor();
-                local.insert(name.clone(), Box::new(move || instance.clone()));
-            }
-        }
-
-        // Snapshot triggers: call each constructor, capture the Arc<dyn Trigger>
-        {
-            let global_triggers = crate::trigger::global_trigger_registry();
-            let guard = global_triggers.read();
-            let mut local = runtime.inner.triggers.write();
-            for (name, ctor) in guard.iter() {
-                let instance = ctor();
-                local.insert(name.clone(), Box::new(move || instance.clone()));
-            }
-        }
-
-        runtime
     }
 
     // -----------------------------------------------------------------------
@@ -144,15 +123,36 @@ impl Runtime {
     }
 
     /// Look up and instantiate a task by namespace.
+    ///
+    /// Checks local registry first, then falls back to the global registry
+    /// if `use_globals` is enabled (i.e., created via `from_global()`).
     pub fn get_task(&self, namespace: &TaskNamespace) -> Option<Arc<dyn Task>> {
-        let guard = self.inner.tasks.read();
-        guard.get(namespace).map(|ctor| ctor())
+        // Check local first
+        {
+            let guard = self.inner.tasks.read();
+            if let Some(ctor) = guard.get(namespace) {
+                return Some(ctor());
+            }
+        }
+        // Fall back to globals
+        if self.inner.use_globals {
+            return crate::task::get_task(namespace);
+        }
+        None
     }
 
     /// Check if a task is registered for the given namespace.
     pub fn has_task(&self, namespace: &TaskNamespace) -> bool {
         let guard = self.inner.tasks.read();
-        guard.contains_key(namespace)
+        if guard.contains_key(namespace) {
+            return true;
+        }
+        if self.inner.use_globals {
+            let global = crate::task::global_task_registry();
+            let g = global.read();
+            return g.contains_key(namespace);
+        }
+        false
     }
 
     // -----------------------------------------------------------------------
@@ -169,9 +169,22 @@ impl Runtime {
     }
 
     /// Look up and instantiate a workflow by name.
+    ///
+    /// Checks local registry first, then falls back to the global registry
+    /// if `use_globals` is enabled.
     pub fn get_workflow(&self, name: &str) -> Option<Workflow> {
-        let guard = self.inner.workflows.read();
-        guard.get(name).map(|ctor| ctor())
+        {
+            let guard = self.inner.workflows.read();
+            if let Some(ctor) = guard.get(name) {
+                return Some(ctor());
+            }
+        }
+        if self.inner.use_globals {
+            let global = crate::workflow::global_workflow_registry();
+            let g = global.read();
+            return g.get(name).map(|ctor| ctor());
+        }
+        None
     }
 
     /// Get all registered workflow names.
@@ -200,9 +213,22 @@ impl Runtime {
     }
 
     /// Look up and instantiate a trigger by name.
+    ///
+    /// Checks local registry first, then falls back to the global registry
+    /// if `use_globals` is enabled.
     pub fn get_trigger(&self, name: &str) -> Option<Arc<dyn Trigger>> {
-        let guard = self.inner.triggers.read();
-        guard.get(name).map(|ctor| ctor())
+        {
+            let guard = self.inner.triggers.read();
+            if let Some(ctor) = guard.get(name) {
+                return Some(ctor());
+            }
+        }
+        if self.inner.use_globals {
+            let global = crate::trigger::global_trigger_registry();
+            let g = global.read();
+            return g.get(name).map(|ctor| ctor());
+        }
+        None
     }
 
     /// Get all registered trigger names.

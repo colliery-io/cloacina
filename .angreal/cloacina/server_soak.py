@@ -337,6 +337,75 @@ pub mod soak_graph {
     return buf.getvalue()
 
 
+def create_python_cg_source_package():
+    """Create a fidius source package with a Python computation graph."""
+    name = "soak-python-cg"
+    version = "1.0.0"
+    prefix = f"{name}-{version}"
+    graph_name = "py_soak_graph"
+
+    package_toml = f"""[package]
+name = "{name}"
+version = "{version}"
+interface = "cloacina-workflow-plugin"
+interface_version = 1
+extension = "cloacina"
+
+[metadata]
+package_type = ["computation_graph"]
+graph_name = "{graph_name}"
+language = "python"
+description = "Python CG soak test"
+entry_module = "{graph_name}.graph"
+reaction_mode = "when_any"
+input_strategy = "latest"
+"""
+
+    init_py = ""
+
+    graph_py = f"""import cloaca
+
+@cloaca.passthrough_accumulator
+def alpha(event):
+    return event
+
+with cloaca.ComputationGraphBuilder(
+    "{graph_name}",
+    react={{"mode": "when_any", "accumulators": ["alpha"]}},
+    graph={{
+        "process": {{"inputs": ["alpha"]}},
+        "output": {{"inputs": ["process"]}},
+    }},
+) as builder:
+
+    @cloaca.node
+    def process(alpha):
+        if alpha is None:
+            return {{"result": 0.0}}
+        return {{"result": alpha.get("value", 0.0) * 2.0}}
+
+    @cloaca.node
+    def output(process):
+        return process
+"""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:bz2") as tar:
+        for rel_path, content in [
+            ("package.toml", package_toml),
+            (f"workflow/{graph_name}/__init__.py", init_py),
+            (f"workflow/{graph_name}/graph.py", graph_py),
+        ]:
+            data = content.encode()
+            archive_path = f"{prefix}/{rel_path}"
+            entry = tarfile.TarInfo(name=archive_path)
+            entry.size = len(data)
+            entry.mode = 0o644
+            tar.addfile(entry, io.BytesIO(data))
+
+    return buf.getvalue()
+
+
 def kafka_create_topic(topic_name):
     """Create a Kafka topic using the CLI tools inside the container."""
     try:
@@ -433,6 +502,7 @@ name = "{acc_name}"
 accumulator_type = "{acc_type}"
 
 [metadata.accumulators.config]
+broker = "KAFKA_BROKER"
 topic = "{topic}"
 group = "{pkg_name}-group"
 """
@@ -734,12 +804,17 @@ def server_soak():
         # Use a known bootstrap key for deterministic testing
         bootstrap_key = "clk_soak_test_key_for_server_verification_00"
 
+        import os
+        server_env = os.environ.copy()
+        server_env["CLOACINA_VAR_KAFKA_BROKER"] = "localhost:9092"
+
         server_proc = subprocess.Popen(
             [server_binary, "serve", "--home", str(soak_home),
              "--database-url", db_url, "--bind", "127.0.0.1:18080",
              "--bootstrap-key", bootstrap_key],
             stdout=subprocess.PIPE,
             stderr=stderr_file,
+            env=server_env,
         )
         print(f"  PID: {server_proc.pid}")
 
@@ -918,6 +993,34 @@ def server_soak():
             if s == 200:
                 print(f"  CG reactors health: {json.dumps(b)[:150]} ✓")
 
+        # Step 8d2: Upload and load Python computation graph package
+        print_section_header("Step 8d2: Upload Python computation graph package")
+        py_cg_package_data = create_python_cg_source_package()
+        status, body = api_request("POST", f"{base_url}/v1/tenants/public/workflows",
+                                   token=token, files=py_cg_package_data)
+        print(f"  Python CG upload status: {status}")
+        py_cg_loaded = False
+        if status == 201:
+            print("  Python CG upload successful ✓")
+
+            # Wait for Python CG package to load (no compilation — should be fast)
+            print("  Waiting for Python CG package to load (up to 30s)...")
+            py_cg_load_start = time.time()
+            for _ in range(15):
+                time.sleep(2)
+                assert server_proc.poll() is None, "Server crashed during Python CG loading!"
+                stderr_file.flush()
+                stderr = stderr_path.read_text() if stderr_path.exists() else ""
+                if "py_soak_graph" in stderr and "loaded" in stderr.lower():
+                    elapsed = int(time.time() - py_cg_load_start)
+                    print(f"  Python CG package loaded ({elapsed}s) ✓")
+                    py_cg_loaded = True
+                    break
+            if not py_cg_loaded:
+                print("  WARNING: Python CG package may not have loaded — Python CG soak will be skipped")
+        else:
+            print(f"  Python CG upload returned {status}: {json.dumps(body)[:200]}")
+
         # Step 8e: Kafka-sourced computation graph packages
         print_section_header("Step 8e: Kafka stream accumulator packages")
         kafka_ready = False
@@ -1033,6 +1136,7 @@ def server_soak():
         kafka_stream_count = {"sent": 0}
         kafka_batch_count = {"sent": 0}
         ws_event_count = {"sent": 0, "failed": 0}
+        py_cg_event_count = {"sent": 0, "failed": 0}
 
         def ws_event_worker():
             """Push events via persistent WebSocket at ~200 msg/sec."""
@@ -1079,9 +1183,34 @@ def server_soak():
                 time.sleep(0.1)  # 50 msg/sec (5 per 100ms)
             producer.close()
 
+        def py_cg_event_worker():
+            """Push events to Python CG accumulator via WebSocket at ~100 msg/sec."""
+            try:
+                ws = PersistentWebSocket(
+                    "127.0.0.1", 18080,
+                    "/v1/ws/accumulator/alpha", token
+                )
+                import math
+                seq = 0
+                while not kafka_stop_event.is_set():
+                    msg = json.dumps({"value": 10.0 + math.cos(seq * 0.1)})
+                    if ws.send(msg):
+                        py_cg_event_count["sent"] += 1
+                    else:
+                        py_cg_event_count["failed"] += 1
+                    seq += 1
+                    time.sleep(0.01)  # 100 msg/sec
+                ws.close()
+            except Exception as e:
+                print(f"  Python CG WS worker error: {e}")
+
         producer_threads = []
         if cg_loaded:
             t = threading.Thread(target=ws_event_worker, daemon=True)
+            t.start()
+            producer_threads.append(t)
+        if py_cg_loaded:
+            t = threading.Thread(target=py_cg_event_worker, daemon=True)
             t.start()
             producer_threads.append(t)
         if kafka_stream_loaded:
@@ -1214,6 +1343,8 @@ def server_soak():
             t.join(timeout=5)
         stats["cg_events_sent"] = ws_event_count["sent"]
         stats["cg_events_failed"] = ws_event_count["failed"]
+        stats["py_cg_events_sent"] = py_cg_event_count["sent"]
+        stats["py_cg_events_failed"] = py_cg_event_count["failed"]
         stats["kafka_stream_produced"] = kafka_stream_count["sent"]
         stats["kafka_batch_produced"] = kafka_batch_count["sent"]
 
@@ -1231,6 +1362,8 @@ def server_soak():
         print(f"    Python exec accepted: {stats['py_executions_accepted']}")
         print(f"    CG events sent:       {stats['cg_events_sent']}")
         print(f"    CG events failed:     {stats['cg_events_failed']}")
+        print(f"    Py CG events sent:    {stats['py_cg_events_sent']}")
+        print(f"    Py CG events failed:  {stats['py_cg_events_failed']}")
         print(f"    Kafka stream produced:{stats['kafka_stream_produced']}")
         print(f"    Kafka batch produced: {stats['kafka_batch_produced']}")
 
@@ -1243,9 +1376,11 @@ def server_soak():
             return log_text.count(f"graph execution completed graph={graph_name}")
 
         ws_graph_fires = count_graph_fires(clean_stderr, "soak_graph")
+        py_cg_fires = count_graph_fires(clean_stderr, "py_soak_graph")
         kafka_stream_fires = count_graph_fires(clean_stderr, "kafka_stream_graph")
         kafka_batch_fires = count_graph_fires(clean_stderr, "kafka_batch_graph")
         print(f"    WS graph fires:       {ws_graph_fires}")
+        print(f"    Py CG graph fires:    {py_cg_fires}")
         print(f"    Kafka stream fires:   {kafka_stream_fires}")
         print(f"    Kafka batch fires:    {kafka_batch_fires}")
         print(f"    CG health checks OK:  {stats['cg_health_ok']}")
@@ -1264,6 +1399,9 @@ def server_soak():
         if cg_loaded:
             assert stats["cg_events_sent"] > 0, "No CG events sent via WebSocket!"
             assert ws_graph_fires > 0, "WS graph (soak_graph) never fired!"
+        if py_cg_loaded:
+            assert stats["py_cg_events_sent"] > 0, "No Python CG events sent via WebSocket!"
+            assert py_cg_fires > 0, "Python CG graph (py_soak_graph) never fired!"
         if kafka_stream_loaded:
             assert kafka_stream_fires > 0, f"Kafka stream graph never fired! ({stats['kafka_stream_produced']} messages produced)"
         if kafka_batch_loaded:

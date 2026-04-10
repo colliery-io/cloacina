@@ -228,28 +228,31 @@ pub async fn run(
         })
     };
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            shutdown_signal().await;
-            // Signal the reactive scheduler to shut down first
-            let _ = shutdown_tx.send(true);
-            // Wait for reactive scheduler to finish flushing/persisting
-            let _ = scheduler_handle.await;
-            // Shut down the workflow runner (scheduler loop, executor, stale claim sweeper)
-            info!("Shutting down workflow runner...");
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(30),
-                runner_for_shutdown.shutdown(),
-            )
-            .await
-            {
-                Ok(Ok(())) => info!("Workflow runner shutdown complete"),
-                Ok(Err(e)) => warn!("Workflow runner shutdown error: {}", e),
-                Err(_) => warn!("Workflow runner shutdown timed out after 30s"),
-            }
-        })
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        // Signal the reactive scheduler to shut down first
+        let _ = shutdown_tx.send(true);
+        // Wait for reactive scheduler to finish flushing/persisting
+        let _ = scheduler_handle.await;
+        // Shut down the workflow runner (scheduler loop, executor, stale claim sweeper)
+        info!("Shutting down workflow runner...");
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            runner_for_shutdown.shutdown(),
+        )
         .await
-        .context("Server error")?;
+        {
+            Ok(Ok(())) => info!("Workflow runner shutdown complete"),
+            Ok(Err(e)) => warn!("Workflow runner shutdown error: {}", e),
+            Err(_) => warn!("Workflow runner shutdown timed out after 30s"),
+        }
+    })
+    .await
+    .context("Server error")?;
 
     info!("API server shutdown complete");
     Ok(())

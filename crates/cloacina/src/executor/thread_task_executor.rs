@@ -104,6 +104,16 @@ impl ThreadTaskExecutor {
         task_registry: Arc<TaskRegistry>,
         config: ExecutorConfig,
     ) -> Self {
+        Self::with_runtime_and_registry(database, task_registry, Arc::new(Runtime::new()), config)
+    }
+
+    /// Creates a new ThreadTaskExecutor with a specific runtime.
+    pub fn with_runtime_and_registry(
+        database: Database,
+        task_registry: Arc<TaskRegistry>,
+        runtime: Arc<Runtime>,
+        config: ExecutorConfig,
+    ) -> Self {
         let dal = DAL::new(database.clone());
         let max_concurrent = config.max_concurrent_tasks;
 
@@ -111,7 +121,7 @@ impl ThreadTaskExecutor {
             database,
             dal,
             task_registry,
-            runtime: Arc::new(Runtime::from_global()),
+            runtime,
             instance_id: UniversalUuid::new_v4(),
             config,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
