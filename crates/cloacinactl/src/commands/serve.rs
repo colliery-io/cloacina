@@ -293,7 +293,6 @@ async fn request_id_middleware(
 
 fn build_router(state: AppState) -> Router {
     use axum::{extract::DefaultBodyLimit, middleware, routing::delete, routing::post};
-    use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 
     // Authenticated routes — behind auth middleware
     let auth_routes = Router::new()
@@ -396,15 +395,6 @@ fn build_router(state: AppState) -> Router {
         )
         .route("/v1/ws/reactor/{name}", get(crate::server::ws::reactor_ws));
 
-    // Rate limiting — per-IP, applied globally
-    // 30 requests per second burst, replenishes 10/sec
-    let rate_limit_config = GovernorConfigBuilder::default()
-        .per_second(10)
-        .burst_size(30)
-        .finish()
-        .expect("Failed to build rate limit config");
-    let rate_limit_layer = GovernorLayer::new(std::sync::Arc::new(rate_limit_config));
-
     // Public routes — no auth
     Router::new()
         .route("/health", get(health))
@@ -417,8 +407,6 @@ fn build_router(state: AppState) -> Router {
         .fallback(fallback_404)
         // Body size limit: 100MB (matches PackageValidator)
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024))
-        // Rate limiting: per-IP
-        .layer(rate_limit_layer)
         // Request ID + tracing span (outermost — wraps everything)
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
